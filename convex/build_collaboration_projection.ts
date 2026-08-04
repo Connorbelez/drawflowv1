@@ -15,6 +15,105 @@ import type { Doc, QueryCtx } from "./types";
 const MAX_REFERENCES_PER_POST = 100;
 const MAX_ACTION_ITEMS_PER_POST = 100;
 
+type SystemMilestonePlanningSummary = {
+  attention: {
+    assignmentGaps: number;
+    dependencyExceptions: number;
+    overdueCompletion: number;
+    requiredSiteVisits: number;
+    reviewSla: number;
+  };
+  counts: {
+    approved: number;
+    backlog: number;
+    behind_schedule: number;
+    in_progress: number;
+    in_review: number;
+    superseded: number;
+  };
+  lifecycle: "open" | "resolved" | "reopened";
+  readyForApproval: boolean;
+};
+
+function deriveSystemMilestonePlanningSummary(input: {
+  actionItems: Array<{
+    dependencyCount: number;
+    systemPresentation?: {
+      column:
+        | "backlog"
+        | "behind_schedule"
+        | "in_progress"
+        | "in_review"
+        | "approved"
+        | "superseded";
+      executionOwnership?: { state: "assigned" | "assignment_required" };
+      attention?: "overdue_completion";
+      evidenceReviewState?:
+        | "not_ready"
+        | "in_review"
+        | "changes_requested"
+        | "approved";
+      reviewDecisionState?:
+        | "in_review"
+        | "changes_requested"
+        | "approved"
+        | "reopened";
+      parentReadyForApproval?: boolean;
+      siteVisitRequirement?: { status: string };
+    };
+  }>;
+  lifecycle: "open" | "resolved" | "reopened";
+}): SystemMilestonePlanningSummary {
+  const counts = {
+    approved: 0,
+    backlog: 0,
+    behind_schedule: 0,
+    in_progress: 0,
+    in_review: 0,
+    superseded: 0,
+  };
+  const attention = {
+    assignmentGaps: 0,
+    dependencyExceptions: 0,
+    overdueCompletion: 0,
+    requiredSiteVisits: 0,
+    reviewSla: 0,
+  };
+  let activeCount = 0;
+  let readyCount = 0;
+  for (const actionItem of input.actionItems) {
+    const presentation = actionItem.systemPresentation;
+    if (!presentation) continue;
+    counts[presentation.column] += 1;
+    if (presentation.column !== "superseded") {
+      activeCount += 1;
+      if (presentation.parentReadyForApproval === true) readyCount += 1;
+    }
+    if (presentation.executionOwnership?.state === "assignment_required") {
+      attention.assignmentGaps += 1;
+    }
+    attention.dependencyExceptions += Math.max(0, actionItem.dependencyCount);
+    if (presentation.attention === "overdue_completion") {
+      attention.overdueCompletion += 1;
+    }
+    if (
+      presentation.evidenceReviewState === "in_review" ||
+      presentation.reviewDecisionState === "in_review"
+    ) {
+      attention.reviewSla += 1;
+    }
+    if (presentation.siteVisitRequirement?.status === "required") {
+      attention.requiredSiteVisits += 1;
+    }
+  }
+  return {
+    attention,
+    counts,
+    lifecycle: input.lifecycle,
+    readyForApproval: activeCount > 0 && readyCount === activeCount,
+  };
+}
+
 /**
  * Produces the canonical, viewer-scoped post shape used by both the paginated
  * feed and focused deep-link hydration. Callers must authorize the Build and
@@ -50,6 +149,9 @@ export async function projectReadableBuildCollaborationPost(
     viewerRole: authorization.effectiveRole.role,
     viewerWorkosUserId: authorization.viewer.subject,
   });
+  const activationPlanningRevision = post.activationPlanningRevisionId
+    ? await ctx.db.get(post.activationPlanningRevisionId)
+    : null;
   if (post.contentState !== "active") {
     const replacement =
       post.contentState === "tombstoned"
@@ -65,10 +167,11 @@ export async function projectReadableBuildCollaborationPost(
       post: collaborationPostSummary({
         authorization,
         moderationCapabilities,
-      post,
-      redacted: true,
-      systemRecoveryRequired:
-        post.systemPostKind === "milestone" && post.openActionItemCount === 0,
+        post,
+        redacted: true,
+        systemRecoveryRequired:
+          post.systemPostKind === "milestone" && post.openActionItemCount === 0,
+        planningSummary: undefined,
       }),
       reactions: [],
       receipts: [],
@@ -198,6 +301,20 @@ export async function projectReadableBuildCollaborationPost(
     }
   }
   const asOf = Date.now();
+  const projectedActionItems = await Promise.all(
+    readableActionItems.map((item) =>
+      projectActionItemSummary(ctx, authorization, item, asOf)
+    )
+  );
+  const planningSummary =
+    post.systemPostKind === "milestone"
+      ? deriveSystemMilestonePlanningSummary({
+          actionItems: projectedActionItems,
+          lifecycle:
+            post.systemLifecycle ??
+            (post.threadState === "resolved" ? "resolved" : "open"),
+        })
+      : undefined;
   return {
     acknowledgement: acknowledgementTarget
       ? {
@@ -209,11 +326,7 @@ export async function projectReadableBuildCollaborationPost(
           required: true,
         }
       : { acknowledged: false, required: false },
-    actionItems: await Promise.all(
-      readableActionItems.map((item) =>
-        projectActionItemSummary(ctx, authorization, item, asOf)
-      )
-    ),
+    actionItems: projectedActionItems,
     attachments,
     following: follows.some((follow) => follow.active),
     kind: "post" as const,
@@ -228,6 +341,8 @@ export async function projectReadableBuildCollaborationPost(
       redacted: false,
       resolutionSummary: projectedResolutionSummary,
       systemRecoveryRequired,
+      planningSummary,
+      activationPlanningRevision: activationPlanningRevision?.revision,
     }),
     reactions: reactions
       .filter(
@@ -372,6 +487,7 @@ async function projectActionItemSummary(
     canonicalBuildMilestoneId: item.canonicalBuildMilestoneId,
     canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,
     canonicalBindingRevision: item.canonicalBindingRevision,
+    canonicalPlanningState: item.canonicalPlanningState,
     systemPresentation,
   };
 }
@@ -387,6 +503,8 @@ function collaborationPostSummary(input: {
   redacted: boolean;
   resolutionSummary?: string;
   systemRecoveryRequired?: boolean;
+  planningSummary?: SystemMilestonePlanningSummary;
+  activationPlanningRevision?: number;
 }) {
   const {
     authorization,
@@ -395,6 +513,8 @@ function collaborationPostSummary(input: {
     redacted,
     resolutionSummary,
     systemRecoveryRequired,
+    planningSummary,
+    activationPlanningRevision,
   } = input;
   const viewerIsAuthor =
     post.authorWorkosUserId === authorization.viewer.subject;
@@ -433,13 +553,19 @@ function collaborationPostSummary(input: {
     resolvedAt: post.resolvedAt,
     revision: post.revision,
     source: post.source,
+    planningSummary,
     systemPost:
       post.systemPostKind && post.systemOccurrenceKey
         ? {
             activationReason: post.activationReason ?? "explicit_start",
+            activationPlanningRevision,
             authoredBy: "DrawFlow System" as const,
             canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
+            currentPlanningRevision: post.currentPlanningRevision,
             kind: post.systemPostKind,
+            lifecycle:
+              post.systemLifecycle ??
+              (post.threadState === "resolved" ? "resolved" : "open"),
             occurrenceKey: post.systemOccurrenceKey,
             recoveryState: systemRecoveryRequired
               ? ("recovery_required" as const)

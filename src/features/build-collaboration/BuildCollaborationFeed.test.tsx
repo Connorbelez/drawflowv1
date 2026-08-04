@@ -96,6 +96,12 @@ const mocks = vi.hoisted(() => ({
   focusedPostId: "post-1" as string | null,
   loadMore: vi.fn(),
   lifecycleState: "open" as "closed" | "open" | "purged",
+  planningLifecycle: undefined as
+    | "open"
+    | "resolved"
+    | "reopened"
+    | undefined,
+  planningReconciliation: undefined as Record<string, unknown> | undefined,
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
   personalActionItems: [] as Array<Record<string, unknown>>,
@@ -259,6 +265,9 @@ function focusedPostEntryFixture(id: string, text: string) {
 
 function canonicalMilestoneSystemPostEntryFixture() {
   const now = Date.parse("2026-08-03T12:00:00.000Z");
+  const planningLifecycle =
+    mocks.planningLifecycle ??
+    (mocks.postThreadState === "resolved" ? "resolved" : "open");
   return {
     acknowledgement: { acknowledged: false, required: false },
     actionItems: [
@@ -319,6 +328,25 @@ function canonicalMilestoneSystemPostEntryFixture() {
       commentCount: 0,
       contentState: "active",
       createdAt: now,
+      planningSummary: {
+        attention: {
+          assignmentGaps: 1,
+          dependencyExceptions: 0,
+          overdueCompletion: 0,
+          requiredSiteVisits: 1,
+          reviewSla: 0,
+        },
+        counts: {
+          approved: 0,
+          backlog: 0,
+          behind_schedule: 0,
+          in_progress: 1,
+          in_review: 0,
+          superseded: 0,
+        },
+        lifecycle: planningLifecycle,
+        readyForApproval: false,
+      },
       postType: "update",
       readRevision: 2,
       revision: 2,
@@ -326,9 +354,12 @@ function canonicalMilestoneSystemPostEntryFixture() {
       source: "system",
       systemPost: {
         activationReason: "explicit_start",
+        activationPlanningRevision: 1,
         authoredBy: "DrawFlow System",
         canonicalBuildMilestoneId: "milestone-1",
         kind: "milestone",
+        currentPlanningRevision: 1,
+        lifecycle: planningLifecycle,
         occurrenceKey: "milestone-system:build-1:milestone-1",
         triggeredAt: now,
         triggeredByRole: "builder",
@@ -370,6 +401,81 @@ function canonicalMilestoneSystemPostEntryFixture() {
         type: "doc",
       }),
     },
+  };
+}
+
+function planningReconciliationFixture({ restricted = false } = {}) {
+  const milestoneDiff = {
+    category: "dates",
+    changeType: "changed",
+    entityKey: "foundation:foundation-1",
+    entityType: "submilestone",
+    field: "startDay",
+    nextValue: 5,
+    priorValue: 3,
+    revision: 2,
+  };
+  const diffs = restricted
+    ? [milestoneDiff]
+    : [
+        milestoneDiff,
+        {
+          category: "allocations",
+          changeType: "added",
+          entityKey: "foundation:foundation-1:contractor-1:framing",
+          entityType: "allocation",
+          field: "estimatedCostCents",
+          nextValue: 125_000,
+          priorValue: undefined,
+          revision: 3,
+        },
+      ];
+  return {
+    activation: {
+      approvedAt: Date.parse("2026-08-03T12:00:00.000Z"),
+      actorRoles: ["admin"],
+      actorWorkosUserId: "user_admin",
+      revision: 1,
+      snapshot: {
+        allocations: restricted ? [] : [{ entityType: "allocation" }],
+        budgets: restricted ? [] : [{ entityType: "budget" }],
+        buildId: "build-1",
+        draws: restricted ? [] : [{ entityType: "draw" }],
+        evidenceRequirements: restricted
+          ? []
+          : [{ entityType: "evidenceRequirement" }],
+        milestones: [{ entityType: "milestone" }],
+        submilestones: [{ entityType: "submilestone" }],
+      },
+    },
+    current: {
+      revision: 3,
+      snapshot: {
+        allocations: restricted ? [] : [{ entityType: "allocation" }],
+        budgets: restricted ? [] : [{ entityType: "budget" }],
+        buildId: "build-1",
+        draws: restricted ? [] : [{ entityType: "draw" }],
+        evidenceRequirements: restricted
+          ? []
+          : [{ entityType: "evidenceRequirement" }],
+        milestones: [{ entityType: "milestone" }],
+        submilestones: [{ entityType: "submilestone" }],
+      },
+    },
+    diffs,
+    revisions: [
+      {
+        approvedAt: Date.parse("2026-08-03T12:00:00.000Z"),
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        diffCount: 1,
+        kind: "approved",
+        reason: "Reconciled approved roadmap",
+        revision: 3,
+        sourceCommand: "update_active_timeline_milestone",
+        summary: "Schedule and assignment updates",
+      },
+    ],
   };
 }
 
@@ -576,6 +682,12 @@ vi.mock("convex/react", () => ({
       "build_collaboration_lifecycle:getBuildCollaborationLifecycleState"
     ) {
       return { state: mocks.lifecycleState };
+    }
+    if (
+      functionName ===
+      "build_collaboration_planning_reconciliation:getActiveBuildPlanningReconciliation"
+    ) {
+      return args === "skip" ? undefined : mocks.planningReconciliation;
     }
     if (
       functionName ===
@@ -1104,6 +1216,8 @@ afterEach(() => {
   mocks.mutate.mockReset().mockResolvedValue(null);
   mocks.loadMore.mockClear();
   mocks.lifecycleState = "open";
+  mocks.planningLifecycle = undefined;
+  mocks.planningReconciliation = undefined;
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
   mocks.editorReferences = [];
@@ -1249,6 +1363,86 @@ describe("BuildCollaborationFeed", () => {
         "System · Milestone — status follows the canonical Sub-milestone."
       )
     ).toBeTruthy();
+  });
+
+  test("renders mixed canonical planning counts and typed activation/current changes", () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture();
+    entry.post.planningSummary.counts.superseded = 1;
+    entry.post.systemPost.currentPlanningRevision = 3;
+    mocks.feedRows = [entry];
+    mocks.planningReconciliation = planningReconciliationFixture();
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByTestId("system-post-planning-summary")).toBeTruthy();
+    expect(screen.getByText("Open")).toBeTruthy();
+    expect(screen.getByText("In progress")).toBeTruthy();
+    expect(screen.getByText("Superseded")).toBeTruthy();
+    expect(screen.getByText("Assignment gaps · 1")).toBeTruthy();
+    expect(screen.getByText("Required site visits · 1")).toBeTruthy();
+    expect(screen.getByText("Not ready for approval")).toBeTruthy();
+
+    expect(screen.getByTestId("system-post-planning-comparison")).toBeTruthy();
+    expect(screen.getByText("Changed since activation")).toBeTruthy();
+    expect(screen.getByText("Activation revision")).toBeTruthy();
+    expect(screen.getByText("Current revision")).toBeTruthy();
+    expect(screen.getByText("v1")).toBeTruthy();
+    expect(screen.getByText("v3")).toBeTruthy();
+    expect(screen.getByText("Schedule")).toBeTruthy();
+    expect(screen.getByText("Assignments")).toBeTruthy();
+    expect(screen.getByText("Structured changes · 2")).toBeTruthy();
+  });
+
+  test("keeps restricted planning reconciliation fields out of a Contractor System Post", () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture();
+    entry.post.planningSummary.counts.superseded = 1;
+    mocks.feedRows = [entry];
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "contractor",
+      workosUserId: "user_contractor",
+    };
+    mocks.authUserId = "user_contractor";
+    mocks.planningReconciliation = planningReconciliationFixture({
+      restricted: true,
+    });
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByText("Schedule")).toBeTruthy();
+    expect(screen.queryByText("Assignments")).toBeNull();
+    expect(screen.queryByText("Budget")).toBeNull();
+    expect(screen.queryByText("Draw")).toBeNull();
+  });
+
+  test("surfaces resolved and reopened lifecycle state on the same System Post", () => {
+    mocks.planningLifecycle = "resolved";
+    mocks.postThreadState = "resolved";
+    mocks.postResolutionSummary = "Milestone approved by Lender Admin.";
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    const { rerender } = render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getAllByText("Resolved").length).toBeGreaterThan(0);
+    expect(screen.getByText("Milestone approved by Lender Admin.")).toBeTruthy();
+
+    mocks.planningLifecycle = "reopened";
+    mocks.postThreadState = "open";
+    mocks.postResolutionSummary = undefined;
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+    rerender(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getAllByText("Reopened").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Resolved")).toBeNull();
   });
 
   test("exposes accessible readiness and Evidence Package actions to a Builder", async () => {
@@ -1414,7 +1608,7 @@ describe("BuildCollaborationFeed", () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
     );
-    expect(screen.getByText("Resolved")).toBeTruthy();
+    expect(screen.getAllByText("Resolved").length).toBeGreaterThan(0);
     expect(screen.getByText("Milestone approved by Lender Admin.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(

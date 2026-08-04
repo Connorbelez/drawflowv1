@@ -118,6 +118,91 @@ export const buildActionItemSystemModeValidator = v.union(
   v.literal("generated_milestone_submilestone")
 );
 
+/** Planning identity is separate from canonical execution lifecycle. */
+export const buildPlanningStateValidator = v.union(
+  v.literal("active"),
+  v.literal("superseded")
+);
+
+export const buildPlanningRevisionKindValidator = v.union(
+  v.literal("activation"),
+  v.literal("approved")
+);
+
+export const buildPlanningDiffCategoryValidator = v.union(
+  v.literal("scope"),
+  v.literal("dates"),
+  v.literal("dependencies"),
+  v.literal("allocations"),
+  v.literal("evidence_requirements")
+);
+
+export const buildPlanningDiffChangeTypeValidator = v.union(
+  v.literal("added"),
+  v.literal("removed"),
+  v.literal("changed")
+);
+
+export const buildPlanningEntityValidator = v.object({
+  canonicalId: v.optional(v.string()),
+  entityKey: v.string(),
+  entityType: v.string(),
+  planningState: buildPlanningStateValidator,
+  snapshot: v.any(),
+});
+
+export const buildPlanningSnapshotValidator = v.object({
+  allocations: v.array(buildPlanningEntityValidator),
+  budgets: v.array(buildPlanningEntityValidator),
+  buildId: v.string(),
+  draws: v.array(buildPlanningEntityValidator),
+  evidenceRequirements: v.array(buildPlanningEntityValidator),
+  milestones: v.array(buildPlanningEntityValidator),
+  submilestones: v.array(buildPlanningEntityValidator),
+});
+
+export const buildPlanningRevisionDiffValidator = v.object({
+  category: buildPlanningDiffCategoryValidator,
+  changeType: buildPlanningDiffChangeTypeValidator,
+  entityKey: v.string(),
+  entityType: v.string(),
+  field: v.string(),
+  nextValue: v.optional(v.any()),
+  priorValue: v.optional(v.any()),
+  revision: v.number(),
+});
+
+export const buildPlanningRevisionSummaryValidator = v.object({
+  actorRoles: v.array(v.string()),
+  actorWorkosUserId: v.string(),
+  approvedAt: v.number(),
+  diffCount: v.number(),
+  kind: buildPlanningRevisionKindValidator,
+  reason: v.string(),
+  revision: v.number(),
+  sourceCommand: v.string(),
+  summary: v.string(),
+});
+
+export const buildPlanningReconciliationValidator = v.object({
+  activation: v.union(
+    v.null(),
+    v.object({
+      actorRoles: v.array(v.string()),
+      actorWorkosUserId: v.string(),
+      approvedAt: v.number(),
+      revision: v.number(),
+      snapshot: buildPlanningSnapshotValidator,
+    })
+  ),
+  current: v.object({
+    revision: v.number(),
+    snapshot: buildPlanningSnapshotValidator,
+  }),
+  diffs: v.array(buildPlanningRevisionDiffValidator),
+  revisions: v.array(buildPlanningRevisionSummaryValidator),
+});
+
 export const buildActionItemPriorityValidator = v.union(
   v.literal("urgent"),
   v.literal("high"),

@@ -23,14 +23,43 @@ import {
 
 const collaborationSystemPostValidator = v.object({
   activationReason: v.string(),
+  activationPlanningRevision: v.optional(v.number()),
   authoredBy: v.literal("DrawFlow System"),
   canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+  currentPlanningRevision: v.optional(v.number()),
   kind: buildCollaborationSystemPostKindValidator,
+  lifecycle: v.optional(
+    v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened"))
+  ),
   occurrenceKey: v.string(),
   recoveryState: v.optional(v.literal("recovery_required")),
   triggeredAt: v.optional(v.number()),
   triggeredByRole: v.optional(buildCollaborationRoleValidator),
   triggeredByWorkosUserId: v.optional(v.string()),
+});
+
+export const systemMilestonePlanningSummaryValidator = v.object({
+  attention: v.object({
+    assignmentGaps: v.number(),
+    dependencyExceptions: v.number(),
+    overdueCompletion: v.number(),
+    requiredSiteVisits: v.number(),
+    reviewSla: v.number(),
+  }),
+  counts: v.object({
+    approved: v.number(),
+    backlog: v.number(),
+    behind_schedule: v.number(),
+    in_progress: v.number(),
+    in_review: v.number(),
+    superseded: v.number(),
+  }),
+  lifecycle: v.union(
+    v.literal("open"),
+    v.literal("resolved"),
+    v.literal("reopened")
+  ),
+  readyForApproval: v.boolean(),
 });
 
 export const systemActionItemPresentationValidator = v.object({
@@ -66,7 +95,7 @@ export const systemActionItemPresentationValidator = v.object({
       v.literal("in_review"),
       v.literal("changes_requested"),
       v.literal("approved"),
-      v.literal("reopened"),
+      v.literal("reopened")
     )
   ),
   milestoneReviewDecisionState: v.optional(
@@ -74,7 +103,7 @@ export const systemActionItemPresentationValidator = v.object({
       v.literal("in_review"),
       v.literal("ready_for_approval"),
       v.literal("approved"),
-      v.literal("reopened"),
+      v.literal("reopened")
     )
   ),
   reviewRevision: v.optional(v.number()),
@@ -114,14 +143,14 @@ export const systemActionItemPresentationValidator = v.object({
     v.object({
       assigneeDisplayName: v.optional(v.string()),
       assigneeId: v.optional(v.id("contractorProfiles")),
-      state: v.union(
-        v.literal("assigned"),
-        v.literal("assignment_required")
-      ),
+      state: v.union(v.literal("assigned"), v.literal("assignment_required")),
       viewerIsAssignee: v.boolean(),
     })
   ),
   progressPercent: v.optional(v.number()),
+  planningState: v.optional(
+    v.union(v.literal("active"), v.literal("superseded"))
+  ),
   readyExceptFor: v.optional(v.array(v.string())),
   workflowRevision: v.optional(v.number()),
   column: v.union(
@@ -129,7 +158,8 @@ export const systemActionItemPresentationValidator = v.object({
     v.literal("behind_schedule"),
     v.literal("in_progress"),
     v.literal("in_review"),
-    v.literal("approved")
+    v.literal("approved"),
+    v.literal("superseded")
   ),
   plannedCompletionDate: v.optional(v.string()),
   plannedStartDate: v.optional(v.string()),
@@ -193,6 +223,7 @@ export const collaborationPostSummaryValidator = v.object({
   resolvedAt: v.optional(v.number()),
   revision: v.number(),
   source: buildCollaborationSourceValidator,
+  planningSummary: v.optional(systemMilestonePlanningSummaryValidator),
   systemPost: v.optional(collaborationSystemPostValidator),
   threadState: v.union(v.literal("open"), v.literal("resolved")),
   updatedAt: v.number(),
@@ -232,6 +263,9 @@ export const collaborationActionItemSummaryValidator = v.object({
   canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
   canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
   canonicalBindingRevision: v.optional(v.number()),
+  canonicalPlanningState: v.optional(
+    v.union(v.literal("active"), v.literal("superseded"))
+  ),
   title: v.string(),
   unblocksCount: v.number(),
   unreadCommentCount: v.number(),
@@ -478,6 +512,9 @@ export const buildActionItemValidator = v.object({
   canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
   canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
   canonicalBindingRevision: v.optional(v.number()),
+  canonicalPlanningState: v.optional(
+    v.union(v.literal("active"), v.literal("superseded"))
+  ),
   title: v.string(),
   updatedAt: v.number(),
   unassignmentReason: v.optional(v.literal("participant_removed")),

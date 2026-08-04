@@ -128,6 +128,7 @@ import {
   type CollaborationDraftSummary,
   type CollaborationFeedEntry,
   type CollaborationFeedPostEntry,
+  type CollaborationPlanningReconciliation,
   composerActionItems,
   emptyDocument,
   escapeHtml,
@@ -2686,6 +2687,7 @@ function CollaborationPostHeader({
 function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
   const contentStatus =
     entry.post.contentState === "tombstoned" ? "Removed" : "Moderated";
+  const systemLifecycle = entry.post.systemPost?.lifecycle;
   const announcementProminent = useAnnouncementProminence(
     entry.post.announcementExpiresAt,
     entry.post.announcementProminent
@@ -2703,7 +2705,12 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
       {entry.post.systemPost ? (
         <Badge variant="secondary">System · Milestone</Badge>
       ) : null}
-      {entry.post.threadState === "resolved" ? <Badge>Resolved</Badge> : null}
+      {systemLifecycle === "reopened" ? (
+        <Badge variant="warning">Reopened</Badge>
+      ) : systemLifecycle === "resolved" ||
+        entry.post.threadState === "resolved" ? (
+        <Badge>Resolved</Badge>
+      ) : null}
       {entry.post.postType === "announcement" ? (
         <Badge variant={announcementProminent ? "secondary" : "outline"}>
           {announcementProminent ? "Prominent" : "Prominence expired"}
@@ -2954,6 +2961,11 @@ function CollaborationPostCard({
   tagOptions: ReferenceOption[];
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const planningReconciliation = useQuery(
+    api.build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningReconciliation,
+    entry.post.systemPost ? { buildId, organizationId } : "skip"
+  );
   useFocusedCollaborationPostCard(cardRef, focusedPost);
   const focusPresentation = focusedPostCardPresentation(focusedPost);
   const [tab, setTab] = useState<"actions" | "discussion" | null>(() =>
@@ -3198,7 +3210,12 @@ function CollaborationPostCard({
           tagOptions={tagOptions}
           value={parseDocument(entry.revision.tiptapJson)}
         />
-        {entry.post.systemPost ? <SystemPostFacts entry={entry} /> : null}
+        {entry.post.systemPost ? (
+          <SystemPostFacts
+            entry={entry}
+            planningReconciliation={planningReconciliation}
+          />
+        ) : null}
         {entry.references.length > 0 ? (
           <div className="grid gap-2 sm:grid-cols-2">
             {entry.references.map((reference) => {
@@ -3401,7 +3418,294 @@ function CollaborationPostCard({
   );
 }
 
-function SystemPostFacts({ entry }: { entry: CollaborationFeedPostEntry }) {
+type CollaborationSystemPost = NonNullable<
+  CollaborationFeedPostEntry["post"]["systemPost"]
+>;
+type SystemMilestonePlanningSummary = NonNullable<
+  CollaborationFeedPostEntry["post"]["planningSummary"]
+>;
+type PlanningDiff = CollaborationPlanningReconciliation["diffs"][number];
+
+const planningCountLabels = [
+  ["backlog", "Backlog"],
+  ["behind_schedule", "Behind schedule"],
+  ["in_progress", "In progress"],
+  ["in_review", "In review"],
+  ["approved", "Approved"],
+  ["superseded", "Superseded"],
+] as const;
+
+const planningAttentionLabels = [
+  ["assignmentGaps", "Assignment gaps"],
+  ["dependencyExceptions", "Dependency exceptions"],
+  ["overdueCompletion", "Overdue completion"],
+  ["requiredSiteVisits", "Required site visits"],
+  ["reviewSla", "Review SLA"],
+] as const;
+
+function planningLifecycleLabel(
+  lifecycle: SystemMilestonePlanningSummary["lifecycle"]
+) {
+  return lifecycle.charAt(0).toUpperCase() + lifecycle.slice(1);
+}
+
+function planningCategoryLabel(category: PlanningDiff["category"]) {
+  switch (category) {
+    case "allocations":
+      return "Assignments";
+    case "dates":
+      return "Schedule";
+    case "dependencies":
+      return "Dependencies";
+    case "evidence_requirements":
+      return "Evidence requirements";
+    case "scope":
+      return "Scope";
+  }
+}
+
+function planningChangeTypeLabel(changeType: PlanningDiff["changeType"]) {
+  switch (changeType) {
+    case "added":
+      return "added";
+    case "removed":
+      return "removed";
+    case "changed":
+      return "changed";
+  }
+}
+
+function planningEntityTypeLabel(entityType: string) {
+  switch (entityType) {
+    case "milestone":
+      return "Milestone";
+    case "submilestone":
+      return "Sub-milestone";
+    case "budget":
+      return "Budget";
+    case "draw":
+      return "Draw";
+    case "allocation":
+      return "Assignment";
+    case "evidenceRequirement":
+      return "Evidence requirement";
+    default:
+      return entityType;
+  }
+}
+
+function SystemPostPlanningSummary({
+  summary,
+}: {
+  summary?: SystemMilestonePlanningSummary;
+}) {
+  if (!summary) {
+    return null;
+  }
+  const counts = planningCountLabels.filter(([key]) => summary.counts[key] > 0);
+  const attention = planningAttentionLabels.filter(
+    ([key]) => summary.attention[key] > 0
+  );
+  return (
+    <section
+      aria-label="Milestone planning summary"
+      className="space-y-3 border-t pt-3"
+      data-testid="system-post-planning-summary"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-medium text-xs">Planning summary</p>
+          <p className="text-muted-foreground text-xs">
+            Live canonical roadmap state
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Badge
+            variant={summary.lifecycle === "reopened" ? "warning" : "outline"}
+          >
+            {planningLifecycleLabel(summary.lifecycle)}
+          </Badge>
+          <Badge variant={summary.readyForApproval ? "success" : "warning"}>
+            {summary.readyForApproval
+              ? "Ready for approval"
+              : "Not ready for approval"}
+          </Badge>
+        </div>
+      </div>
+      {counts.length > 0 ? (
+        <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+          {counts.map(([key, label]) => (
+            <div
+              className="rounded-md border bg-muted/20 px-2 py-1.5"
+              key={key}
+            >
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="font-semibold text-sm">{summary.counts[key]}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          No active Sub-milestones are currently projected.
+        </p>
+      )}
+      {attention.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {attention.map(([key, label]) => (
+            <Badge key={key} variant="warning">
+              {label} · {summary.attention[key]}
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          No planning exceptions are currently reported.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function SystemPostPlanningComparison({
+  planningReconciliation,
+  systemPost,
+}: {
+  planningReconciliation?: CollaborationPlanningReconciliation;
+  systemPost: CollaborationSystemPost;
+}) {
+  const activationRevision =
+    planningReconciliation?.activation?.revision ??
+    systemPost.activationPlanningRevision;
+  const currentRevision =
+    planningReconciliation?.current.revision ??
+    systemPost.currentPlanningRevision;
+  const diffs = planningReconciliation?.diffs ?? [];
+  const hasComparison =
+    planningReconciliation !== undefined ||
+    activationRevision !== undefined ||
+    currentRevision !== undefined;
+  if (!hasComparison) {
+    return null;
+  }
+  const changed =
+    diffs.length > 0 ||
+    (activationRevision !== undefined &&
+      currentRevision !== undefined &&
+      activationRevision !== currentRevision);
+  const categoryCounts = new Map<
+    PlanningDiff["category"],
+    {
+      changeTypes: Map<PlanningDiff["changeType"], number>;
+      count: number;
+      entityTypes: Set<string>;
+    }
+  >();
+  for (const diff of diffs) {
+    const current = categoryCounts.get(diff.category) ?? {
+      changeTypes: new Map<PlanningDiff["changeType"], number>(),
+      count: 0,
+      entityTypes: new Set<string>(),
+    };
+    current.count += 1;
+    current.changeTypes.set(
+      diff.changeType,
+      (current.changeTypes.get(diff.changeType) ?? 0) + 1
+    );
+    current.entityTypes.add(diff.entityType);
+    categoryCounts.set(diff.category, current);
+  }
+  return (
+    <section
+      aria-label="Planning revision comparison"
+      className="space-y-3 border-t pt-3"
+      data-testid="system-post-planning-comparison"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-medium text-xs">Planning revision comparison</p>
+          <p className="text-muted-foreground text-xs">
+            Activation snapshot versus the current approved plan
+          </p>
+        </div>
+        <Badge variant={changed ? "warning" : "success"}>
+          {changed ? "Changed since activation" : "Matches activation"}
+        </Badge>
+      </div>
+      <dl className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <dt className="text-muted-foreground">Activation revision</dt>
+          <dd className="font-medium">
+            {activationRevision === undefined
+              ? "Unavailable"
+              : `v${activationRevision}`}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Current revision</dt>
+          <dd className="font-medium">
+            {currentRevision === undefined
+              ? "Unavailable"
+              : `v${currentRevision}`}
+          </dd>
+        </div>
+      </dl>
+      {planningReconciliation === undefined ? (
+        <p className="text-muted-foreground text-xs" role="status">
+          Loading structured planning changes…
+        </p>
+      ) : diffs.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          No structured planning changes are recorded after activation.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <p className="font-medium text-xs">
+            Structured changes · {diffs.length}
+          </p>
+          <ul
+            aria-label="Structured planning changes"
+            className="grid gap-1.5 text-xs sm:grid-cols-2"
+          >
+            {[...categoryCounts].map(([category, value]) => (
+              <li
+                className="flex items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5"
+                key={category}
+              >
+                <span>{planningCategoryLabel(category)}</span>
+                <span className="text-muted-foreground">
+                  {value.count} change{value.count === 1 ? "" : "s"} ·{" "}
+                  {[...value.changeTypes]
+                    .map(
+                      ([changeType, count]) =>
+                        String(count) +
+                        " " +
+                        planningChangeTypeLabel(changeType)
+                    )
+                    .join(", ")}
+                  {" · "}
+                  {[...value.entityTypes]
+                    .map(planningEntityTypeLabel)
+                    .join(", ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-muted-foreground text-xs">
+            Change values stay governed by the canonical planning record.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SystemPostFacts({
+  entry,
+  planningReconciliation,
+}: {
+  entry: CollaborationFeedPostEntry;
+  planningReconciliation?: CollaborationPlanningReconciliation;
+}) {
   const systemPost = entry.post.systemPost;
   if (!systemPost) {
     return null;
@@ -3414,7 +3718,9 @@ function SystemPostFacts({ entry }: { entry: CollaborationFeedPostEntry }) {
       <FramePanel className="space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Badge variant="secondary">Canonical facts</Badge>
-          <span className="text-muted-foreground">Immutable domain binding</span>
+          <span className="text-muted-foreground">
+            Immutable domain binding
+          </span>
         </div>
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
           <div>
@@ -3433,12 +3739,20 @@ function SystemPostFacts({ entry }: { entry: CollaborationFeedPostEntry }) {
           </div>
           <div>
             <dt className="text-muted-foreground">Activation</dt>
-            <dd className="font-medium">{systemPost.activationReason.replaceAll("_", " ")}</dd>
+            <dd className="font-medium">
+              {systemPost.activationReason.replaceAll("_", " ")}
+            </dd>
           </div>
         </dl>
+        <SystemPostPlanningSummary summary={entry.post.planningSummary} />
+        <SystemPostPlanningComparison
+          planningReconciliation={planningReconciliation}
+          systemPost={systemPost}
+        />
         {systemPost.recoveryState === "recovery_required" ? (
           <p className="text-amber-700 text-xs dark:text-amber-300">
-            Recovery required: add a valid Sub-milestone through the canonical roadmap revision before starting work.
+            Recovery required: add a valid Sub-milestone through the canonical
+            roadmap revision before starting work.
           </p>
         ) : null}
       </FramePanel>

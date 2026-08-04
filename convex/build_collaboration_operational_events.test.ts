@@ -2149,4 +2149,210 @@ describe("Build Collaboration operational events", () => {
       )
     ).toBe(0);
   });
+
+  test("reconciles approved planning removals without replacing cards, emits mixed-state summaries, and denies superseded commands", async () => {
+    const fixture = await seedOperationalBuild();
+    await fixture.base.run(async (ctx) => {
+      const milestone = await ctx.db.get(fixture.milestoneId);
+      if (!milestone) throw new Error("Milestone fixture is unavailable.");
+      const now = Date.now();
+      const proposalMilestone = await ctx.db.get(milestone.proposalMilestoneId);
+      if (!proposalMilestone) {
+        throw new Error("Proposal milestone fixture is unavailable.");
+      }
+      for (const [index, name] of ["Excavate", "Pour footings"].entries()) {
+        const key = `foundation-${index + 1}`;
+        const proposalSubmilestoneId = await ctx.db.insert(
+          "proposalSubmilestones",
+          {
+            brokerageId: fixture.brokerageId,
+            createdAt: now,
+            key,
+            milestoneKey: milestone.key,
+            name,
+            order: index + 1,
+            organizationId: ORGANIZATION_ID,
+            proposalId: fixture.proposalId,
+            proposalMilestoneId: proposalMilestone._id,
+            updatedAt: now,
+          },
+        );
+        await ctx.db.insert("buildSubmilestones", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          buildMilestoneId: milestone._id,
+          createdAt: now,
+          key,
+          milestoneKey: milestone.key,
+          name,
+          order: index + 1,
+          organizationId: ORGANIZATION_ID,
+          proposalSubmilestoneId,
+          status: "planned",
+          updatedAt: now,
+        });
+      }
+      await ctx.db.patch(fixture.buildId, { timezone: "America/Toronto" });
+    });
+
+    await fixture.builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-08-03T12:00:00.000Z"),
+        buildId: fixture.buildId,
+        idempotencyKey: "eng-412-plan-start-001",
+        milestoneKey: "foundation",
+        source: "milestone_detail",
+        startParent: true,
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-08-03T12:01:00.000Z"),
+        buildId: fixture.buildId,
+        idempotencyKey: "eng-412-child-start-001",
+        milestoneKey: "foundation",
+        source: "submilestone_detail",
+        submilestoneKey: "foundation-2",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const before = await collaborationSnapshot(fixture.base, String(fixture.buildId));
+    const beforeCards = before.actionItems.filter(
+      (item) => item.systemMode === "generated_milestone_submilestone",
+    );
+    expect(beforeCards).toHaveLength(2);
+    const firstCard = beforeCards.find(
+      (item) => item.title === "Excavate",
+    );
+    expect(firstCard).toBeDefined();
+    const beforeDeliveryCount = before.deliveries.length;
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        submilestones: [
+          {
+            budgetCents: 25_000_000,
+            durationDays: 10,
+            key: "foundation-2",
+            name: "Pour footings",
+            order: 2,
+            startDay: 10,
+          },
+        ],
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const afterPlan = await collaborationSnapshot(fixture.base, String(fixture.buildId));
+    const afterCards = afterPlan.actionItems.filter(
+      (item) => item.systemMode === "generated_milestone_submilestone",
+    );
+    const supersededCard = afterCards.find((item) => item.title === "Excavate");
+    expect(afterCards).toHaveLength(2);
+    expect(supersededCard?._id).toBe(firstCard?._id);
+    expect(supersededCard?.canonicalPlanningState).toBe("superseded");
+    expect(afterPlan.deliveries).toHaveLength(beforeDeliveryCount);
+
+    const reconciliation = await fixture.admin.query(
+      (api as any).build_collaboration_planning_reconciliation
+        .getActiveBuildPlanningReconciliation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(reconciliation.activation.revision).toBeLessThan(
+      reconciliation.current.revision,
+    );
+    expect(reconciliation.diffs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          changeType: "changed",
+          entityKey: "foundation:foundation-1",
+          entityType: "submilestone",
+          field: "planningState",
+        }),
+      ]),
+    );
+
+    const focused = await fixture.admin.query(
+      (api as any).build_collaboration_focus
+        .getFocusedBuildCollaborationPostContext,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: afterPlan.posts.find((post) => post.systemPostKind === "milestone")!._id,
+      },
+    );
+    expect(focused.state).toBe("visible");
+    expect(focused.entry.post.planningSummary).toMatchObject({
+      counts: { in_progress: 1, superseded: 1 },
+      readyForApproval: false,
+    });
+
+    const contractorReconciliation = await fixture.contractor.query(
+      (api as any).build_collaboration_planning_reconciliation
+        .getActiveBuildPlanningReconciliation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(contractorReconciliation.activation.snapshot.allocations).toEqual([]);
+    expect(contractorReconciliation.activation.snapshot.draws).toEqual([]);
+    expect(contractorReconciliation.activation.snapshot.evidenceRequirements).toEqual([]);
+    expect(contractorReconciliation.diffs.every((diff: { entityType: string }) =>
+      diff.entityType === "milestone" || diff.entityType === "submilestone",
+    )).toBe(true);
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.parse("2026-08-03T12:05:00.000Z"),
+          buildId: fixture.buildId,
+          idempotencyKey: "eng-412-superseded-start-001",
+          milestoneKey: "foundation",
+          source: "submilestone_detail",
+          submilestoneKey: "foundation-1",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/removed by an approved planning revision/i);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+        {
+          buildId: fixture.buildId,
+          evidence: {
+            fileName: "superseded.jpg",
+            mimeType: "image/jpeg",
+            requirementKey: "missing-requirement",
+            sizeBytes: 100,
+          },
+          idempotencyKey: "eng-412-superseded-evidence-001",
+          milestoneKey: "foundation",
+          submilestoneKey: "foundation-1",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/removed by an approved planning revision/i);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.milestoneId, {
+        planningState: "superseded",
+        supersededAt: Date.now(),
+      });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.reviewActiveBuildEvidence,
+        {
+          accepted: true,
+          buildId: fixture.buildId,
+          milestoneKey: "foundation",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/removed by an approved planning revision/i);
+  });
 });

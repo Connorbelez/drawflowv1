@@ -32,6 +32,9 @@ export type RawCollaborationTagOption = FunctionReturnType<
 export type CollaborationDraftSummary = FunctionReturnType<
   typeof api.build_collaboration_drafts.listMyBuildCollaborationDrafts
 >[number];
+export type CollaborationPlanningReconciliation = FunctionReturnType<
+  typeof api.build_collaboration_planning_reconciliation.getActiveBuildPlanningReconciliation
+>;
 
 export type AudienceMode = CollaborationFeedPostEntry["post"]["audienceMode"];
 export type PostType = CollaborationFeedPostEntry["post"]["postType"];

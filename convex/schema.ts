@@ -8,6 +8,10 @@ import {
   buildActionItemSystemModeValidator,
   buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
+  buildPlanningDiffCategoryValidator,
+  buildPlanningDiffChangeTypeValidator,
+  buildPlanningRevisionKindValidator,
+  buildPlanningStateValidator,
   buildCollaborationActorKindValidator,
   buildCollaborationApprovalStateValidator,
   buildCollaborationAssetScanStateValidator,
@@ -3165,6 +3169,69 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_proposal", ["proposalId"])
     .index("by_entity", ["entityType", "entityKey"]),
+  /**
+   * Immutable approved planning revisions for an Active Build. Canonical
+   * Milestone/Draw/Work Allocation state remains authoritative; these rows are
+   * an auditable history and rebuild input for collaboration projections.
+   */
+  activeBuildPlanningRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+    revision: v.number(),
+    kind: buildPlanningRevisionKindValidator,
+    sourceCommand: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    reason: v.string(),
+    approvedAt: v.number(),
+    previousRevision: v.optional(v.number()),
+    diffCount: v.number(),
+    summary: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_build_revision", ["buildId", "revision"])
+    .index("by_build_kind", ["buildId", "kind"])
+    .index("by_build_approvedAt", ["buildId", "approvedAt"]),
+  activeBuildPlanningRevisionEntities: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+    revisionId: v.id("activeBuildPlanningRevisions"),
+    revision: v.number(),
+    entityType: v.string(),
+    entityKey: v.string(),
+    canonicalId: v.optional(v.string()),
+    planningState: buildPlanningStateValidator,
+    snapshotJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_revision", ["revisionId"])
+    .index("by_build_revision_entity", [
+      "buildId",
+      "revision",
+      "entityType",
+      "entityKey",
+    ])
+    .index("by_build_entity", ["buildId", "entityType", "entityKey"]),
+  activeBuildPlanningRevisionDiffs: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+    revisionId: v.id("activeBuildPlanningRevisions"),
+    revision: v.number(),
+    category: buildPlanningDiffCategoryValidator,
+    entityType: v.string(),
+    entityKey: v.string(),
+    field: v.string(),
+    changeType: buildPlanningDiffChangeTypeValidator,
+    priorValue: v.optional(v.any()),
+    nextValue: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_revision", ["revisionId"])
+    .index("by_build_revision", ["buildId", "revision"])
+    .index("by_build_entity", ["buildId", "entityType", "entityKey"]),
   assistantThreads: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
     componentThreadId: v.optional(v.string()),
@@ -3892,6 +3959,16 @@ export default defineSchema({
     triggeredByWorkosUserId: v.optional(v.string()),
     triggeredByRole: v.optional(buildCollaborationRoleValidator),
     triggeredAt: v.optional(v.number()),
+    // Planning facts are projected from the canonical Build plan. These
+    // fields identify the immutable activation revision without making the
+    // collaboration post a second source of truth.
+    activationPlanningRevisionId: v.optional(
+      v.id("activeBuildPlanningRevisions"),
+    ),
+    currentPlanningRevision: v.optional(v.number()),
+    systemLifecycle: v.optional(
+      v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened")),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -4489,6 +4566,7 @@ export default defineSchema({
     canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
     canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
     canonicalBindingRevision: v.optional(v.number()),
+    canonicalPlanningState: v.optional(buildPlanningStateValidator),
   })
     .index("by_originatingPostId_and_createdAt", [
       "originatingPostId",
@@ -5273,6 +5351,10 @@ export default defineSchema({
       v.literal("in_progress"),
       v.literal("complete")
     ),
+    planningState: v.optional(buildPlanningStateValidator),
+    activationPlanningRevision: v.optional(v.number()),
+    supersededAt: v.optional(v.number()),
+    supersededByPlanningRevision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -5335,6 +5417,10 @@ export default defineSchema({
       v.literal("in_progress"),
       v.literal("complete")
     ),
+    planningState: v.optional(buildPlanningStateValidator),
+    activationPlanningRevision: v.optional(v.number()),
+    supersededAt: v.optional(v.number()),
+    supersededByPlanningRevision: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     completedByWorkosUserId: v.optional(v.string()),
     createdAt: v.number(),

@@ -912,7 +912,9 @@ export function assertCanonicalMilestoneActionItemMutable(
 ) {
   if (item.systemMode === "generated_milestone_submilestone") {
     throw new Error(
-      "System Action Items mirror canonical Sub-milestones and cannot be edited or transitioned directly."
+      item.canonicalPlanningState === "superseded"
+        ? "Superseded System Action Items cannot execute commands. Update the canonical approved plan instead."
+        : "System Action Items mirror canonical Sub-milestones and cannot be edited or transitioned directly."
     );
   }
 }

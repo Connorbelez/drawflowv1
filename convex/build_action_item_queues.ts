@@ -95,6 +95,9 @@ const queueRowValidator = v.object({
     systemMode: v.optional(v.literal("generated_milestone_submilestone")),
     canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
     canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    canonicalPlanningState: v.optional(
+      v.union(v.literal("active"), v.literal("superseded"))
+    ),
     systemPresentation: v.optional(systemActionItemPresentationValidator),
     title: v.string(),
     updatedAt: v.number(),
@@ -757,6 +760,7 @@ async function queueRow(
       systemMode: item.systemMode,
       canonicalBuildMilestoneId: item.canonicalBuildMilestoneId,
       canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,
+      canonicalPlanningState: item.canonicalPlanningState,
       systemPresentation,
       title: item.title,
       updatedAt: item.updatedAt,

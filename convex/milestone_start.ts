@@ -349,6 +349,22 @@ function validateStartInput(input: RecordMilestoneStartInput) {
   ) {
     throw new Error("Forbidden: milestone start scope");
   }
+  if (input.milestone.planningState === "superseded") {
+    throw new ConvexError({
+      code: "MILESTONE_SUPERSEDED",
+      message:
+        "This Milestone was removed by an approved planning revision and cannot execute commands.",
+      milestoneKey: input.milestone.key,
+    });
+  }
+  if (input.submilestone?.planningState === "superseded") {
+    throw new ConvexError({
+      code: "SUBMILESTONE_SUPERSEDED",
+      message:
+        "This Sub-milestone was removed by an approved planning revision and cannot execute commands.",
+      submilestoneKey: input.submilestone.key,
+    });
+  }
 }
 
 function validateAmendmentInput(input: AmendMilestoneStartInput) {
@@ -382,6 +398,22 @@ function validateAmendmentInput(input: AmendMilestoneStartInput) {
         input.submilestone.buildMilestoneId !== input.milestone._id))
   ) {
     throw new Error("Forbidden: milestone start scope");
+  }
+  if (input.milestone.planningState === "superseded") {
+    throw new ConvexError({
+      code: "MILESTONE_SUPERSEDED",
+      message:
+        "This Milestone was removed by an approved planning revision and cannot execute commands.",
+      milestoneKey: input.milestone.key,
+    });
+  }
+  if (input.submilestone?.planningState === "superseded") {
+    throw new ConvexError({
+      code: "SUBMILESTONE_SUPERSEDED",
+      message:
+        "This Sub-milestone was removed by an approved planning revision and cannot execute commands.",
+      submilestoneKey: input.submilestone.key,
+    });
   }
 }
 

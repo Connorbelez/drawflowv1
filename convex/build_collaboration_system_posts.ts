@@ -18,6 +18,7 @@ import {
   publishCanonicalBuildCollaborationSystemEvent,
   resolveSystemEventScope,
 } from "./build_collaboration_system_events";
+import { ensureActiveBuildPlanningActivationRevision } from "./build_collaboration_planning_reconciliation";
 import { resolveActiveSubmilestoneEvidencePackageReadiness } from "./build_submilestone_evidence";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -34,7 +35,8 @@ export type SystemActionItemPresentationColumn =
   | "behind_schedule"
   | "in_progress"
   | "in_review"
-  | "approved";
+  | "approved"
+  | "superseded";
 
 export type SystemActionItemPresentation = {
   attention?: "overdue_completion";
@@ -50,6 +52,7 @@ export type SystemActionItemPresentation = {
   canSubmitForReview?: boolean;
   canUpdateExecution?: boolean;
   column: SystemActionItemPresentationColumn;
+  planningState?: "active" | "superseded";
   completionForecastDate?: string;
   evidenceCount?: number;
   evidencePackageRevisionId?: Id<"buildSubmilestoneEvidencePackageRevisions">;
@@ -229,7 +232,7 @@ function unknownSystemActionItemPresentation(reason: string) {
 }
 
 function evidenceReviewColumn(
-  state: SystemActionItemPresentation["evidenceReviewState"],
+  state: SystemActionItemPresentation["evidenceReviewState"]
 ): SystemActionItemPresentationColumn | undefined {
   if (state === "approved") {
     return "approved";
@@ -241,7 +244,7 @@ function evidenceReviewColumn(
 }
 
 function derivedSubmilestoneReviewDecisionState(
-  submilestone: Doc<"buildSubmilestones">,
+  submilestone: Doc<"buildSubmilestones">
 ): NonNullable<SystemActionItemPresentation["reviewDecisionState"]> {
   if (submilestone.reviewDecisionState) {
     return submilestone.reviewDecisionState;
@@ -256,7 +259,7 @@ function derivedSubmilestoneReviewDecisionState(
 }
 
 function derivedMilestoneReviewDecisionState(
-  milestone: Doc<"buildMilestones">,
+  milestone: Doc<"buildMilestones">
 ): NonNullable<SystemActionItemPresentation["milestoneReviewDecisionState"]> {
   if (milestone.reviewDecisionState) {
     return milestone.reviewDecisionState;
@@ -356,9 +359,26 @@ export async function deriveMilestoneSystemActionItemPresentation(
   const base = {
     plannedCompletionDate,
     plannedStartDate,
+    planningState: (submilestone.planningState ?? "active") as
+      | "active"
+      | "superseded",
     state: "known" as const,
     timezone: input.build.timezone,
   };
+  if (submilestone.planningState === "superseded") {
+    return {
+      ...base,
+      canAddEvidence: false,
+      canApproveMilestone: false,
+      canApproveSubmilestone: false,
+      canRecommendReview: false,
+      canRequestChanges: false,
+      canSubmitForReview: false,
+      canUpdateExecution: false,
+      column: "superseded" as const,
+      readyExceptFor: [],
+    };
+  }
   const reviewColumn = evidenceReviewColumn(submilestone.evidenceReviewState);
   if (reviewColumn) {
     return {
@@ -465,52 +485,60 @@ async function projectMilestoneExecutionPresentation(
   );
   const reviewRound = input.submilestone.evidenceReviewRound ?? 0;
   const childReviewDecisionState = derivedSubmilestoneReviewDecisionState(
-    input.submilestone,
+    input.submilestone
   );
   const milestoneReviewDecisionState = derivedMilestoneReviewDecisionState(
-    input.milestone,
+    input.milestone
   );
-  const [milestoneSubmilestones, requirementById, requirementByRound, childDecisions, milestoneDecisions] =
-    await Promise.all([
-      ctx.db
-        .query("buildSubmilestones")
-        .withIndex("by_milestone", (query) =>
-          query.eq("buildMilestoneId", input.milestone._id),
-        )
-        .take(500),
-      input.submilestone.siteVisitRequirementId
-        ? ctx.db.get(input.submilestone.siteVisitRequirementId)
-        : Promise.resolve(null),
-      reviewRound > 0
-        ? ctx.db
-            .query("buildSubmilestoneSiteVisitRequirements")
-            .withIndex("by_submilestone_round", (query) =>
-              query
-                .eq("buildSubmilestoneId", input.submilestone._id)
-                .eq("reviewRound", reviewRound),
-            )
-            .unique()
-        : Promise.resolve(null),
-      ctx.db
-        .query("buildSubmilestoneReviewDecisions")
-        .withIndex("by_submilestone_createdAt", (query) =>
-          query.eq("buildSubmilestoneId", input.submilestone._id),
-        )
-        .order("desc")
-        .take(100),
-      ctx.db
-        .query("buildMilestoneReviewDecisions")
-        .withIndex("by_milestone_revision", (query) =>
-          query.eq("buildMilestoneId", input.milestone._id),
-        )
-        .take(100),
-    ]);
+  const [
+    milestoneSubmilestones,
+    requirementById,
+    requirementByRound,
+    childDecisions,
+    milestoneDecisions,
+  ] = await Promise.all([
+    ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (query) =>
+        query.eq("buildMilestoneId", input.milestone._id)
+      )
+      .take(500),
+    input.submilestone.siteVisitRequirementId
+      ? ctx.db.get(input.submilestone.siteVisitRequirementId)
+      : Promise.resolve(null),
+    reviewRound > 0
+      ? ctx.db
+          .query("buildSubmilestoneSiteVisitRequirements")
+          .withIndex("by_submilestone_round", (query) =>
+            query
+              .eq("buildSubmilestoneId", input.submilestone._id)
+              .eq("reviewRound", reviewRound)
+          )
+          .unique()
+      : Promise.resolve(null),
+    ctx.db
+      .query("buildSubmilestoneReviewDecisions")
+      .withIndex("by_submilestone_createdAt", (query) =>
+        query.eq("buildSubmilestoneId", input.submilestone._id)
+      )
+      .order("desc")
+      .take(100),
+    ctx.db
+      .query("buildMilestoneReviewDecisions")
+      .withIndex("by_milestone_revision", (query) =>
+        query.eq("buildMilestoneId", input.milestone._id)
+      )
+      .take(100),
+  ]);
   const siteVisitRequirement = requirementById ?? requirementByRound;
+  const activeMilestoneSubmilestones = milestoneSubmilestones.filter(
+    (candidate) => candidate.planningState !== "superseded"
+  );
   const parentReadyForApproval =
-    milestoneSubmilestones.length > 0 &&
-    milestoneSubmilestones.every(
+    activeMilestoneSubmilestones.length > 0 &&
+    activeMilestoneSubmilestones.every(
       (candidate) =>
-        derivedSubmilestoneReviewDecisionState(candidate) === "approved",
+        derivedSubmilestoneReviewDecisionState(candidate) === "approved"
     );
   const reviewHistory = [
     ...childDecisions.map((decision) => ({
@@ -544,8 +572,10 @@ async function projectMilestoneExecutionPresentation(
     "broker-staff",
   ].includes(input.viewer.role);
   const viewerIsAdmin = input.viewer.role === "admin";
-  const canRecommendReview = canReview && childReviewDecisionState === "in_review";
-  const canRequestChanges = canReview && childReviewDecisionState === "in_review";
+  const canRecommendReview =
+    canReview && childReviewDecisionState === "in_review";
+  const canRequestChanges =
+    canReview && childReviewDecisionState === "in_review";
   const canApproveSubmilestone =
     viewerIsAdmin && childReviewDecisionState === "in_review";
   const canWaiveSiteVisit =
@@ -629,8 +659,7 @@ async function projectMilestoneExecutionPresentation(
   const canUpdateExecution =
     input.submilestone.evidenceReviewState !== "in_review" &&
     input.submilestone.evidenceReviewState !== "approved" &&
-    ((viewerIsContractor && viewerIsAssignee) ||
-      (viewerIsBuilder && allowed));
+    ((viewerIsContractor && viewerIsAssignee) || (viewerIsBuilder && allowed));
   const canAddEvidence =
     canUpdateExecution &&
     input.submilestone.status === "in_progress" &&
@@ -733,6 +762,17 @@ export async function ensureMilestoneSystemPost(
     now?: number;
   }
 ) {
+  const activationRevision = await ensureActiveBuildPlanningActivationRevision(
+    ctx,
+    {
+      actor: {
+        actorRoles: input.actor.roles,
+        actorWorkosUserId: input.actor.workosUserId,
+      },
+      build: input.build,
+      now: input.now,
+    }
+  );
   const occurrenceKey = `milestone-system:${input.build._id}:${input.milestone._id}`;
   const now = input.now ?? Date.now();
   const plainText =
@@ -796,6 +836,8 @@ export async function ensureMilestoneSystemPost(
   );
 
   const postPatch = {
+    activationPlanningRevisionId:
+      post.activationPlanningRevisionId ?? activationRevision?._id,
     activationReason: post.activationReason ?? input.activationReason,
     authorDisplayNameSnapshot: SYSTEM_LABEL,
     authorRolesSnapshot: ["system"],
@@ -804,12 +846,17 @@ export async function ensureMilestoneSystemPost(
     systemEventKey: occurrenceKey,
     systemOccurrenceKey: occurrenceKey,
     systemPostKind: "milestone" as const,
+    currentPlanningRevision:
+      post.currentPlanningRevision ?? activationRevision?.revision,
+    systemLifecycle: post.systemLifecycle ?? "open",
     triggeredAt: post.triggeredAt ?? now,
     triggeredByRole: post.triggeredByRole ?? triggeredByRole,
     triggeredByWorkosUserId:
       post.triggeredByWorkosUserId ?? input.actor.workosUserId,
   };
   const postChanged =
+    post.activationPlanningRevisionId !==
+      postPatch.activationPlanningRevisionId ||
     post.activationReason !== postPatch.activationReason ||
     post.authorDisplayNameSnapshot !== postPatch.authorDisplayNameSnapshot ||
     post.authorWorkosUserId !== postPatch.authorWorkosUserId ||
@@ -817,6 +864,8 @@ export async function ensureMilestoneSystemPost(
     post.systemEventKey !== postPatch.systemEventKey ||
     post.systemOccurrenceKey !== postPatch.systemOccurrenceKey ||
     post.systemPostKind !== postPatch.systemPostKind ||
+    post.currentPlanningRevision !== postPatch.currentPlanningRevision ||
+    post.systemLifecycle !== postPatch.systemLifecycle ||
     post.triggeredAt !== postPatch.triggeredAt ||
     post.triggeredByRole !== postPatch.triggeredByRole ||
     post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId;
@@ -856,6 +905,86 @@ export async function ensureMilestoneSystemPost(
 }
 
 /**
+ * Refresh an existing Milestone System Post after an approved planning write.
+ * Unlike activation, this function never creates a second post or mutates
+ * canonical execution state. It is intentionally idempotent for retries.
+ */
+export async function synchronizeMilestoneSystemPostPlanning(
+  ctx: MutationCtx,
+  input: {
+    actor: { roles: string[]; workosUserId: string };
+    build: Doc<"activeBuilds">;
+    milestone: Doc<"buildMilestones">;
+  }
+) {
+  const post = await ctx.db
+    .query("buildCollaborationPosts")
+    .withIndex(
+      "by_buildId_and_systemPostKind_and_canonicalBuildMilestoneId",
+      (query) =>
+        query
+          .eq("buildId", input.build._id)
+          .eq("systemPostKind", "milestone")
+          .eq("canonicalBuildMilestoneId", input.milestone._id)
+    )
+    .take(1)
+    .then((rows) => rows[0]);
+  if (!post) return null;
+  const scope = await resolveSystemEventScope(
+    ctx,
+    {
+      buildId: input.build._id,
+      idempotencyKey: `${post.systemOccurrenceKey ?? post._id}:scope`,
+      organizationId: input.build.organizationId,
+      plainText: "Milestone System Post authorization scope.",
+      postType: "update",
+      systemLabel: SYSTEM_LABEL,
+    },
+    `${post.systemOccurrenceKey ?? post._id}:scope`
+  );
+  if (scope.status !== "ready") return null;
+  const revision = await ctx.db
+    .query("activeBuildPlanningRevisions")
+    .withIndex("by_build_revision", (query) =>
+      query.eq("buildId", input.build._id)
+    )
+    .order("desc")
+    .take(1)
+    .then((rows) => rows[0]);
+  const submilestones = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (query) =>
+      query.eq("buildMilestoneId", input.milestone._id)
+    )
+    .take(500);
+  const actionItemIds: Id<"buildActionItems">[] = [];
+  let changed = false;
+  for (const submilestone of submilestones) {
+    const ensured = await ensureGeneratedSubmilestoneActionItem(ctx, {
+      authorization: scope.authorization,
+      milestone: input.milestone,
+      now: Date.now(),
+      postId: post._id,
+      submilestone,
+    });
+    actionItemIds.push(ensured.actionItemId);
+    changed ||= ensured.changed;
+  }
+  const patch = {
+    ...(revision ? { currentPlanningRevision: revision.revision } : {}),
+    updatedAt: Date.now(),
+  };
+  if (revision && post.currentPlanningRevision !== revision.revision) {
+    await ctx.db.patch(post._id, patch);
+    changed = true;
+  }
+  if (changed && actionItemIds.length > 0) {
+    await syncPostCounts(ctx, actionItemIds, Date.now());
+  }
+  return post._id;
+}
+
+/**
  * Synchronize the collaboration projection after a canonical Milestone review
  * command.  The review module owns approval state; this helper only updates
  * the existing System Post lifecycle and appends its collaboration history.
@@ -870,7 +999,7 @@ export async function synchronizeMilestoneSystemPostLifecycle(
     organizationId: string;
     postId: Id<"buildCollaborationPosts">;
     reason?: string;
-  },
+  }
 ) {
   const post = await ctx.db.get(input.postId);
   if (
@@ -900,12 +1029,20 @@ export async function synchronizeMilestoneSystemPostLifecycle(
     lastMeaningfulActivityAt: now,
     latestActivityActorWorkosUserId: input.actorWorkosUserId,
     resolutionSummary:
-      input.lifecycle === "resolved" ? input.reason?.trim() || "Milestone approved." : undefined,
+      input.lifecycle === "resolved"
+        ? input.reason?.trim() || "Milestone approved."
+        : undefined,
     resolvedAt: input.lifecycle === "resolved" ? now : undefined,
     resolvedByWorkosUserId:
       input.lifecycle === "resolved" ? input.actorWorkosUserId : undefined,
     threadRevision: (post.threadRevision ?? 0) + 1,
     threadState: nextState,
+    systemLifecycle:
+      input.lifecycle === "resolved"
+        ? "resolved"
+        : post.systemLifecycle === "resolved"
+          ? "reopened"
+          : "open",
     updatedAt: now,
   });
   await ctx.db.insert("buildCollaborationThreadEvents", {
@@ -917,7 +1054,9 @@ export async function synchronizeMilestoneSystemPostLifecycle(
     eventType: input.lifecycle === "resolved" ? "resolved" : "reopened",
     newState: JSON.stringify({
       resolutionSummary:
-        input.lifecycle === "resolved" ? input.reason?.trim() || "Milestone approved." : undefined,
+        input.lifecycle === "resolved"
+          ? input.reason?.trim() || "Milestone approved."
+          : undefined,
       threadState: nextState,
     }),
     organizationId: post.organizationId,
@@ -959,6 +1098,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     submilestone: Doc<"buildSubmilestones">;
   }
 ): Promise<{ actionItemId: Id<"buildActionItems">; changed: boolean }> {
+  const title = input.submilestone.name.trim() || "Unnamed Sub-milestone";
   const existing = (
     await ctx.db
       .query("buildActionItems")
@@ -972,24 +1112,64 @@ async function ensureGeneratedSubmilestoneActionItem(
       item.canonicalBuildSubmilestoneId === input.submilestone._id
   );
   if (existing) {
-    if (
+    const canonicalPlanningState = input.submilestone.planningState ?? "active";
+    const nextCanonicalBindingRevision =
+      input.milestone.collaborationEventRevision ?? 1;
+    const changed =
       existing.canonicalBuildMilestoneId !== input.milestone._id ||
-      existing.canonicalBindingRevision !==
-        (input.milestone.collaborationEventRevision ?? 1)
-    ) {
+      existing.canonicalBindingRevision !== nextCanonicalBindingRevision ||
+      existing.canonicalPlanningState !== canonicalPlanningState ||
+      existing.title !== title;
+    if (changed) {
       await ctx.db.patch(existing._id, {
         canonicalBuildMilestoneId: input.milestone._id,
-        canonicalBindingRevision:
-          input.milestone.collaborationEventRevision ?? 1,
-        title: input.submilestone.name,
+        canonicalBindingRevision: nextCanonicalBindingRevision,
+        canonicalPlanningState,
+        currentRevision: existing.currentRevision + 1,
+        title,
         updatedAt: input.now,
       });
+      const updated = await ctx.db.get(existing._id);
+      if (!updated) {
+        throw new Error("Generated Milestone Action Item became unavailable.");
+      }
+      await Promise.all([
+        recordBuildActionItemRevision(ctx, {
+          authorization: input.authorization,
+          item: updated,
+          now: input.now,
+          reason: "canonical_planning_revision",
+        }),
+        ctx.db.insert("buildActionItemEvents", {
+          actionItemId: existing._id,
+          actorRole: input.authorization.effectiveRole.role,
+          actorWorkosUserId: input.authorization.viewer.subject,
+          brokerageId: input.authorization.brokerage._id,
+          buildId: input.authorization.build._id,
+          createdAt: input.now,
+          eventType: "canonical_planning_revision",
+          exercisedAuthority: "canonical_milestone",
+          newState: JSON.stringify({
+            canonicalBuildMilestoneId: input.milestone._id,
+            canonicalBuildSubmilestoneId: input.submilestone._id,
+            canonicalPlanningState,
+            revision: updated.currentRevision,
+          }),
+          organizationId: input.authorization.organizationId,
+          priorState: JSON.stringify({
+            canonicalBuildMilestoneId: existing.canonicalBuildMilestoneId,
+            canonicalPlanningState: existing.canonicalPlanningState ?? "active",
+            revision: existing.currentRevision,
+          }),
+          revision: updated.currentRevision,
+          warnings: ["canonical_state_is_authoritative"],
+        }),
+      ]);
       return { actionItemId: existing._id, changed: true };
     }
     return { actionItemId: existing._id, changed: false };
   }
 
-  const title = input.submilestone.name.trim() || "Unnamed Sub-milestone";
   const description = `Canonical Sub-milestone: ${title}. This card mirrors the roadmap state and cannot be completed independently.`;
   const actionItemId = await ctx.db.insert("buildActionItems", {
     assignmentState: "unassigned",
@@ -998,6 +1178,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     canonicalBindingRevision: input.milestone.collaborationEventRevision ?? 1,
     canonicalBuildMilestoneId: input.milestone._id,
     canonicalBuildSubmilestoneId: input.submilestone._id,
+    canonicalPlanningState: input.submilestone.planningState ?? "active",
     createdAt: input.now,
     creatorRole: "admin",
     creatorWorkosUserId: SYSTEM_AUTHOR,

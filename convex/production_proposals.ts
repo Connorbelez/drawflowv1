@@ -56,7 +56,15 @@ import {
   resolveActiveSubmilestoneEvidenceRequirements,
 } from "./build_submilestone_evidence";
 import { scheduleCurrentMilestoneSystemPostActivations } from "./build_collaboration_scheduling";
-import { validateBuildTimezone } from "./build_collaboration_system_posts";
+import {
+  ensureMilestoneSystemPost,
+  synchronizeMilestoneSystemPostPlanning,
+  validateBuildTimezone,
+} from "./build_collaboration_system_posts";
+import {
+  ensureActiveBuildPlanningActivationRevision,
+  recordApprovedActiveBuildPlanningRevision,
+} from "./build_collaboration_planning_reconciliation";
 import {
   evidenceLocationMateriallyChanged,
   normalizeOperationalIdempotencyKey,
@@ -5358,6 +5366,7 @@ export const recordOfflineClosing = authenticatedMutation
         order: milestone.order,
         organizationId: args.workosOrganizationId,
         policyState: milestone.policyState,
+        planningState: "active",
         proposalMilestoneId: milestone._id,
         siteVisitGuidance: milestone.siteVisitGuidance
           ? normalizeSiteVisitGuidance(milestone.siteVisitGuidance)
@@ -5398,6 +5407,7 @@ export const recordOfflineClosing = authenticatedMutation
         order: submilestone.order,
         organizationId: args.workosOrganizationId,
         proposalSubmilestoneId: submilestone._id,
+        planningState: "active",
         startDay: submilestone.startDay,
         status: "planned",
         updatedAt: now,
@@ -5599,6 +5609,14 @@ export const recordOfflineClosing = authenticatedMutation
     });
     const build = await ctx.db.get(buildId);
     if (build) {
+      await ensureActiveBuildPlanningActivationRevision(ctx, {
+        actor: {
+          actorRoles: auth.roles,
+          actorWorkosUserId: auth.subject,
+        },
+        build,
+        now,
+      });
       await scheduleCurrentMilestoneSystemPostActivations(ctx, { build, now });
       await writeActiveBuildEvent(ctx, {
         auth: {
@@ -9307,6 +9325,10 @@ export const reviseActiveBuildMilestoneSchedule = authenticatedMutation
     );
     requireBackofficeActiveBuildWrite(auth);
     requireReason(args.reason);
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     if (args.dayStart < 0 || args.dayEnd < args.dayStart) {
       throw new Error("Milestone schedule range is invalid.");
     }
@@ -9327,6 +9349,24 @@ export const reviseActiveBuildMilestoneSchedule = authenticatedMutation
     };
     const now = Date.now();
     await ctx.db.patch(milestone._id, { ...newState, updatedAt: now });
+    await recordApprovedActiveBuildPlanningRevision(ctx, {
+      actor: {
+        actorRoles: auth.roles,
+        actorWorkosUserId: auth.subject,
+      },
+      build: auth.build,
+      reason: args.reason,
+      sourceCommand: "reviseActiveBuildMilestoneSchedule",
+      now,
+    });
+    const currentMilestone = await ctx.db.get(milestone._id);
+    if (currentMilestone) {
+      await synchronizeMilestoneSystemPostPlanning(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        build: auth.build,
+        milestone: currentMilestone,
+      });
+    }
     await ctx.db.insert("scheduleRevisionRecords", {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
@@ -16221,6 +16261,10 @@ export const reviewActiveBuildBudgetRevision = authenticatedMutation
         "Budget revision is based on a stale capital-plan version. Submit a new revision.",
       );
     }
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const now = Date.now();
     let approvedCapitalPlanId: Id<"buildCapitalPlans"> | undefined;
     if (args.status === "approved") {
@@ -16252,6 +16296,26 @@ export const reviewActiveBuildBudgetRevision = authenticatedMutation
       status: args.status,
       updatedAt: now,
     });
+    if (args.status === "approved") {
+      await recordApprovedActiveBuildPlanningRevision(ctx, {
+        actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+        build: auth.build,
+        reason: args.note.trim(),
+        sourceCommand: "reviewActiveBuildBudgetRevision",
+        now,
+      });
+      const milestones = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", auth.build._id))
+        .take(1000);
+      for (const milestone of milestones) {
+        await synchronizeMilestoneSystemPostPlanning(ctx, {
+          actor: { roles: auth.roles, workosUserId: auth.subject },
+          build: auth.build,
+          milestone,
+        });
+      }
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -16288,6 +16352,10 @@ export const createActiveBuildTimelineMilestone = authenticatedMutation
     );
     requireBackofficeActiveBuildWrite(auth);
     await requireActiveBuildAppPermission(ctx, auth, "milestone", "create");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     if ((args.milestone.submilestones ?? []).length > 0) {
       await requireActiveBuildAppPermission(
         ctx,
@@ -16296,8 +16364,29 @@ export const createActiveBuildTimelineMilestone = authenticatedMutation
         "create",
       );
     }
-    await insertActiveBuildMilestoneFromInput(ctx, auth, args.milestone);
+    const milestoneId = await insertActiveBuildMilestoneFromInput(
+      ctx,
+      auth,
+      args.milestone,
+    );
     await recalculateActiveBuildBudget(ctx, args.buildId);
+    await recordApprovedActiveBuildPlanningRevision(ctx, {
+      actor: {
+        actorRoles: auth.roles,
+        actorWorkosUserId: auth.subject,
+      },
+      build: auth.build,
+      reason: "Approved active-build milestone created.",
+      sourceCommand: "createActiveBuildTimelineMilestone",
+    });
+    const createdMilestone = await ctx.db.get(milestoneId);
+    if (createdMilestone) {
+      await synchronizeMilestoneSystemPostPlanning(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        build: auth.build,
+        milestone: createdMilestone,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -16344,6 +16433,10 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
     );
     requireBackofficeActiveBuildWrite(auth);
     await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     if (args.submilestones !== undefined) {
       await requireActiveBuildAppPermission(
         ctx,
@@ -16389,7 +16482,9 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       durationDays: nextRequestedDurationDays,
       submilestones:
         args.submilestones === undefined
-          ? existingSubmilestones.map((submilestone) => ({
+          ? existingSubmilestones
+              .filter((submilestone) => submilestone.planningState !== "superseded")
+              .map((submilestone) => ({
               budgetCents: submilestone.budgetCents,
               durationDays: submilestone.durationDays,
               key: submilestone.key,
@@ -16467,6 +16562,9 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
             ),
           }),
       ...(args.status === undefined ? {} : { status: args.status }),
+      planningState: "active" as const,
+      supersededAt: undefined,
+      supersededByPlanningRevision: undefined,
       updatedAt: Date.now(),
     };
     Object.assign(patch, {
@@ -16475,15 +16573,45 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       durationDays: schedule.durationDays,
     });
     await ctx.db.patch(milestone._id, patch);
+    let supersededIds: Id<"buildSubmilestones">[] = [];
     if (args.submilestones !== undefined || dayStartDelta !== 0) {
-      await replaceActiveBuildSubmilestones(ctx, auth, {
+      const replacement = await replaceActiveBuildSubmilestones(ctx, auth, {
         buildId: args.buildId,
         milestone,
         rejectEmpty: args.submilestones !== undefined,
         rows: schedule.submilestones,
       });
+      supersededIds = replacement.supersededIds;
     }
     await recalculateActiveBuildBudget(ctx, args.buildId);
+    const planningRevision = await recordApprovedActiveBuildPlanningRevision(
+      ctx,
+      {
+        actor: {
+          actorRoles: auth.roles,
+          actorWorkosUserId: auth.subject,
+        },
+        build: auth.build,
+        reason: "Approved active-build timeline update.",
+        sourceCommand: "updateActiveBuildTimelineMilestone",
+      },
+    );
+    if (planningRevision && supersededIds.length > 0) {
+      for (const submilestoneId of supersededIds) {
+        await ctx.db.patch(submilestoneId, {
+          supersededByPlanningRevision: planningRevision.revision,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    const currentMilestone = await ctx.db.get(milestone._id);
+    if (currentMilestone) {
+      await synchronizeMilestoneSystemPostPlanning(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        build: auth.build,
+        milestone: currentMilestone,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -16512,6 +16640,10 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
     requireBackofficeActiveBuildWrite(auth);
     await requireActiveBuildAppPermission(ctx, auth, "milestone", "delete");
     await requireActiveBuildAppPermission(ctx, auth, "submilestone", "delete");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -16519,6 +16651,32 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
     );
     await deleteActiveBuildMilestoneCascade(ctx, args.buildId, milestone);
     await recalculateActiveBuildBudget(ctx, args.buildId);
+    const planningRevision = await recordApprovedActiveBuildPlanningRevision(
+      ctx,
+      {
+        actor: {
+          actorRoles: auth.roles,
+          actorWorkosUserId: auth.subject,
+        },
+        build: auth.build,
+        reason: "Approved active-build milestone superseded.",
+        sourceCommand: "deleteActiveBuildTimelineMilestone",
+      },
+    );
+    if (planningRevision) {
+      await ctx.db.patch(milestone._id, {
+        supersededByPlanningRevision: planningRevision.revision,
+        updatedAt: Date.now(),
+      });
+    }
+    const currentMilestone = await ctx.db.get(milestone._id);
+    if (currentMilestone) {
+      await synchronizeMilestoneSystemPostPlanning(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        build: auth.build,
+        milestone: currentMilestone,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -16551,6 +16709,10 @@ export const createActiveBuildTimelineDraw = authenticatedMutation
     );
     requireBackofficeActiveBuildWrite(auth);
     await requireActiveBuildAppPermission(ctx, auth, "draw", "create");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const existing = await ctx.db
       .query("plannedDrawScheduleRows")
       .withIndex("by_build_order", (q) => q.eq("buildId", args.buildId))
@@ -16609,6 +16771,13 @@ export const createActiveBuildTimelineDraw = authenticatedMutation
       timingDay: Math.max(0, Math.round(args.x)),
       updatedAt: now,
     });
+    await recordApprovedActiveBuildPlanningRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+      reason: "Approved active-build draw created.",
+      sourceCommand: "createActiveBuildTimelineDraw",
+      now,
+    });
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -16641,6 +16810,10 @@ export const updateActiveBuildTimelineDraw = authenticatedMutation
     );
     requireBackofficeActiveBuildWrite(auth);
     await requireActiveBuildAppPermission(ctx, auth, "draw", "update");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const draw = await getActiveBuildDrawOrThrow(
       ctx,
       args.buildId,
@@ -16676,6 +16849,12 @@ export const updateActiveBuildTimelineDraw = authenticatedMutation
       updatedAt: Date.now(),
     };
     await ctx.db.patch(draw._id, patch);
+    await recordApprovedActiveBuildPlanningRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+      reason: "Approved active-build draw updated.",
+      sourceCommand: "updateActiveBuildTimelineDraw",
+    });
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -16703,6 +16882,10 @@ export const deleteActiveBuildTimelineDraw = authenticatedMutation
     );
     requireBackofficeActiveBuildWrite(auth);
     await requireActiveBuildAppPermission(ctx, auth, "draw", "delete");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const draw = await getActiveBuildDrawOrThrow(
       ctx,
       args.buildId,
@@ -16714,6 +16897,12 @@ export const deleteActiveBuildTimelineDraw = authenticatedMutation
       );
     }
     await ctx.db.delete(draw._id);
+    await recordApprovedActiveBuildPlanningRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+      reason: "Approved active-build draw removed.",
+      sourceCommand: "deleteActiveBuildTimelineDraw",
+    });
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -16922,6 +17111,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       args.buildId,
       args.asset.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const existing = await ctx.db
       .query("buildEvidenceAssets")
       .withIndex("by_build_key", (q) =>
@@ -16986,6 +17176,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
           submilestoneKey: args.asset.submilestoneKey,
         });
       }
+      assertActiveBuildPlanningTargetActive(milestone, submilestone);
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
         actorWorkosUserId: auth.subject,
         asset: persistedAsset,
@@ -17543,6 +17734,7 @@ export const startActiveBuildMilestone = authenticatedMutation
       getActiveBuildMilestoneOrThrow(ctx, args.buildId, args.milestoneKey),
       collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
     ]);
+    assertActiveBuildPlanningTargetActive(milestone);
     const submilestone = args.submilestoneKey
       ? (
           (await ctx.db
@@ -17559,6 +17751,9 @@ export const startActiveBuildMilestone = authenticatedMutation
         message: "Submilestone is unavailable for this milestone.",
         submilestoneKey: args.submilestoneKey,
       });
+    }
+    if (submilestone) {
+      assertActiveBuildPlanningTargetActive(milestone, submilestone);
     }
     if (contractorStart) {
       const ownership = submilestone
@@ -17729,6 +17924,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const submilestones = (await ctx.db
       .query("buildSubmilestones")
       .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
@@ -17743,6 +17939,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         submilestoneKey: args.submilestoneKey,
       });
     }
+    assertActiveBuildPlanningTargetActive(milestone, submilestone);
     const nextStatus = args.status ?? submilestone.status;
     if (submilestone.status === "planned" && nextStatus === "in_progress") {
       throw new ConvexError({
@@ -18044,6 +18241,10 @@ export const configureActiveBuildSubmilestoneEvidenceRequirements =
         args.workosOrganizationId,
       );
       await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+      await ensureActiveBuildPlanningActivationRevision(ctx, {
+        actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+        build: auth.build,
+      });
       const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
         buildId: args.buildId,
         milestoneKey: args.milestoneKey,
@@ -18105,6 +18306,21 @@ export const configureActiveBuildSubmilestoneEvidenceRequirements =
           revision: prior.reduce((max, row) => Math.max(max, row.revision), 0),
         }),
       });
+      await recordApprovedActiveBuildPlanningRevision(ctx, {
+        actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+        build: auth.build,
+        reason: "Approved Evidence requirement revision.",
+        sourceCommand: "configureActiveBuildSubmilestoneEvidenceRequirements",
+        now,
+      });
+      const currentMilestone = await ctx.db.get(milestone._id);
+      if (currentMilestone) {
+        await synchronizeMilestoneSystemPostPlanning(ctx, {
+          actor: { roles: auth.roles, workosUserId: auth.subject },
+          build: auth.build,
+          milestone: currentMilestone,
+        });
+      }
       return ids;
     })
     .public();
@@ -18587,6 +18803,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     if (
       milestone.completionClaim &&
       (milestone.completionClaim as { idempotencyKey?: string })
@@ -18841,6 +19058,7 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const visit = await ctx.db
       .query("buildSiteVisits")
       .withIndex("by_visit", (q) => q.eq("visitId", args.visitId))
@@ -19075,6 +19293,11 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
+    const visitMilestone = await ctx.db.get(visit.buildMilestoneId);
+    if (!visitMilestone) {
+      throw new Error("Site visit milestone was not found.");
+    }
+    assertActiveBuildPlanningTargetActive(visitMilestone);
     const clientEvidenceId = normalizeOperationalIdempotencyKey(
       args.clientEvidenceId,
       "Site Visit Evidence client ID",
@@ -19278,6 +19501,11 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
+    const visitMilestone = await ctx.db.get(visit.buildMilestoneId);
+    if (!visitMilestone) {
+      throw new Error("Site visit milestone was not found.");
+    }
+    assertActiveBuildPlanningTargetActive(visitMilestone);
     const visitEvidence = (
       await ctx.db
         .query("buildEvidenceAssets")
@@ -19368,10 +19596,7 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
         });
       }
     }
-    const milestone = await ctx.db.get(visit.buildMilestoneId);
-    if (!milestone) {
-      throw new Error("Site visit milestone was not found.");
-    }
+    const milestone = visitMilestone;
     const now = Date.now();
     const collaborationEventRevision =
       (visit.collaborationEventRevision ?? 1) + 1;
@@ -19513,6 +19738,7 @@ export const reviewActiveBuildEvidence = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const reviewedAt = new Date().toISOString();
     const note = normalizeOptionalString(args.note);
     if (!(args.accepted || note)) {
@@ -19809,6 +20035,10 @@ export const attachActiveBuildContractor = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     await upsertActiveBuildContractorAssignment(ctx, {
       auth,
       command: "attachActiveBuildContractor",
@@ -20048,6 +20278,10 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
@@ -20232,6 +20466,21 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
           : undefined,
       reason: args.note,
     });
+    await recordApprovedActiveBuildPlanningRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+      reason: args.note?.trim() || "Approved Work Allocation update.",
+      sourceCommand: "assignActiveBuildContractorToMilestone",
+      now,
+    });
+    const currentMilestone = await ctx.db.get(milestone._id);
+    if (currentMilestone) {
+      await synchronizeMilestoneSystemPostPlanning(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        build: auth.build,
+        milestone: currentMilestone,
+      });
+    }
     return assignmentIds;
   })
   .public();
@@ -20342,6 +20591,21 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
       ),
       reason,
     });
+    await recordApprovedActiveBuildPlanningRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+      reason,
+      sourceCommand: "removeActiveBuildContractorFromMilestone",
+      now,
+    });
+    const currentMilestone = await ctx.db.get(milestone._id);
+    if (currentMilestone) {
+      await synchronizeMilestoneSystemPostPlanning(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        build: auth.build,
+        milestone: currentMilestone,
+      });
+    }
     return targets.map((assignment) => assignment._id);
   })
   .public();
@@ -21854,6 +22118,7 @@ export const requestActiveBuildMilestoneInfo = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const note = normalizeOptionalString(args.note);
     if (!note) {
       throw new Error("A requested change note is required.");
@@ -21938,6 +22203,7 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const configuration = await resolveActiveBuildSiteVisitConfiguration(
       ctx,
       milestone,
@@ -22091,6 +22357,7 @@ export const approveActiveBuildMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const completionReview = {
       ...(milestone.completionReview ?? {}),
       ...(args.note ? { note: args.note } : {}),
@@ -22158,6 +22425,7 @@ export const rejectActiveBuildMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const completionReview = {
       ...(milestone.completionReview ?? {}),
       ...(args.note ? { note: args.note } : {}),
@@ -30383,6 +30651,28 @@ async function getActiveBuildMilestoneOrThrow(
   return milestone;
 }
 
+function assertActiveBuildPlanningTargetActive(
+  milestone: Pick<Doc<"buildMilestones">, "key" | "planningState">,
+  submilestone?: Pick<Doc<"buildSubmilestones">, "key" | "planningState">,
+) {
+  if (milestone.planningState === "superseded") {
+    throw new ConvexError({
+      code: "MILESTONE_SUPERSEDED",
+      message:
+        "This Milestone was removed by an approved planning revision and cannot execute commands.",
+      milestoneKey: milestone.key,
+    });
+  }
+  if (submilestone?.planningState === "superseded") {
+    throw new ConvexError({
+      code: "SUBMILESTONE_SUPERSEDED",
+      message:
+        "This Sub-milestone was removed by an approved planning revision and cannot execute commands.",
+      submilestoneKey: submilestone.key,
+    });
+  }
+}
+
 async function activeBuildStartTarget(
   ctx: QueryCtx | MutationCtx,
   input: {
@@ -30418,6 +30708,14 @@ async function activeBuildStartTarget(
     input.buildId,
     input.milestoneKey,
   );
+  if (milestone.planningState === "superseded") {
+    throw new ConvexError({
+      code: "MILESTONE_SUPERSEDED",
+      message:
+        "This Milestone was removed by an approved planning revision and cannot execute commands.",
+      milestoneKey: input.milestoneKey,
+    });
+  }
   if (!input.submilestoneKey) {
     return {
       milestone,
@@ -30437,6 +30735,14 @@ async function activeBuildStartTarget(
     throw new ConvexError({
       code: "SUBMILESTONE_NOT_FOUND",
       message: "Submilestone is unavailable for this milestone.",
+      submilestoneKey: input.submilestoneKey,
+    });
+  }
+  if (submilestone.planningState === "superseded") {
+    throw new ConvexError({
+      code: "SUBMILESTONE_SUPERSEDED",
+      message:
+        "This Sub-milestone was removed by an approved planning revision and cannot execute commands.",
       submilestoneKey: input.submilestoneKey,
     });
   }
@@ -30622,6 +30928,7 @@ async function insertActiveBuildMilestoneFromInput(
     order: Math.max(1, Math.round(milestone.order)),
     organizationId: auth.build.organizationId,
     policyState: milestone.policyState,
+    planningState: "active",
     progressPercent: 0,
     proposalMilestoneId,
     status: "planned",
@@ -30662,7 +30969,7 @@ async function replaceActiveBuildSubmilestones(
       startDay?: number;
     }[];
   },
-) {
+): Promise<{ supersededIds: Id<"buildSubmilestones">[] }> {
   const nextSubmilestoneByKey = new Map(
     input.rows.map((row) => [row.key, row] as const),
   );
@@ -30678,11 +30985,10 @@ async function replaceActiveBuildSubmilestones(
     if (!target) {
       continue;
     }
-    if (!nextSubmilestoneByKey.has(target)) {
-      throw new Error(
-        `Cannot remove budget sub-milestone ${target} while cost items target it.`,
-      );
-    }
+    // Removed planning rows remain as superseded canonical records so cost,
+    // evidence, review, and discussion lineage stays addressable. Coverage
+    // validation still applies to rows that remain executable.
+    if (!nextSubmilestoneByKey.has(target)) continue;
     if (normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain") {
       maintainedCentsByTarget.set(
         target,
@@ -30707,35 +31013,71 @@ async function replaceActiveBuildSubmilestones(
       `Milestone ${input.milestone.key}`,
     );
   }
-  const existing = await ctx.db
+  const existing = (await ctx.db
     .query("buildSubmilestones")
     .withIndex("by_milestone", (q) =>
       q.eq("buildMilestoneId", input.milestone._id),
     )
-    .collect();
-  for (const row of existing) {
-    await ctx.db.delete(row._id);
-  }
+    .take(1000)) as Doc<"buildSubmilestones">[];
   const now = Date.now();
+  const supersededIds: Id<"buildSubmilestones">[] = [];
+  const existingByKey = new Map(existing.map((row) => [row.key, row]));
+  for (const row of existing) {
+    if (nextSubmilestoneByKey.has(row.key)) continue;
+    if (row.planningState === "superseded") continue;
+    await ctx.db.patch(row._id, {
+      planningState: "superseded",
+      supersededAt: now,
+      supersededByPlanningRevision: undefined,
+      updatedAt: now,
+    });
+    supersededIds.push(row._id);
+  }
   for (const row of [...input.rows].sort((a, b) => a.order - b.order)) {
-    const proposalSubmilestoneId = await ctx.db.insert(
-      "proposalSubmilestones",
-      {
-        brokerageId: auth.brokerage._id,
+    const normalizedName = row.name.trim() || "Submilestone";
+    const existingRow = existingByKey.get(row.key);
+    if (existingRow) {
+      await ctx.db.patch(existingRow._id, {
         budgetCents: row.budgetCents,
-        createdAt: now,
         durationDays: row.durationDays,
         key: row.key,
-        milestoneKey: input.milestone.key,
-        name: row.name.trim() || "Submilestone",
+        name: normalizedName,
         order: Math.max(1, Math.round(row.order)),
-        organizationId: auth.build.organizationId,
-        proposalId: auth.proposal._id,
-        proposalMilestoneId: input.milestone.proposalMilestoneId,
+        planningState: "active",
         startDay: row.startDay,
+        supersededAt: undefined,
+        supersededByPlanningRevision: undefined,
         updatedAt: now,
-      },
-    );
+      });
+      const proposalRow = await ctx.db.get(existingRow.proposalSubmilestoneId);
+      if (proposalRow) {
+        await ctx.db.patch(proposalRow._id, {
+          budgetCents: row.budgetCents,
+          durationDays: row.durationDays,
+          key: row.key,
+          name: normalizedName,
+          order: Math.max(1, Math.round(row.order)),
+          startDay: row.startDay,
+          updatedAt: now,
+        });
+      }
+      continue;
+    }
+    const proposalSubmilestoneId = await ctx.db.insert("proposalSubmilestones", {
+      brokerageId: auth.brokerage._id,
+      budgetCents: row.budgetCents,
+      createdAt: now,
+      durationDays: row.durationDays,
+      key: row.key,
+      milestoneKey: input.milestone.key,
+      name: normalizedName,
+      order: Math.max(1, Math.round(row.order)),
+      organizationId: auth.build.organizationId,
+      proposalId: auth.proposal._id,
+      proposalMilestoneId: input.milestone.proposalMilestoneId,
+      startDay: row.startDay,
+      updatedAt: now,
+    });
     await ctx.db.insert("buildSubmilestones", {
       brokerageId: auth.brokerage._id,
       buildId: input.buildId,
@@ -30745,15 +31087,17 @@ async function replaceActiveBuildSubmilestones(
       durationDays: row.durationDays,
       key: row.key,
       milestoneKey: input.milestone.key,
-      name: row.name.trim() || "Submilestone",
+      name: normalizedName,
       order: Math.max(1, Math.round(row.order)),
       organizationId: auth.build.organizationId,
       proposalSubmilestoneId,
+      planningState: "active",
       startDay: row.startDay,
       status: "planned",
       updatedAt: now,
     });
   }
+  return { supersededIds };
 }
 
 async function deleteActiveBuildStorageRow(
@@ -30834,53 +31178,26 @@ async function deleteActiveBuildMilestoneCascade(
   buildId: Id<"activeBuilds">,
   milestone: Doc<"buildMilestones">,
 ) {
+  const now = Date.now();
   const submilestones = await ctx.db
     .query("buildSubmilestones")
     .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
-    .collect();
+    .take(1000);
   for (const row of submilestones) {
-    await ctx.db.delete(row._id);
+    if (row.planningState === "superseded") continue;
+    await ctx.db.patch(row._id, {
+      planningState: "superseded",
+      supersededAt: now,
+      supersededByPlanningRevision: undefined,
+      updatedAt: now,
+    });
   }
-  const costItems = await ctx.db
-    .query("buildCostItems")
-    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
-    .collect();
-  for (const item of costItems) {
-    await ctx.db.delete(item._id);
-  }
-  const evidenceAssets = await ctx.db
-    .query("buildEvidenceAssets")
-    .withIndex("by_build_milestone", (q) =>
-      q.eq("buildId", buildId).eq("milestoneKey", milestone.key),
-    )
-    .collect();
-  for (const asset of evidenceAssets) {
-    if (asset.storageId) {
-      await ctx.storage.delete(asset.storageId);
-    }
-    await ctx.db.delete(asset._id);
-  }
-  const draws = await collectByIndex(
-    ctx,
-    "plannedDrawScheduleRows",
-    "by_build",
-    buildId,
-  );
-  for (const draw of draws.filter(
-    (row: any) => row.milestoneKey === milestone.key,
-  )) {
-    await ctx.db.delete(draw._id);
-  }
-  const siteVisits = await ctx.db
-    .query("buildSiteVisits")
-    .withIndex("by_build_milestone", (q) =>
-      q.eq("buildId", buildId).eq("milestoneKey", milestone.key),
-    )
-    .collect();
-  for (const visit of siteVisits) {
-    await ctx.db.delete(visit._id);
-  }
-  await ctx.db.delete(milestone._id);
+  await ctx.db.patch(milestone._id, {
+    planningState: "superseded",
+    supersededAt: now,
+    supersededByPlanningRevision: undefined,
+    updatedAt: now,
+  });
 }
 
 async function authorizeActiveBuildCostItemWrite(
