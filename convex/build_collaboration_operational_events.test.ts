@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import schema from "./schema";
 import type { Id } from "./types";
 
@@ -765,6 +766,91 @@ describe("Build Collaboration operational events", () => {
       organizationId: ORGANIZATION_ID,
       role: "admin",
       workosUserId: "user_admin",
+    });
+  });
+
+  test("fails closed when an exact Work Allocation scope exceeds the bounded assignment read", async () => {
+    const fixture = await seedOperationalBuild();
+    const scope = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      const milestone = await ctx.db.get(fixture.milestoneId);
+      const proposalMilestone = milestone
+        ? await ctx.db.get(milestone.proposalMilestoneId)
+        : null;
+      const rootAssignment = await ctx.db
+        .query("buildContractorAssignments")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .first();
+      if (!(build && milestone && proposalMilestone && rootAssignment)) {
+        throw new Error("Operational assignment fixture is unavailable.");
+      }
+      const now = Date.now();
+      const proposalSubmilestoneId = await ctx.db.insert(
+        "proposalSubmilestones",
+        {
+          brokerageId: fixture.brokerageId,
+          createdAt: now,
+          key: "foundation-overloaded",
+          milestoneKey: milestone.key,
+          name: "Overloaded assignment scope",
+          order: 99,
+          organizationId: ORGANIZATION_ID,
+          proposalId: fixture.proposalId,
+          proposalMilestoneId: proposalMilestone._id,
+          updatedAt: now,
+        },
+      );
+      const submilestoneId = await ctx.db.insert("buildSubmilestones", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        buildMilestoneId: milestone._id,
+        createdAt: now,
+        key: "foundation-overloaded",
+        milestoneKey: milestone.key,
+        name: "Overloaded assignment scope",
+        order: 99,
+        organizationId: ORGANIZATION_ID,
+        proposalSubmilestoneId,
+        status: "planned",
+        updatedAt: now,
+      });
+      for (let index = 0; index < 101; index += 1) {
+        await ctx.db.insert("milestoneContractorAssignments", {
+          assignedAt: now + index,
+          assignedByWorkosUserId: "user_admin",
+          brokerageId: fixture.brokerageId,
+          buildContractorAssignmentId: rootAssignment._id,
+          buildId: fixture.buildId,
+          buildMilestoneId: milestone._id,
+          buildSubmilestoneId: submilestoneId,
+          contractorId: rootAssignment.contractorId,
+          createdAt: now + index,
+          milestoneKey: milestone.key,
+          organizationId: ORGANIZATION_ID,
+          postHoc: false,
+          role: "Concrete contractor",
+          status: index === 100 ? "active" : "removed",
+          submilestoneKey: "foundation-overloaded",
+          updatedAt: now + index,
+        });
+      }
+      return { build, milestone, submilestone: await ctx.db.get(submilestoneId) };
+    });
+    if (!scope.submilestone) {
+      throw new Error("Overloaded submilestone fixture is unavailable.");
+    }
+
+    await expect(
+      fixture.base.run((ctx) =>
+        resolveCanonicalMilestoneExecutionOwnership(ctx, {
+          build: scope.build,
+          milestone: scope.milestone,
+          submilestone: scope.submilestone!,
+        }),
+      ),
+    ).resolves.toEqual({
+      reason: "ambiguous",
+      state: "assignment_required",
     });
   });
 

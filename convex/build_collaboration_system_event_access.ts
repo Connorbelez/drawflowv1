@@ -191,7 +191,16 @@ export async function resolveCanonicalMilestoneExecutionOwnership(
         .eq("milestoneKey", milestone.key)
         .eq("submilestoneKey", submilestone.key)
     )
-    .take(100);
+    .take(101);
+  // A bounded read must fail closed when the bound is exceeded. Otherwise a
+  // valid assignment after the first 100 rows could be selected as though the
+  // truncated set were authoritative.
+  if (rows.length > 100) {
+    return {
+      reason: "ambiguous",
+      state: "assignment_required",
+    };
+  }
   const scopedRows = rows.filter(
     (row) =>
       row.organizationId === build.organizationId &&

@@ -359,6 +359,7 @@ function canonicalMilestoneSystemPostEntryFixture() {
         authoredBy: "DrawFlow System",
         canonicalBuildMilestoneId: "milestone-1",
         kind: "milestone",
+        milestoneKey: "foundation",
         currentPlanningRevision: 1,
         lifecycle: planningLifecycle,
         occurrenceKey: "milestone-system:build-1:milestone-1",
@@ -1563,6 +1564,30 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
   });
 
+  test("keeps server restricted placeholders in Active operations", () => {
+    const activeEntry = canonicalMilestoneSystemPostEntryFixture();
+    mocks.feedRows = [
+      {
+        kind: "restricted",
+        placeholderKey: "restricted-active-operation",
+      },
+      activeEntry,
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Active operations" }));
+
+    expect(screen.getByText("Restricted update")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Foundation started. Canonical Sub-milestone cards are synchronized.",
+      ),
+    ).toBeTruthy();
+  });
+
   test("renders live Draw facts and an explicit absence of generated work or a Draw board", () => {
     mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
 
@@ -1820,6 +1845,40 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Schedule")).toBeTruthy();
     expect(screen.getByText("Assignments")).toBeTruthy();
     expect(screen.getByText("Structured changes · 2")).toBeTruthy();
+  });
+
+  test("shows a loading comparison badge while structured reconciliation is unresolved", () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture();
+    entry.post.systemPost = {
+      ...entry.post.systemPost,
+      currentPlanningRevision: 3,
+    };
+    mocks.feedRows = [entry];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByText("Loading comparison…")).toBeTruthy();
+    expect(screen.queryByText("Changed since activation")).toBeNull();
+    expect(screen.queryByText("Matches activation")).toBeNull();
+    expect(screen.getByText("Loading structured planning changes…")).toBeTruthy();
+  });
+
+  test("does not show structured counts when the System Post has no milestone binding", () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture();
+    delete (entry.post.systemPost as { milestoneKey?: string }).milestoneKey;
+    mocks.feedRows = [entry];
+    mocks.planningReconciliation = planningReconciliationFixture();
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(
+      screen.getByText("No structured planning changes are recorded after activation."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Structured changes ·/)).toBeNull();
   });
 
   test("keeps restricted planning reconciliation fields out of a Contractor System Post", () => {

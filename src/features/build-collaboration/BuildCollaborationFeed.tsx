@@ -153,6 +153,10 @@ import { parseBuildCollaborationFocus } from "./referenceFocus.ts";
 
 const BUILD_WORKSPACE_PATH_PATTERN =
   /(\/(?:backoffice|builder-staff|builder|contractor|homeowner)\/builds\/)[^/]+/;
+const PLACEHOLDER_VISIBLE_FEED_FILTERS = new Set<FeedFilter>([
+  "active_operations",
+  "all",
+]);
 
 function focusedEntityQueueArgs({
   buildId,
@@ -1033,7 +1037,12 @@ function BuildCollaborationFeedContent({
     () =>
       feedEntries.filter((entry) => {
         if (entry.kind !== "post") {
-          return filter === "all";
+          // The server deliberately returns restricted placeholders for active
+          // operations so that an eligible viewer sees the same page shape and
+          // cursor semantics without learning the hidden post. Keep those
+          // non-post entries in both canonical feed views; local-only views
+          // still operate on readable posts.
+          return PLACEHOLDER_VISIBLE_FEED_FILTERS.has(filter);
         }
         if (filter === "pinned") {
           return entry.pins.length > 0;
@@ -3644,8 +3653,10 @@ function SystemPostPlanningComparison({
   const diffs =
     planningReconciliation?.diffs.filter((diff) => {
       const milestoneKey = systemPost.milestoneKey;
+      if (!milestoneKey) {
+        return false;
+      }
       return (
-        !milestoneKey ||
         diff.entityKey === milestoneKey ||
         diff.entityKey.startsWith(`${milestoneKey}:`)
       );
@@ -3697,8 +3708,20 @@ function SystemPostPlanningComparison({
             Activation snapshot versus the current approved plan
           </p>
         </div>
-        <Badge variant={changed ? "warning" : "success"}>
-          {changed ? "Changed since activation" : "Matches activation"}
+        <Badge
+          variant={
+            planningReconciliation === undefined
+              ? "outline"
+              : changed
+                ? "warning"
+                : "success"
+          }
+        >
+          {planningReconciliation === undefined
+            ? "Loading comparison…"
+            : changed
+              ? "Changed since activation"
+              : "Matches activation"}
         </Badge>
       </div>
       <dl className="grid grid-cols-2 gap-2 text-xs">
