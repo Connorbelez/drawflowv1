@@ -893,6 +893,32 @@ describe("Quote Invitation immutable response submissions", () => {
       (api as any).quote_response_submissions.submitQuoteInvitationResponse,
       input
     );
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (setting) {
+        await ctx.db.patch(setting._id, {
+          serviceLifecycle: "restricted_archive",
+          status: "disabled",
+          updatedAt: now,
+        });
+        return;
+      }
+      await ctx.db.insert("buildCollaborationTenantSettings", {
+        brokerageId: fixture.brokerageId,
+        createdAt: now,
+        generousRateLimitMultiplier: 1,
+        organizationId: ORGANIZATION_ID,
+        serviceLifecycle: "restricted_archive",
+        status: "disabled",
+        updatedAt: now,
+      });
+    });
     const replay = await fixture.base.mutation(
       (api as any).quote_response_submissions.submitQuoteInvitationResponse,
       input
@@ -2754,6 +2780,32 @@ describe("Quote Round draft-to-open aggregate", () => {
       packageRevisionNumber: 1,
       state: "open",
     });
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (setting) {
+        await ctx.db.patch(setting._id, {
+          serviceLifecycle: "restricted_archive",
+          status: "disabled",
+          updatedAt: now,
+        });
+        return;
+      }
+      await ctx.db.insert("buildCollaborationTenantSettings", {
+        brokerageId: fixture.brokerageId,
+        createdAt: now,
+        generousRateLimitMultiplier: 1,
+        organizationId: ORGANIZATION_ID,
+        serviceLifecycle: "restricted_archive",
+        status: "disabled",
+        updatedAt: now,
+      });
+    });
     const replay = await fixture.builder.mutation(
       (api as any).quote_rounds.publishQuoteRoundDraft,
       {
@@ -2765,6 +2817,22 @@ describe("Quote Round draft-to-open aggregate", () => {
       }
     );
     expect(replay).toEqual({ ...published, idempotentReplay: true });
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) {
+        throw new Error("Expected restricted-archive tenant settings.");
+      }
+      await ctx.db.patch(setting._id, {
+        serviceLifecycle: "active",
+        status: "active",
+        updatedAt: Date.now(),
+      });
+    });
 
     const quoteRoundId = created.quoteRoundId as Id<"quoteRounds">;
     const persisted = await fixture.base.run(async (ctx) => {
@@ -3027,6 +3095,32 @@ describe("Quote Round draft-to-open aggregate", () => {
     );
     const magicToken = "a".repeat(64);
     await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (setting) {
+        await ctx.db.patch(setting._id, {
+          serviceLifecycle: "restricted_archive",
+          status: "disabled",
+          updatedAt: now,
+        });
+        return;
+      }
+      await ctx.db.insert("buildCollaborationTenantSettings", {
+        brokerageId: fixture.brokerageId,
+        createdAt: now,
+        generousRateLimitMultiplier: 1,
+        organizationId: ORGANIZATION_ID,
+        serviceLifecycle: "restricted_archive",
+        status: "disabled",
+        updatedAt: now,
+      });
+    });
 
     const first = await fixture.base.mutation(
       api.quote_invitation_access.exchangeQuoteInvitationAccess,
@@ -3036,6 +3130,14 @@ describe("Quote Round draft-to-open aggregate", () => {
     if (first.status !== "available") {
       throw new Error("Expected Quote invitation access.");
     }
+    await expect(
+      fixture.builder.mutation(api.quote_rounds.createQuoteRoundDraft, {
+        buildId: fixture.buildId,
+        mode: "combined",
+        title: "Archived tenant write must fail",
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).rejects.toThrow(/restricted archive/);
     const replay = await fixture.base.mutation(
       api.quote_invitation_access.exchangeQuoteInvitationAccess,
       { magicToken, sessionToken: first.sessionToken }

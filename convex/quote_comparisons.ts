@@ -14,6 +14,7 @@ import {
   authenticatedMutation,
   authenticatedQuery,
 } from "./authz";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import {
   quoteInvitationCommunicationProjection,
   quoteInvitationCommunicationProjectionValidator,
@@ -1549,6 +1550,10 @@ export const setPreferredQuoteSubmissionRevision = authenticatedMutation
         reason,
       }
     );
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
     const round = requireRound(
       await ctx.db.get(quoteRoundId),
       authorization,
@@ -1692,6 +1697,10 @@ export const clearPreferredQuoteSubmissionRevision = authenticatedMutation
         breakGlassConfirmed: args.breakGlassConfirmed,
         reason,
       }
+    );
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
     );
     const round = requireRound(
       await ctx.db.get(quoteRoundId),

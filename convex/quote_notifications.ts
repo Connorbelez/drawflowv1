@@ -10,6 +10,7 @@ import {
   requiredAdministrativeReason,
 } from "./administrative_override_policy";
 import { authenticatedMutation } from "./authz";
+import { isOrganizationInRestrictedArchive } from "./data_retention";
 import {
   deriveCommunicationSecret,
   enqueueCommunicationIntent,
@@ -27,6 +28,7 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const DISPATCH_BATCH_SIZE = 40;
 const DISPATCH_LEASE_MS = 10 * 60 * 1000;
+const PROVIDER_RESERVATION_LEASE_MS = 2 * 60 * 1000;
 const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const POST_SEND_SUPPRESSION_MS = 12 * 60 * 60 * 1000;
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
@@ -34,6 +36,9 @@ const MAX_INVITATIONS_PER_ROUND = 100;
 const MAX_ROUNDS_PER_SWEEP = 500;
 const MAX_COMMUNICATION_HISTORY = 20;
 const MAX_DISPATCH_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
+const MAX_ACTIVE_PROVIDER_RESERVATIONS = 100;
+const PROVIDER_SUBMISSION_CANCELLED =
+  "Communication provider submission was cancelled before dispatch.";
 const RETRYABLE_DISPATCH_ERROR_PATTERN =
   /(\b429\b|rate[_ -]?limit|concurrent[_ -]?idempotent|\b5\d\d\b|timeout|network)/i;
 const PERMANENT_DISPATCH_ERROR_PATTERN =
@@ -396,6 +401,15 @@ export const claimCommunicationIntent = internalMutation
       )
       .order("desc")
       .first();
+    if (await isOrganizationInRestrictedArchive(ctx, intent.organizationId)) {
+      await cancelCommunicationForRestrictedArchive(
+        ctx,
+        intent,
+        latestAttempt,
+        args.now
+      );
+      return null;
+    }
     if (intent.status === "dispatching" && latestAttempt) {
       await ctx.db.patch(latestAttempt._id, {
         finishedAt: args.now,
@@ -470,6 +484,107 @@ export const claimCommunicationIntent = internalMutation
       recipientNameSnapshot: intent.recipientNameSnapshot,
       templateKey: intent.templateKey,
     };
+  })
+  .internal();
+
+export const authorizeCommunicationProviderSubmission = internalMutation
+  .input({
+    attemptId: v.id("communicationAttempts"),
+    intentId: v.id("communicationIntents"),
+    now: v.number(),
+  })
+  .returns(v.boolean())
+  .handler(async (ctx, args) => {
+    const [intent, attempt] = await Promise.all([
+      ctx.db.get(args.intentId),
+      ctx.db.get(args.attemptId),
+    ]);
+    if (
+      !(intent && attempt) ||
+      attempt.communicationIntentId !== intent._id ||
+      attempt.state !== "claimed" ||
+      intent.status !== "dispatching"
+    ) {
+      return false;
+    }
+    if (await isOrganizationInRestrictedArchive(ctx, intent.organizationId)) {
+      await cancelCommunicationForRestrictedArchive(
+        ctx,
+        intent,
+        attempt,
+        args.now
+      );
+      return false;
+    }
+    const activeReservations = await ctx.db
+      .query("communicationProviderReservations")
+      .withIndex("by_organizationId_and_state_and_leaseExpiresAt", (query) =>
+        query.eq("organizationId", intent.organizationId).eq("state", "active")
+      )
+      .take(MAX_ACTIVE_PROVIDER_RESERVATIONS + 1);
+    if (activeReservations.length > MAX_ACTIVE_PROVIDER_RESERVATIONS) {
+      return false;
+    }
+    for (const reservation of activeReservations) {
+      if (
+        reservation.communicationAttemptId === attempt._id &&
+        reservation.leaseExpiresAt > args.now
+      ) {
+        return true;
+      }
+      if (reservation.leaseExpiresAt > args.now) {
+        return false;
+      }
+      await ctx.db.patch(reservation._id, {
+        releasedAt: args.now,
+        state: "expired",
+        updatedAt: args.now,
+      });
+      const expiredAttempt = await ctx.db.get(
+        reservation.communicationAttemptId
+      );
+      if (expiredAttempt?.state === "claimed") {
+        await ctx.db.patch(expiredAttempt._id, {
+          finishedAt: args.now,
+          safeError: "Provider submission reservation lease expired.",
+          state: "abandoned",
+          updatedAt: args.now,
+        });
+      }
+    }
+    await ctx.db.insert("communicationProviderReservations", {
+      communicationAttemptId: attempt._id,
+      communicationIntentId: intent._id,
+      createdAt: args.now,
+      leaseExpiresAt: args.now + PROVIDER_RESERVATION_LEASE_MS,
+      organizationId: intent.organizationId,
+      state: "active",
+      updatedAt: args.now,
+    });
+    return true;
+  })
+  .internal();
+
+export const releaseCommunicationProviderReservation = internalMutation
+  .input({ attemptId: v.id("communicationAttempts"), now: v.number() })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const reservations = await ctx.db
+      .query("communicationProviderReservations")
+      .withIndex("by_communicationAttemptId", (query) =>
+        query.eq("communicationAttemptId", args.attemptId)
+      )
+      .collect();
+    for (const reservation of reservations) {
+      if (reservation.state === "active") {
+        await ctx.db.patch(reservation._id, {
+          releasedAt: args.now,
+          state: "released",
+          updatedAt: args.now,
+        });
+      }
+    }
+    return null;
   })
   .internal();
 
@@ -661,22 +776,42 @@ export const processDueCommunicationIntents = internalAction
             to: work.recipientEmailSnapshot,
           },
           async () => {
-            const response = await provider.emails.send(
+            const maySubmit = await ctx.runMutation(
+              internal.quote_notifications
+                .authorizeCommunicationProviderSubmission,
               {
-                from: rendered.sender,
-                html: rendered.html,
-                subject: rendered.subject,
-                text: rendered.text,
-                to: work.recipientEmailSnapshot,
-              },
-              { idempotencyKey: work.idempotencyKey }
+                attemptId: work.attemptId,
+                intentId: work.intentId,
+                now: Date.now(),
+              }
             );
-            if (response.error) {
-              throw new Error(
-                `Resend request failed (${response.error.statusCode ?? "unknown"} ${response.error.name}): ${response.error.message}`
+            if (!maySubmit) {
+              throw new Error(PROVIDER_SUBMISSION_CANCELLED);
+            }
+            try {
+              const response = await provider.emails.send(
+                {
+                  from: rendered.sender,
+                  html: rendered.html,
+                  subject: rendered.subject,
+                  text: rendered.text,
+                  to: work.recipientEmailSnapshot,
+                },
+                { idempotencyKey: work.idempotencyKey }
+              );
+              if (response.error) {
+                throw new Error(
+                  `Resend request failed (${response.error.statusCode ?? "unknown"} ${response.error.name}): ${response.error.message}`
+                );
+              }
+              return response.data.id;
+            } finally {
+              await ctx.runMutation(
+                internal.quote_notifications
+                  .releaseCommunicationProviderReservation,
+                { attemptId: work.attemptId, now: Date.now() }
               );
             }
-            return response.data.id;
           }
         );
         await ctx.runMutation(
@@ -691,6 +826,9 @@ export const processDueCommunicationIntents = internalAction
         );
       } catch (error) {
         const safeError = normalizeError(error);
+        if (safeError === PROVIDER_SUBMISSION_CANCELLED) {
+          continue;
+        }
         await ctx.runMutation(
           internal.quote_notifications.recordCommunicationDispatchFailure,
           {
@@ -1203,6 +1341,55 @@ function normalizeError(error: unknown) {
   return (
     value.replace(/\s+/g, " ").trim().slice(0, 500) || "Email dispatch failed."
   );
+}
+
+async function cancelCommunicationForRestrictedArchive(
+  ctx: MutationCtx,
+  intent: Doc<"communicationIntents">,
+  attempt: Doc<"communicationAttempts"> | null,
+  now: number
+) {
+  const reason =
+    "Communication dispatch cancelled because the organization is in restricted archive.";
+  if (attempt?.state === "claimed") {
+    await ctx.db.patch(attempt._id, {
+      finishedAt: now,
+      safeError: reason,
+      state: "abandoned",
+      updatedAt: now,
+    });
+  }
+  await ctx.db.patch(intent._id, {
+    actionRequiredReason: undefined,
+    lastError: undefined,
+    lastOutcomeAt: now,
+    nextAttemptAt: now + 24 * 60 * 60 * 1000,
+    status: "cancelled",
+    suppressionReason: reason,
+    updatedAt: now,
+  });
+  const eventFingerprint = `restricted-archive-dispatch-suppressed:${intent._id}`;
+  const existing = await ctx.db
+    .query("communicationOutcomes")
+    .withIndex("by_eventFingerprint", (query) =>
+      query.eq("eventFingerprint", eventFingerprint)
+    )
+    .unique();
+  if (!existing) {
+    await ctx.db.insert("communicationOutcomes", {
+      brokerageId: intent.brokerageId,
+      buildId: intent.buildId,
+      communicationAttemptId: attempt?._id,
+      communicationIntentId: intent._id,
+      eventFingerprint,
+      organizationId: intent.organizationId,
+      outcomeType: "dispatch_suppressed",
+      precedence: 100,
+      providerCreatedAt: now,
+      receivedAt: now,
+      safeDetail: reason,
+    });
+  }
 }
 
 function isRetryableDispatchError(message: string) {

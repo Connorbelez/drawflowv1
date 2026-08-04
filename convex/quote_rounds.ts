@@ -14,6 +14,7 @@ import {
   normalizeOperationalIdempotencyKey,
   operationalRequestFingerprint,
 } from "./build_operational_idempotency";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import {
   createInitialQuoteInvitationCredentialAndDispatch,
   defaultQuoteInvitationAccessExpiry,
@@ -3299,6 +3300,10 @@ export const createQuoteRoundDraft = authenticatedMutation
   .returns(quoteRoundDraftMutationResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeQuoteRoundPath(ctx, args);
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
     const now = Date.now();
     const quoteRoundId = await ctx.db.insert("quoteRounds", {
       brokerageId: authorization.brokerage._id,
@@ -3358,6 +3363,10 @@ export const updateQuoteRoundDraft = authenticatedMutation
   .returns(quoteRoundDraftMutationResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeQuoteRoundPath(ctx, args);
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
     const round = requireRoundScope(
       await ctx.db.get(args.quoteRoundId),
       authorization,
@@ -3534,6 +3543,11 @@ export const publishQuoteRoundDraft = authenticatedMutation
     if (replay) {
       return replay;
     }
+
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
 
     requireDraftState(round);
     assertExpectedRevision(round, args.expectedRevision);

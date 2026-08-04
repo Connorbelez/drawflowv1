@@ -6,6 +6,7 @@ import {
   builderQuery,
   type RoleSlug,
 } from "./authz";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const quoteTemplateAudienceValidator = v.union(
@@ -892,6 +893,7 @@ export const createQuoteResponseTemplateDraft = builderMutation
   .returns(v.object({ templateId: v.id("quoteResponseTemplates"), versionId: v.id("quoteResponseTemplateVersions") }))
   .handler(async (ctx, args) => {
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
+    await assertOrganizationRetentionWritable(ctx, authorization.organizationId);
     const name = requiredText(args.name, "Template name", 120);
     const description = boundedText(args.description, "Template description", 500) || undefined;
     let sourceTemplate: Doc<"quoteResponseTemplates"> | null = null;
@@ -1023,6 +1025,7 @@ export const updateQuoteResponseTemplateDraft = builderMutation
   .returns(validationResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
+    await assertOrganizationRetentionWritable(ctx, authorization.organizationId);
     const template = await ctx.db.get(args.templateId);
     const version = await ctx.db.get(args.versionId);
     if (!template || !version || template.brokerageId !== authorization.brokerage._id || template.organizationId !== authorization.organizationId || version.brokerageId !== authorization.brokerage._id || version.templateId !== template._id || version.organizationId !== authorization.organizationId || version.status !== "draft") {
@@ -1103,6 +1106,7 @@ export const publishQuoteResponseTemplate = builderMutation
   .returns(v.object({ templateId: v.id("quoteResponseTemplates"), versionId: v.id("quoteResponseTemplateVersions"), version: v.number() }))
   .handler(async (ctx, args) => {
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
+    await assertOrganizationRetentionWritable(ctx, authorization.organizationId);
     const template = await ctx.db.get(args.templateId);
     const version = await ctx.db.get(args.versionId);
     if (!template || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id) {
@@ -1168,6 +1172,7 @@ export const selectQuoteResponseTemplateVersion = builderMutation
   .returns(v.object({ templateId: v.id("quoteResponseTemplates"), versionId: v.id("quoteResponseTemplateVersions") }))
   .handler(async (ctx, args) => {
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
+    await assertOrganizationRetentionWritable(ctx, authorization.organizationId);
     const template = await ctx.db.get(args.templateId);
     const version = await ctx.db.get(args.versionId);
     if (!template || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id) {

@@ -10,6 +10,7 @@ import {
   authenticatedQuery,
 } from "./authz";
 import { normalizeContractorEmail } from "./contractorWorkspace";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import {
   type CommunicationIntentKind,
   deriveCommunicationSecret,
@@ -530,6 +531,10 @@ export const ensureQuoteRoundRecipient = authenticatedMutation
   .returns(quoteRecipientProvisionResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeQuoteRecipientAuthoring(ctx, args);
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
     const round = requireQuoteRoundRecipientDraft(
       await ctx.db.get(args.quoteRoundId),
       authorization
@@ -666,6 +671,10 @@ export const claimQuoteInvitationProfile = authenticatedMutation
     if (!invitationIsAvailable(scope)) {
       throw new ConvexError("Quote Invitation access is unavailable.");
     }
+    await assertOrganizationRetentionWritable(
+      ctx,
+      scope.invitation.organizationId
+    );
     const verifiedEmail = await verifiedViewerEmail(ctx, ctx.viewer);
     const profileEmail = normalizeContractorEmail(
       scope.profile.normalizedEmail ?? scope.profile.email

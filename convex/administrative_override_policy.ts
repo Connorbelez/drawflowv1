@@ -28,6 +28,10 @@ export const AUDIT_OVERRIDE_KINDS = [
   "cost_void",
   "preferred_set",
   "preferred_clear",
+  // ENG-402 retention controls. These are explicit so destructive recovery
+  // and physical disposal cannot be smuggled through an unrelated override.
+  "destructive_restore",
+  "retention_purge",
 ] as const;
 
 export const auditOverrideKindValidator = v.union(
@@ -239,7 +243,7 @@ export async function appendGovernedAuditEvent(
   return auditEventId;
 }
 
-function privacyMinimizedAuditState(
+export function privacyMinimizedAuditState(
   value: unknown,
   path = "state",
   depth = 0

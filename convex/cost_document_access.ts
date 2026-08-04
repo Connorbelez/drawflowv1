@@ -5,6 +5,7 @@ import {
 } from "./activeBuildAccess";
 import type { AuthorizedViewer } from "./authz";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_DRAFT_COLLABORATION_EVENTS = 250;
@@ -102,6 +103,17 @@ export async function authorizeCostDocumentIntent(
   }
   if (authorization.viewer.actorKind !== "human") {
     throw new Error("The Cost Document is unavailable.");
+  }
+
+  if (
+    input.intent === "create" ||
+    input.intent === "draft.edit" ||
+    input.intent === "batch.submit"
+  ) {
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
   }
 
   if (input.intent === "submitted.list" || input.intent === "submitted.read") {

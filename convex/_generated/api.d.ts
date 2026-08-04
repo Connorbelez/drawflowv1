@@ -134,6 +134,7 @@ import type * as cost_document_access from "../cost_document_access.js";
 import type * as cost_document_working_state from "../cost_document_working_state.js";
 import type * as cost_documents from "../cost_documents.js";
 import type * as crons from "../crons.js";
+import type * as data_retention from "../data_retention.js";
 import type * as demo_build_address from "../demo_build_address.js";
 import type * as demo_builder_proposals from "../demo_builder_proposals.js";
 import type * as demo_drawflow from "../demo_drawflow.js";
@@ -305,6 +306,7 @@ declare const fullApi: ApiFromModules<{
   cost_document_working_state: typeof cost_document_working_state;
   cost_documents: typeof cost_documents;
   crons: typeof crons;
+  data_retention: typeof data_retention;
   demo_build_address: typeof demo_build_address;
   demo_builder_proposals: typeof demo_builder_proposals;
   demo_drawflow: typeof demo_drawflow;

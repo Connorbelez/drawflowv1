@@ -2757,10 +2757,31 @@ export default defineSchema({
     attachmentCount: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // Terminal drafts remain recoverable for the retention window before
+    // editable rows and attachments are physically removed. Submitted
+    // response revisions are separate immutable history and are never deleted
+    // by this lifecycle.
+    retentionState: v.optional(
+      v.union(v.literal("active"), v.literal("recovery"), v.literal("purged"))
+    ),
+    terminalAt: v.optional(v.number()),
+    purgeEligibleAt: v.optional(v.number()),
+    purgedAt: v.optional(v.number()),
+    retentionNextCheckAt: v.optional(v.number()),
   })
     .index("by_quoteRoundInvitationId_and_quotePackageRevisionId", [
       "quoteRoundInvitationId",
       "quotePackageRevisionId",
+    ])
+    .index("by_buildId_and_retentionState_and_purgeEligibleAt", [
+      "buildId",
+      "retentionState",
+      "purgeEligibleAt",
+    ])
+    .index("by_buildId_and_retentionState_and_retentionNextCheckAt", [
+      "buildId",
+      "retentionState",
+      "retentionNextCheckAt",
     ])
     .index("by_quoteRoundId_and_updatedAt", ["quoteRoundId", "updatedAt"]),
   quoteInvitationResponseDraftLineItems: defineTable({
@@ -2872,6 +2893,11 @@ export default defineSchema({
       "quoteRoundInvitationId",
       "quotePackageRevisionId",
       "state",
+    ])
+    .index("by_buildId_and_state_and_expiresAt", [
+      "buildId",
+      "state",
+      "expiresAt",
     ])
     .index("by_pendingStorageId", ["pendingStorageId"])
     .index("by_state_and_expiresAt", ["state", "expiresAt"]),
@@ -3115,7 +3141,11 @@ export default defineSchema({
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
     // Never persist a raw bearer secret. The secure delivery transport receives
     // it only as the outgoing email body; application rows retain this verifier.
-    credentialVerifier: v.string(),
+    // Cleared after the credential's terminal retention window. The index
+    // remains useful for live verifiers while optionality lets cleanup remove
+    // the bearer-derived material without deleting lifecycle history.
+    credentialVerifier: v.optional(v.string()),
+    verifierPurgedAt: v.optional(v.number()),
     credentialVersion: v.number(),
     accessGeneration: v.optional(v.number()),
     purpose: v.optional(quoteInvitationCredentialPurposeValidator),
@@ -3137,6 +3167,12 @@ export default defineSchema({
       "quoteRoundInvitationId",
       "credentialVersion",
     ])
+    .index("by_buildId_and_state_and_verifierPurgedAt_and_updatedAt", [
+      "buildId",
+      "state",
+      "verifierPurgedAt",
+      "updatedAt",
+    ])
     .index("by_credentialVerifier", ["credentialVerifier"]),
   // Browser leases are exchange artifacts, not bearer credentials. The raw
   // session secret is returned once to the browser and this table stores only
@@ -3148,7 +3184,9 @@ export default defineSchema({
     quoteRoundId: v.id("quoteRounds"),
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
     quoteInvitationAccessCredentialId: v.id("quoteInvitationAccessCredentials"),
-    sessionVerifier: v.string(),
+    // Cleared after an expired/revoked browser lease ages past retention.
+    sessionVerifier: v.optional(v.string()),
+    verifierPurgedAt: v.optional(v.number()),
     state: quoteInvitationBrowserSessionStateValidator,
     accessExpiresAt: v.number(),
     sessionExpiresAt: v.number(),
@@ -3164,6 +3202,12 @@ export default defineSchema({
     .index("by_quoteInvitationAccessCredentialId_and_state", [
       "quoteInvitationAccessCredentialId",
       "state",
+    ])
+    .index("by_buildId_and_state_and_verifierPurgedAt_and_updatedAt", [
+      "buildId",
+      "state",
+      "verifierPurgedAt",
+      "updatedAt",
     ]),
   // Privacy-preserving access telemetry. It supports the invitation lifecycle
   // without retaining raw magic links, browser metadata, or response content.
@@ -3932,6 +3976,29 @@ export default defineSchema({
       "createdAt",
     ])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  // A short organization-scoped lease closes the race between archive
+  // transition and the irreversible provider submission side effect.
+  communicationProviderReservations: defineTable({
+    organizationId: v.string(),
+    communicationIntentId: v.id("communicationIntents"),
+    communicationAttemptId: v.id("communicationAttempts"),
+    state: v.union(
+      v.literal("active"),
+      v.literal("released"),
+      v.literal("expired")
+    ),
+    leaseExpiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    releasedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_state_and_leaseExpiresAt", [
+      "organizationId",
+      "state",
+      "leaseExpiresAt",
+    ])
+    .index("by_state_and_leaseExpiresAt", ["state", "leaseExpiresAt"])
+    .index("by_communicationAttemptId", ["communicationAttemptId"]),
   // Dispatch attempts are append-only so operators can distinguish a retry,
   // provider acceptance, and a permanent action-required failure.
   communicationAttempts: defineTable({
@@ -4801,6 +4868,15 @@ export default defineSchema({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
     status: buildCollaborationTenantStatusValidator,
+    // Retention cancellation is distinct from the collaboration rollout
+    // status. A restricted archive keeps canonical Build history readable and
+    // prevents new writes without making records purge-eligible early.
+    serviceLifecycle: v.optional(
+      v.union(v.literal("active"), v.literal("restricted_archive"))
+    ),
+    serviceLifecycleChangedAt: v.optional(v.number()),
+    serviceLifecycleChangedByWorkosUserId: v.optional(v.string()),
+    serviceLifecycleReason: v.optional(v.string()),
     retentionPolicyKey: v.optional(v.string()),
     generousRateLimitMultiplier: v.number(),
     accessRevision: v.optional(v.number()),
@@ -5336,6 +5412,260 @@ export default defineSchema({
     .index("by_buildId_and_completedAt", ["buildId", "completedAt"])
     .index("by_buildId_and_state", ["buildId", "state"])
     .index("by_operationKey", ["operationKey"]),
+  // Organization policy for the product-wide retention contract. The
+  // platform baseline is fixed at seven years after the later Build/Loan
+  // closure; tenants may only add days through this append-only versioned
+  // policy.
+  dataRetentionTenantPolicies: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    baselineYears: v.number(),
+    extensionDays: v.number(),
+    version: v.number(),
+    state: v.union(v.literal("active"), v.literal("superseded")),
+    reason: v.string(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    supersededAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_state", ["organizationId", "state"])
+    .index("by_organizationId_and_version", ["organizationId", "version"]),
+  // One derived schedule per Build. This is a rebuildable projection from
+  // canonical Build/Loan closure and the versioned tenant extension.
+  dataRetentionSchedules: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    policyId: v.id("dataRetentionTenantPolicies"),
+    policyVersion: v.number(),
+    state: v.union(
+      v.literal("active"),
+      v.literal("restricted_archive"),
+      v.literal("eligible"),
+      v.literal("held"),
+      v.literal("purged")
+    ),
+    revision: v.number(),
+    buildClosedAt: v.optional(v.number()),
+    loanClosedAt: v.optional(v.number()),
+    laterClosureAt: v.optional(v.number()),
+    baselineRetainUntil: v.optional(v.number()),
+    retainUntil: v.optional(v.number()),
+    derivedAt: v.number(),
+    lastReconciledAt: v.optional(v.number()),
+    restrictedArchiveAt: v.optional(v.number()),
+    purgedAt: v.optional(v.number()),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_organizationId_and_state", ["organizationId", "state"])
+    .index("by_state_and_retainUntil", ["state", "retainUntil"]),
+  // Durable cursor and retry state for paginated tenant/global retention jobs.
+  dataRetentionFanoutRuns: defineTable({
+    runKey: v.string(),
+    mode: v.union(
+      v.literal("archive"),
+      v.literal("maintenance"),
+      v.literal("reconcile")
+    ),
+    organizationId: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    state: v.union(
+      v.literal("running"),
+      v.literal("retry_scheduled"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    attemptCount: v.number(),
+    failureCount: v.number(),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_runKey", ["runKey"]),
+  dataRetentionFanoutBuildFailures: defineTable({
+    runKey: v.string(),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    mode: v.union(
+      v.literal("archive"),
+      v.literal("maintenance"),
+      v.literal("reconcile")
+    ),
+    state: v.union(
+      v.literal("retry_scheduled"),
+      v.literal("resolved"),
+      v.literal("failed")
+    ),
+    failureCount: v.number(),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  }).index("by_runKey_and_buildId", ["runKey", "buildId"]),
+  // Idempotency and progress ledger for every destructive or data-minimizing
+  // operation. A completed key is replay-safe and never executes twice.
+  dataRetentionOperations: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    scopeKind: v.string(),
+    scopeId: v.string(),
+    operationKey: v.string(),
+    operationKind: v.union(
+      v.literal("quote_draft"),
+      v.literal("cost_upload"),
+      v.literal("isolated_asset"),
+      v.literal("credential_verifier"),
+      v.literal("communication_payload"),
+      v.literal("physical_file"),
+      v.literal("build_purge"),
+      v.literal("retention_reminder"),
+      v.literal("restore")
+    ),
+    state: v.union(
+      v.literal("started"),
+      v.literal("blocked"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    reasonCode: v.string(),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    attemptCount: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    affectedCount: v.optional(v.number()),
+    blockReason: v.optional(v.string()),
+  })
+    .index("by_operationKey", ["organizationId", "operationKey"])
+    .index("by_organizationId_and_startedAt", ["organizationId", "startedAt"])
+    .index("by_buildId_and_operationKind", ["buildId", "operationKind"]),
+  // Deliberately minimized linked disposal certificate. It carries no source
+  // bytes, invoice facts, names, addresses, or free-text content.
+  dataRetentionTombstones: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    scopeKind: v.string(),
+    scopeId: v.string(),
+    operationId: v.id("dataRetentionOperations"),
+    lifecycleState: v.string(),
+    revisionCount: v.optional(v.number()),
+    sourceProofHmacSha256: v.optional(v.string()),
+    physicalStorageDeletedAt: v.optional(v.number()),
+    completedAt: v.number(),
+    tombstoneExpiresAt: v.number(),
+    auditEventId: v.optional(v.id("auditEvents")),
+  })
+    .index("by_scopeKind_and_scopeId", ["scopeKind", "scopeId"])
+    .index("by_organizationId_and_completedAt", [
+      "organizationId",
+      "completedAt",
+    ])
+    .index("by_tombstoneExpiresAt", ["tombstoneExpiresAt"]),
+  // Daily, tenant-scoped backup evidence. The manifest is a hash-addressed
+  // description of document and storage coverage, not the backup bytes.
+  dataRetentionBackupManifests: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    backupDate: v.string(),
+    capturedAt: v.number(),
+    rpoDeadlineAt: v.number(),
+    documentsCount: v.number(),
+    buildCount: v.number(),
+    relationshipCount: v.number(),
+    revisionLineageCount: v.number(),
+    storageObjectsCount: v.number(),
+    storageBytes: v.number(),
+    manifestSha256: v.string(),
+    manifestJson: v.string(),
+    // A manifest records controls that are intentionally never persisted in
+    // canonical communication tables (for example rendered provider bodies,
+    // raw provider payloads, IP addresses, and user agents).
+    neverPersistedControls: v.optional(v.array(v.string())),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("verified"),
+      v.literal("failed")
+    ),
+    verifiedAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    createdByWorkosUserId: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_backupDate", ["organizationId", "backupDate"])
+    .index("by_organizationId_and_capturedAt", ["organizationId", "capturedAt"])
+    .index("by_organizationId_and_state_and_capturedAt", [
+      "organizationId",
+      "state",
+      "capturedAt",
+    ]),
+  dataRetentionRestoreIncidents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    incidentReference: v.string(),
+    reason: v.string(),
+    breakGlassConfirmed: v.boolean(),
+    freshBackupManifestId: v.id("dataRetentionBackupManifests"),
+    state: v.union(
+      v.literal("started"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    startedAt: v.number(),
+    targetStartDeadlineAt: v.number(),
+    targetCompletionDeadlineAt: v.number(),
+    completedAt: v.optional(v.number()),
+    correctionHistoryJson: v.string(),
+    createdByWorkosUserId: v.string(),
+    auditEventId: v.optional(v.id("auditEvents")),
+  })
+    .index("by_organizationId_and_startedAt", ["organizationId", "startedAt"])
+    .index("by_organizationId_and_incidentReference", [
+      "organizationId",
+      "incidentReference",
+    ])
+    .index("by_incidentReference", ["incidentReference"]),
+  dataRetentionDrills: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    quarterKey: v.string(),
+    isolatedNamespace: v.string(),
+    backupManifestId: v.id("dataRetentionBackupManifests"),
+    buildCount: v.number(),
+    relationshipCount: v.number(),
+    revisionLineageCount: v.number(),
+    sampleSha256: v.string(),
+    isolationEvidenceSha256: v.string(),
+    passed: v.boolean(),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    createdByWorkosUserId: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_quarterKey", ["organizationId", "quarterKey"])
+    .index("by_isolatedNamespace", ["isolatedNamespace"]),
+  dataRetentionReconciliationRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    runKey: v.string(),
+    asOf: v.number(),
+    state: v.union(
+      v.literal("started"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    scheduleCount: v.number(),
+    reminderCount: v.number(),
+    outboxCount: v.number(),
+    retentionMismatchCount: v.number(),
+    backupRpoBreaches: v.number(),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_runKey", ["organizationId", "runKey"])
+    .index("by_organizationId_and_startedAt", ["organizationId", "startedAt"]),
   buildCollaborationPosts: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -6301,6 +6631,12 @@ export default defineSchema({
       "state",
       "createdAt",
     ])
+    .index("by_buildId_and_state_and_storageDeletedAt_and_createdAt", [
+      "buildId",
+      "state",
+      "storageDeletedAt",
+      "createdAt",
+    ])
     .index("by_storageId", ["storageId"])
     .index("by_supersedesAssetId", ["supersedesAssetId"])
     .index("by_lineageRootAssetId_and_version", [
@@ -6332,6 +6668,12 @@ export default defineSchema({
       "buildId",
       "ownerWorkosUserId",
       "state",
+    ])
+    .index("by_buildId_and_contextKind_and_state_and_expiresAt", [
+      "buildId",
+      "contextKind",
+      "state",
+      "expiresAt",
     ])
     .index("by_contextKind_and_contextRecordId_and_state", [
       "contextKind",
@@ -6705,6 +7047,8 @@ export default defineSchema({
     interestStartsOn: v.literal("funds_released"),
     paybackDate: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("closed")),
+    // Explicit closure timestamp lets retention use the later Build/Loan
+    // closure without inferring from a mutable updatedAt value.
     closedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),

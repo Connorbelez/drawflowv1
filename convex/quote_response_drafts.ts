@@ -3,6 +3,7 @@ import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import {
   internalMutation,
   internalQuery,
@@ -531,6 +532,10 @@ async function saveDraftForAccess(
   if (access.status !== "available") {
     return { status: access.status } as const;
   }
+  await assertOrganizationRetentionWritable(
+    ctx,
+    access.scope.invitation.organizationId
+  );
   const acknowledgementRequired = await requireAcknowledgedPackageRevision(
     ctx,
     access.scope
@@ -595,6 +600,10 @@ async function beginDraftAttachmentUploadForAccess(
   if (access.status !== "available") {
     return { status: access.status } as const;
   }
+  await assertOrganizationRetentionWritable(
+    ctx,
+    access.scope.invitation.organizationId
+  );
   const acknowledgementRequired = await requireAcknowledgedPackageRevision(
     ctx,
     access.scope
@@ -674,6 +683,13 @@ async function registerDraftAttachmentUploadForAccess(
   },
   ownership: { ownerWorkosUserId?: string } = {}
 ) {
+  if (access.status !== "available") {
+    return { status: access.status } as const;
+  }
+  await assertOrganizationRetentionWritable(
+    ctx,
+    access.scope.invitation.organizationId
+  );
   const now = Date.now();
   const session = await requireOwnedDraftAttachmentStagingSession(
     ctx,
@@ -805,6 +821,10 @@ async function attachDraftFileForAccess(
   if (access.status !== "available") {
     return { status: access.status } as const;
   }
+  await assertOrganizationRetentionWritable(
+    ctx,
+    access.scope.invitation.organizationId
+  );
   const acknowledgementRequired = await requireAcknowledgedPackageRevision(
     ctx,
     access.scope
@@ -1344,6 +1364,8 @@ async function createMigratedDraft(
     quotePackageRevisionId: scope.packageRevision._id,
     quoteRoundId: scope.invitation.quoteRoundId,
     quoteRoundInvitationId: scope.invitation._id,
+    retentionNextCheckAt: now,
+    retentionState: "active",
     updatedAt: now,
     version: previousDraft.version,
   });
@@ -1700,6 +1722,8 @@ async function createDraft(ctx: MutationCtx, scope: InvitationScope) {
     quotePackageRevisionId: scope.packageRevision._id,
     quoteRoundId: scope.invitation.quoteRoundId,
     quoteRoundInvitationId: scope.invitation._id,
+    retentionNextCheckAt: now,
+    retentionState: "active",
     updatedAt: now,
     version: 1,
   });

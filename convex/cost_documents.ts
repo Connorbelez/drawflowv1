@@ -37,6 +37,7 @@ import {
   requireEligibleCostDocumentDraftCollaborator,
 } from "./cost_document_access";
 import { normalizeCostDocumentWorkingStateJson } from "./cost_document_working_state";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import { enqueueCommunicationIntent } from "./email_transport";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -997,6 +998,10 @@ export const setCostDocumentReviewAnnotation = authenticatedMutation
       ctx,
       args
     );
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
     assertCostDocumentReviewerRole(authorization, args.reviewType);
     const annotation = requiredText(args.annotation, "Review annotation", 4000);
     const latest = await ctx.db
@@ -1051,6 +1056,10 @@ export const voidCostDocument = authenticatedMutation
   .handler(async (ctx, args) => {
     const { authorization: baseAuthorization, document } =
       await requireReadableCostDocument(ctx, args);
+    await assertOrganizationRetentionWritable(
+      ctx,
+      baseAuthorization.organizationId
+    );
     const reason = requiredText(args.reason, "Void reason", 1000);
     const recovery = await authorizeAdministrativeRecovery(
       ctx,
@@ -1130,6 +1139,10 @@ export const startCostDocumentCorrection = authenticatedMutation
   .handler(async (ctx, args) => {
     const { authorization: baseAuthorization, document } =
       await requireReadableCostDocument(ctx, args);
+    await assertOrganizationRetentionWritable(
+      ctx,
+      baseAuthorization.organizationId
+    );
     const recoveryReason = requiredText(args.reason, "Correction reason", 1000);
     const recovery = await authorizeAdministrativeRecovery(
       ctx,
@@ -1173,6 +1186,10 @@ export const reconcileCostDocumentIntegrity = authenticatedMutation
       ctx,
       args
     );
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
     return await reconcileSubmittedCostDocumentIntegrity(
       ctx,
       authorization,
@@ -1197,6 +1214,10 @@ export const backfillCostDocumentSourceHashDigests = authenticatedMutation
       ...args,
       intent: "submitted.read",
     });
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
     if (
       !["admin", "principle-broker"].includes(authorization.effectiveRole.role)
     ) {

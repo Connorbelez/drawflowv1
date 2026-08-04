@@ -72,6 +72,43 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "expire open Build collaboration asset staging sessions",
+  { minutes: 15 },
+  internal.build_collaboration_asset_maintenance
+    .expireBuildCollaborationAssetStagingSessions,
+  { state: "open" }
+);
+
+crons.interval(
+  "expire finalized Build collaboration asset staging sessions",
+  { minutes: 15 },
+  internal.build_collaboration_asset_maintenance
+    .expireBuildCollaborationAssetStagingSessions,
+  { state: "finalized" }
+);
+
+crons.daily(
+  "reconcile data retention schedules",
+  { hourUTC: 2, minuteUTC: 0 },
+  internal.data_retention.fanOutDataRetentionWork,
+  { mode: "reconcile" }
+);
+
+crons.daily(
+  "run data retention maintenance",
+  { hourUTC: 3, minuteUTC: 0 },
+  internal.data_retention.fanOutDataRetentionWork,
+  { mode: "maintenance" }
+);
+
+crons.daily(
+  "clean expired data retention tombstones",
+  { hourUTC: 4, minuteUTC: 0 },
+  internal.data_retention.cleanupExpiredDataRetentionTombstones,
+  {}
+);
+
 crons.hourly(
   "process Build Action Item deadlines",
   { minuteUTC: 5 },

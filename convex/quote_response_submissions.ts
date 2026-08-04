@@ -8,6 +8,7 @@ import {
   normalizeOperationalIdempotencyKey,
   operationalRequestFingerprint,
 } from "./build_operational_idempotency";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import { enqueueCommunicationIntent } from "./email_transport";
 import { publicMutation, publicQuery } from "./fluent";
 import {
@@ -598,6 +599,10 @@ async function submitForAccess(
     );
     return { idempotentReplay: true, status: "accepted" as const, ...replay };
   }
+  await assertOrganizationRetentionWritable(
+    ctx,
+    scope.invitation.organizationId
+  );
   if (access.status !== "available") {
     return { status: access.status };
   }
@@ -879,6 +884,10 @@ async function startRevisionForAccess(
     return { status: access.status };
   }
   const scope = access.scope;
+  await assertOrganizationRetentionWritable(
+    ctx,
+    scope.invitation.organizationId
+  );
   const acknowledgementRequired = await requireAcknowledgedPackageRevision(
     ctx,
     scope
@@ -949,6 +958,10 @@ async function withdrawForAccess(
   if (!hasScope(access)) {
     return { status: "unavailable" as const };
   }
+  await assertOrganizationRetentionWritable(
+    ctx,
+    access.scope.invitation.organizationId
+  );
   if (access.status !== "available") {
     return { status: access.status };
   }

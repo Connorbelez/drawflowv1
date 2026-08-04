@@ -13,6 +13,7 @@ import {
 } from "./administrative_override_policy";
 import { type AuthorizedViewer, authenticatedMutation } from "./authz";
 import { normalizeContractorEmail } from "./contractorWorkspace";
+import { assertOrganizationRetentionWritable } from "./data_retention";
 import { enqueueCommunicationIntent } from "./email_transport";
 import { publicMutation } from "./fluent";
 import {
@@ -108,6 +109,10 @@ async function authorizeLifecyclePath(
     buildId: input.buildId,
     organizationId: input.workosOrganizationId,
   });
+  await assertOrganizationRetentionWritable(
+    ctx,
+    baseAuthorization.organizationId
+  );
   return await authorizeAdministrativeRecovery(ctx, baseAuthorization, input);
 }
 
@@ -1253,6 +1258,10 @@ async function acknowledgeForAccess(
     );
   }
   const scope = access.scope;
+  await assertOrganizationRetentionWritable(
+    ctx,
+    scope.invitation.organizationId
+  );
   const acknowledgement = await ctx.db
     .query("quoteInvitationPackageRevisionAcknowledgements")
     .withIndex(
