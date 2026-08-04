@@ -1206,6 +1206,16 @@ export async function buildCollaborationPostArchive(
   );
   const actionItemHistory: Record<string, unknown>[] = [];
   for (const item of drawCoordinationReadable ? actionItems : []) {
+    if (
+      !(await canReadMilestoneSystemActionItem(ctx, {
+        actionItem: item,
+        buildId: authorization.build._id,
+        role: authorization.effectiveRole.role,
+        workosUserId: authorization.viewer.subject,
+      }))
+    ) {
+      continue;
+    }
     actionItemHistory.push(await archiveActionItem(ctx, item));
   }
   const acknowledgementTargets = await limited(

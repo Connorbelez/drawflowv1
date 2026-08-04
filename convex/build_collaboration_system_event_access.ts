@@ -211,20 +211,31 @@ export async function resolveCanonicalMilestoneExecutionOwnership(
       row.buildSubmilestoneId === submilestone._id &&
       row.submilestoneKey === submilestone.key
   );
-  const activeRows = scopedRows.filter((row) =>
-    input.includeCompleted
-      ? row.status === "planned" ||
-        row.status === "active" ||
-        row.status === "completed"
-      : row.status === "planned" || row.status === "active",
+  // A live assignment is authoritative even when callers also allow a
+  // completed fallback.  Completed rows are historical records and must not
+  // displace a currently planned/active owner.
+  const liveRows = scopedRows.filter(
+    (row) => row.status === "planned" || row.status === "active",
   );
-  if (activeRows.length > 1) {
+  if (liveRows.length > 1) {
     return {
       reason: "ambiguous",
       state: "assignment_required",
     };
   }
-  const assignment = activeRows[0];
+  let assignment = liveRows[0];
+  if (!assignment && input.includeCompleted) {
+    const completedRows = scopedRows.filter(
+      (row) => row.status === "completed",
+    );
+    if (completedRows.length > 1) {
+      return {
+        reason: "ambiguous",
+        state: "assignment_required",
+      };
+    }
+    assignment = completedRows[0];
+  }
   if (!assignment) {
     return {
       reason: rows.length > 0 && scopedRows.length === 0 ? "invalid" : "missing",
@@ -281,19 +292,25 @@ export async function canBuilderStartMilestone(
         .eq("builderProfileId", input.build.builderProfileId)
         .eq("workosUserId", input.workosUserId)
     )
-    .take(20);
-  const activeLink = links.find(
-    (link) =>
-      link.status === "active" && link.brokerageId === input.build.brokerageId
-  );
+    .take(21);
+  // The query is intentionally bounded one past the usable limit.  A
+  // truncated link set is not authoritative and must fail closed.
+  if (links.length > 20) {
+    return false;
+  }
+  const requestedLinkRole = input.role === "builder" ? "owner" : "staff";
+  const activeLink = links
+    .filter((link) => link.role === requestedLinkRole)
+    .find(
+      (link) =>
+        link.status === "active" &&
+        link.brokerageId === input.build.brokerageId,
+    );
   if (!activeLink) {
     return false;
   }
   if (input.role === "builder") {
-    return activeLink.role === "owner";
-  }
-  if (activeLink.role !== "staff") {
-    return false;
+    return true;
   }
   const grants = await ctx.db
     .query("builderStaffPermissionGrants")
@@ -303,7 +320,10 @@ export async function canBuilderStartMilestone(
         .eq("builderAccountLinkId", activeLink._id)
         .eq("resourceType", "milestone")
     )
-    .take(100);
+    .take(101);
+  if (grants.length > 100) {
+    return false;
+  }
   return grants.some(
     (grant) =>
       grant.scope === "activeBuild" &&
