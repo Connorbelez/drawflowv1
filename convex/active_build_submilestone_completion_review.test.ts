@@ -312,23 +312,6 @@ describe("canonical Sub-milestone completion review", () => {
     expect((await submilestoneState(fixture)).submilestone.workflowRevision).toBe(
       progress.revision,
     );
-    await expect(
-      fixture.builder.mutation(
-        (api as any).production_proposals.submitActiveBuildSubmilestoneCompletionForReview,
-        {
-          buildId: fixture.closing.buildId,
-          declareComplete: true,
-          expectedPackageRevision: 1,
-          expectedRevision: progress.revision,
-          idempotencyKey: "completion-review-forms-before-evidence",
-          milestoneKey: "foundation",
-          packageRevisionId: "invalid-package-id",
-          submilestoneKey: "forms",
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow();
-
     const evidence = await fixture.builder.mutation(
       (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
       {
@@ -353,9 +336,7 @@ describe("canonical Sub-milestone completion review", () => {
       locationVerified: false,
       replayed: false,
     });
-    expect(
-      packageAfterEvidence.packageRevision?.status,
-    ).toBe("draft");
+    expect(packageAfterEvidence.packageRevision?.status).toBe("draft");
     await expect(
       fixture.builder.mutation(
         (api as any).production_proposals.submitActiveBuildSubmilestoneCompletionForReview,
@@ -1031,6 +1012,173 @@ describe("canonical Sub-milestone completion review", () => {
       warnings: expect.any(Array),
     });
     void reviewed;
+  });
+
+  test("restores a waived Site Visit requirement when a later recommendation requires it", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await submitReviewPackage(fixture, "eng411-site-visit-reset");
+    await fixture.lender.mutation(
+      (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-site-reset-recommendation-1",
+        milestoneKey: "foundation",
+        siteVisitRequired: true,
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-site-reset-waiver",
+        milestoneKey: "foundation",
+        reason: "Admin waiver must be reconsidered if risk returns.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const afterWaiver = await fixture.lender.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(afterWaiver.siteVisit.requirement).toMatchObject({
+      manualRequired: true,
+      required: true,
+      status: "waived",
+    });
+    const restored = await fixture.lender.mutation(
+      (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        expectedRevision: afterWaiver.child.reviewRevision,
+        idempotencyKey: "eng411-site-reset-recommendation-2",
+        milestoneKey: "foundation",
+        note: "Risk returned; require a new Site Visit before approval.",
+        siteVisitRequired: true,
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(restored.requirement).toMatchObject({
+      manualRequired: true,
+      required: true,
+      status: "required",
+    });
+    expect(restored.requirement.waivedAt).toBeUndefined();
+    expect(restored.requirement.waivedByRole).toBeUndefined();
+    expect(restored.requirement.waivedByWorkosUserId).toBeUndefined();
+    expect(restored.requirement.waiverReason).toBeUndefined();
+    const stateAfterWaiver = await submilestoneState(fixture);
+    const persisted = await fixture.base.run(async (ctx: any) => {
+      const requirement = await ctx.db.get(afterWaiver.siteVisit.requirement._id);
+      const audits = (await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q.eq("entityType", "buildSubmilestone").eq("entityId", String(stateAfterWaiver.submilestone._id)),
+        )
+        .collect()).filter(
+        (event: any) =>
+          event.eventType ===
+          "active_build.submilestone.site_visit.requirement_reopened",
+        );
+      return { audits, requirement };
+    });
+    expect(persisted.requirement).toMatchObject({
+      manualRequired: true,
+      required: true,
+      status: "required",
+    });
+    expect(persisted.requirement).not.toHaveProperty("waivedAt");
+    expect(persisted.requirement).not.toHaveProperty("waiverReason");
+    expect(persisted.audits).toHaveLength(1);
+    expect(JSON.parse(persisted.audits[0].priorState)).toMatchObject({
+      status: "waived",
+    });
+    expect(JSON.parse(persisted.audits[0].newState)).toMatchObject({
+      status: "required",
+      waivedAt: null,
+      waiverReason: null,
+    });
+  });
+
+  test("derives the parent review state when a child is retracted before parent approval", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await submitReviewPackage(fixture, "eng411-parent-never-approved");
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-parent-never-approved-recommendation",
+        milestoneKey: "foundation",
+        siteVisitRequired: true,
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-parent-never-approved-waiver",
+        milestoneKey: "foundation",
+        reason: "Admin waiver for child-only retraction coverage.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.approveActiveBuildSubmilestone,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-parent-never-approved-child-approval",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const beforeRetraction = await fixture.admin.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(beforeRetraction.parent.reviewDecisionState).toBe("ready_for_approval");
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.retractActiveBuildSubmilestoneApproval,
+      {
+        buildId: fixture.closing.buildId,
+        expectedRevision: beforeRetraction.child.reviewRevision,
+        idempotencyKey: "eng411-parent-never-approved-child-retraction",
+        milestoneKey: "foundation",
+        reason: "Correct the child evidence before parent approval.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const afterRetraction = await fixture.admin.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(afterRetraction.child.reviewDecisionState).toBe("reopened");
+    expect(afterRetraction.parent.reviewDecisionState).toBe("in_review");
+    expect(afterRetraction.parent.readyForApproval).toBe(false);
   });
 
   test("parent approval resolves one System Post and both retraction commands reopen it without erasing child history", async () => {

@@ -323,8 +323,12 @@ async function ensureSiteVisitRequirement(
     )
     .unique();
   if (existing) {
-    if (manualRequiredOverride === true && !existing.manualRequired) {
+    if (
+      manualRequiredOverride === true &&
+      (!existing.manualRequired || existing.status === "waived")
+    ) {
       const now = Date.now();
+      const waiverReopened = existing.status === "waived";
       const manualSignals = existing.manualSignals.includes(
         "lender_staff_recommendation",
       )
@@ -334,9 +338,49 @@ async function ensureSiteVisitRequirement(
         manualRequired: true,
         manualSignals,
         required: true,
-        status: existing.status === "not_required" ? "required" : existing.status,
+        status:
+          existing.status === "not_required" || waiverReopened
+            ? "required"
+            : existing.status,
+        ...(waiverReopened
+          ? {
+              waivedAt: undefined,
+              waivedByRole: undefined,
+              waivedByWorkosUserId: undefined,
+              waiverReason: undefined,
+            }
+          : {}),
         updatedAt: now,
       });
+      if (waiverReopened) {
+        await recordReviewAudit(ctx, auth, {
+          command: "recommendActiveBuildSubmilestoneReview",
+          entityId: String(submilestone._id),
+          entityType: "buildSubmilestone",
+          eventType: "active_build.submilestone.site_visit.requirement_reopened",
+          newState: JSON.stringify({
+            manualRequired: true,
+            requirementId: existing._id,
+            required: true,
+            status: "required",
+            waivedAt: null,
+            waivedByRole: null,
+            waivedByWorkosUserId: null,
+            waiverReason: null,
+          }),
+          priorState: JSON.stringify({
+            manualRequired: existing.manualRequired,
+            requirementId: existing._id,
+            required: existing.required,
+            status: existing.status,
+            waivedAt: existing.waivedAt ?? null,
+            waivedByRole: existing.waivedByRole ?? null,
+            waivedByWorkosUserId: existing.waivedByWorkosUserId ?? null,
+            waiverReason: existing.waiverReason ?? null,
+          }),
+          warnings: existing.riskSignals,
+        });
+      }
       return (await ctx.db.get(existing._id))!;
     }
     return existing;
@@ -676,7 +720,12 @@ export const requestActiveBuildSubmilestoneChanges = authenticatedMutation
     const auth = await authorizeReview(ctx, args.buildId, args.workosOrganizationId);
     requireLenderStaff(auth);
     const reason = nonBlank(args.reason, "Changes requested reason");
-    const { milestone, submilestone } = await getTarget(ctx, auth, args.milestoneKey, args.submilestoneKey);
+    const { milestone, submilestone } = await getTarget(
+      ctx,
+      auth,
+      args.milestoneKey,
+      args.submilestoneKey,
+    );
     assertExpectedRevision(submilestone, args.expectedRevision);
     const existing = await existingChildDecision(
       ctx,
@@ -974,7 +1023,12 @@ export const retractActiveBuildSubmilestoneApproval = authenticatedMutation
     const auth = await authorizeReview(ctx, args.buildId, args.workosOrganizationId);
     requireLenderAdmin(auth);
     const reason = nonBlank(args.reason, "Child approval retraction reason");
-    const { milestone, submilestone } = await getTarget(ctx, auth, args.milestoneKey, args.submilestoneKey);
+    const { milestone, submilestone, submilestones } = await getTarget(
+      ctx,
+      auth,
+      args.milestoneKey,
+      args.submilestoneKey,
+    );
     assertExpectedRevision(submilestone, args.expectedRevision);
     const existing = await existingChildDecision(
       ctx,
@@ -1016,8 +1070,25 @@ export const retractActiveBuildSubmilestoneApproval = authenticatedMutation
       updatedAt: now,
       workflowRevision: (submilestone.workflowRevision ?? 0) + 1,
     });
+    const parentWasApproved = milestone.reviewDecisionState === "approved";
+    const readiness = await parentReadiness(
+      submilestones.map((child) =>
+        child._id === submilestone._id
+          ? {
+              ...child,
+              reviewDecisionState: "reopened" as const,
+              status: "in_progress" as const,
+            }
+          : child,
+      ),
+    );
+    const parentReviewDecisionState = parentWasApproved
+      ? "reopened"
+      : readiness.readyForApproval
+        ? "ready_for_approval"
+        : "in_review";
     await ctx.db.patch(milestone._id, {
-      reviewDecisionState: "reopened",
+      reviewDecisionState: parentReviewDecisionState,
       reviewRevision: (milestone.reviewRevision ?? 0) + 1,
       status: milestone.status === "complete" ? "in_progress" : milestone.status,
       updatedAt: now,
@@ -1028,7 +1099,11 @@ export const retractActiveBuildSubmilestoneApproval = authenticatedMutation
       entityId: String(submilestone._id),
       entityType: "buildSubmilestone",
       eventType: "active_build.submilestone.review.retracted",
-      newState: JSON.stringify({ decisionId, reviewDecisionState: "reopened" }),
+      newState: JSON.stringify({
+        decisionId,
+        parentReviewDecisionState,
+        reviewDecisionState: "reopened",
+      }),
       priorState,
       reason,
     });
