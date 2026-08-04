@@ -458,6 +458,11 @@ function planningDiff(
       ...Object.keys(prior.snapshot),
       ...Object.keys(entity.snapshot),
     ]);
+    // `planningState` is represented on the flattened entity as a dedicated
+    // lifecycle field above. Canonical snapshots also carry it for
+    // reconstruction, but comparing it again here would emit a duplicate
+    // diff row for the same state transition.
+    fields.delete("planningState");
     for (const field of fields) {
       const before = prior.snapshot[field];
       const after = entity.snapshot[field];
@@ -706,13 +711,14 @@ export async function recordApprovedActiveBuildPlanningRevision(
     brokerageId: input.build.brokerageId,
     command: input.sourceCommand,
     createdAt: now,
-    entityId: String(input.build._id),
+    entityId: String(revisionId),
     entityType: "activeBuildPlanningRevision",
     eventType:
       kind === "activation"
         ? "active_build.planning.activated"
         : "active_build.planning.revised",
     newState: JSON.stringify({
+      buildId: String(input.build._id),
       diffCount: diffs.length,
       revision,
       summary: snapshotEntitySummary(current),

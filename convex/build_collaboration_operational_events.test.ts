@@ -3111,6 +3111,48 @@ describe("Build Collaboration operational events", () => {
         }),
       ]),
     );
+    expect(
+      reconciliation.diffs.filter(
+        (diff: {
+          entityKey: string;
+          field: string;
+        }) =>
+          diff.entityKey === "foundation:foundation-1" &&
+          diff.field === "planningState",
+      ),
+    ).toHaveLength(1);
+
+    const planningRevisionAudit = await fixture.base.run(async (ctx) => {
+      const revisions = await ctx.db
+        .query("activeBuildPlanningRevisions")
+        .withIndex("by_build_revision", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .collect();
+      const auditEvents = await ctx.db.query("auditEvents").collect();
+      const revision = revisions.find(
+        (row) => row.revision === reconciliation.current.revision,
+      );
+      const audit = auditEvents.find((event) => {
+        if (event.eventType !== "active_build.planning.revised") return false;
+        const newState = JSON.parse(event.newState ?? "{}") as {
+          revision?: number;
+        };
+        return newState.revision === reconciliation.current.revision;
+      });
+      return { audit, revision };
+    });
+    expect(planningRevisionAudit.revision).toBeDefined();
+    expect(planningRevisionAudit.audit).toMatchObject({
+      entityId: String(planningRevisionAudit.revision?._id),
+      entityType: "activeBuildPlanningRevision",
+    });
+    expect(
+      JSON.parse(planningRevisionAudit.audit?.newState ?? "{}"),
+    ).toMatchObject({
+      buildId: String(fixture.buildId),
+      revision: reconciliation.current.revision,
+    });
 
     const focused = await fixture.admin.query(
       (api as any).build_collaboration_focus
