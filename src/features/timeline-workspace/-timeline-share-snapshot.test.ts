@@ -250,6 +250,43 @@ describe("timeline share snapshots", () => {
     expect(snapshot.snapshotSummary).toContain("1 spikes");
   });
 
+  test("round-trips T−30 Home Equity Takeout terms losslessly", () => {
+    const state = initialTimelineShareState(
+      initialItems,
+      initialDraws,
+      [
+        {
+          amount: 125_000,
+          eventKind: "homeEquityTakeout",
+          id: "home-equity-takeout",
+          interestAnnualBps: 875,
+          label: "Builder residence HELOC",
+          x: -30,
+        },
+      ],
+      { max: 230, min: -30, unit: "days" },
+      { itemId: "site-prep", phase: "inProgress" },
+      14,
+      0,
+      true,
+      400_000,
+      false,
+    );
+
+    const snapshot = buildTimelineShareSnapshotV2(state);
+    const restored = applyTimelineShareSnapshotV2(snapshot, state);
+
+    expect(snapshot.range.min).toBe(-30);
+    expect(snapshot.capitalSpikes).toEqual([
+      expect.objectContaining({
+        eventKind: "homeEquityTakeout",
+        interestAnnualBps: 875,
+        x: -30,
+      }),
+    ]);
+    expect(restored.capitalSpikes).toEqual(state.capitalSpikes);
+  });
+
   test("normalizes invalid active selection and capped payment schedule fields", () => {
     const baseItem = initialItems[0]!;
     const baseData = baseItem.data!;

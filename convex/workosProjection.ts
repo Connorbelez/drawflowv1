@@ -7,6 +7,7 @@ import {
   authenticatedQuery,
   backofficeQuery,
 } from "./authz";
+import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import { fluent } from "./fluent";
 
 interface WorkosEvent {
@@ -700,6 +701,14 @@ async function upsertMembership(
       patch as InsertDoc<"workosOrganizationMemberships">
     );
   }
+  await syncBuildCollaborationSearchAuthority(ctx, {
+    roleSlug: patch.roleSlug ?? row?.roleSlug,
+    roleSlugs: patch.roleSlugs ?? row?.roleSlugs ?? [],
+    status: patch.status ?? row?.status ?? "active",
+    workosMembershipId: data.id,
+    workosOrganizationId: resolvedWorkosOrganizationId,
+    workosUserId: resolvedWorkosUserId,
+  });
 
   const projectedStatus = patch.status ?? row?.status;
   const projectedRoles = patch.roleSlugs ?? row?.roleSlugs ?? [];

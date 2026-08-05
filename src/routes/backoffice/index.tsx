@@ -221,6 +221,7 @@ type ProductionBackofficeDashboardData = BackofficeDashboardData & {
 
 export interface ClosingConfirmationInput {
   buildStartDate: string;
+  ianaTimezone: string;
   reason: string;
 }
 
@@ -416,6 +417,7 @@ function RouteComponent() {
       onRecordClosing={(proposal, input) =>
         recordClosing({
           buildStartDate: input.buildStartDate,
+          ianaTimezone: input.ianaTimezone,
           loanFacility: {
             interestAnnualBps: 925,
             principalCents: proposal.lenderDrawPolicyLimitCents ?? 0,
@@ -2376,17 +2378,22 @@ export function ClosingConfirmationDialog({
   proposal: ProposalKanbanCard | null;
 }) {
   const [buildStartDate, setBuildStartDate] = useState(todayInputDate());
+  const [ianaTimezone, setIanaTimezone] = useState("");
   const [reason, setReason] = useState("");
 
   useEffect(() => {
     if (open) {
       setBuildStartDate(todayInputDate());
+      setIanaTimezone("");
       setReason("");
     }
   }, [open]);
 
   const canSubmit =
-    buildStartDate.trim().length > 0 && reason.trim().length > 0 && !pending;
+    buildStartDate.trim().length > 0 &&
+    ianaTimezone.trim().length > 0 &&
+    reason.trim().length > 0 &&
+    !pending;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -2397,6 +2404,7 @@ export function ClosingConfirmationDialog({
             if (canSubmit) {
               onConfirm({
                 buildStartDate: buildStartDate.trim(),
+                ianaTimezone: ianaTimezone.trim(),
                 reason: reason.trim(),
               });
             }
@@ -2441,6 +2449,15 @@ export function ClosingConfirmationDialog({
                   placeholder="Confirm the offline loan closing and any closing notes."
                   required
                   value={reason}
+                />
+              </label>
+              <label className="grid gap-2 text-sm" htmlFor="closing-timezone">
+                <span className="font-medium">Build timezone (IANA)</span>
+                <Input
+                  id="closing-timezone"
+                  onChange={(event) => setIanaTimezone(event.target.value)}
+                  required
+                  value={ianaTimezone}
                 />
               </label>
             </div>

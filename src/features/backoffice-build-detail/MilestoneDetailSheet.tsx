@@ -54,6 +54,7 @@ type SheetView = "detail" | "guided" | "ledger";
 type DetailTab = "evidence" | "materials" | "notes" | "overview" | "people";
 
 export interface MilestoneSheetSubmilestone {
+  actualStartedAt?: number;
   actualCostCents?: number;
   assignments: Array<{
     actualCostCents?: number;
@@ -112,6 +113,7 @@ export interface MilestoneSheetSubmilestone {
 }
 
 export interface MilestoneSheetData {
+  actualStartedAt?: number;
   canStartWork?: boolean;
   column: string;
   contractors: { name: string; initials: string; role?: string }[];
@@ -119,6 +121,7 @@ export interface MilestoneSheetData {
   drawGroupKey: string;
   milestoneKey: string;
   name: string;
+  status?: WorkState;
   plannedBudgetCents?: number;
   plannedEndDate?: string;
   plannedStartDate?: string;
@@ -139,7 +142,10 @@ export interface MilestoneSheetData {
 
 interface SubmilestoneUpdateInput {
   actualCostCents?: number | null;
+  actualStartedAt?: number;
+  dependencyOverrideReason?: string;
   fieldNote?: string | null;
+  idempotencyKey?: string;
   milestoneKey: string;
   reason?: string;
   status?: WorkState;
@@ -151,28 +157,43 @@ interface MilestoneDetailSheetProps {
   data: MilestoneSheetData | null;
   errorMessage?: string;
   eventsSourceLabel?: string;
+  focusedSubmilestoneId?: string;
+  focusedSubmilestoneKey?: string;
   onApprove?: (milestoneKey: string, note?: string) => Promise<void> | void;
+  onAmendStart?: (
+    action: "correct" | "retract",
+    milestoneKey: string,
+    submilestoneKey?: string
+  ) => void;
   onAssignContractor?: (milestoneKey: string, submilestoneKey?: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
   onClose: () => void;
   onReject?: (milestoneKey: string) => void;
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
+  onStartSubmilestone?: (
+    milestoneKey: string,
+    submilestoneKey: string,
+    source:
+      | "guided_field_workflow"
+      | "submilestone_detail"
+      | "submilestone_ledger"
+  ) => void;
   onSubmitCompletion?: (input: {
     actualCostCents?: number;
+    actualStartedAt?: number;
     completedDay: number;
+    dependencyOverrideReason?: string;
+    idempotencyKey: string;
     milestoneKey: string;
     note?: string;
   }) => Promise<unknown> | unknown;
   onUpdateSubmilestone?: (
     input: SubmilestoneUpdateInput
   ) => Promise<unknown> | unknown;
-  onUploadEvidence?: (input: {
-    file: File;
-    locationVerified: boolean;
-    milestoneKey: string;
-    submilestoneKey: string;
-  }) => Promise<unknown> | unknown;
+  onUploadEvidence?: (
+    input: EvidenceUploaderUploadInput
+  ) => Promise<unknown> | unknown;
   pending?: boolean;
   prototypeSubmilestoneStartTrigger?: boolean;
 }
@@ -183,18 +204,21 @@ export function MilestoneDetailSheet({
   data,
   errorMessage,
   eventsSourceLabel,
+  focusedSubmilestoneId,
+  focusedSubmilestoneKey,
   onApprove,
+  onAmendStart,
   onAssignContractor,
   onAssignVisit,
   onClose,
   onReject,
   onRequestInfo,
   onStartWork,
+  onStartSubmilestone,
   onSubmitCompletion,
   onUpdateSubmilestone,
   onUploadEvidence,
   pending: externalPending,
-  prototypeSubmilestoneStartTrigger = false,
 }: MilestoneDetailSheetProps) {
   const [view, setView] = useState<SheetView>("ledger");
   const [selectedKey, setSelectedKey] = useState(
@@ -219,6 +243,16 @@ export function MilestoneDetailSheet({
   );
   const selected =
     rows.find((row) => row.key === selectedKey) ?? rows[0] ?? null;
+  useEffect(() => {
+    if (
+      focusedSubmilestoneKey &&
+      rows.some((row) => row.key === focusedSubmilestoneKey)
+    ) {
+      setSelectedKey(focusedSubmilestoneKey);
+      setDetailTab("overview");
+      setView("detail");
+    }
+  }, [focusedSubmilestoneKey, rows]);
   const incomplete = rows.filter((row) => row.status !== "complete");
   const completedCount = rows.length - incomplete.length;
   const eligible = rows.length === 0 || incomplete.length === 0;
@@ -301,6 +335,7 @@ export function MilestoneDetailSheet({
             }
           : {}),
         completedDay: data.currentDay ?? 0,
+        idempotencyKey: crypto.randomUUID(),
         milestoneKey: data.milestoneKey,
         ...(milestoneNote.trim() ? { note: milestoneNote.trim() } : {}),
       });
@@ -319,6 +354,11 @@ export function MilestoneDetailSheet({
           view === "guided" && "sm:max-w-[900px]"
         )}
         closeProps={{ "data-testid": "milestone-detail-sheet-close" }}
+        data-collaboration-focus={
+          focusedSubmilestoneId
+            ? `submilestone:${focusedSubmilestoneId}`
+            : undefined
+        }
         data-testid="milestone-detail-sheet-panel"
         side="right"
       >
@@ -354,6 +394,13 @@ export function MilestoneDetailSheet({
                     : "Claim submitted · scope incomplete"}
                 </Badge>
               ) : null}
+              {data.actualStartedAt ? (
+                <Badge variant="info">
+                  Actual start {formatDate(data.actualStartedAt)}
+                </Badge>
+              ) : data.status && data.status !== "planned" ? (
+                <Badge variant="warning">Actual start unknown</Badge>
+              ) : null}
             </div>
             {assignmentsSourceLabel ? (
               <p className="sr-only">Assignments · {assignmentsSourceLabel}</p>
@@ -375,29 +422,34 @@ export function MilestoneDetailSheet({
                 setView("detail");
               }}
               onUpdate={updateSubmilestone}
+              onStartSubmilestone={onStartSubmilestone}
               onUploadEvidence={onUploadEvidence}
               pendingKey={pendingKey}
-              prototypeSubmilestoneStartTrigger={
-                prototypeSubmilestoneStartTrigger
-              }
               rows={rows}
             />
           ) : null}
           {view === "detail" && selected ? (
-            <DetailView
-              activeTab={detailTab}
-              data={data}
-              item={selected}
-              onAssignContractor={onAssignContractor}
-              onBack={() => setView("ledger")}
-              onTabChange={setDetailTab}
-              onUpdate={updateSubmilestone}
-              onUploadEvidence={onUploadEvidence}
-              pendingKey={pendingKey}
-              prototypeSubmilestoneStartTrigger={
-                prototypeSubmilestoneStartTrigger
+            <div
+              data-collaboration-focus={
+                focusedSubmilestoneId
+                  ? `submilestone:${focusedSubmilestoneId}`
+                  : undefined
               }
-            />
+            >
+              <DetailView
+                activeTab={detailTab}
+                data={data}
+                item={selected}
+                onAssignContractor={onAssignContractor}
+                onAmendStart={onAmendStart}
+                onBack={() => setView("ledger")}
+                onTabChange={setDetailTab}
+                onStartSubmilestone={onStartSubmilestone}
+                onUpdate={updateSubmilestone}
+                onUploadEvidence={onUploadEvidence}
+                pendingKey={pendingKey}
+              />
+            </div>
           ) : null}
           {view === "guided" && selected ? (
             <GuidedView
@@ -412,11 +464,9 @@ export function MilestoneDetailSheet({
               }}
               onStepChange={setGuidedStep}
               onUpdate={updateSubmilestone}
+              onStartSubmilestone={onStartSubmilestone}
               onUploadEvidence={onUploadEvidence}
               pendingKey={pendingKey}
-              prototypeSubmilestoneStartTrigger={
-                prototypeSubmilestoneStartTrigger
-              }
               rows={rows}
               step={guidedStep}
             />
@@ -472,6 +522,24 @@ export function MilestoneDetailSheet({
               <Play /> Start work
             </Button>
           ) : null}
+          {data.actualStartedAt && onAmendStart ? (
+            <>
+              <Button
+                onClick={() => onAmendStart("correct", data.milestoneKey)}
+                size="sm"
+                variant="outline"
+              >
+                Correct start
+              </Button>
+              <Button
+                onClick={() => onAmendStart("retract", data.milestoneKey)}
+                size="sm"
+                variant="ghost"
+              >
+                Retract start
+              </Button>
+            </>
+          ) : null}
           <Button
             aria-describedby="milestone-completion-blockers"
             data-testid="milestone-primary-completion-action"
@@ -510,22 +578,22 @@ function LedgerView({
   data,
   onAssignContractor,
   onOpenDetail,
+  onStartSubmilestone,
   onUpdate,
   onUploadEvidence,
   pendingKey,
-  prototypeSubmilestoneStartTrigger,
   rows,
 }: {
   data: MilestoneSheetData;
   onAssignContractor?: MilestoneDetailSheetProps["onAssignContractor"];
   onOpenDetail: (key: string, tab?: DetailTab) => void;
+  onStartSubmilestone?: MilestoneDetailSheetProps["onStartSubmilestone"];
   onUpdate: (
     input: Omit<SubmilestoneUpdateInput, "milestoneKey">,
     optimistic: Partial<MilestoneSheetSubmilestone>
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
-  prototypeSubmilestoneStartTrigger: boolean;
   rows: MilestoneSheetSubmilestone[];
 }) {
   const completed = rows.filter((row) => row.status === "complete").length;
@@ -539,8 +607,12 @@ function LedgerView({
             value={formatCentsExact(data.plannedBudgetCents ?? 0)}
           />
           <Metric
-            label="Start"
-            value={formatShortDate(data.plannedStartDate)}
+            label={data.actualStartedAt ? "Actual start" : "Planned start"}
+            value={
+              data.actualStartedAt
+                ? formatDate(data.actualStartedAt)
+                : formatShortDate(data.plannedStartDate)
+            }
           />
           <Metric label="End" value={formatShortDate(data.plannedEndDate)} />
         </FramePanel>
@@ -604,7 +676,16 @@ function LedgerView({
                   label="Planned"
                   value={formatCentsExact(item.budgetCents)}
                 />
-                <Metric label="Start" value={formatShortDate(item.startDate)} />
+                <Metric
+                  label={
+                    item.actualStartedAt ? "Actual start" : "Planned start"
+                  }
+                  value={
+                    item.actualStartedAt
+                      ? formatDate(item.actualStartedAt)
+                      : formatShortDate(item.startDate)
+                  }
+                />
                 <Metric label="End" value={formatShortDate(item.endDate)} />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -631,20 +712,17 @@ function LedgerView({
                   }
                 />
                 <div className="flex flex-wrap gap-2">
-                  {prototypeSubmilestoneStartTrigger &&
-                  item.status === "planned" ? (
+                  {onStartSubmilestone && item.status === "planned" ? (
                     <Button
                       data-testid={`submilestone-start-work-${item.key}`}
                       disabled={pendingKey === item.key || !onUpdate}
                       loading={pendingKey === item.key}
                       onClick={() => {
-                        onUpdate(
-                          {
-                            status: "in_progress",
-                            submilestoneKey: item.key,
-                          },
-                          { status: "in_progress" }
-                        ).catch(ignoreHandledMutationError);
+                        onStartSubmilestone(
+                          data.milestoneKey,
+                          item.key,
+                          "submilestone_ledger"
+                        );
                       }}
                       size="sm"
                       variant="outline"
@@ -715,26 +793,28 @@ function DetailView({
   data,
   item,
   onAssignContractor,
+  onAmendStart,
   onBack,
   onTabChange,
+  onStartSubmilestone,
   onUpdate,
   onUploadEvidence,
   pendingKey,
-  prototypeSubmilestoneStartTrigger,
 }: {
   activeTab: DetailTab;
   data: MilestoneSheetData;
   item: MilestoneSheetSubmilestone;
   onAssignContractor?: MilestoneDetailSheetProps["onAssignContractor"];
+  onAmendStart?: MilestoneDetailSheetProps["onAmendStart"];
   onBack: () => void;
   onTabChange: (tab: DetailTab) => void;
+  onStartSubmilestone?: MilestoneDetailSheetProps["onStartSubmilestone"];
   onUpdate: (
     input: Omit<SubmilestoneUpdateInput, "milestoneKey">,
     optimistic: Partial<MilestoneSheetSubmilestone>
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
-  prototypeSubmilestoneStartTrigger: boolean;
 }) {
   return (
     <div className="grid gap-3">
@@ -749,25 +829,44 @@ function DetailView({
           <h3 className="font-semibold text-xl">{item.name}</h3>
           <StatusBadge status={item.status} />
         </div>
-        {prototypeSubmilestoneStartTrigger && item.status === "planned" ? (
+        {onStartSubmilestone && item.status === "planned" ? (
           <Button
             data-testid={`submilestone-detail-start-work-${item.key}`}
             disabled={pendingKey === item.key}
             loading={pendingKey === item.key}
             onClick={() => {
-              onUpdate(
-                {
-                  status: "in_progress",
-                  submilestoneKey: item.key,
-                },
-                { status: "in_progress" }
-              ).catch(ignoreHandledMutationError);
+              onStartSubmilestone(
+                data.milestoneKey,
+                item.key,
+                "submilestone_detail"
+              );
             }}
             size="sm"
             variant="outline"
           >
             <Play /> Start work
           </Button>
+        ) : item.actualStartedAt && onAmendStart ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() =>
+                onAmendStart("correct", data.milestoneKey, item.key)
+              }
+              size="sm"
+              variant="outline"
+            >
+              Correct start
+            </Button>
+            <Button
+              onClick={() =>
+                onAmendStart("retract", data.milestoneKey, item.key)
+              }
+              size="sm"
+              variant="ghost"
+            >
+              Retract start
+            </Button>
+          </div>
         ) : null}
       </div>
       <Tabs
@@ -789,7 +888,14 @@ function DetailView({
                 label="Planned"
                 value={formatCentsExact(item.budgetCents)}
               />
-              <Metric label="Start" value={formatShortDate(item.startDate)} />
+              <Metric
+                label={item.actualStartedAt ? "Actual start" : "Planned start"}
+                value={
+                  item.actualStartedAt
+                    ? formatDate(item.actualStartedAt)
+                    : formatShortDate(item.startDate)
+                }
+              />
               <Metric label="End" value={formatShortDate(item.endDate)} />
             </FramePanel>
           </Frame>
@@ -847,10 +953,10 @@ function GuidedView({
   onCompleteAndAdvance,
   onSelect,
   onStepChange,
+  onStartSubmilestone,
   onUpdate,
   onUploadEvidence,
   pendingKey,
-  prototypeSubmilestoneStartTrigger,
   rows,
   step,
 }: {
@@ -861,13 +967,13 @@ function GuidedView({
   onCompleteAndAdvance: () => Promise<void>;
   onSelect: (key: string) => void;
   onStepChange: (step: number) => void;
+  onStartSubmilestone?: MilestoneDetailSheetProps["onStartSubmilestone"];
   onUpdate: (
     input: Omit<SubmilestoneUpdateInput, "milestoneKey">,
     optimistic: Partial<MilestoneSheetSubmilestone>
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
-  prototypeSubmilestoneStartTrigger: boolean;
   rows: MilestoneSheetSubmilestone[];
   step: number;
 }) {
@@ -907,20 +1013,17 @@ function GuidedView({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {prototypeSubmilestoneStartTrigger &&
-              item.status === "planned" ? (
+              {onStartSubmilestone && item.status === "planned" ? (
                 <Button
                   data-testid={`submilestone-guided-start-work-${item.key}`}
                   disabled={pendingKey === item.key}
                   loading={pendingKey === item.key}
                   onClick={() => {
-                    onUpdate(
-                      {
-                        status: "in_progress",
-                        submilestoneKey: item.key,
-                      },
-                      { status: "in_progress" }
-                    ).catch(ignoreHandledMutationError);
+                    onStartSubmilestone(
+                      data.milestoneKey,
+                      item.key,
+                      "guided_field_workflow"
+                    );
                   }}
                   size="sm"
                   variant="outline"
@@ -969,8 +1072,14 @@ function GuidedView({
                     value={formatCentsExact(item.budgetCents)}
                   />
                   <Metric
-                    label="Start"
-                    value={formatShortDate(item.startDate)}
+                    label={
+                      item.actualStartedAt ? "Actual start" : "Planned start"
+                    }
+                    value={
+                      item.actualStartedAt
+                        ? formatDate(item.actualStartedAt)
+                        : formatShortDate(item.startDate)
+                    }
                   />
                   <Metric label="End" value={formatShortDate(item.endDate)} />
                 </FramePanel>
@@ -1331,16 +1440,23 @@ function SubmilestoneHistory({ item }: { item: MilestoneSheetSubmilestone }) {
   );
 }
 
-function EvidenceUploader({
+export interface EvidenceUploaderUploadInput {
+  file: File;
+  locationVerified: boolean;
+  milestoneKey: string;
+  submilestoneKey: string;
+}
+
+export function EvidenceUploader({
   compact = false,
   data,
   item,
   onUpload,
 }: {
   compact?: boolean;
-  data: MilestoneSheetData;
-  item: MilestoneSheetSubmilestone;
-  onUpload?: MilestoneDetailSheetProps["onUploadEvidence"];
+  data: Pick<MilestoneSheetData, "milestoneKey">;
+  item: Pick<MilestoneSheetSubmilestone, "evidence" | "key">;
+  onUpload?: (input: EvidenceUploaderUploadInput) => Promise<unknown> | unknown;
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);

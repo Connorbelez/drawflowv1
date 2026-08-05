@@ -93,6 +93,7 @@ type BuilderStaffPermissionsPanelProps = (
     }
 ) & {
   fixtureDirectory?: StaffDirectory;
+  initialSelectedWorkosUserId?: string;
 };
 
 const ACTIONS: Array<{
@@ -178,6 +179,14 @@ export function BuilderStaffPermissionsPanel(
     });
     setSelectedWorkosUserId((current) => {
       if (
+        props.initialSelectedWorkosUserId &&
+        directory.staff.some(
+          (member) => member.workosUserId === props.initialSelectedWorkosUserId
+        )
+      ) {
+        return props.initialSelectedWorkosUserId;
+      }
+      if (
         current &&
         directory.staff.some((member) => member.workosUserId === current)
       ) {
@@ -190,7 +199,7 @@ export function BuilderStaffPermissionsPanel(
         null
       );
     });
-  }, [directory]);
+  }, [directory, props.initialSelectedWorkosUserId]);
 
   const selectedMember = useMemo(
     () =>
@@ -394,6 +403,7 @@ export function BuilderStaffPermissionsPanel(
                     : "rounded-lg border border-border bg-background px-3 py-2 text-left text-sm hover:bg-accent"
                 }
                 key={member.workosUserId}
+                data-collaboration-focus={`participant:${member.workosUserId}`}
                 onClick={() => setSelectedWorkosUserId(member.workosUserId)}
                 type="button"
               >

@@ -32,6 +32,7 @@ import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
 const ORG_KEY = DEMO_ORG_KEY;
 const DEFAULT_FLAT_DRAW_FEE_CENTS = 50_000;
+const DEFAULT_DRAW_REVIEW_LAG_DAYS = 5;
 const DEFAULT_INTEREST_ANNUAL_BPS = 925;
 const DEFAULT_PAYOFF_DATE = "2027-01-05";
 const DEFAULT_PROJECT_START_DATE = "2026-06-01";
@@ -341,6 +342,40 @@ export function isProposalSlug(value: string) {
   return SHORT_LINK_PATTERN.test(value);
 }
 
+/**
+ * Clamps auto-generated draw amounts so cumulative draws never exceed the
+ * cumulative milestone capacity unlocked by each draw's timing day.
+ * Milestone capacity is considered unlocked when dayEnd <= draw.x.
+ */
+function clampGeneratedDrawsToCapacity(
+  draws: { amountCents: number; drawKey: string; label: string; order: number; x: number }[],
+  milestones: { dayEnd: number; drawAvailabilityCents: number }[],
+  lenderDrawPolicyLimitCents?: number
+): { amountCents: number; drawKey: string; label: string; order: number; x: number }[] {
+  const sortedDraws = [...draws].sort(
+    (a, b) => a.x - b.x || a.order - b.order
+  );
+  let cumulativeDrawn = 0;
+  const limit = lenderDrawPolicyLimitCents ?? Infinity;
+
+  return sortedDraws.map((draw) => {
+    const cumulativeAvailable = milestones.reduce((total, milestone) => {
+      if (milestone.dayEnd <= draw.x) {
+        return total + milestone.drawAvailabilityCents;
+      }
+      return total;
+    }, 0);
+
+    const remainingMilestoneCapacity = Math.max(0, cumulativeAvailable - cumulativeDrawn);
+    const remainingLenderLimit = Math.max(0, limit - cumulativeDrawn);
+    const maxAllowed = Math.min(remainingMilestoneCapacity, remainingLenderLimit);
+    const clampedAmount = Math.min(draw.amountCents, maxAllowed);
+    cumulativeDrawn += clampedAmount;
+
+    return { ...draw, amountCents: clampedAmount };
+  });
+}
+
 export function normalizeSetupPayload(input: {
   borrowerCoPayBps?: number;
   capitalEvents?: {
@@ -365,6 +400,7 @@ export function normalizeSetupPayload(input: {
     requestedAt?: string;
     x: number;
   }[];
+  lenderDrawPolicyLimitCents?: number;
   milestones: {
     budgetCents: number;
     dayEnd?: number;
@@ -441,13 +477,17 @@ export function normalizeSetupPayload(input: {
 
   const drawsInput: DrawInput[] = input.draws?.length
     ? input.draws
-    : milestones.map((milestone, index) => ({
-        amountCents: milestone.drawAvailabilityCents,
-        drawKey: `draw-${String(index + 1).padStart(2, "0")}`,
-        label: `Draw ${index + 1}`,
-        order: index + 1,
-        x: milestone.dayEnd + 7,
-      }));
+    : clampGeneratedDrawsToCapacity(
+        milestones.map((milestone, index) => ({
+          amountCents: milestone.drawAvailabilityCents,
+          drawKey: `draw-${String(index + 1).padStart(2, "0")}`,
+          label: `Draw ${index + 1}`,
+          order: index + 1,
+          x: milestone.dayEnd + DEFAULT_DRAW_REVIEW_LAG_DAYS,
+        })),
+        milestones,
+        input.lenderDrawPolicyLimitCents
+      );
 
   const draws: NormalizedDraw[] = drawsInput.map((draw, index) => ({
     ...draw,
@@ -1162,6 +1202,7 @@ export const demo_createTimelinePlanFromSetup = publicMutation
       borrowerCoPayBps: args.borrowerCoPayBps,
       capitalEvents: args.capitalEvents,
       draws: args.draws,
+      lenderDrawPolicyLimitCents: args.lenderDrawPolicyLimitCents,
       milestones: args.milestones,
     });
     const borrowerCoPayBps = normalizeBorrowerCoPayBps(args.borrowerCoPayBps);

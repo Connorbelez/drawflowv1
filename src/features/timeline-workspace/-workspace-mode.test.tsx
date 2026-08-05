@@ -13,6 +13,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import {
   buildCashUseSummary,
+  formatTimelineDay,
   toDemoTimelinePlanStateMutationInput,
   TimelineWorkspace,
   type TimelineWorkspaceProps,
@@ -88,7 +89,19 @@ vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
 }));
 
 vi.mock("./-TimelineCashflowCompoundChart.tsx", () => ({
-  TimelineCashflowCompoundChart: () => <div data-testid="mock-cashflow" />,
+  TimelineCashflowCompoundChart: ({
+    hideTooltip = false,
+    referenceLines = [],
+  }: {
+    hideTooltip?: boolean;
+    referenceLines?: unknown[];
+  }) => (
+    <div
+      data-hide-tooltip={String(hideTooltip)}
+      data-reference-line-count={referenceLines.length}
+      data-testid="mock-cashflow"
+    />
+  ),
 }));
 
 vi.mock("./-TimelineDrawAvailabilityChart.tsx", () => ({
@@ -201,13 +214,20 @@ test("cash use summary uses actual milestone spend when completion cost is filed
   });
 });
 
-test("clusters hover-probe cashflow metrics before static plan totals", () => {
+test("formats proposal days relative to T0", () => {
+  expect(formatTimelineDay(-30)).toBe("T−30");
+  expect(formatTimelineDay(0)).toBe("T0");
+  expect(formatTimelineDay(12)).toBe("T+12");
+});
+
+test("clusters cash risk and hover-probe metrics before static plan totals", () => {
   renderWorkspace({
     status: "draft",
     workspaceMode: "proposal",
   });
 
   const orderedMetricIds = [
+    "timeline-cashflow-risk-summary",
     "timeline-cashflow-probe-day",
     "timeline-cashflow-probe-cash",
     "timeline-cashflow-probe-interest-paid",
@@ -215,7 +235,6 @@ test("clusters hover-probe cashflow metrics before static plan totals", () => {
     "timeline-cashflow-lender-cash-used",
     "timeline-cashflow-builder-cash-used",
     "timeline-cashflow-total-interest-paid",
-    "timeline-cashflow-risk-summary",
   ];
   const orderedMetrics = orderedMetricIds.map((id) => screen.getByTestId(id));
 
@@ -380,6 +399,51 @@ test("removes production-only reserve data from demo timeline plan persistence",
   });
 });
 describe("TimelineWorkspace mode split", () => {
+  test("lets operators independently hide cash warnings and hover details", () => {
+    renderWorkspace({
+      initialState: { ...timelineState(), startingCash: 0 },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    const chart = screen.getByTestId("mock-cashflow");
+    const warningToggle = screen.getByRole("switch", {
+      name: "Cash warnings",
+    });
+    const hoverToggle = screen.getByRole("switch", {
+      name: "Hover details",
+    });
+
+    expect(warningToggle.getAttribute("aria-checked")).toBe("true");
+    expect(hoverToggle.getAttribute("aria-checked")).toBe("true");
+    expect(Number(chart.getAttribute("data-reference-line-count"))).toBeGreaterThan(
+      0
+    );
+    expect(chart.getAttribute("data-hide-tooltip")).toBe("false");
+
+    fireEvent.click(warningToggle);
+    expect(warningToggle.getAttribute("aria-checked")).toBe("false");
+    expect(chart.getAttribute("data-reference-line-count")).toBe("0");
+
+    fireEvent.click(hoverToggle);
+    expect(hoverToggle.getAttribute("aria-checked")).toBe("false");
+    expect(chart.getAttribute("data-hide-tooltip")).toBe("true");
+  });
+
+  test("submits a custom timeline plan without an optimizer preset", async () => {
+    const submitPlan = vi.fn().mockResolvedValue(undefined);
+
+    renderWorkspace({
+      persistence: { submitPlan },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-submit-proposal"));
+    fireEvent.click(screen.getByTestId("timeline-submit-confirm"));
+    await waitFor(() => expect(submitPlan).toHaveBeenCalledTimes(1));
+  });
+
   test("keeps approved production proposals in proposal mode without live execution controls", () => {
     renderWorkspace({ workspaceMode: "proposal" });
 
@@ -434,6 +498,119 @@ describe("TimelineWorkspace mode split", () => {
       }),
     );
     expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(25);
+  });
+
+  test("persists an exact three-draw replacement atomically", async () => {
+    const replaceDrawSchedule = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 0 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      capitalSpikes: [
+        { amount: 50, id: "cost-one", label: "Cost one", x: 10 },
+        { amount: 50, id: "cost-two", label: "Cost two", x: 20 },
+        { amount: 50, id: "cost-three", label: "Cost three", x: 30 },
+      ],
+      draws: [],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          amount: 0,
+          drawAvailabilityAmount: 300,
+          durationDays: 1,
+        } satisfies DemoMilestone,
+      })),
+      range: { max: 40, min: -30, unit: "days" },
+      startingCash: 0,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { replaceDrawSchedule },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-three-draw"));
+
+    await waitFor(() => expect(replaceDrawSchedule).toHaveBeenCalledTimes(1));
+    const replacement = replaceDrawSchedule.mock.calls[0]?.[0];
+    expect(replacement.draws).toHaveLength(3);
+    expect(replacement.draws.every((entry: any) => entry.amountCents > 0)).toBe(
+      true,
+    );
+    expect(new Set(replacement.draws.map((entry: any) => entry.x)).size).toBe(3);
+    expect(replacement.metrics).toMatchObject({
+      drawCount: 3,
+      totalDrawAmountCents: 15_000,
+    });
+  });
+
+  test("leaves the current schedule untouched when exact three draws are infeasible", () => {
+    const replaceDrawSchedule = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 0 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      capitalSpikes: [
+        { amount: 50, id: "single-cost", label: "Single cost", x: 10 },
+      ],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          amount: 0,
+          drawAvailabilityAmount: 300,
+          durationDays: 1,
+        } satisfies DemoMilestone,
+      })),
+      range: { max: 40, min: -30, unit: "days" },
+      startingCash: 0,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { replaceDrawSchedule },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-three-draw"));
+
+    expect(replaceDrawSchedule).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.stringContaining("exactly 3"),
+    );
+  });
+
+  test("creates a Home Equity Takeout from the proposal insertion menu with explicit terms", async () => {
+    const createCapitalEvent = vi.fn().mockResolvedValue(undefined);
+
+    renderWorkspace({
+      persistence: { createCapitalEvent },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Home Equity Takeout" }),
+    );
+    fireEvent.change(screen.getByLabelText("Takeout amount"), {
+      target: { value: "125000" },
+    });
+    fireEvent.change(screen.getByLabelText("Annual interest rate"), {
+      target: { value: "8.75" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(createCapitalEvent).toHaveBeenCalledTimes(1));
+    expect(createCapitalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 12_500_000,
+        eventKind: "homeEquityTakeout",
+        interestAnnualBps: 875,
+        x: 10,
+      }),
+    );
   });
 
   test("optimizes when same-day borrower cash funds milestone deposits", () => {
@@ -875,6 +1052,115 @@ describe("TimelineWorkspace mode split", () => {
       "Only $96,000 is unlocked and available to draw by day 22.",
     );
     expect(updateDraw).toHaveBeenCalledTimes(1);
+  });
+
+  test("allows reducing an existing draw when the current schedule exceeds unlocked capacity", () => {
+    const updateDraw = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw amount"), {
+      target: { value: "90000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(updateDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 9_000_000,
+        drawKey: "draw-01",
+      }),
+    );
+  });
+
+  test("allows deferring an existing draw when the current schedule exceeds unlocked capacity", () => {
+    const updateDraw = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw date"), {
+      target: { value: "30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(updateDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 9_600_000,
+        drawKey: "draw-01",
+        x: 30,
+      }),
+    );
+  });
+
+  test("still blocks edits that worsen an existing unlocked-capacity violation", () => {
+    const updateDraw = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw date"), {
+      target: { value: "30" },
+    });
+    fireEvent.change(screen.getByLabelText("Draw amount"), {
+      target: { value: "100000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(updateDraw).not.toHaveBeenCalled();
+  });
+
+  test("calls out a generated schedule that exceeds maximum draw availability", () => {
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    const warning = screen.getByTestId(
+      "timeline-draw-availability-warning",
+    );
+    expect(warning.textContent).toContain(
+      "Generated draw schedule exceeds maximum availability",
+    );
+    expect(warning.textContent).toContain(
+      "Draw 01 schedules $96,000 on day 22, but only $0 is unlocked",
+    );
+    expect(warning.textContent).toContain("5-day review lag");
+    expect(warning.textContent).toContain("Reduce or move this draw by $96,000");
   });
 
   test("blocks adding a draw before reimbursement capacity unlocks", () => {

@@ -338,6 +338,7 @@ describe("production calendar workspace", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 65_000_000,
@@ -361,6 +362,7 @@ describe("production calendar workspace", () => {
     );
     await t.mutation((api as any).production_proposals.scheduleActiveBuildSiteVisit, {
       buildId: closing.buildId,
+      idempotencyKey: "calendar-foundation-site-visit",
       milestoneKey: "foundation",
       note: "Inspect revised foundation window.",
       requestedDay: 24,
@@ -380,7 +382,7 @@ describe("production calendar workspace", () => {
           milestoneKey: "foundation",
           startsAt: "2026-08-03",
           endsAt: "2026-08-25",
-          status: "inProgress",
+          status: "planned",
         }),
         expect.objectContaining({
           kind: "siteVisit",
@@ -413,6 +415,7 @@ describe("production calendar workspace", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 65_000_000,

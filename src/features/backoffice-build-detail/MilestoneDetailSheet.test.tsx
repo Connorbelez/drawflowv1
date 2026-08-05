@@ -71,6 +71,22 @@ const sheetData: MilestoneSheetData = {
 };
 
 describe("MilestoneDetailSheet", () => {
+  test("opens the exact collaboration-linked submilestone detail", async () => {
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        focusedSubmilestoneId="submilestone-pour"
+        focusedSubmilestoneKey="pour"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Submilestone detail")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Concrete pour" }),
+    ).toBeTruthy();
+  });
+
   test("keeps the guided escape hatch active for a legacy claim with incomplete scope", () => {
     render(
       <MilestoneDetailSheet
@@ -138,6 +154,7 @@ describe("MilestoneDetailSheet", () => {
     await waitFor(() =>
       expect(onSubmitCompletion).toHaveBeenCalledWith({
         completedDay: 14,
+        idempotencyKey: expect.any(String),
         milestoneKey: "foundation",
       }),
     );
@@ -165,5 +182,45 @@ describe("MilestoneDetailSheet", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Notes & history" }));
     expect(screen.getByText("Execution history")).toBeTruthy();
     expect(screen.getByText("Inspector verified footing dimensions.")).toBeTruthy();
+  });
+
+  test("attributes submilestone starts to ledger, detail, and guided entry sources", () => {
+    const onStartSubmilestone = vi.fn();
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        onClose={vi.fn()}
+        onStartSubmilestone={onStartSubmilestone}
+        onUpdateSubmilestone={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("submilestone-start-work-forms"));
+    expect(onStartSubmilestone).toHaveBeenLastCalledWith(
+      "foundation",
+      "forms",
+      "submilestone_ledger"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Footing forms/ }));
+    fireEvent.click(
+      screen.getByTestId("submilestone-detail-start-work-forms")
+    );
+    expect(onStartSubmilestone).toHaveBeenLastCalledWith(
+      "foundation",
+      "forms",
+      "submilestone_detail"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to milestone" }));
+    fireEvent.click(screen.getByTestId("milestone-primary-completion-action"));
+    fireEvent.click(
+      screen.getByTestId("submilestone-guided-start-work-forms")
+    );
+    expect(onStartSubmilestone).toHaveBeenLastCalledWith(
+      "foundation",
+      "forms",
+      "guided_field_workflow"
+    );
   });
 });

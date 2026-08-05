@@ -15,6 +15,23 @@ export const roleSlugs = [
 
 export type RoleSlug = (typeof roleSlugs)[number];
 
+export const backofficeRoleSlugs = [
+  "admin",
+  "principle-broker",
+  "broker",
+  "broker-staff",
+] as const satisfies readonly RoleSlug[];
+
+export const actorKinds = [
+  "human",
+  "agent",
+  "service",
+  "system",
+  "automation",
+] as const;
+
+export type ActorKind = (typeof actorKinds)[number];
+
 export type Capability =
   | "authenticated"
   | "admin"
@@ -42,7 +59,7 @@ const roleAliases: Record<string, RoleSlug> = {
 const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   authenticated: null,
   admin: ["admin"],
-  backoffice: ["admin", "principle-broker", "broker", "broker-staff"],
+  backoffice: backofficeRoleSlugs,
   builder: ["admin", "builder", "builder-staff"],
   contractor: ["contractor"],
   userManagementWrite: ["admin", "principle-broker"],
@@ -51,6 +68,7 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
 };
 
 export interface AuthorizedViewer {
+  actorKind?: ActorKind;
   capability: Capability;
   email?: string;
   organizationId?: string;
@@ -159,6 +177,7 @@ export function viewerFromIdentity(
     stringClaim(identity["https://workos.com/organization_id"]);
 
   return {
+    actorKind: actorKindFromIdentity(identity),
     capability,
     email: identity.email,
     ...(organizationId ? { organizationId } : {}),
@@ -166,6 +185,32 @@ export function viewerFromIdentity(
     subject: identity.subject,
     tokenIdentifier: identity.tokenIdentifier,
   };
+}
+
+function actorKindFromIdentity(identity: UserIdentity): ActorKind | undefined {
+  const candidate =
+    identity["https://fairlend.ca/actor_kind"] ??
+    identity.actorKind ??
+    identity.actor_kind;
+  if (candidate !== undefined && candidate !== null) {
+    if (
+      typeof candidate !== "string" ||
+      !actorKinds.includes(candidate.trim().toLowerCase() as ActorKind)
+    ) {
+      return;
+    }
+    return candidate.trim().toLowerCase() as ActorKind;
+  }
+  return isTrustedWorkosHumanIdentity(identity) ? "human" : undefined;
+}
+
+function isTrustedWorkosHumanIdentity(identity: UserIdentity) {
+  return (
+    identity.tokenIdentifier.startsWith("https://api.workos.com/|") ||
+    identity.tokenIdentifier.startsWith(
+      "https://api.workos.com/user_management/"
+    )
+  );
 }
 
 function stringClaim(value: unknown): string | null {

@@ -711,8 +711,7 @@ function RolePrimaryAction({
           data-testid="proposal-submit"
           disabled={
             workspace.build.proposalStatus === "submitted" ||
-            workspace.validationErrors.length > 0 ||
-            !workspace.selectedPlanId
+            workspace.validationErrors.length > 0
           }
           onClick={() => void workspace.submitProposal()}
         >

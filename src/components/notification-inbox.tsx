@@ -2,8 +2,8 @@
 
 import { Notification03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { useMutation, usePaginatedQuery } from "convex/react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -31,7 +31,7 @@ export function NotificationInbox({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const inbox = useRecipientInbox(open ? workosOrganizationId : null);
+  const inbox = useRecipientInbox(workosOrganizationId, open);
   const markRead = useMutation(
     api.production_proposals.markRecipientDeliveryRead
   );
@@ -92,21 +92,19 @@ export function NotificationInbox({
                 Recipient-scoped updates and legal next actions.
               </SheetDescription>
             </div>
-            {inbox ? (
+            {inbox.loaded ? (
               <Badge
                 variant={inbox.actionRequiredCount > 0 ? "warning" : "outline"}
               >
-                {inbox.actionRequiredCount} require action
+                {inbox.actionRequiredCount}
+                {inbox.countsComplete ? "" : "+"} require action
               </Badge>
             ) : null}
           </div>
         </SheetHeader>
         <SheetPanel className="grid content-start gap-4">
-          <div
-            aria-label="Notification filters"
-            className="flex gap-2"
-            role="group"
-          >
+          <fieldset className="flex gap-2">
+            <legend className="sr-only">Notification filters</legend>
             <Button
               aria-pressed={filter === "all"}
               onClick={() => setFilter("all")}
@@ -123,7 +121,7 @@ export function NotificationInbox({
             >
               Action required
             </Button>
-          </div>
+          </fieldset>
 
           {errorMessage ? (
             <p
@@ -134,67 +132,133 @@ export function NotificationInbox({
             </p>
           ) : null}
 
-          {workosOrganizationId ? (
-            inbox === undefined ? (
-              <InboxState message="Loading notifications…" />
-            ) : deliveries.length === 0 ? (
-              <InboxState
-                message={
-                  filter === "actionRequired"
-                    ? "No notifications require action."
-                    : "No notifications yet."
-                }
-              />
-            ) : (
-              <ol className="grid gap-3">
-                {deliveries.map((delivery) => (
-                  <li key={delivery._id}>
-                    <RecipientDeliveryCard
-                      delivery={delivery}
-                      onDismiss={() =>
-                        runDeliveryMutation(() =>
-                          dismiss({
-                            deliveryId: delivery._id,
-                            workosOrganizationId,
-                          })
-                        )
-                      }
-                      onOpen={() =>
-                        delivery.status === "unread"
-                          ? runDeliveryMutation(() =>
-                              markRead({
-                                deliveryId: delivery._id,
-                                workosOrganizationId,
-                              })
-                            )
-                          : undefined
-                      }
-                      onResolve={() =>
-                        runDeliveryMutation(() =>
-                          resolve({
-                            deliveryId: delivery._id,
-                            workosOrganizationId,
-                          })
-                        )
-                      }
-                    />
-                  </li>
-                ))}
-              </ol>
-            )
-          ) : (
-            <InboxState message="Choose an organization to view notifications." />
-          )}
+          <InboxDeliveries
+            deliveries={deliveries}
+            filter={filter}
+            inboxLoaded={inbox.loaded}
+            onDismiss={(delivery) =>
+              workosOrganizationId
+                ? runDeliveryMutation(() =>
+                    dismiss({
+                      deliveryId: delivery._id,
+                      workosOrganizationId,
+                    })
+                  )
+                : undefined
+            }
+            onOpen={(delivery) =>
+              workosOrganizationId && delivery.status === "unread"
+                ? runDeliveryMutation(() =>
+                    markRead({
+                      deliveryId: delivery._id,
+                      workosOrganizationId,
+                    })
+                  )
+                : undefined
+            }
+            onResolve={(delivery) =>
+              workosOrganizationId
+                ? runDeliveryMutation(() =>
+                    resolve({
+                      deliveryId: delivery._id,
+                      workosOrganizationId,
+                    })
+                  )
+                : undefined
+            }
+            organizationSelected={Boolean(workosOrganizationId)}
+          />
         </SheetPanel>
       </SheetContent>
     </Sheet>
   );
 }
 
-function useRecipientInbox(workosOrganizationId?: string | null) {
-  return useQuery(
-    api.production_proposals.listRecipientInbox,
-    workosOrganizationId ? { workosOrganizationId } : "skip"
+function useRecipientInbox(
+  workosOrganizationId?: string | null,
+  exhaustPages = false
+) {
+  const inbox = usePaginatedQuery(
+    api.build_collaboration_inbox.listRecipientInbox,
+    workosOrganizationId ? { workosOrganizationId } : "skip",
+    { initialNumItems: 100 }
+  );
+  useEffect(() => {
+    if (
+      exhaustPages &&
+      workosOrganizationId &&
+      inbox.status === "CanLoadMore"
+    ) {
+      inbox.loadMore(100);
+    }
+  }, [exhaustPages, inbox.loadMore, inbox.status, workosOrganizationId]);
+  return useMemo(() => {
+    const deliveries = inbox.results;
+    return {
+      actionRequiredCount: deliveries.filter(
+        (delivery) =>
+          delivery.actionRequired &&
+          delivery.status !== "dismissed" &&
+          delivery.status !== "resolved"
+      ).length,
+      countsComplete: inbox.status === "Exhausted",
+      deliveries,
+      loaded: inbox.status !== "LoadingFirstPage",
+      unreadCount: deliveries.filter((delivery) => delivery.status === "unread")
+        .length,
+    };
+  }, [inbox.results, inbox.status]);
+}
+
+function InboxDeliveries({
+  deliveries,
+  filter,
+  inboxLoaded,
+  onDismiss,
+  onOpen,
+  onResolve,
+  organizationSelected,
+}: {
+  deliveries: RecipientDelivery[];
+  filter: InboxFilter;
+  inboxLoaded: boolean;
+  onDismiss: (delivery: RecipientDelivery) => void;
+  onOpen: (delivery: RecipientDelivery) => void;
+  onResolve: (delivery: RecipientDelivery) => void;
+  organizationSelected: boolean;
+}) {
+  if (!organizationSelected) {
+    return (
+      <InboxState message="Choose an organization to view notifications." />
+    );
+  }
+  if (!inboxLoaded) {
+    return <InboxState message="Loading notifications…" />;
+  }
+  if (deliveries.length === 0) {
+    return (
+      <InboxState
+        message={
+          filter === "actionRequired"
+            ? "No notifications require action."
+            : "No notifications yet."
+        }
+      />
+    );
+  }
+  return (
+    <ol className="grid gap-3">
+      {deliveries.map((delivery) => (
+        <li key={delivery._id}>
+          <RecipientDeliveryCard
+            delivery={delivery}
+            onDismiss={() => onDismiss(delivery)}
+            onOpen={() => onOpen(delivery)}
+            onResolve={() => onResolve(delivery)}
+          />
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -237,7 +301,11 @@ function RecipientDeliveryCard({
         <Button
           data-testid={`recipient-delivery-open-${delivery._id}`}
           onClick={onOpen}
-          render={<a href={delivery.href} />}
+          render={
+            <a href={delivery.href}>
+              <span className="sr-only">{delivery.actionLabel}</span>
+            </a>
+          }
           size="sm"
         >
           {delivery.actionLabel}

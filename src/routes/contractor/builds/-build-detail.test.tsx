@@ -6,11 +6,16 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const acknowledge = vi.fn();
 const clarify = vi.fn();
 const dispute = vi.fn();
+const startAssignedSubmilestone = vi.fn();
 const useQuery = vi.fn();
 let mutationIndex = 0;
+let routeRoles = ["contractor"];
 
 vi.mock("convex/react", () => ({
-  useMutation: () => [acknowledge, clarify, dispute][mutationIndex++ % 3],
+  useMutation: () =>
+    [acknowledge, clarify, dispute, startAssignedSubmilestone][
+      mutationIndex++ % 4
+    ],
   useQuery: (...args: unknown[]) => useQuery(...args),
 }));
 
@@ -18,6 +23,11 @@ vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (config: Record<string, unknown>) => ({
     ...config,
     useParams: () => ({ buildId: "active_build_01" }),
+    useRouteContext: () => ({
+      organizationId: "session_org_01",
+      role: routeRoles[0],
+      roles: routeRoles,
+    }),
     useSearch: () => ({ assignmentId: "assignment_01" }),
   }),
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -27,18 +37,39 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
+vi.mock(
+  "#/features/build-collaboration/BuildCollaborationWorkspace.tsx",
+  () => ({
+    BuildCollaborationWorkspace: ({
+      buildId,
+      organizationId,
+    }: {
+      buildId: string;
+      organizationId: string;
+    }) => (
+      <div data-testid="build-collaboration-workspace">
+        {buildId}:{organizationId}
+      </div>
+    ),
+  })
+);
+
 import { ContractorBuildDetail } from "./$buildId";
 
 const detail = {
   assignedScope: [
     {
       acknowledgement: { state: "pending_acknowledgement" },
+      actualStartedAt: null,
       assignmentId: "assignment_01",
+      dependencyBlockers: [],
       milestoneKey: "foundation",
       milestoneName: "Foundation",
       role: "Concrete crew",
       status: "active",
-      submilestoneKey: null,
+      submilestoneKey: "forms",
+      submilestoneName: "Set forms",
+      workStatus: "planned",
     },
   ],
   build: {
@@ -46,18 +77,38 @@ const detail = {
     buildName: "Hamilton Build",
     location: "Hamilton, ON",
     organizationId: "org_01",
+    startDate: "2026-05-01",
   },
   builderContact: { displayName: "Oakline Builders" },
   permitDocuments: [],
 };
+const linkedParticipationScope = {
+  buildId: "active_build_01",
+  buildName: "Hamilton Build",
+  legacyContractorProfileLinked: true,
+  organizationId: "org_01",
+  participantId: "participant_01",
+  role: "contractor",
+};
+let participationScope = linkedParticipationScope;
+let contractorDetail = detail;
 
 describe("ContractorBuildDetail", () => {
   beforeEach(() => {
+    routeRoles = ["contractor"];
+    contractorDetail = detail;
+    participationScope = linkedParticipationScope;
     mutationIndex = 0;
     acknowledge.mockResolvedValue("ack_01");
     clarify.mockResolvedValue("issue_01");
     dispute.mockResolvedValue("issue_02");
-    useQuery.mockReturnValue(detail);
+    startAssignedSubmilestone.mockResolvedValue("start_01");
+    useQuery.mockImplementation(
+      (_query: unknown, input: Record<string, unknown> | "skip") =>
+        input !== "skip" && "organizationId" in input
+          ? participationScope
+          : contractorDetail
+    );
   });
 
   afterEach(() => {
@@ -83,6 +134,33 @@ describe("ContractorBuildDetail", () => {
     );
   });
 
+  test("renders the shared production collaboration module in the authorized Build surface", () => {
+    render(<ContractorBuildDetail />);
+
+    expect(
+      screen.getByRole("heading", { name: "Build collaboration" })
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("build-collaboration-workspace").textContent
+    ).toBe("active_build_01:org_01");
+  });
+
+  test("renders collaboration for a grant-only Contractor without a linked profile or assignment projection", () => {
+    participationScope = {
+      ...linkedParticipationScope,
+      legacyContractorProfileLinked: false,
+    };
+
+    render(<ContractorBuildDetail />);
+
+    expect(screen.getByRole("heading", { name: "Hamilton Build" })).toBeTruthy();
+    expect(
+      screen.getByTestId("build-collaboration-workspace").textContent
+    ).toBe("active_build_01:org_01");
+    expect(screen.queryByText("Your assigned scope")).toBeNull();
+    expect(useQuery).toHaveBeenCalledWith(expect.anything(), "skip");
+  });
+
   test("requires and submits a scoped clarification", async () => {
     render(<ContractorBuildDetail />);
 
@@ -106,15 +184,40 @@ describe("ContractorBuildDetail", () => {
         assignmentType: "build",
         buildAssignmentId: "assignment_01",
         milestoneKey: "foundation",
-        submilestoneKey: undefined,
+        submilestoneKey: "forms",
         summary: "Confirm whether excavation is included.",
         workosOrganizationId: "org_01",
       }),
     );
   });
 
+  test("confirms and records the assigned submilestone start without starting its parent", async () => {
+    render(<ContractorBuildDetail />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
+    expect(screen.getByTestId("milestone-start-dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Record start" }));
+
+    await waitFor(() =>
+      expect(startAssignedSubmilestone).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actualStartedAt: expect.any(Number),
+          buildId: "active_build_01",
+          idempotencyKey: expect.any(String),
+          milestoneKey: "foundation",
+          source: "submilestone_detail",
+          submilestoneKey: "forms",
+          workosOrganizationId: "org_01",
+        })
+      )
+    );
+    expect(startAssignedSubmilestone.mock.calls[0]?.[0]).not.toHaveProperty(
+      "startParent"
+    );
+  });
+
   test("renders first-party recovery for a removed or stale assignment", () => {
-    useQuery.mockReturnValue({
+    contractorDetail = {
       assignedScope: [],
       availability: {
         message:
@@ -125,7 +228,7 @@ describe("ContractorBuildDetail", () => {
       build: null,
       builderContact: null,
       permitDocuments: [],
-    });
+    };
 
     render(<ContractorBuildDetail />);
 

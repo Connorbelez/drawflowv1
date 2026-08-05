@@ -45,7 +45,7 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
     expect(within(sheet).queryByText("Approve milestone")).toBeNull();
   });
 
-  test("requires an explicit proposal plan selection before submission", () => {
+  test("keeps optimizer preset selection optional before submission", () => {
     const setActivePlan = vi.fn();
     const optimizationPlans = [
       {
@@ -93,7 +93,7 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
 
     expect(
       (screen.getByTestId("proposal-submit") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
     fireEvent.click(screen.getByTestId("workspace-draw-plans-open"));
 
     expect(screen.getByText("Cheapest Feasible")).toBeTruthy();

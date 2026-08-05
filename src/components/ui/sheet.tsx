@@ -76,6 +76,7 @@ export function SheetPopup({
   variant = "default",
   closeProps,
   portalProps,
+  viewportClassName,
   ...props
 }: SheetPrimitive.Popup.Props & {
   backdropClassName?: string;
@@ -84,11 +85,16 @@ export function SheetPopup({
   variant?: "default" | "inset";
   closeProps?: SheetPrimitive.Close.Props;
   portalProps?: SheetPrimitive.Portal.Props;
+  viewportClassName?: string;
 }): React.ReactElement {
   return (
     <SheetPortal {...portalProps}>
       <SheetBackdrop className={backdropClassName} />
-      <SheetViewport side={side} variant={variant}>
+      <SheetViewport
+        className={viewportClassName}
+        side={side}
+        variant={variant}
+      >
         <SheetPrimitive.Popup
           className={cn(
             "relative flex max-h-full min-h-0 w-full min-w-0 flex-col bg-popover not-dark:bg-clip-padding text-popover-foreground shadow-lg/5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform before:pointer-events-none before:absolute before:inset-0 before:shadow-[0_1px_--theme(--color-black/4%)] data-ending-style:opacity-0 data-starting-style:opacity-0 max-sm:before:hidden dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
@@ -177,7 +183,7 @@ export function SheetTitle({
   return (
     <SheetPrimitive.Title
       className={cn(
-        "font-heading font-semibold text-xl leading-none",
+        "font-heading font-semibold text-xl leading-snug",
         className,
       )}
       data-slot="sheet-title"

@@ -63,12 +63,15 @@ export function canMakeActiveBuildFinalDecision(
 
 /**
  * Contractor Workspace is a first-class workspace with its own access policy
- * (PRD §11.1). The contractor role is the only role granted full workspace
- * access. The onboarding bridge has a looser policy — `member` or `contractor`
- * can reach `/contractor/onboarding` until the role + profile link resolve
- * (PRD §5.2, §11.1 onboarding bridge). The linked-profile requirement is
- * enforced by the backend (`requireContractorLinkedProfile`), so this RBAC
- * layer gates role + organization only.
+ * (PRD §11.1). The contractor role is the role granted the full contractor
+ * workspace. The onboarding bridge has a looser policy — `member` or
+ * `contractor` can reach `/contractor/onboarding` until the role + profile
+ * link resolve (PRD §5.2, §11.1 onboarding bridge).
+ *
+ * Authorized build viewers may also enter an individual contractor build
+ * detail route to use the shared build collaboration surface. The backend
+ * remains the resource-level authority for that build; this frontend policy
+ * only admits roles that the active-build authorization layer can evaluate.
  */
 export const CONTRACTOR_WORKSPACE_ROLE_SLUGS = [
   "contractor",
@@ -76,6 +79,17 @@ export const CONTRACTOR_WORKSPACE_ROLE_SLUGS = [
 
 export const CONTRACTOR_ONBOARDING_ROLE_SLUGS = [
   "member",
+  "contractor",
+] as const satisfies readonly RoleSlug[];
+
+export const CONTRACTOR_BUILD_DETAIL_ROLE_SLUGS = [
+  "member",
+  "admin",
+  "principle-broker",
+  "broker",
+  "broker-staff",
+  "builder",
+  "builder-staff",
   "contractor",
 ] as const satisfies readonly RoleSlug[];
 
@@ -161,12 +175,35 @@ export function getWorkspaceAccessDecision(
     return { reason: "unauthenticated", status: "unauthenticated" };
   }
 
-  if (!input.organizationId?.trim()) {
+  if (
+    !(
+      input.organizationId?.trim() ||
+      (input.workspace === "contractor" &&
+        isContractorBuildDetailPath(input.pathname))
+    )
+  ) {
     return { reason: "missing-organization", status: "forbidden" };
   }
 
   const roles = normalizeRoleSlugs(input.roles);
 
+  if (input.workspace === "contractor") {
+    return getContractorWorkspaceDecision(input, roles);
+  }
+
+  if (roles.length === 1 && roles.includes("member")) {
+    return { reason: "onboarding-required", status: "forbidden" };
+  }
+
+  return hasAnyRole(roles, workspaceRoles(input.workspace))
+    ? { status: "allowed" }
+    : { reason: "no-workspace-access", status: "forbidden" };
+}
+
+function getContractorWorkspaceDecision(
+  input: AuthAccessInput,
+  roles: readonly RoleSlug[]
+): WorkspaceAccessDecision {
   // Contractor Workspace has a two-tier policy (PRD §11.1). The onboarding
   // bridge at /contractor/onboarding is reachable by member OR contractor
   // roles; the rest of /contractor requires the contractor role. The
@@ -174,35 +211,47 @@ export function getWorkspaceAccessDecision(
   // profile-link-required forbidden reason when the contractor role is present
   // but the caller opts out via the `profileLinked` input (default true so
   // existing call sites are unaffected).
-  if (input.workspace === "contractor") {
-    if (isContractorOnboardingPath(input.pathname)) {
-      return hasAnyRole(roles, CONTRACTOR_ONBOARDING_ROLE_SLUGS)
-        ? { status: "allowed" }
-        : { reason: "no-workspace-access", status: "forbidden" };
-    }
-    if (!hasAnyRole(roles, CONTRACTOR_WORKSPACE_ROLE_SLUGS)) {
-      // A member without the contractor role belongs on the onboarding bridge.
-      return roles.includes("member")
-        ? { reason: "onboarding-required", status: "forbidden" }
-        : { reason: "no-workspace-access", status: "forbidden" };
-    }
-    return input.profileLinked === false
-      ? { reason: "profile-link-required", status: "forbidden" }
-      : { status: "allowed" };
+  if (
+    isContractorBuildDetailPath(input.pathname) &&
+    hasAnyRole(roles, CONTRACTOR_BUILD_DETAIL_ROLE_SLUGS)
+  ) {
+    return { status: "allowed" };
   }
-
-  if (roles.length === 1 && roles.includes("member")) {
-    return { reason: "onboarding-required", status: "forbidden" };
+  if (isContractorOnboardingPath(input.pathname)) {
+    return hasAnyRole(roles, CONTRACTOR_ONBOARDING_ROLE_SLUGS)
+      ? { status: "allowed" }
+      : { reason: "no-workspace-access", status: "forbidden" };
   }
+  if (!hasAnyRole(roles, CONTRACTOR_WORKSPACE_ROLE_SLUGS)) {
+    return roles.includes("member")
+      ? { reason: "onboarding-required", status: "forbidden" }
+      : { reason: "no-workspace-access", status: "forbidden" };
+  }
+  return input.profileLinked === false
+    ? { reason: "profile-link-required", status: "forbidden" }
+    : { status: "allowed" };
+}
 
-  const allowed =
-    input.workspace === "backoffice"
-      ? hasAnyRole(roles, BACKOFFICE_ROLE_SLUGS)
-      : hasAnyRole(roles, BUILDER_ROLE_SLUGS);
+function workspaceRoles(
+  workspace: Exclude<Workspace, "contractor">
+): readonly RoleSlug[] {
+  if (workspace === "backoffice") {
+    return BACKOFFICE_ROLE_SLUGS;
+  }
+  return BUILDER_ROLE_SLUGS;
+}
 
-  return allowed
-    ? { status: "allowed" }
-    : { reason: "no-workspace-access", status: "forbidden" };
+export function requireHomeownerWorkspaceAccess(input: {
+  isAuthenticated: boolean;
+  pathname: string;
+}): { status: "allowed" } {
+  if (!input.isAuthenticated) {
+    throw redirect({
+      search: { returnTo: input.pathname },
+      to: "/api/auth/sign-in",
+    });
+  }
+  return { status: "allowed" };
 }
 
 export function hasBuilderStaffWorkspaceAccess(
@@ -348,6 +397,21 @@ export function isContractorOnboardingPath(pathname: string): boolean {
     pathname === "/contractor/onboarding" ||
     pathname.startsWith("/contractor/onboarding/")
   );
+}
+
+export function isContractorBuildPath(pathname: string): boolean {
+  return (
+    pathname === "/contractor/builds" ||
+    pathname.startsWith("/contractor/builds/")
+  );
+}
+
+export function isContractorBuildDetailPath(pathname: string): boolean {
+  const prefix = "/contractor/builds/";
+  const buildId = pathname.startsWith(prefix)
+    ? pathname.slice(prefix.length)
+    : "";
+  return Boolean(buildId) && !buildId.includes("/");
 }
 
 /**

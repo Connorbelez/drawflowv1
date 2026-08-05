@@ -292,7 +292,10 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
           </ConvexProvider>
         </WorkOSProvider>
         <Scripts />
-      </body>
+      {/* impeccable-live-start */}
+<script src="http://localhost:8400/live.js"></script>
+{/* impeccable-live-end */}
+</body>
     </html>
   );
 }
@@ -335,6 +338,9 @@ function RootNotFound(): ReactElement {
 
 export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
   const errorState = getRootErrorState(error);
+  const workspaceHome = rootRecoveryWorkspaceHome(
+    typeof window === "undefined" ? "" : window.location.pathname
+  );
   const retryRoute = () => {
     if (typeof window !== "undefined") {
       window.location.reload();
@@ -353,7 +359,7 @@ export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
         </h1>
         <p className="mt-2 text-muted-foreground text-sm">
           This screen hit a recoverable loading problem. Try again now or return
-          to backoffice.
+          to your workspace.
         </p>
         <div className="mt-4 rounded-md bg-muted p-3">
           <p className="font-medium text-foreground text-sm">What happened</p>
@@ -363,13 +369,29 @@ export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
           <Button onClick={retryRoute}>Try again</Button>
-          <Button render={<a href="/backoffice" />} variant="outline">
-            Back to backoffice
+          <Button render={<a href={workspaceHome.href} />} variant="outline">
+            Back to {workspaceHome.label}
           </Button>
         </div>
       </Card>
     </main>
   );
+}
+
+function rootRecoveryWorkspaceHome(pathname: string) {
+  if (pathname.startsWith("/contractor")) {
+    return { href: "/contractor", label: "contractor workspace" };
+  }
+  if (pathname.startsWith("/homeowner")) {
+    return { href: "/homeowner", label: "homeowner workspace" };
+  }
+  if (pathname.startsWith("/builder-staff")) {
+    return { href: "/builder-staff", label: "builder staff workspace" };
+  }
+  if (pathname.startsWith("/builder")) {
+    return { href: "/builder", label: "builder workspace" };
+  }
+  return { href: "/backoffice", label: "backoffice" };
 }
 
 const ROOT_ERROR_UNSAFE_PATTERNS = [

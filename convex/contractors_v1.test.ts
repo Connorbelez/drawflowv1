@@ -141,6 +141,7 @@ async function createActiveBuild(t: any, seed: any) {
     (api as any).production_proposals.recordOfflineClosing,
     {
       buildStartDate: "2026-08-01",
+      ianaTimezone: "America/Toronto",
       loanFacility: {
         interestAnnualBps: 925,
         principalCents: 100_000_000,
@@ -465,6 +466,7 @@ describe("contractors v1", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-09-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 90_000_000,
@@ -582,6 +584,11 @@ describe("contractors v1", () => {
           milestoneKey: "foundation",
           mimeType: "image/jpeg",
           sizeBytes: 12_000,
+          storageId: await t.run(async (ctx: any) =>
+            ctx.storage.store(
+              new Blob(["forms-photo-01"], { type: "image/jpeg" }),
+            ),
+          ),
           source: "builder_evidence",
           submilestoneKey: "forms",
           tag: "Forms and pour",
@@ -601,6 +608,11 @@ describe("contractors v1", () => {
           milestoneKey: "foundation",
           mimeType: "image/jpeg",
           sizeBytes: 12_000,
+          storageId: await t.run(async (ctx: any) =>
+            ctx.storage.store(
+              new Blob(["waterproofing-photo-01"], { type: "image/jpeg" }),
+            ),
+          ),
           source: "builder_evidence",
           submilestoneKey: "waterproofing",
           tag: "Waterproofing",

@@ -108,7 +108,7 @@ export function getMilestoneEffectiveCashSpendAmount(
 
 export function getMilestoneDrawAvailabilityAmount(
   milestone: DemoMilestone | undefined,
-  coPayBps: number | undefined = undefined
+  coPayBps: number | undefined
 ) {
   if (!milestone) {
     return 0;
@@ -182,8 +182,9 @@ export interface DemoDraw {
 
 export interface DemoCapitalSpike {
   amount: number;
-  eventKind?: "cashInfusion" | "cost";
+  eventKind?: "cashInfusion" | "cost" | "homeEquityTakeout";
   id: string;
+  interestAnnualBps?: number;
   label: string;
   x: number;
 }
@@ -248,6 +249,7 @@ export interface TimelineShareState {
 }
 
 export const DEFAULT_INTEREST_ANNUAL_BPS = 925;
+export const PROPOSAL_TIMELINE_MIN_DAY = -30;
 const DEFAULT_TITLE = "Elm Street build draw roadmap";
 const FALLBACK_RANGE: TimelineRange = {
   max: 230,
@@ -710,13 +712,26 @@ function normalizeShareCapitalSpikes(
     .filter((spike) => spike.id.trim().length > 0 && Number.isFinite(spike.x))
     .map((spike, index) => ({
       amount: Math.max(0, Math.round(normalizeNumber(spike.amount, 0))),
-      eventKind: spike.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
+      eventKind:
+        spike.eventKind === "cashInfusion" ||
+        spike.eventKind === "homeEquityTakeout"
+          ? spike.eventKind
+          : "cost",
       id: spike.id,
+      ...(spike.eventKind === "homeEquityTakeout"
+        ? {
+            interestAnnualBps: normalizeInterestAnnualBps(
+              spike.interestAnnualBps
+            ),
+          }
+        : {}),
       label:
         spike.label.trim() ||
         (spike.eventKind === "cashInfusion"
           ? `Cash infusion ${index + 1}`
-          : `Capital spike ${index + 1}`),
+          : spike.eventKind === "homeEquityTakeout"
+            ? `Home Equity Takeout ${index + 1}`
+            : `Capital spike ${index + 1}`),
       x: normalizeNumber(spike.x, 0),
     }))
     .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));

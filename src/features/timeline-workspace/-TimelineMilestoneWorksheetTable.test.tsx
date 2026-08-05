@@ -14,6 +14,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   TimelineMilestoneWorksheetTable,
   moveSubMilestoneWithinSummaryRows,
+  rebalanceWorksheetCompletionPercentages,
   type TimelineMilestoneWorksheetRow,
   type TimelineMilestoneWorksheetRowsChangeMeta,
   type TimelineScheduleDisplayMode,
@@ -94,6 +95,32 @@ const worksheetRows: TimelineMilestoneWorksheetRow[] = [
     subMilestones: ["Frame shell"],
   type: "framing",
   },
+];
+
+const percentageRebalanceRows: TimelineMilestoneWorksheetRow[] = [
+  {
+    ...worksheetRows[0]!,
+    percentageBps: 5000,
+    percentageText: "50.00%",
+    subMilestoneDetails: [
+      {
+        ...worksheetRows[0]!.subMilestoneDetails[0]!,
+        id: "site-prep-foundation-sub-1",
+        name: "Site preparation",
+        percentageBps: 3000,
+        percentageText: "30.00%",
+      },
+      {
+        ...worksheetRows[0]!.subMilestoneDetails[0]!,
+        id: "site-prep-foundation-sub-2",
+        name: "Foundation scope",
+        percentageBps: 2000,
+        percentageText: "20.00%",
+      },
+    ],
+    subMilestones: ["Site preparation", "Foundation scope"],
+  },
+  worksheetRows[1]!,
 ];
 
 test("exposes the expanded milestone icon set in the settings selector", () => {
@@ -823,18 +850,298 @@ describe("TimelineMilestoneWorksheetTable", () => {
     );
   });
 
+  test("rebalances surviving sub-milestones across the included worksheet", () => {
+    const nextRows = rebalanceWorksheetCompletionPercentages([
+      {
+        ...percentageRebalanceRows[0]!,
+        subMilestoneDetails:
+          percentageRebalanceRows[0]!.subMilestoneDetails.slice(1),
+        subMilestones: ["Foundation scope"],
+      },
+      percentageRebalanceRows[1]!,
+    ]);
+
+    expect(nextRows[0]).toMatchObject({
+      percentageBps: 2857,
+      percentageText: "28.57%",
+      subMilestoneDetails: [
+        expect.objectContaining({
+          id: "site-prep-foundation-sub-2",
+          percentageBps: 2857,
+          percentageText: "28.57%",
+        }),
+      ],
+    });
+    expect(nextRows[1]).toMatchObject({
+      percentageBps: 7143,
+      percentageText: "71.43%",
+      subMilestoneDetails: [
+        expect.objectContaining({
+          id: "framing-sub-1",
+          percentageBps: 7143,
+          percentageText: "71.43%",
+        }),
+      ],
+    });
+    expect(
+      nextRows
+        .filter((row) => !row.excluded)
+        .reduce((sum, row) => sum + row.percentageBps, 0)
+    ).toBe(10_000);
+  });
+
+  test("removing a sub-milestone rebalances the controlled settings draft", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={percentageRebalanceRows}
+        mode="settings"
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-row-expand-site-prep-foundation")
+    );
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-submilestone-remove-site-prep-foundation-sub-1"
+      )
+    );
+
+    const nextRows = onRowsChange.mock.lastCall?.[0] as
+      | TimelineMilestoneWorksheetRow[]
+      | undefined;
+    expect(nextRows?.[0]).toMatchObject({
+      percentageBps: 2857,
+      subMilestoneDetails: [
+        expect.objectContaining({
+          id: "site-prep-foundation-sub-2",
+          percentageBps: 2857,
+        }),
+      ],
+    });
+    expect(nextRows?.[1]).toMatchObject({
+      percentageBps: 7143,
+      subMilestoneDetails: [
+        expect.objectContaining({
+          id: "framing-sub-1",
+          percentageBps: 7143,
+        }),
+      ],
+    });
+  });
+
+  test("uses an equal deterministic fallback while preserving excluded weights", () => {
+    const excludedRow = {
+      ...percentageRebalanceRows[0]!,
+      excluded: true,
+      percentageBps: 4321,
+      percentageText: "43.21%",
+    };
+    const includedRows = percentageRebalanceRows.map((row, rowIndex) => ({
+      ...row,
+      key: `${row.key}-${rowIndex}`,
+      percentageBps: 0,
+      percentageText: "0.00%",
+      subMilestoneDetails: [
+        {
+          ...row.subMilestoneDetails[0]!,
+          id: `${row.subMilestoneDetails[0]!.id}-${rowIndex}`,
+          percentageBps: 0,
+          percentageText: "0.00%",
+        },
+      ],
+    }));
+
+    const nextRows = rebalanceWorksheetCompletionPercentages([
+      excludedRow,
+      ...includedRows,
+    ]);
+
+    expect(nextRows[0]).toEqual(excludedRow);
+    expect(nextRows.slice(1).map((row) => row.percentageBps)).toEqual([
+      5000, 5000,
+    ]);
+    expect(
+      nextRows
+        .slice(1)
+        .flatMap((row) => row.subMilestoneDetails)
+        .map((subMilestone) => subMilestone.percentageText)
+    ).toEqual(["50.00%", "50.00%"]);
+  });
+
+  test("normalizes milestone exclusion and re-inclusion across active children", () => {
+    const onRowsChange = vi.fn();
+    const { container } = render(
+      <ControlledWorksheet
+        initialRows={percentageRebalanceRows}
+        mode="settings"
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Include Site prep & foundation" })
+    );
+    let nextRows = onRowsChange.mock.lastCall?.[0] as
+      | TimelineMilestoneWorksheetRow[]
+      | undefined;
+    expect(nextRows?.[0]).toMatchObject({
+      excluded: true,
+      percentageBps: 5000,
+    });
+    expect(nextRows?.[1]).toMatchObject({
+      excluded: false,
+      percentageBps: 10_000,
+      subMilestoneDetails: [
+        expect.objectContaining({ percentageBps: 10_000 }),
+      ],
+    });
+    expect(
+      container.querySelector(".timeline-blueprint-footer")?.textContent
+    ).toContain("100.00%");
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Include Site prep & foundation" })
+    );
+    nextRows = onRowsChange.mock.lastCall?.[0] as
+      | TimelineMilestoneWorksheetRow[]
+      | undefined;
+    expect(nextRows?.map((row) => row.percentageBps)).toEqual([3333, 6667]);
+    expect(
+      nextRows
+        ?.flatMap((row) => row.subMilestoneDetails)
+        .map((subMilestone) => subMilestone.percentageBps)
+    ).toEqual([2000, 1333, 6667]);
+  });
+
+  test("blocks the final child and final included milestone destructive actions", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={[worksheetRows[0]!]}
+        mode="settings"
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    const includeSwitch = screen.getByRole("switch", {
+      name: "Include Site prep & foundation",
+    });
+    expect(includeSwitch.getAttribute("title")).toBe(
+      "At least one milestone must remain included."
+    );
+    fireEvent.click(includeSwitch);
+    expect(onRowsChange).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-row-expand-site-prep-foundation")
+    );
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-submilestone-remove-site-prep-foundation-sub-1"
+        ) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-settings-table-delete-site-prep-foundation"
+        ) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
+  });
+
+  test("confirms milestone deletion, cleans dependencies, and rebalances survivors", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={percentageRebalanceRows}
+        initialWorksheetView="table"
+        mode="settings"
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-settings-table-delete-site-prep-foundation"
+      )
+    );
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText(/Site prep & foundation/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(onRowsChange).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-settings-table-delete-site-prep-foundation"
+      )
+    );
+    fireEvent.click(
+      within(screen.getByRole("alertdialog")).getByTestId(
+        "timeline-settings-delete-milestone-confirm"
+      )
+    );
+
+    expect(onRowsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        dependencyKeys: [],
+        key: "framing",
+        order: 0,
+        percentageBps: 10_000,
+        percentageText: "100.00%",
+        subMilestoneDetails: [
+          expect.objectContaining({
+            percentageBps: 10_000,
+            percentageText: "100.00%",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  test("exposes milestone deletion from the milestone details sheet", () => {
+    render(
+      <ControlledWorksheet
+        initialRows={percentageRebalanceRows}
+        initialWorksheetView="table"
+        mode="settings"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-row-details-site-prep-foundation"
+      )
+    );
+
+    expect(
+      within(
+        screen.getByTestId(
+          "timeline-setup-details-sheet-site-prep-foundation"
+        )
+      ).getByTestId(
+        "timeline-settings-details-delete-site-prep-foundation"
+      )
+    ).toBeTruthy();
+  });
+
   test("moves table sub-milestones across groups and recalculates group rollups", () => {
     const movedRows = moveSubMilestoneWithinSummaryRows(
       [
         {
-          ...worksheetRows[0]!,
+          ...percentageRebalanceRows[0]!,
           startDay: 0,
-          subMilestoneDetails: [
-            {
-              ...worksheetRows[0]!.subMilestoneDetails[0]!,
-              startDay: 0,
-            },
-          ],
+          subMilestoneDetails:
+            percentageRebalanceRows[0]!.subMilestoneDetails.map(
+              (subMilestone, index) => ({
+                ...subMilestone,
+                startDay: index * 14,
+              })
+            ),
         },
         {
           ...worksheetRows[1]!,
@@ -848,7 +1155,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
         },
       ],
       1,
-      2,
+      3,
       { includeBudget: true }
     );
 
@@ -858,7 +1165,9 @@ describe("TimelineMilestoneWorksheetTable", () => {
     );
     const framing = movedRows?.find((row) => row.key === "framing");
 
-    expect(sitePrep?.subMilestoneDetails).toEqual([]);
+    expect(sitePrep?.subMilestoneDetails.map((detail) => detail.id)).toEqual([
+      "site-prep-foundation-sub-2",
+    ]);
     expect(framing?.subMilestoneDetails.map((detail) => detail.id)).toEqual([
       "framing-sub-1",
       "site-prep-foundation-sub-1",

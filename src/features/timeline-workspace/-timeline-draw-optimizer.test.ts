@@ -9,7 +9,10 @@ import type {
   DemoCapitalSpike,
   DemoMilestone,
 } from "./-timeline-share-snapshot.ts";
-import { optimizeTimelineDrawSchedule } from "./-timeline-draw-optimizer.ts";
+import {
+  calculateHomeEquityInterestCost,
+  optimizeTimelineDrawSchedule,
+} from "./-timeline-draw-optimizer.ts";
 
 describe("optimizeTimelineDrawSchedule", () => {
   test("applies same-day cash infusions before spend constraints", () => {
@@ -120,6 +123,89 @@ describe("optimizeTimelineDrawSchedule", () => {
     expect(result.status).toBe("optimized");
     expect(totalDrawn(result.draws)).toBe(45);
     expect(result.draws).toHaveLength(1);
+  });
+
+  test("treats a pre-start Home Equity Takeout as cash without adding construction spend", () => {
+    const result = optimizeTimelineDrawSchedule({
+      capitalSpikes: [
+        homeEquityTakeout("home-equity", 75, -30, 1_000),
+        capitalCost("site-cost", 125, 10),
+      ],
+      items: [milestone("availability-unlock", 0, 1, 0, 100)],
+      minimumCashReserve: 0,
+      range: { max: 40, min: -30, unit: "days" },
+      startingCash: 0,
+    });
+
+    expect(result.status).toBe("optimized");
+    expect(totalDrawn(result.draws)).toBe(50);
+    expect(result.homeEquityInterestCost).toBeGreaterThan(0);
+    expect(result.interestCost).toBe(
+      result.constructionInterestCost + result.homeEquityInterestCost,
+    );
+  });
+
+  test("compounds Home Equity Takeout interest daily from T−30 through T0", () => {
+    const interest = calculateHomeEquityInterestCost(
+      [homeEquityTakeout("home-equity", 100_000, -30, 1_000)],
+      0,
+    );
+    const expected = 100_000 * ((1 + 0.1 / 365) ** 30 - 1);
+
+    expect(interest).toBeCloseTo(expected, 8);
+  });
+
+  test("aggregates independently compounded interest across multiple takeouts", () => {
+    const events = [
+      homeEquityTakeout("first", 100_000, -30, 1_000),
+      homeEquityTakeout("second", 50_000, -10, 500),
+    ];
+    const expected =
+      100_000 * ((1 + 0.1 / 365) ** 60 - 1) +
+      50_000 * ((1 + 0.05 / 365) ** 40 - 1);
+
+    expect(calculateHomeEquityInterestCost(events, 30)).toBeCloseTo(
+      expected,
+      8,
+    );
+  });
+
+  test("produces exactly three positive draws on distinct dates", () => {
+    const result = optimizeTimelineDrawSchedule({
+      capitalSpikes: [
+        capitalCost("cost-one", 50, 10),
+        capitalCost("cost-two", 50, 20),
+        capitalCost("cost-three", 50, 30),
+      ],
+      exactDrawCount: 3,
+      items: [milestone("availability-unlock", 0, 1, 0, 300)],
+      minimumCashReserve: 0,
+      range: { max: 40, min: -30, unit: "days" },
+      startingCash: 0,
+    });
+
+    expect(result.status).toBe("optimized");
+    expect(result.draws).toHaveLength(3);
+    expect(result.draws.every((draw) => draw.amount > 0)).toBe(true);
+    expect(new Set(result.draws.map((draw) => draw.x)).size).toBe(3);
+    expect(result.draws.map((draw) => draw.x)).toEqual([9, 19, 29]);
+  });
+
+  test("returns infeasible when the cash constraints cannot support three distinct positive draws", () => {
+    const result = optimizeTimelineDrawSchedule({
+      capitalSpikes: [capitalCost("single-cost", 50, 10)],
+      exactDrawCount: 3,
+      items: [milestone("availability-unlock", 0, 1, 0, 300)],
+      minimumCashReserve: 0,
+      range: { max: 40, min: -30, unit: "days" },
+      startingCash: 0,
+    });
+
+    expect(result).toMatchObject({
+      draws: [],
+      status: "infeasible",
+    });
+    expect(result.infeasibleReason).toContain("exactly 3");
   });
 
   test("uses pre-event cash infusions before declaring draw availability infeasible", () => {
@@ -300,6 +386,22 @@ function cashInfusion(id: string, amount: number, x: number): DemoCapitalSpike {
     amount,
     eventKind: "cashInfusion",
     id,
+    label: id,
+    x,
+  };
+}
+
+function homeEquityTakeout(
+  id: string,
+  amount: number,
+  x: number,
+  interestAnnualBps: number,
+): DemoCapitalSpike {
+  return {
+    amount,
+    eventKind: "homeEquityTakeout",
+    id,
+    interestAnnualBps,
     label: id,
     x,
   };

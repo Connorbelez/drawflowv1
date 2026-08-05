@@ -1,6 +1,6 @@
 "use client";
 
-import { useCurrentEditor } from "@tiptap/react";
+import { type JSONContent, useCurrentEditor } from "@tiptap/react";
 import { useEffect, useState } from "react";
 import {
   EditorClearFormatting,
@@ -9,7 +9,12 @@ import {
   EditorImageSelector,
   EditorLinkSelector,
   EditorNodeBulletList,
+  EditorNodeHeading1,
+  EditorNodeHeading2,
+  EditorNodeHeading3,
   EditorNodeOrderedList,
+  EditorNodeTable,
+  EditorNodeTaskList,
   EditorProvider,
   type EditorProviderProps,
 } from "#/components/kibo-ui/editor/index.tsx";
@@ -38,9 +43,10 @@ export interface FieldRichTextEditorProps {
   id?: string;
   imageMaxHeightClass?: string;
   onChange: (value: string) => void;
+  onDocumentChange?: (document: JSONContent, html: string) => void;
   placeholder?: string;
   testId?: string;
-  value: string;
+  value: string | JSONContent;
 }
 
 export function FieldRichTextEditor({
@@ -51,6 +57,7 @@ export function FieldRichTextEditor({
   id,
   imageMaxHeightClass = "[&_.ProseMirror_img]:max-h-56",
   onChange,
+  onDocumentChange,
   placeholder,
   testId,
   value,
@@ -68,11 +75,15 @@ export function FieldRichTextEditor({
       editorContainerProps={{
         "aria-label": ariaLabel,
         className: "field-rich-text-editor-content",
-        "data-testid": testId,
         id,
+        ...({ "data-testid": testId } as Record<string, string | undefined>),
       }}
       extensions={extensions}
-      onUpdate={({ editor }) => onChange(editor.getHTML())}
+      onUpdate={({ editor }) => {
+        const html = editor.getHTML();
+        onChange(html);
+        onDocumentChange?.(editor.getJSON(), html);
+      }}
       placeholder={placeholder}
       slotBefore={<FieldRichTextToolbar />}
     >
@@ -81,15 +92,19 @@ export function FieldRichTextEditor({
   );
 }
 
-function FieldRichTextValueSync({ value }: { value: string }) {
+function FieldRichTextValueSync({ value }: { value: string | JSONContent }) {
   const { editor } = useCurrentEditor();
 
   useEffect(() => {
     if (!editor) {
       return;
     }
-    const nextValue = value || "<p></p>";
-    if (editor.getHTML() !== nextValue) {
+    const nextValue = typeof value === "string" ? value || "<p></p>" : value;
+    const matches =
+      typeof nextValue === "string"
+        ? editor.getHTML() === nextValue
+        : JSON.stringify(editor.getJSON()) === JSON.stringify(nextValue);
+    if (!matches) {
       editor.commands.setContent(nextValue, { emitUpdate: false });
     }
   }, [editor, value]);
@@ -102,7 +117,7 @@ export interface FieldRichTextPreviewProps {
   className?: string;
   extensions?: EditorProviderProps["extensions"];
   imageMaxHeightClass?: string;
-  value: string;
+  value: string | JSONContent;
 }
 
 export function FieldRichTextPreview({
@@ -112,7 +127,7 @@ export function FieldRichTextPreview({
   imageMaxHeightClass = "[&_.ProseMirror_img]:max-h-48",
   value,
 }: FieldRichTextPreviewProps) {
-  if (!value.trim()) {
+  if (typeof value === "string" && !value.trim()) {
     return null;
   }
 
@@ -142,8 +157,13 @@ function FieldRichTextToolbar() {
     <div className="flex flex-wrap items-center gap-px border-b bg-muted/30 p-1">
       <EditorFormatBold hideName />
       <EditorFormatItalic hideName />
+      <EditorNodeHeading1 hideName />
+      <EditorNodeHeading2 hideName />
+      <EditorNodeHeading3 hideName />
       <EditorNodeBulletList hideName />
       <EditorNodeOrderedList hideName />
+      <EditorNodeTaskList hideName />
+      <EditorNodeTable hideName />
       <EditorLinkSelector onOpenChange={setLinkOpen} open={linkOpen} />
       <EditorImageSelector onOpenChange={setImageOpen} open={imageOpen} />
       <EditorClearFormatting hideName />

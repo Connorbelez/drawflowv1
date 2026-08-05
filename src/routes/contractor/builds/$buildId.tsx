@@ -2,39 +2,63 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  MilestoneStartDialog,
+  type MilestoneStartDialogRequest,
+} from "#/features/backoffice-build-detail/MilestoneStartDialog.tsx";
+import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import { cn } from "#/lib/utils.ts";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+
+interface ContractorBuildSearch {
+  assignmentId?: string;
+  focus?: string;
+}
 
 export const Route = createFileRoute("/contractor/builds/$buildId")({
   staticData: {
     breadcrumb: { label: "Build", to: "/contractor/builds" },
   },
-  validateSearch: (search: Record<string, unknown>) => ({
-    assignmentId:
-      typeof search.assignmentId === "string" ? search.assignmentId : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>): ContractorBuildSearch => {
+    const assignmentId =
+      typeof search.assignmentId === "string" ? search.assignmentId : undefined;
+    const focus = normalizeBuildCollaborationFocus(search.focus);
+    return {
+      ...(assignmentId ? { assignmentId } : {}),
+      ...(focus ? { focus } : {}),
+    };
+  },
   component: ContractorBuildDetail,
 });
 
 type ResponseKind = "clarification" | "dispute";
-type ContractorScope = {
+interface ContractorScope {
   acknowledgement: { state: string } | null;
+  actualStartedAt: number | null;
   assignmentId: Id<"milestoneContractorAssignments">;
+  dependencyBlockers: Array<{
+    milestoneKey: string;
+    milestoneName: string;
+    status: "in_progress" | "planned";
+  }>;
   milestoneKey: string;
   milestoneName: string;
   role: string;
   status: string;
   submilestoneKey: string | null;
-};
+  submilestoneName: string | null;
+  workStatus: "complete" | "in_progress" | "planned" | null;
+}
 
-type ContractorPermitDocument = {
+interface ContractorPermitDocument {
   _id: string;
   fileName: string;
-};
+}
 
 /**
  * Active build detail (PRD §8.5). Scope-limited; raw ratings and financing
@@ -42,10 +66,26 @@ type ContractorPermitDocument = {
  */
 export function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
-  const { assignmentId } = Route.useSearch();
-  const detail = useQuery(api.contractorWorkspace.getContractorBuildDetail, {
-    buildId: buildId as Id<"activeBuilds">,
-  });
+  const { assignmentId, focus } = Route.useSearch();
+  const routeContext = Route.useRouteContext();
+  const participationScope = useQuery(
+    api.build_participants.getMyBuildParticipationScope,
+    {
+      buildId: buildId as Id<"activeBuilds">,
+      organizationId: routeContext.organizationId ?? undefined,
+      workspaceRole: "contractor",
+    }
+  );
+  const hasLegacyContractorProfile =
+    participationScope?.legacyContractorProfileLinked === true;
+  const detail = useQuery(
+    api.contractorWorkspace.getContractorBuildDetail,
+    hasLegacyContractorProfile
+      ? {
+          buildId: buildId as Id<"activeBuilds">,
+        }
+      : "skip"
+  );
   const acknowledge = useMutation(
     api.contractorEvidence.acknowledgeContractorAssignment
   );
@@ -55,6 +95,9 @@ export function ContractorBuildDetail() {
   const disputeScope = useMutation(
     api.contractorEvidence.flagContractorScopeMismatch
   );
+  const startAssignedSubmilestone = useMutation(
+    api.contractorWorkspace.startAssignedSubmilestone
+  );
   const [response, setResponse] = useState<{
     assignmentId: string;
     kind: ResponseKind;
@@ -62,8 +105,15 @@ export function ContractorBuildDetail() {
   const [responseText, setResponseText] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [startRequest, setStartRequest] = useState<{
+    request: MilestoneStartDialogRequest;
+    scope: ContractorScope;
+  } | null>(null);
 
-  if (detail === undefined) {
+  if (
+    participationScope === undefined ||
+    (hasLegacyContractorProfile && detail === undefined)
+  ) {
     return (
       <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
         <p className="text-muted-foreground text-sm">Loading build…</p>
@@ -71,25 +121,75 @@ export function ContractorBuildDetail() {
     );
   }
 
-  if (!detail.build) {
+  if (!participationScope) {
     return (
-      <main className="grid min-h-svh place-items-center bg-muted/30 p-4 sm:p-6">
-        <Frame className="w-full max-w-lg">
-          <FramePanel className="space-y-4 p-5">
-            <div>
-              <p className="font-semibold">Assignment unavailable</p>
-              <p className="mt-1 text-muted-foreground text-sm">
-                {detail.availability.message}
-              </p>
-            </div>
-            <p className="font-mono text-muted-foreground text-xs">
-              Support reference: {detail.availability.reference}
+      <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+        <Frame className="mx-auto w-full max-w-5xl">
+          <FramePanel>
+            <p className="font-medium text-sm">Build unavailable</p>
+            <p className="mt-1 text-muted-foreground text-sm">
+              This Build is not assigned to your contractor workspace. Return to
+              your Build list and choose an assigned Build.
             </p>
-            <Button render={<Link to="/contractor/work" />} variant="outline">
-              Return to current work
-            </Button>
           </FramePanel>
         </Frame>
+      </main>
+    );
+  }
+
+  if (!hasLegacyContractorProfile) {
+    return (
+      <ContractorCollaborationSurface
+        buildId={buildId}
+        buildName={participationScope.buildName}
+        focus={focus}
+        organizationId={participationScope.organizationId}
+      />
+    );
+  }
+
+  if (!detail) {
+    return (
+      <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+        <Frame className="mx-auto w-full max-w-5xl">
+          <FramePanel>
+            <p className="font-medium text-sm">Build unavailable</p>
+            <p className="mt-1 text-muted-foreground text-sm">
+              This contractor assignment could not be loaded. Return to your
+              Build list and try again.
+            </p>
+          </FramePanel>
+        </Frame>
+      </main>
+    );
+  }
+
+  if (!detail.build) {
+    return (
+      <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+          <Frame>
+            <FramePanel className="space-y-4 p-5">
+              <div>
+                <p className="font-semibold">Assignment unavailable</p>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  {detail.availability.message}
+                </p>
+              </div>
+              <p className="font-medium text-muted-foreground text-xs">
+                Support reference: {detail.availability.reference}
+              </p>
+              <Button render={<Link to="/contractor/work" />} variant="outline">
+                Return to current work
+              </Button>
+            </FramePanel>
+          </Frame>
+          <BuildCollaborationSection
+            buildId={buildId}
+            focus={focus}
+            organizationId={participationScope.organizationId}
+          />
+        </div>
       </main>
     );
   }
@@ -223,6 +323,40 @@ export function ContractorBuildDetail() {
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        {scope.submilestoneKey &&
+                        scope.workStatus === "planned" &&
+                        !scope.actualStartedAt ? (
+                          <Button
+                            data-testid={`contractor-start-work-${scope.submilestoneKey}`}
+                            onClick={() =>
+                              setStartRequest({
+                                request: {
+                                  action: "start",
+                                  buildName: detail.build.buildName,
+                                  dependencyBlockers: scope.dependencyBlockers,
+                                  milestoneKey: scope.milestoneKey,
+                                  milestoneName: scope.milestoneName,
+                                  plannedStartDate:
+                                    detail.build.startDate ??
+                                    new Date().toISOString(),
+                                  scope: "submilestone",
+                                  source: "submilestone_detail",
+                                  startParent: false,
+                                  submilestoneKey:
+                                    scope.submilestoneKey ?? undefined,
+                                  submilestoneName:
+                                    scope.submilestoneName ??
+                                    scope.submilestoneKey ??
+                                    undefined,
+                                },
+                                scope,
+                              })
+                            }
+                            size="sm"
+                          >
+                            Start work
+                          </Button>
+                        ) : null}
                         <Button
                           disabled={
                             acknowledged ||
@@ -355,7 +489,99 @@ export function ContractorBuildDetail() {
             </Frame>
           </div>
         </div>
+        <BuildCollaborationSection
+          buildId={buildId}
+          focus={focus}
+          organizationId={participationScope.organizationId}
+        />
+      </div>
+      {startRequest ? (
+        <MilestoneStartDialog
+          onClose={() => setStartRequest(null)}
+          onConfirm={async (input) => {
+            if (
+              input.action !== "start" ||
+              input.actualStartedAt === undefined ||
+              !startRequest.scope.submilestoneKey
+            ) {
+              throw new Error(
+                "A valid assigned submilestone start is required."
+              );
+            }
+            await startAssignedSubmilestone({
+              actualStartedAt: input.actualStartedAt,
+              buildId: buildId as Id<"activeBuilds">,
+              dependencyOverrideReason: input.dependencyOverrideReason,
+              idempotencyKey: input.idempotencyKey,
+              milestoneKey: input.milestoneKey,
+              source: input.source as
+                | "guided_field_workflow"
+                | "submilestone_detail"
+                | "submilestone_ledger",
+              submilestoneKey: startRequest.scope.submilestoneKey,
+              workosOrganizationId: detail.build.organizationId,
+            });
+            toast.success("Work start recorded.");
+          }}
+          request={startRequest.request}
+        />
+      ) : null}
+    </main>
+  );
+}
+
+function ContractorCollaborationSurface({
+  buildId,
+  buildName,
+  focus,
+  organizationId,
+}: {
+  buildId: string;
+  buildName: string;
+  focus?: string;
+  organizationId: string;
+}) {
+  return (
+    <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+        <header>
+          <p className="text-muted-foreground text-xs uppercase">
+            Active build
+          </p>
+          <h1 className="mt-1 font-semibold text-2xl">{buildName}</h1>
+        </header>
+        <BuildCollaborationSection
+          buildId={buildId}
+          focus={focus}
+          organizationId={organizationId}
+        />
       </div>
     </main>
+  );
+}
+
+function BuildCollaborationSection({
+  buildId,
+  focus,
+  organizationId,
+}: {
+  buildId: string;
+  focus?: string;
+  organizationId: string;
+}) {
+  return (
+    <section aria-labelledby="contractor-build-collaboration">
+      <h2
+        className="mb-3 font-semibold text-lg"
+        id="contractor-build-collaboration"
+      >
+        Build collaboration
+      </h2>
+      <BuildCollaborationWorkspace
+        buildId={buildId}
+        focusedReference={focus}
+        organizationId={organizationId}
+      />
+    </section>
   );
 }

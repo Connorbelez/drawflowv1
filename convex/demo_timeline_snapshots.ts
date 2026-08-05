@@ -156,8 +156,15 @@ const timelineDrawValidator = v.object({
 
 const timelineCapitalSpikeValidator = v.object({
   amount: v.number(),
-  eventKind: v.optional(v.union(v.literal("cashInfusion"), v.literal("cost"))),
+  eventKind: v.optional(
+    v.union(
+      v.literal("cashInfusion"),
+      v.literal("cost"),
+      v.literal("homeEquityTakeout")
+    )
+  ),
   id: v.string(),
+  interestAnnualBps: v.optional(v.number()),
   label: v.string(),
   x: v.number(),
 });

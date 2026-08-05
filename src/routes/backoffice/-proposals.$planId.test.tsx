@@ -580,7 +580,7 @@ describe("ProductionProposalReviewSurface packet CTAs", () => {
     );
   });
 
-  test("keeps packet submission disabled until a preferred plan is stored", () => {
+  test("submits a custom proposal plan without an optimizer preset", async () => {
     const submitProposal = vi.fn().mockResolvedValue({ ok: true });
 
     render(
@@ -594,12 +594,14 @@ describe("ProductionProposalReviewSurface packet CTAs", () => {
     const submitButton = within(packet).getByRole("button", {
       name: "Submit proposal",
     }) as HTMLButtonElement;
-    expect(submitButton.disabled).toBe(true);
+    expect(submitButton.disabled).toBe(false);
     expect(
-      within(packet).getByText(/select a preferred plan before submitting/i),
+      within(packet).getByText(
+        /submit the custom reimbursement plan for lender review/i,
+      ),
     ).toBeTruthy();
     fireEvent.click(submitButton);
-    expect(submitProposal).not.toHaveBeenCalled();
+    await waitFor(() => expect(submitProposal).toHaveBeenCalledTimes(1));
   });
 
   test("renders builder submit proposal CTA on draft packet tab", async () => {

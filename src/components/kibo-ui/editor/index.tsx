@@ -1,7 +1,7 @@
 "use client";
 
 import type { Editor, Range } from "@tiptap/core";
-import { mergeAttributes, Node } from "@tiptap/core";
+import { Extension } from "@tiptap/core";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Image from "@tiptap/extension-image";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
@@ -16,7 +16,6 @@ import {
 import { TextStyleKit } from "@tiptap/extension-text-style";
 import Typography from "@tiptap/extension-typography";
 import { CharacterCount, Placeholder } from "@tiptap/extensions";
-import type { DOMOutputSpec, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { PluginKey } from "@tiptap/pm/state";
 import {
   ReactRenderer,
@@ -54,7 +53,10 @@ import { cn } from "#/lib/utils.ts";
 export type { Editor, JSONContent } from "@tiptap/react";
 
 import StarterKit from "@tiptap/starter-kit";
-import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
+import Suggestion, {
+  type SuggestionOptions,
+  type SuggestionProps,
+} from "@tiptap/suggestion";
 import Fuse from "fuse.js";
 import { all, createLowlight } from "lowlight";
 import {
@@ -98,29 +100,8 @@ import type { FormEventHandler, HTMLAttributes, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 
-type SlashNodeAttrs = {
-  id: string | null;
-  label?: string | null;
-};
-
-type SlashOptions<
-  SlashOptionSuggestionItem = unknown,
-  Attrs = SlashNodeAttrs,
-> = {
-  HTMLAttributes: Record<string, unknown>;
-  renderText: (props: {
-    options: SlashOptions<SlashOptionSuggestionItem, Attrs>;
-    node: ProseMirrorNode;
-  }) => string;
-  renderHTML: (props: {
-    options: SlashOptions<SlashOptionSuggestionItem, Attrs>;
-    node: ProseMirrorNode;
-  }) => DOMOutputSpec;
-  deleteTriggerWithBackspace: boolean;
-  suggestion: Omit<
-    SuggestionOptions<SlashOptionSuggestionItem, Attrs>,
-    "editor"
-  >;
+type SlashOptions = {
+  suggestion: Omit<SuggestionOptions<SuggestionItem, SuggestionItem>, "editor">;
 };
 
 const SlashPluginKey = new PluginKey("slash");
@@ -133,7 +114,10 @@ export type SuggestionItem = {
   command: (props: { editor: Editor; range: Range }) => void;
 };
 
-export const defaultSlashSuggestions: SuggestionOptions<SuggestionItem>["items"] =
+export const defaultSlashSuggestions: SuggestionOptions<
+  SuggestionItem,
+  SuggestionItem
+>["items"] =
   () => [
     {
       title: "Text",
@@ -279,178 +263,22 @@ export const defaultSlashSuggestions: SuggestionOptions<SuggestionItem>["items"]
     },
   ];
 
-const Slash = Node.create<SlashOptions>({
+const Slash = Extension.create<SlashOptions>({
   name: "slash",
   priority: 101,
   addOptions() {
     return {
-      HTMLAttributes: {},
-      renderText({ options, node }) {
-        return `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`;
-      },
-      deleteTriggerWithBackspace: false,
-      renderHTML({ options, node }) {
-        return [
-          "span",
-          mergeAttributes(this.HTMLAttributes, options.HTMLAttributes),
-          `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`,
-        ];
-      },
       suggestion: {
         char: "/",
         pluginKey: SlashPluginKey,
         command: ({ editor, range, props }) => {
-          // increase range.to by one when the next node is of type "text"
-          // and starts with a space character
-          const nodeAfter = editor.view.state.selection.$to.nodeAfter;
-          const overrideSpace = nodeAfter?.text?.startsWith(" ");
-
-          if (overrideSpace) {
-            range.to += 1;
-          }
-
-          editor
-            .chain()
-            .focus()
-            .insertContentAt(range, [
-              {
-                type: this.name,
-                attrs: props,
-              },
-              {
-                type: "text",
-                text: " ",
-              },
-            ])
-            .run();
-
-          // get reference to `window` object from editor element, to support cross-frame JS usage
-          editor.view.dom.ownerDocument.defaultView
-            ?.getSelection()
-            ?.collapseToEnd();
+          props.command({ editor, range });
         },
         allow: ({ state, range }) => {
           const $from = state.doc.resolve(range.from);
-          const type = state.schema.nodes[this.name];
-          const allow = !!$from.parent.type.contentMatch.matchType(type);
-
-          return allow;
+          return $from.parent.isTextblock;
         },
       },
-    };
-  },
-
-  group: "inline",
-
-  inline: true,
-
-  selectable: false,
-
-  atom: true,
-
-  addAttributes() {
-    return {
-      id: {
-        default: null,
-        parseHTML: (element) => element.getAttribute("data-id"),
-        renderHTML: (attributes) => {
-          if (!attributes.id) {
-            return {};
-          }
-
-          return {
-            "data-id": attributes.id,
-          };
-        },
-      },
-
-      label: {
-        default: null,
-        parseHTML: (element) => element.getAttribute("data-label"),
-        renderHTML: (attributes) => {
-          if (!attributes.label) {
-            return {};
-          }
-
-          return {
-            "data-label": attributes.label,
-          };
-        },
-      },
-    };
-  },
-
-  parseHTML() {
-    return [
-      {
-        tag: `span[data-type="${this.name}"]`,
-      },
-    ];
-  },
-
-  renderHTML({ node, HTMLAttributes }) {
-    const mergedOptions = { ...this.options };
-
-    mergedOptions.HTMLAttributes = mergeAttributes(
-      { "data-type": this.name },
-      this.options.HTMLAttributes,
-      HTMLAttributes
-    );
-    const html = this.options.renderHTML({
-      options: mergedOptions,
-      node,
-    });
-
-    if (typeof html === "string") {
-      return [
-        "span",
-        mergeAttributes(
-          { "data-type": this.name },
-          this.options.HTMLAttributes,
-          HTMLAttributes
-        ),
-        html,
-      ];
-    }
-    return html;
-  },
-
-  renderText({ node }) {
-    return this.options.renderText({
-      options: this.options,
-      node,
-    });
-  },
-
-  addKeyboardShortcuts() {
-    return {
-      Backspace: () =>
-        this.editor.commands.command(({ tr, state }) => {
-          let isMention = false;
-          const { selection } = state;
-          const { empty, anchor } = selection;
-
-          if (!empty) {
-            return false;
-          }
-
-          state.doc.nodesBetween(anchor - 1, anchor, (node, pos) => {
-            if (node.type.name === this.name) {
-              isMention = true;
-              tr.insertText(
-                this.options.deleteTriggerWithBackspace
-                  ? ""
-                  : this.options.suggestion.char || "",
-                pos,
-                pos + node.nodeSize
-              );
-
-              return false;
-            }
-          });
-
-          return isMention;
-        }),
     };
   },
 
@@ -467,14 +295,12 @@ const Slash = Node.create<SlashOptions>({
 // Create a lowlight instance with all languages loaded
 const lowlight = createLowlight(all);
 
-type EditorSlashMenuProps = {
-  items: SuggestionItem[];
-  command: (item: SuggestionItem) => void;
-  editor: Editor;
-  range: Range;
-};
+type EditorSlashMenuProps = Pick<
+  SuggestionProps<SuggestionItem, SuggestionItem>,
+  "command" | "items"
+>;
 
-const EditorSlashMenu = ({ items, editor, range }: EditorSlashMenuProps) => {
+const EditorSlashMenu = ({ command, items }: EditorSlashMenuProps) => {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
@@ -487,9 +313,9 @@ const EditorSlashMenu = ({ items, editor, range }: EditorSlashMenuProps) => {
         return;
       }
 
-      item.command({ editor, range });
+      command(item);
     },
-    [editor, range]
+    [command]
   );
 
   return (
@@ -542,9 +368,9 @@ const EditorSlashMenu = ({ items, editor, range }: EditorSlashMenuProps) => {
           data-active={activeIndex === index}
           id={`slash-command-${index}`}
           key={item.title}
-          onClick={() => runItem(item)}
           onMouseDown={(event) => {
             event.preventDefault();
+            runItem(item);
           }}
           onMouseEnter={() => setActiveIndex(index)}
           role="option"
@@ -601,6 +427,11 @@ export const EditorProvider = ({
   const defaultExtensions = [
     StarterKit.configure({
       codeBlock: false,
+      heading: {
+        HTMLAttributes: {
+          class: cn("font-semibold tracking-tight"),
+        },
+      },
       bulletList: {
         HTMLAttributes: {
           class: cn("list-outside list-disc pl-4"),
@@ -747,8 +578,10 @@ export const EditorProvider = ({
             },
 
             onExit() {
-              popup.destroy();
-              component.destroy();
+              if (popup && !popup.state.isDestroyed) {
+                popup.destroy();
+              }
+              component?.destroy();
             },
           };
         },
@@ -785,25 +618,36 @@ export const EditorProvider = ({
     }),
     TaskList.configure({
       HTMLAttributes: {
-        // 17px = the width of the checkbox + the gap between the checkbox and the text
-        class: "before:translate-x-[17px]",
+        class: "my-2 list-none space-y-1 pl-0",
       },
     }),
     TaskItem.configure({
       HTMLAttributes: {
-        class: "flex items-start gap-1",
+        class: cn(
+          "flex items-start gap-2",
+          "[&>div]:min-w-0 [&>div]:flex-1",
+          "[&>label]:mt-0.5 [&>label]:flex [&>label]:shrink-0 [&>label]:items-center",
+          "[&_input[type=checkbox]]:size-4 [&_input[type=checkbox]]:accent-primary"
+        ),
       },
     }),
   ];
 
   return (
     <TooltipProvider>
-      <div className={cn(className, "[&_.ProseMirror-focused]:outline-none")}>
+      <div
+        className={cn(
+          className,
+          "[&_.ProseMirror-focused]:outline-none",
+          "[&_.ProseMirror_h1]:mt-5 [&_.ProseMirror_h1]:mb-2 [&_.ProseMirror_h1]:text-2xl [&_.ProseMirror_h1]:leading-tight",
+          "[&_.ProseMirror_h2]:mt-4 [&_.ProseMirror_h2]:mb-2 [&_.ProseMirror_h2]:text-xl [&_.ProseMirror_h2]:leading-snug",
+          "[&_.ProseMirror_h3]:mt-3 [&_.ProseMirror_h3]:mb-1.5 [&_.ProseMirror_h3]:text-lg [&_.ProseMirror_h3]:leading-snug"
+        )}
+      >
         <TiptapEditorProvider
           editorProps={{
-            handleKeyDown: (_view, event) => {
-              handleCommandNavigation(event);
-            },
+            handleKeyDown: (_view, event) =>
+              handleCommandNavigation(event) ?? false,
           }}
           extensions={[
             ...defaultExtensions,
@@ -883,20 +727,28 @@ const BubbleMenuButton = ({
   command,
   icon: Icon,
   hideName,
-}: EditorButtonProps) => (
-  <Button
-    className={`flex gap-4 ${hideName ? "" : "w-full"}`}
-    onClick={() => command()}
-    size="sm"
-    variant="ghost"
-  >
-    <Icon className="shrink-0 text-muted-foreground" size={12} />
-    {!hideName && <span className="flex-1 text-left">{name}</span>}
-    {isActive() ? (
+}: EditorButtonProps) => {
+  const active = isActive();
+
+  return (
+    <Button
+      aria-label={hideName ? name : undefined}
+      aria-pressed={active}
+      className={`flex gap-4 ${hideName ? "" : "w-full"}`}
+      onClick={() => command()}
+      size="sm"
+      title={hideName ? name : undefined}
+      type="button"
+      variant="ghost"
+    >
+      <Icon className="shrink-0 text-muted-foreground" size={12} />
+      {!hideName && <span className="flex-1 text-left">{name}</span>}
+      {active ? (
       <CheckIcon className="shrink-0 text-muted-foreground" size={12} />
-    ) : null}
-  </Button>
-);
+      ) : null}
+    </Button>
+  );
+};
 
 export type EditorClearFormattingProps = Pick<EditorButtonProps, "hideName">;
 
@@ -1079,7 +931,7 @@ export const EditorNodeTaskList = ({
       }
       hideName={hideName}
       icon={CheckSquareIcon}
-      isActive={() => editor.isActive("taskItem") ?? false}
+      isActive={() => editor.isActive("taskList") ?? false}
       name="To-do List"
     />
   );

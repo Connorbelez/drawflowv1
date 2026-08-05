@@ -29,8 +29,8 @@ const roundnessMap: Record<TooltipRoundness, string> = {
 };
 
 const variantMap: Record<TooltipVariant, string> = {
-  default: "bg-background",
-  "frosted-glass": "bg-background/70 backdrop-blur-sm",
+  default: "bg-popover",
+  "frosted-glass": "bg-popover/90 backdrop-blur-sm",
 };
 
 function getTooltipPayloadKey(item: TooltipPayloadItem, nameKey?: string) {
@@ -147,7 +147,7 @@ function ChartTooltipContent({
   return (
     <div
       className={cn(
-        "grid min-w-32 items-start gap-1.5 border border-border/50 px-2.5 py-1.5 text-xs shadow-xl",
+        "grid min-w-32 items-start gap-1.5 border border-border px-2.5 py-1.5 text-popover-foreground text-xs shadow-xl",
         roundnessMap[roundness],
         variantMap[variant],
         className
@@ -238,7 +238,7 @@ function TooltipPayloadRow({
               </span>
             </div>
             {item.value != null && (
-              <span className="font-medium font-mono text-foreground tabular-nums">
+              <span className="font-medium font-mono text-popover-foreground tabular-nums">
                 {typeof item.value === "number"
                   ? item.value.toLocaleString()
                   : String(item.value)}
@@ -278,7 +278,7 @@ function TooltipPayloadIndicator({
     <div
       className={cn("shrink-0 rounded-[2px]", {
         "h-2.5 w-2.5": indicator === "dot",
-        "w-1": indicator === "line",
+        "h-5 w-1.5": indicator === "line",
         "w-0 border-[1.5px] border-dashed bg-transparent!":
           indicator === "dashed",
         "my-0.5": nestLabel && indicator === "dashed",

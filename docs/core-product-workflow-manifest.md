@@ -783,8 +783,8 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   1. `WF-PRP-001.PARENT.00.STEP-01` — Capture build/site/permits/budget/working capital/template.
   2. `WF-PRP-001.PARENT.00.STEP-02` — Edit milestones, dependencies, costs, contractors, and material/equipment plan.
   3. `WF-PRP-001.PARENT.00.STEP-03` — Validate graph, warnings, policy, and feasibility.
-  4. `WF-PRP-001.PARENT.00.STEP-04` — Generate/compare Cheapest Feasible, Fastest, and Capital-Constrained plans.
-  5. `WF-PRP-001.PARENT.00.STEP-05` — Select preferred plan and submit immutable review snapshot.
+  4. `WF-PRP-001.PARENT.00.STEP-04` — Optionally generate/compare Cheapest Feasible, Fastest, and Capital-Constrained optimizer presets.
+  5. `WF-PRP-001.PARENT.00.STEP-05` — Submit the current custom Timeline plan as an immutable review snapshot, including optional optimizer preset metadata when used.
   6. `WF-PRP-001.PARENT.00.STEP-06` — Lender operations supports review and Principal Broker/admin approves, rejects, or requests changes.
   7. `WF-PRP-001.PARENT.00.STEP-07` — Builder revises/resubmits when requested.
   8. `WF-PRP-001.PARENT.00.STEP-08` — After approval, authorized closer records reason/start date and creates active Build plus loan/capital/roadmap records.
@@ -794,7 +794,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Milestones/costs/durations/dependencies/contractors/materials.
   - Lender policy and optimizer assumptions.
 11. **Outputs and generated artifacts:**
-  - Versioned proposal package and selected Draw Plan.
+  - Versioned proposal package and submitted Draw Plan, with optional optimizer preset metadata.
   - Review decision/events.
   - On closing: active Build, loan facility, capital plan, milestones/submilestones, planned draw rows, assignments, audit/outbox.
 12. **System states and state transitions:**
@@ -804,6 +804,9 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - approval does not itself create active Build; closing does
 13. **Decisions, validations, and approval gates:**
   - Required fields/documents and dependency graph.
+  - Planned draw availability unlocks five calendar days after milestone completion.
+  - Timeline and packet warnings identify the first auto-generated draw above cumulative unlocked availability, including the available amount and overage.
+  - Existing over-capacity forecast draws may be repaired incrementally by moving later and/or decreasing in amount; new draws and edits that move earlier or increase the amount remain subject to the cumulative unlocked-availability gate.
   - Feasible working-capital/policy constraints or explicit audited override.
   - Permit waiver only by admin/Principal Broker.
   - Closing requires approved proposal, reason, and build start date.
@@ -821,8 +824,8 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Upstream: `WF-TEN-002`, `WF-CTR-001`, `WF-MAT-001`
   - Downstream: `WF-BLD-001`, `WF-CTR-002`, `WF-CAL-001`, `WF-COM-001`
 17. **Cross-persona handoffs:**
-  - `WF-PRP-001.HO-01` — **DrawFlow System → Builder.** Trigger: Validation/optimization completes or finds infeasibility. Artifacts: Three plan options, recommendation, draw groups, cost/schedule/capital metrics, warnings and invalid dependencies. Required acknowledgement/next action: Builder corrects inputs or selects a plan and proceeds to submission.
-  - `WF-PRP-001.HO-02` — **Builder → Lender Operations / Backoffice Staff.** Trigger: Builder submits the proposal. Artifacts: Frozen proposal snapshot: identity/site, permits/docs, budget, roadmap, dependencies, contractors/materials, working capital, plan options/selection, warnings. Required acknowledgement/next action: Lender queue claims/reviews the submission or routes it to final authority.
+  - `WF-PRP-001.HO-01` — **DrawFlow System → Builder.** Trigger: Optional validation/optimization completes or finds infeasibility. Artifacts: Three advisory preset options, recommendation, draw groups, cost/schedule/capital metrics, warnings and invalid dependencies. Required acknowledgement/next action: Builder may correct inputs, apply a preset, or continue with the custom Timeline plan and proceed to submission.
+  - `WF-PRP-001.HO-02` — **Builder → Lender Operations / Backoffice Staff.** Trigger: Builder submits the proposal. Artifacts: Frozen proposal snapshot: identity/site, permits/docs, budget, roadmap, dependencies, contractors/materials, working capital, custom draw plan, optional preset metadata, and warnings including any draw above cumulative unlocked availability. Required acknowledgement/next action: Lender queue claims/reviews the submission or routes it to final authority.
   - `WF-PRP-001.HO-03` — **Lender Operations / Backoffice Staff → Lender Admin / Principal Broker.** Trigger: Review support is complete and a final decision/override is required. Artifacts: Proposal package, review notes/recommendation, warnings, permit/waiver need, edited draw rows with prior/new state. Required acknowledgement/next action: Lender Admin approves, rejects, or requests changes and records required reason.
   - `WF-PRP-001.HO-04` — **Lender Admin / Principal Broker → Builder.** Trigger: Final review outcome is recorded. Artifacts: Approval/rejection/changes-requested outcome, reasons, requested fields/documents, warning overrides. Required acknowledgement/next action: Builder views outcome; for changes, edits draft and resubmits.
   - `WF-PRP-001.HO-05` — **DrawFlow System → Builder.** Trigger: Authorized closing transaction creates the active Build. Artifacts: Build ID, start date, approved Budget/roadmap/Draw Plan, loan/capital context, assignments, workspace link. Required acknowledgement/next action: Builder enters live Build Workspace and begins execution.
@@ -3015,7 +3018,7 @@ Builder/developer principal and permissioned builder staff. Role constraints wit
 3. **Persona:** Builder (`BLDR`)
 4. **Functional category:** Proposal intake and planning
 5. **Parent workflow ID:** `WF-PRP-001`
-6. **Purpose and intended outcome:** Create a feasible reimbursement proposal and select the preferred Draw Plan.
+6. **Purpose and intended outcome:** Create and submit a feasible custom reimbursement Draw Plan, optionally assisted by optimizer presets.
 7. **Preconditions:**
   - The actor is authenticated in the correct WorkOS organization and the target record is organization-scoped.
 8. **Trigger:** New proposal or changes-requested draft is opened.
@@ -3023,14 +3026,14 @@ Builder/developer principal and permissioned builder staff. Role constraints wit
   1. `WF-PRP-001.BLDR.01.STEP-01` — Enter build/site/documents/budget/working capital.
   2. `WF-PRP-001.BLDR.01.STEP-02` — Select/edit roadmap and dependencies.
   3. `WF-PRP-001.BLDR.01.STEP-03` — Add contractors/material items.
-  4. `WF-PRP-001.BLDR.01.STEP-04` — Review validation and three plan options.
-  5. `WF-PRP-001.BLDR.01.STEP-05` — Select preferred plan.
-  6. `WF-PRP-001.BLDR.01.STEP-06` — Submit frozen snapshot.
+  4. `WF-PRP-001.BLDR.01.STEP-04` — Review validation and optionally compare three optimizer presets.
+  5. `WF-PRP-001.BLDR.01.STEP-05` — Continue with the custom Timeline plan or optionally apply a preset.
+  6. `WF-PRP-001.BLDR.01.STEP-06` — Submit the frozen plan snapshot.
   7. `WF-PRP-001.BLDR.01.STEP-07` — Revise/resubmit if requested.
 10. **Inputs and required artifacts:**
   - Proposal package inputs and corrections.
 11. **Outputs and generated artifacts:**
-  - Submitted review snapshot and selected plan.
+  - Submitted review snapshot and optional optimizer preset metadata.
 12. **System states and state transitions:**
   - draft → submitted; submitted → draft on changes request
 13. **Decisions, validations, and approval gates:**

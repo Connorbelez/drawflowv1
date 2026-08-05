@@ -96,6 +96,7 @@ export function assertPackageWithinCap(items: SiteVisitStagedEvidence[]) {
 export interface SiteVisitEvidenceUploadItem {
   evidence: SiteVisitStagedEvidence;
   file: Blob & { name?: string; type?: string };
+  uploadedStorageId?: string;
 }
 
 interface SiteVisitUploadResponse {
@@ -155,6 +156,7 @@ export async function fetchSiteVisitEvidenceWithTimeout({
 export async function uploadSiteVisitStagedEvidence({
   buildId,
   generateUploadUrl,
+  onStorageUploaded,
   onUploadedItem,
   registerFile,
   stagedItems,
@@ -168,6 +170,10 @@ export async function uploadSiteVisitStagedEvidence({
     token: string;
   }) => Promise<string>;
   onUploadedItem?: (item: SiteVisitEvidenceUploadItem) => void;
+  onStorageUploaded?: (
+    item: SiteVisitEvidenceUploadItem,
+    storageId: string
+  ) => void;
   registerFile: (input: {
     buildId: string;
     clientEvidenceId: string;
@@ -201,13 +207,17 @@ export async function uploadSiteVisitStagedEvidence({
         : item.file;
     const mimeType = evidenceMimeTypeForFile(file);
     const fileName = file.name ?? item.evidence.name;
-    const uploadUrl = await generateUploadUrl({ buildId, token });
-    const response = await upload(uploadUrl, file, mimeType);
-    if (!response.ok) {
-      throw new Error(`Unable to upload ${fileName}.`);
+    let storageId = item.uploadedStorageId;
+    if (!storageId) {
+      const uploadUrl = await generateUploadUrl({ buildId, token });
+      const response = await upload(uploadUrl, file, mimeType);
+      if (!response.ok) {
+        throw new Error(`Unable to upload ${fileName}.`);
+      }
+      ({ storageId } = await response.json());
+      onStorageUploaded?.(item, storageId);
     }
-    const { storageId } = await response.json();
-    await registerFile({
+    const registration = await registerFile({
       buildId,
       clientEvidenceId: item.evidence.id,
       fileName,
@@ -218,6 +228,16 @@ export async function uploadSiteVisitStagedEvidence({
       targetSubmilestoneKey: item.evidence.targetSubmilestoneKey,
       token,
     });
+    if (
+      registration &&
+      typeof registration === "object" &&
+      "status" in registration &&
+      registration.status === "rejected"
+    ) {
+      throw new Error(
+        `Unable to register ${fileName}: its upload ID was already used for different evidence.`
+      );
+    }
     onUploadedItem?.(item);
   }
 

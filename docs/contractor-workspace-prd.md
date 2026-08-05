@@ -610,6 +610,17 @@ Contractor workspace route access requires:
 - WorkOS `contractor` role for full workspace,
 - linked contractor profile for full workspace.
 
+Build collaboration entrypoint exception:
+
+- authorized build viewers may open `/contractor/builds/$buildId` to use the
+  shared Build Collaboration surface,
+- this includes `admin`, `principle-broker`, assigned `broker`/
+  `broker-staff`, authorized `builder`/`builder-staff`, assigned `contractor`,
+  and an explicitly granted build-scoped `member`,
+- the route remains subject to backend active-Build authorization and does not
+  grant contractor profile, work-list, evidence, or onboarding APIs to
+  non-contractor roles.
+
 Onboarding bridge requires:
 
 - authenticated session,

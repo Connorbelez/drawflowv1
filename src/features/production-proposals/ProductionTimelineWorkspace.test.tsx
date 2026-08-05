@@ -33,7 +33,10 @@ vi.mock("#/features/timeline-workspace/-timeline-convex-adapter.ts", () => ({
 }));
 
 vi.mock("#/features/timeline-workspace/index.tsx", () => ({
-  TimelineWorkspace: ({ collaboration, workspaceMode }: any) => (
+  TimelineWorkspace: ({
+    collaboration,
+    workspaceMode,
+  }: any) => (
     <div data-testid="mock-timeline-workspace">
       <div data-testid="mock-workspace-mode">{workspaceMode ?? "none"}</div>
       <div data-testid="mock-collaboration-permission">

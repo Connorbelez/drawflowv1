@@ -387,6 +387,15 @@ describe("SubmittedProposalsCard", () => {
 
     await screen.findByRole("dialog", { name: "Record loan closing" });
     expect(screen.getByText("Principal: $550,000 · Interest starts on funds released")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Build timezone (IANA)") as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(
+      (screen.getByRole("button", {
+        name: "Confirm closing",
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Build start date"), {
       target: { value: "2026-06-01" },
@@ -394,11 +403,15 @@ describe("SubmittedProposalsCard", () => {
     fireEvent.change(screen.getByLabelText("Audit reason"), {
       target: { value: "Offline closing signed by lender admin." },
     });
+    fireEvent.change(screen.getByLabelText("Build timezone (IANA)"), {
+      target: { value: "America/Toronto" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Confirm closing" }));
 
     await waitFor(() =>
       expect(confirmClosing).toHaveBeenCalledWith({
         buildStartDate: "2026-06-01",
+        ianaTimezone: "America/Toronto",
         reason: "Offline closing signed by lender admin.",
       }),
     );

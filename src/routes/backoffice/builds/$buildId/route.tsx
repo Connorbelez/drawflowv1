@@ -1,8 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { useRef } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { DocumentOperationIntentRegistry } from "#/features/backoffice-build-detail/documentOperationIntent.ts";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import {
   type ProductionBuildDetail,
@@ -14,6 +16,8 @@ import {
   filterMaterialPlanningActionsForPermissions,
 } from "#/features/builder-staff/app-permissions.ts";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import { SiteVisitScheduleIntentRegistry } from "#/features/backoffice-build-detail/siteVisitScheduleIntent.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -25,12 +29,14 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 type BuildDetailSearch = {
+  focus?: string;
   timeframe?: CalendarTimeframe;
   milestone?: string;
   tab?:
     | "calendar"
     | "contractors"
     | "details"
+    | "documents"
     | "evidence"
     | "gantt"
     | "materials"
@@ -44,6 +50,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): BuildDetailSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
       search.tab === "milestones" ||
@@ -56,6 +63,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
         : undefined;
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
+    const focus = normalizeBuildCollaborationFocus(search.focus);
     const rail =
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuildDetailSearch["rail"])
@@ -69,6 +77,9 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     const out: BuildDetailSearch = {};
+    if (focus !== undefined) {
+      out.focus = focus;
+    }
     if (milestone !== undefined) {
       out.milestone = milestone;
     }
@@ -92,10 +103,15 @@ function RouteComponent() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const documentOperationIntents = useRef(
+    new DocumentOperationIntentRegistry()
+  );
+  const siteVisitScheduleIntents = useRef(
+    new SiteVisitScheduleIntentRegistry()
+  );
   const addDocument = useMutation(
     api.production_proposals.addActiveBuildDocument
   );
-  const addNote = useMutation(api.production_proposals.addActiveBuildNote);
   const approveDraw = useMutation(
     api.production_proposals.approveActiveBuildDraw
   );
@@ -159,8 +175,11 @@ function RouteComponent() {
   const reviewBudgetRevision = useMutation(
     (api as any).production_proposals.reviewActiveBuildBudgetRevision
   );
-  const startMilestoneWork = useMutation(
-    api.production_proposals.startActiveBuildMilestone
+  const correctMilestoneStart = useMutation(
+    (api as any).production_proposals.correctActiveBuildMilestoneStart
+  );
+  const retractMilestoneStart = useMutation(
+    (api as any).production_proposals.retractActiveBuildMilestoneStart
   );
   const createActiveBuildCostItem = useMutation(
     api.production_proposals.createActiveBuildCostItem
@@ -249,11 +268,11 @@ function RouteComponent() {
         : "skip"
   );
 
-  const onChangeTab = (tab: BuildDetailSubTab) =>
+  const onChangeTab = (tab: BuildDetailSubTab, focus?: string) =>
     navigate({
       to: "/backoffice/builds/$buildId",
       params: { buildId },
-      search: { ...search, tab },
+      search: { ...search, focus, tab },
       replace: true,
     });
 
@@ -331,23 +350,22 @@ function RouteComponent() {
     );
     const actions: ProductionBuildDetailActions = {
       addDocument: canUseAppPermission(appPermissions, "evidence", "create")
-        ? ({ documentType, fileName }) =>
-            addDocument({
+        ? async (input) => {
+            const clientOperationId =
+              documentOperationIntents.current.keyFor(input);
+            const result = await addDocument({
               buildId: activeBuildId,
-              documentType,
-              fileName,
+              clientOperationId,
+              ...input,
               mimeType: "application/octet-stream",
               sizeBytes: 0,
               workosOrganizationId,
-            })
+            });
+            documentOperationIntents.current.confirm(input);
+            toast.success("Document added.");
+            return result;
+          }
         : undefined,
-      addNote: ({ body, visibility }) =>
-        addNote({
-          body,
-          buildId: activeBuildId,
-          visibility,
-          workosOrganizationId,
-        }),
       approveDraw:
         canMakeFinalDecision &&
         canUseAppPermission(appPermissions, "draw", "update")
@@ -631,12 +649,19 @@ function RouteComponent() {
         "evidence",
         "update"
       )
-        ? (input) =>
-            scheduleActiveBuildSiteVisit({
+        ? async (input) => {
+            const idempotencyKey =
+              siteVisitScheduleIntents.current.keyFor(input);
+            const result = await scheduleActiveBuildSiteVisit({
               ...input,
               buildId: activeBuildId,
+              idempotencyKey,
               workosOrganizationId,
-            }).then(() => toast.success("Site visit scheduled."))
+            });
+            siteVisitScheduleIntents.current.confirm(input);
+            toast.success("Site visit scheduled.");
+            return result;
+          }
         : undefined,
       rescheduleSiteVisit: canUseAppPermission(
         appPermissions,
@@ -761,16 +786,27 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
-      startMilestoneWork: canUseAppPermission(
+      correctMilestoneStart: canUseAppPermission(
         appPermissions,
         "milestone",
         "update"
       )
-        ? ({ milestoneKey, note }) =>
-            startMilestoneWork({
+        ? (input) =>
+            correctMilestoneStart({
+              ...input,
               buildId: activeBuildId,
-              milestoneKey,
-              note,
+              workosOrganizationId,
+            })
+        : undefined,
+      retractMilestoneStart: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update"
+      )
+        ? (input) =>
+            retractMilestoneStart({
+              ...input,
+              buildId: activeBuildId,
               workosOrganizationId,
             })
         : undefined,
@@ -793,6 +829,7 @@ function RouteComponent() {
           `/backoffice/contractors/${contractorId}`
         }
         detail={detail}
+        focusedReference={search.focus}
         fundingWorkspaceEnabled
         milestoneKey={search.milestone}
         onChangeCalendarTimeframe={onChangeCalendarTimeframe}
@@ -804,6 +841,11 @@ function RouteComponent() {
           visualFixtureEnabled ? undefined : (
             <BuilderStaffPermissionsPanel
               buildId={activeBuildId as Id<"activeBuilds">}
+              initialSelectedWorkosUserId={
+                search.focus?.startsWith("participant:")
+                  ? search.focus.slice("participant:".length)
+                  : undefined
+              }
               scope="activeBuild"
               workosOrganizationId={workosOrganizationId}
             />

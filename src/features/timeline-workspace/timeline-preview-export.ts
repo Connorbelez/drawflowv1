@@ -65,8 +65,9 @@ export interface TimelinePreviewCapitalEvent {
   amountDollars: number;
   day: number;
   id: string;
+  interestAnnualBps?: number;
   label: string;
-  type: "Capital cost" | "Cash infusion";
+  type: "Capital cost" | "Cash infusion" | "Home Equity Takeout";
 }
 
 export interface TimelinePreviewModel {
@@ -159,9 +160,16 @@ export function buildTimelinePreviewModel(
       amountDollars: event.amount,
       day: Math.round(event.x),
       id: event.id,
+      ...(event.interestAnnualBps === undefined
+        ? {}
+        : { interestAnnualBps: event.interestAnnualBps }),
       label: event.label,
       type:
-        event.eventKind === "cashInfusion" ? "Cash infusion" : "Capital cost",
+        event.eventKind === "cashInfusion"
+          ? "Cash infusion"
+          : event.eventKind === "homeEquityTakeout"
+            ? "Home Equity Takeout"
+            : "Capital cost",
     }))
     .sort((a, b) => a.day - b.day || a.id.localeCompare(b.id));
   const title =
@@ -307,7 +315,9 @@ export function buildTimelinePreviewCsv(model: TimelinePreviewModel): string {
   for (const event of model.capitalEvents) {
     rows.push([
       "Timeline",
-      event.type,
+      event.interestAnnualBps === undefined
+        ? event.type
+        : `${event.type} · ${(event.interestAnnualBps / 100).toFixed(2)}% APR`,
       "",
       "",
       "",

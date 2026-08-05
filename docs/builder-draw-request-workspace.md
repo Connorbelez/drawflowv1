@@ -78,31 +78,193 @@ requested ── start review ──> in_review ── recommend ──> ready_f
 
 ## Legacy data migration
 
-`migrateActiveBuildDrawRequests` is an explicit, idempotent, backoffice-only mutation. It first backfills source allocations and work-order keys for existing request-ledger rows, normalizes legacy `approved` records to `approved_for_release`, then copies non-planned lifecycle rows out of `plannedDrawScheduleRows` and restores the source rows to planning-only state.
+`migrateActiveBuildDrawRequests` is an explicit, per-build,
+backoffice-only mutation. It:
 
-The migration is intentionally not automatic and has not been run by this implementation. Run it once per active build only after the operator selects the target deployment and validates a backup or export.
+- assigns a unique `workOrderKey` to every legacy request;
+- creates deterministic FIFO source allocations against approved, unlocked
+  milestones;
+- normalizes legacy `approved` requests to `approved_for_release`;
+- copies lifecycle rows out of `plannedDrawScheduleRows` and restores those rows
+  to their original planning-only amount and status; and
+- writes one organization-scoped audit event only when an apply changes data.
 
-Example shape:
+The migration rejects cross-organization data, non-reimbursement requests,
+non-positive or fractional-cent amounts, duplicate work orders, partial
+allocations, and reservations that cannot be covered by approved milestone
+sources. It is bounded to one build and executes atomically.
 
-```bash
-bun x convex run --deployment <dev-or-staging> --identity '<admin UserIdentity JSON>' \
-  production_proposals:migrateActiveBuildDrawRequests \
-  '{"buildId":"<active build id>","workosOrganizationId":"<organization id>"}'
-```
+During the widened-schema release, active-build detail queries tolerate only
+fully unattributed legacy requests. They reserve those requests against the
+same deterministic FIFO sources used by the migration and return
+`drawFunding.requiresAttributionMigration: true`, so legacy builds remain
+visible without overstating availability. Partial attribution is still treated
+as corruption. Draw-request mutations remain strict and reject new requests
+until the build is migrated.
 
-Do not add `--prod` until the operator has validated counts and representative requests in a non-production deployment.
+### Exact production execution
+
+Complete these steps once for every active build that reports
+`requiresAttributionMigration: true`.
+
+1. Deploy the widened schema, the legacy-aware read path, and the migration
+   mutation through the normal production release. Do not run `convex run` with
+   `--push`. Confirm the affected build loads before changing data; new draw
+   requests should remain blocked by the attribution integrity error.
+2. Export production and verify the archive before the first apply:
+
+   ```bash
+   export DRAWFLOW_MIGRATION_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+   export DRAWFLOW_BACKUP_ZIP="artifacts/convex-prod-pre-draw-attribution-${DRAWFLOW_MIGRATION_STAMP}.zip"
+   mkdir -p artifacts
+   bun x convex export --prod --include-file-storage --path "$DRAWFLOW_BACKUP_ZIP"
+   test -s "$DRAWFLOW_BACKUP_ZIP"
+   unzip -t "$DRAWFLOW_BACKUP_ZIP"
+   ```
+
+3. Set the target values. `DRAWFLOW_ADMIN_IDENTITY_JSON` must be the exact
+   WorkOS `UserIdentity` JSON for an authenticated lender administrator in the
+   target organization; do not synthesize or edit its claims.
+
+   ```bash
+   export DRAWFLOW_ADMIN_IDENTITY_JSON='<admin UserIdentity JSON>'
+   export DRAWFLOW_ORGANIZATION_ID='<WorkOS organization id>'
+   export DRAWFLOW_BUILD_ID='<activeBuilds document id>'
+   export DRAWFLOW_MIGRATION_REASON='Production backfill of legacy Draw Release Work Order attribution.'
+   ```
+
+4. Dry-run the exact build and save the immutable plan token:
+
+   ```bash
+   export DRAWFLOW_PREVIEW_ARGS="$(
+     jq -cn \
+       --arg buildId "$DRAWFLOW_BUILD_ID" \
+       --arg reason "$DRAWFLOW_MIGRATION_REASON" \
+       --arg workosOrganizationId "$DRAWFLOW_ORGANIZATION_ID" \
+       '{
+         buildId: $buildId,
+         dryRun: true,
+         reason: $reason,
+         workosOrganizationId: $workosOrganizationId
+       }'
+   )"
+   export DRAWFLOW_PREVIEW_JSON="artifacts/draw-attribution-preview-${DRAWFLOW_BUILD_ID}.json"
+   bun x convex run --prod --codegen disable \
+     --identity "$DRAWFLOW_ADMIN_IDENTITY_JSON" \
+     production_proposals:migrateActiveBuildDrawRequests \
+     "$DRAWFLOW_PREVIEW_ARGS" | tee "$DRAWFLOW_PREVIEW_JSON"
+   jq -e '
+     .dryRun == true and
+     .applied == false and
+     .replayed == false and
+     (.planToken | type == "string" and length > 0)
+   ' "$DRAWFLOW_PREVIEW_JSON"
+   export DRAWFLOW_PLAN_TOKEN="$(jq -er '.planToken' "$DRAWFLOW_PREVIEW_JSON")"
+   ```
+
+   Stop if any count, warning, organization, availability amount, or expected
+   work-order total is unexpected. Resolve the source data and repeat the
+   dry-run; never reuse an older token.
+
+5. Apply the exact confirmed plan. The mutation rejects the write if any
+   migration input changed after the dry-run.
+
+   ```bash
+   export DRAWFLOW_APPLY_ARGS="$(
+     jq -cn \
+       --arg buildId "$DRAWFLOW_BUILD_ID" \
+       --arg expectedPlanToken "$DRAWFLOW_PLAN_TOKEN" \
+       --arg reason "$DRAWFLOW_MIGRATION_REASON" \
+       --arg workosOrganizationId "$DRAWFLOW_ORGANIZATION_ID" \
+       '{
+         buildId: $buildId,
+         dryRun: false,
+         expectedPlanToken: $expectedPlanToken,
+         reason: $reason,
+         workosOrganizationId: $workosOrganizationId
+       }'
+   )"
+   export DRAWFLOW_APPLY_JSON="artifacts/draw-attribution-apply-${DRAWFLOW_BUILD_ID}.json"
+   bun x convex run --prod --codegen disable \
+     --identity "$DRAWFLOW_ADMIN_IDENTITY_JSON" \
+     production_proposals:migrateActiveBuildDrawRequests \
+     "$DRAWFLOW_APPLY_ARGS" | tee "$DRAWFLOW_APPLY_JSON"
+   jq -e '
+     .dryRun == false and
+     .applied == true and
+     .replayed == false
+   ' "$DRAWFLOW_APPLY_JSON"
+   ```
+
+6. Replay the identical apply command. A safe replay makes no writes and must
+   return `applied: false`, `replayed: true`, and zero values for `attributed`,
+   `migrated`, `normalized`, and `restoredForecasts`.
+
+   ```bash
+   export DRAWFLOW_REPLAY_JSON="artifacts/draw-attribution-replay-${DRAWFLOW_BUILD_ID}.json"
+   bun x convex run --prod --codegen disable \
+     --identity "$DRAWFLOW_ADMIN_IDENTITY_JSON" \
+     production_proposals:migrateActiveBuildDrawRequests \
+     "$DRAWFLOW_APPLY_ARGS" | tee "$DRAWFLOW_REPLAY_JSON"
+   jq -e '
+     .dryRun == false and
+     .applied == false and
+     .replayed == true and
+     .attributed == 0 and
+     .migrated == 0 and
+     .normalized == 0 and
+     .restoredForecasts == 0
+   ' "$DRAWFLOW_REPLAY_JSON"
+   ```
 
 ### Migration verification
 
-For each migrated build, verify:
+1. Query the same production detail projection and save the result:
 
-1. The mutation result reports the expected `attributed`, `migrated`, and `skipped` counts.
-2. Every former lifecycle row appears once in `activeBuildDrawRequests` with a unique `workOrderKey`.
-3. Every reserving request has allocation rows whose amount sum exactly equals the request amount.
-4. Every source forecast row is `planned` and has its original proposal amount.
-5. Available-now arithmetic matches the approved milestone allocation ledger.
-6. Timeline, calendar, builder detail, and brokerage draw-control projections show actual requests separately from forecasts.
-6. Re-running the mutation reports the existing rows as skipped and creates no duplicates.
+   ```bash
+   export DRAWFLOW_DETAIL_ARGS="$(
+     jq -cn \
+       --arg buildId "$DRAWFLOW_BUILD_ID" \
+       --arg workosOrganizationId "$DRAWFLOW_ORGANIZATION_ID" \
+       '{
+         buildId: $buildId,
+         workosOrganizationId: $workosOrganizationId
+       }'
+   )"
+   export DRAWFLOW_DETAIL_JSON="artifacts/draw-attribution-detail-${DRAWFLOW_BUILD_ID}.json"
+   bun x convex run --prod --codegen disable \
+     --identity "$DRAWFLOW_ADMIN_IDENTITY_JSON" \
+     production_proposals:getActiveBuildDetailByString \
+     "$DRAWFLOW_DETAIL_ARGS" | tee "$DRAWFLOW_DETAIL_JSON"
+   jq -e '
+     .drawFunding.requiresAttributionMigration == false and
+     .drawFunding.legacyUnattributedRequestCount == 0 and
+     .drawFunding.legacyUnattributedRequestCents == 0 and
+     .drawFunding.attributionShortfallCents == 0
+   ' "$DRAWFLOW_DETAIL_JSON"
+   ```
+
+2. Compare `availableCents`, `reservedCents`, and `unlockedCents` in the preview,
+   apply, replay, and detail artifacts. The values must be unchanged by
+   attribution alone and must satisfy
+   `availableCents + reservedCents == unlockedCents`.
+3. Confirm every non-cancelled/non-rejected request has one unique
+   `workOrderKey` and source allocations whose cents sum exactly to the request
+   amount. Confirm every allocation, request, milestone, build, and audit event
+   has the target organization ID.
+4. Confirm every migrated forecast row is back to `planned` with its original
+   proposal amount, and that no `draw_release` capital event was created by the
+   migration.
+5. Confirm exactly one `migrateActiveBuildDrawRequests` audit event was added by
+   the apply and that it contains the authenticated administrator, role,
+   timestamp, prior/new state, warnings, and the supplied reason. The replay
+   must not add another audit event.
+6. Reload builder detail, lender/admin draw controls, timeline, and calendar.
+   Actual requests must appear separately from forecasts, and a new
+   reimbursement draw request must no longer hit the attribution integrity
+   guard.
+7. Keep `workOrderKey` optional until every production active build passes this
+   checklist. Make it required only in the later narrow-schema release.
 
 ## Rollback
 

@@ -199,4 +199,110 @@ describe("site visit evidence staging", () => {
       }),
     ]);
   });
+
+  test("keeps staged evidence when the server rejects an idempotency conflict", async () => {
+    const uploaded: string[] = [];
+    const stagedEvidence = buildStagedEvidence({
+      id: "photo-conflict",
+      mimeType: "image/jpeg",
+      name: "foundation-conflict.jpg",
+      sizeBytes: 1_000,
+      targetMilestoneKey: "foundation",
+    });
+    const file = new File(["image"], "foundation-conflict.jpg", {
+      type: "image/jpeg",
+    });
+
+    await expect(
+      uploadSiteVisitStagedEvidence({
+        buildId: "demo-timeline-steady-maple-ab12",
+        generateUploadUrl: async () => "https://upload.example.test",
+        onUploadedItem: (item) => uploaded.push(item.evidence.id),
+        registerFile: async () => ({
+          reason: "idempotency_conflict",
+          status: "rejected",
+          storageDisposition: "preserved_unowned_upload",
+        }),
+        stagedItems: [{ evidence: stagedEvidence, file }],
+        token: "token-123",
+        upload: async () => ({
+          json: async () => ({ storageId: "storage-conflict" }),
+          ok: true,
+        }),
+      })
+    ).rejects.toThrow(/upload ID was already used/i);
+    expect(uploaded).toEqual([]);
+  });
+
+  test("reuses persisted storage when registration success is ambiguous", async () => {
+    const stagedEvidence = buildStagedEvidence({
+      id: "photo-ambiguous",
+      mimeType: "image/jpeg",
+      name: "foundation-ambiguous.jpg",
+      sizeBytes: 1_000,
+      targetMilestoneKey: "foundation",
+    });
+    const file = new File(["image"], "foundation-ambiguous.jpg", {
+      type: "image/jpeg",
+    });
+    let persistedStorageId: string | undefined;
+    let uploadCalls = 0;
+    let registrationCalls = 0;
+
+    await expect(
+      uploadSiteVisitStagedEvidence({
+        buildId: "demo-timeline-steady-maple-ab12",
+        generateUploadUrl: async () => "https://upload.example.test",
+        onStorageUploaded: (_item, storageId) => {
+          persistedStorageId = storageId;
+        },
+        registerFile: async () => {
+          registrationCalls += 1;
+          throw new Error("The registration response was lost.");
+        },
+        stagedItems: [{ evidence: stagedEvidence, file }],
+        token: "token-123",
+        upload: async () => {
+          uploadCalls += 1;
+          return {
+            json: async () => ({ storageId: "storage-ambiguous" }),
+            ok: true,
+          };
+        },
+      })
+    ).rejects.toThrow("registration response was lost");
+
+    const completed: string[] = [];
+    await uploadSiteVisitStagedEvidence({
+      buildId: "demo-timeline-steady-maple-ab12",
+      generateUploadUrl: async () => {
+        throw new Error("A retry must not request another upload URL.");
+      },
+      onUploadedItem: (item) => completed.push(item.evidence.id),
+      registerFile: async (input) => {
+        registrationCalls += 1;
+        expect(input.storageId).toBe("storage-ambiguous");
+        return {
+          assetId: "asset-1",
+          status: "replayed",
+          storageDisposition: "reused_existing_upload",
+        };
+      },
+      stagedItems: [
+        {
+          evidence: stagedEvidence,
+          file,
+          uploadedStorageId: persistedStorageId,
+        },
+      ],
+      token: "token-123",
+      upload: async () => {
+        throw new Error("A retry must not upload the file again.");
+      },
+    });
+
+    expect(uploadCalls).toBe(1);
+    expect(registrationCalls).toBe(2);
+    expect(completed).toEqual(["photo-ambiguous"]);
+  });
 });

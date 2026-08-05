@@ -101,7 +101,6 @@ const MUTATION_ACTION_KEYS = [
   "cancel_proposal_reminder",
   "set_calendar_target_date",
   "update_active_build_details",
-  "add_active_build_note",
   "add_active_build_document",
   "delete_active_build",
   "create_active_build_cost_item",
@@ -281,8 +280,22 @@ const traceEventInput = v.object({
 export const drawFlowAssistantMutationToolDefinitions =
   MUTATION_ACTION_KEYS.map((name) =>
     toolDefinition({
-      description: `DrawFlow assistant closed-catalog mutation action: ${name}`,
-      inputSchema: z.object({}).passthrough(),
+      description:
+        name === "start_active_build_milestone"
+          ? "Prepare an explicit actual work-start confirmation. Provide the actual start timestamp and idempotency key; incomplete dependencies require dependencyOverrideReason."
+          : `DrawFlow assistant closed-catalog mutation action: ${name}`,
+      inputSchema:
+        name === "start_active_build_milestone"
+          ? z.object({
+              actualStartedAt: z.number().int().positive(),
+              buildId: z.string().min(1),
+              dependencyOverrideReason: z.string().min(3).optional(),
+              idempotencyKey: z.string().min(8),
+              milestoneKey: z.string().min(1),
+              startParent: z.boolean().optional(),
+              submilestoneKey: z.string().min(1).optional(),
+            })
+          : z.object({}).passthrough(),
       name,
     })
   );
@@ -3341,6 +3354,69 @@ async function buildMutationPreviewItem(
     case "set_calendar_target_date": {
       return await previewTargetDateAction(ctx, auth, action);
     }
+    case "start_active_build_milestone": {
+      const buildAuth = await authorizeActiveBuild(ctx, auth, action.input);
+      if (
+        !buildAuth.roles.some((role) =>
+          (["builder", "builder-staff"] as readonly RoleSlug[]).includes(role)
+        )
+      ) {
+        throw new Error(
+          "Only Builder users may originate a milestone work start."
+        );
+      }
+      const milestone = await getBuildMilestone(
+        ctx,
+        action.input,
+        buildAuth.build._id
+      );
+      const actualStartedAt = requiredNumber(
+        action.input.actualStartedAt,
+        "actualStartedAt"
+      );
+      if (actualStartedAt > Date.now()) {
+        throw new Error("Actual start must be now or earlier.");
+      }
+      requiredString(action.input.idempotencyKey, "idempotencyKey");
+      const milestones = await collectByIndex(
+        ctx,
+        "buildMilestones",
+        "by_build",
+        buildAuth.build._id
+      );
+      const blockers = (milestone.dependencyKeys ?? [])
+        .map((key) =>
+          milestones.find(
+            (candidate: Doc<"buildMilestones">) => candidate.key === key
+          )
+        )
+        .filter((candidate) => candidate && candidate.status !== "complete");
+      if (blockers.length > 0) {
+        requireReason(action.input.dependencyOverrideReason);
+      }
+      return previewItem(action, {
+        after: {
+          actualStartedAt,
+          dependencyOverrideReason: optionalString(
+            action.input.dependencyOverrideReason
+          ),
+          source: "assistant",
+          status: "in_progress",
+        },
+        before: {
+          actualStartedAt: milestone.actualStartedAt ?? null,
+          status: milestone.status,
+        },
+        entityLabel: milestone.name,
+        entityType: "buildMilestone",
+        mutationName: "production_proposals.startActiveBuildMilestone",
+        reasonRequired: blockers.length > 0,
+        warnings: blockers.map(
+          (candidate) =>
+            `${candidate?.name ?? candidate?.key} is not complete.`
+        ),
+      });
+    }
     case "schedule_active_build_site_visit":
     case "reschedule_active_build_site_visit":
     case "cancel_active_build_site_visit": {
@@ -4494,6 +4570,7 @@ async function applyCatalogDomainMutation(
           input.buildStartDate ?? input.startDate,
           "buildStartDate"
         ),
+        ianaTimezone: requiredString(input.ianaTimezone, "ianaTimezone"),
         loanFacility: normalizeLoanFacility(input),
         proposalId: input.proposalId,
         reason: reasonOrNote(input),
@@ -4830,6 +4907,7 @@ async function applyCatalogDomainMutation(
         {
           buildId: input.buildId,
           buildName: input.buildName,
+          ianaTimezone: input.ianaTimezone,
           location: input.location,
           locationLatitude: input.locationLatitude,
           locationLongitude: input.locationLongitude,
@@ -4839,13 +4917,6 @@ async function applyCatalogDomainMutation(
           workosOrganizationId: org,
         }
       );
-    case "add_active_build_note":
-      return await runDomainMutation(ctx, "addActiveBuildNote", {
-        body: input.body ?? input.note,
-        buildId: input.buildId,
-        visibility: input.visibility ?? "internal",
-        workosOrganizationId: org,
-      });
     case "delete_active_build":
       return await runDomainMutation(ctx, "deleteActiveBuild", {
         buildId: input.buildId,
@@ -4909,9 +4980,22 @@ async function applyCatalogDomainMutation(
       );
     case "start_active_build_milestone":
       return await runDomainMutation(ctx, "startActiveBuildMilestone", {
+        actualStartedAt: requiredNumber(
+          input.actualStartedAt,
+          "actualStartedAt"
+        ),
         buildId: input.buildId,
+        dependencyOverrideReason: optionalString(
+          input.dependencyOverrideReason
+        ),
+        idempotencyKey: requiredString(
+          input.idempotencyKey,
+          "idempotencyKey"
+        ),
         milestoneKey: input.milestoneKey,
-        note: optionalString(input.note ?? input.reason),
+        source: "assistant",
+        startParent: Boolean(input.startParent),
+        submilestoneKey: optionalString(input.submilestoneKey),
         workosOrganizationId: org,
       });
     case "submit_active_build_milestone_completion":
@@ -4920,8 +5004,16 @@ async function applyCatalogDomainMutation(
         "submitActiveBuildMilestoneCompletion",
         {
           actualCostCents: optionalNumber(input.actualCostCents),
+          actualStartedAt: optionalNumber(input.actualStartedAt),
           buildId: input.buildId,
           completedDay: input.completedDay,
+          dependencyOverrideReason: optionalString(
+            input.dependencyOverrideReason
+          ),
+          idempotencyKey: requiredString(
+            input.idempotencyKey,
+            "idempotencyKey"
+          ),
           milestoneKey: input.milestoneKey,
           note: optionalString(input.note),
           qualityNote: optionalString(input.qualityNote),
@@ -6026,6 +6118,12 @@ function normalizeTimelineMilestoneInput(input: AssistantActionInput) {
       )
     )
   );
+  const submilestones = normalizeSubmilestones(milestone.submilestones);
+  if (submilestones.length === 0) {
+    throw new Error(
+      "Milestone creation requires at least one Sub-milestone.",
+    );
+  }
   return {
     budgetCents: requiredPositiveCents(
       milestone.budgetCents ?? milestone.amountCents,
@@ -6045,7 +6143,7 @@ function normalizeTimelineMilestoneInput(input: AssistantActionInput) {
     ),
     name: requiredString(milestone.name ?? milestone.title, "Milestone name"),
     order: Math.max(1, Math.round(optionalNumber(milestone.order) ?? 1)),
-    submilestones: normalizeSubmilestones(milestone.submilestones),
+    submilestones,
   };
 }
 
@@ -6121,10 +6219,15 @@ function capitalEventInput(input: AssistantActionInput) {
       input.capitalEventKey ?? input.eventKey,
       "capitalEventKey"
     ),
-    eventKind: input.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
+    eventKind:
+      input.eventKind === "cashInfusion" ||
+      input.eventKind === "homeEquityTakeout"
+        ? input.eventKind
+        : "cost",
+    interestAnnualBps: optionalNumber(input.interestAnnualBps),
     label: requiredString(input.label ?? input.capitalEventKey, "label"),
     order: optionalNumber(input.order),
-    x: requiredNonNegativeDay(input.x ?? input.timingDay, "x"),
+    x: requiredProposalTimelineDay(input.x ?? input.timingDay, "x"),
   });
 }
 
@@ -6136,9 +6239,12 @@ function capitalEventPatchInput(input: AssistantActionInput) {
       "capitalEventKey"
     ),
     eventKind:
-      input.eventKind === "cashInfusion" || input.eventKind === "cost"
+      input.eventKind === "cashInfusion" ||
+      input.eventKind === "cost" ||
+      input.eventKind === "homeEquityTakeout"
         ? input.eventKind
         : undefined,
+    interestAnnualBps: optionalNumber(input.interestAnnualBps),
     label: optionalString(input.label),
     order: optionalNumber(input.order),
     x: optionalNumber(input.x ?? input.timingDay),
@@ -6546,6 +6652,14 @@ function requiredNonNegativeDay(value: unknown, field: string) {
   const day = Math.round(requiredNumber(value, field));
   if (day < 0) {
     throw new Error(`${field} cannot be negative.`);
+  }
+  return day;
+}
+
+function requiredProposalTimelineDay(value: unknown, field: string) {
+  const day = Math.round(requiredNumber(value, field));
+  if (day < -30) {
+    throw new Error(`${field} cannot be earlier than T-30.`);
   }
   return day;
 }

@@ -682,9 +682,10 @@ function ProposalReviewRoute() {
             to: "/backoffice/proposals/$planId",
           })
         }
-        onClose={(buildStartDate, reason) =>
+        onClose={(buildStartDate, reason, ianaTimezone) =>
           recordProductionClosing({
             buildStartDate,
+            ianaTimezone,
             loanFacility: {
               interestAnnualBps:
                 productionDetail.proposal.interestAnnualBps ?? 925,

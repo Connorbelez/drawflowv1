@@ -80,6 +80,7 @@ type AreaVariant =
   | "hatched";
 type ReferenceLineMarker = {
   label?: string | string[];
+  labelOffsetY?: number;
   onClick?: () => void;
   opacity?: number;
   stroke?: string;
@@ -91,14 +92,16 @@ interface ReferenceLineLabelProps {
   fill?: string;
   fontSize?: number | string;
   fontWeight?: number | string;
+  offsetY?: number;
   value?: string | string[];
   viewBox?: unknown;
 }
 
-function ReferenceLineLabel({
+export function ReferenceLineLabel({
   fill,
-  fontSize = 11,
-  fontWeight = 600,
+  fontSize = 15,
+  fontWeight = 700,
+  offsetY = 0,
   value,
   viewBox,
 }: ReferenceLineLabelProps) {
@@ -121,11 +124,12 @@ function ReferenceLineLabel({
       ? fontSize
       : typeof fontSize === "string"
         ? Number.parseFloat(fontSize)
-        : 11;
+        : 15;
+  const lineHeight = numericFontSize + 4;
   const estimatedHalfWidth =
     Math.max(...lines.map((line) => line.length), 1) *
-    (Number.isFinite(numericFontSize) ? numericFontSize : 11) *
-    0.28;
+    (Number.isFinite(numericFontSize) ? numericFontSize : 15) *
+    0.32;
   const textX =
     Number.isFinite(width) && width > 0
       ? Math.min(
@@ -133,22 +137,47 @@ function ReferenceLineLabel({
           Math.max(estimatedHalfWidth + 8, width - estimatedHalfWidth - 8)
         )
       : x;
+  const textY = y - 10 - (lines.length - 1) * lineHeight + offsetY;
+  const padX = 10;
+  const padY = 6;
+  const bgWidth = estimatedHalfWidth * 2 + padX * 2;
+  const bgHeight = lines.length * lineHeight + padY * 2;
+  const bgX = textX - bgWidth / 2;
+  const bgY = textY - numericFontSize - padY + 2;
 
   return (
-    <text
-      fill={fill}
-      fontSize={fontSize}
-      fontWeight={fontWeight}
-      textAnchor="middle"
-      x={textX}
-      y={y - 8 - (lines.length - 1) * 12}
-    >
-      {lines.map((line, index) => (
-        <tspan dy={index === 0 ? 0 : 12} key={`${line}-${index}`} x={textX}>
-          {line}
-        </tspan>
-      ))}
-    </text>
+    <g>
+      <rect
+        fill="var(--popover)"
+        height={bgHeight}
+        rx={6}
+        ry={6}
+        stroke={fill ?? "var(--border)"}
+        strokeOpacity={0.45}
+        strokeWidth={1}
+        width={bgWidth}
+        x={bgX}
+        y={bgY}
+      />
+      <text
+        fill="var(--popover-foreground)"
+        fontSize={fontSize}
+        fontWeight={fontWeight}
+        textAnchor="middle"
+        x={textX}
+        y={textY}
+      >
+        {lines.map((line, index) => (
+          <tspan
+            dy={index === 0 ? 0 : lineHeight}
+            key={`${line}-${index}`}
+            x={textX}
+          >
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
   );
 }
 
@@ -222,6 +251,7 @@ type EvilComposedChartProps<
   tooltipLabelFormatter?: ComponentProps<
     typeof ChartTooltipContent
   >["labelFormatter"];
+  tooltipIndicator?: ComponentProps<typeof ChartTooltipContent>["indicator"];
 
   // Interactive Stuffs
   isLoading?: boolean;
@@ -310,6 +340,7 @@ export function EvilComposedChart<
   tooltipDefaultIndex,
   tooltipHiddenKeys,
   tooltipLabelFormatter,
+  tooltipIndicator,
   isClickable = false,
   isLoading = false,
   loadingBars,
@@ -435,6 +466,7 @@ export function EvilComposedChart<
             content={
               <ChartTooltipContent
                 hiddenKeys={tooltipHiddenKeys}
+                indicator={tooltipIndicator}
                 labelFormatter={tooltipLabelFormatter}
                 roundness={tooltipRoundness}
                 selected={selectedDataKey}
@@ -466,7 +498,11 @@ export function EvilComposedChart<
                 marker.label
                   ? {
                       content: (props) => (
-                        <ReferenceLineLabel {...props} value={marker.label} />
+                        <ReferenceLineLabel
+                          {...props}
+                          offsetY={marker.labelOffsetY}
+                          value={marker.label}
+                        />
                       ),
                       fill: marker.stroke ?? "oklch(0.78 0.16 85)",
                       fontSize: 11,

@@ -10,6 +10,7 @@ dist-ssr
 .output
 .vercel
 .vinxi
+playwright-report/
 __unconfig*
 todos.json
 tmp/

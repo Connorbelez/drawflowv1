@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type {
   TimelineSettingsScenarioDraft,
@@ -9,6 +15,8 @@ import type {
 import {
   TimelineSettingsWorkspace,
   buildSettingsCashflowChartData,
+  buildSettingsScenarioScheduleRows,
+  buildSettingsScheduleReferenceLines,
 } from "./index.tsx";
 
 afterEach(() => cleanup());
@@ -101,9 +109,191 @@ describe("settings cashflow preview data", () => {
       event: "draw",
     });
   });
+
+  test("projects milestone start, milestone end, and draw unlock into matching schedule lanes", () => {
+    const scenarioWithTwoDraws: TimelineSettingsScenarioDraft = {
+      ...scenario,
+      draws: [
+        scenario.draws[0]!,
+        {
+          amountBps: 7500,
+          drawKey: "draw-02",
+          label: "Draw 02",
+          order: 1,
+          reviewNote: "Framing complete",
+          timingDay: 29,
+        },
+      ],
+    };
+
+    expect(
+      buildSettingsScenarioScheduleRows(template, scenarioWithTwoDraws).map(
+        ({ draw, milestone, milestoneEnd, milestoneStart }) => ({
+          drawUnlock: draw.timingDay,
+          milestone: milestone?.name,
+          milestoneEnd,
+          milestoneStart,
+        })
+      )
+    ).toEqual([
+      {
+        drawUnlock: 12,
+        milestone: "Foundation",
+        milestoneEnd: 10,
+        milestoneStart: 0,
+      },
+      {
+        drawUnlock: 29,
+        milestone: "Framing",
+        milestoneEnd: 27,
+        milestoneStart: 15,
+      },
+    ]);
+    expect(
+      buildSettingsScheduleReferenceLines(template, scenarioWithTwoDraws).map(
+        ({ label, labelOffsetY, x }) => ({ label, labelOffsetY, x })
+      )
+    ).toEqual([
+      { label: "M1 · Day 0", labelOffsetY: -52, x: 0 },
+      { label: "M1 · Day 10", labelOffsetY: -28, x: 10 },
+      { label: "D1 · Day 12", labelOffsetY: -4, x: 12 },
+      { label: "M2 · Day 15", labelOffsetY: -52, x: 15 },
+      { label: "M2 · Day 27", labelOffsetY: -28, x: 27 },
+      { label: "D2 · Day 29", labelOffsetY: -4, x: 29 },
+    ]);
+  });
 });
 
 describe("TimelineSettingsWorkspace", () => {
+  test("rebalances removed sub-milestone PoC through the settings save boundary", async () => {
+    const templateWithSubmilestones: TimelineSettingsTemplateDraft = {
+      ...template,
+      milestones: [
+        {
+          ...template.milestones[0]!,
+          percentageBps: 5000,
+          submilestones: [
+            {
+              description: "Excavate the site",
+              durationDays: 4,
+              name: "Excavation",
+              order: 0,
+              percentageBps: 3000,
+              submilestoneKey: "foundation-excavation",
+            },
+            {
+              description: "Pour the foundation",
+              durationDays: 6,
+              name: "Foundation pour",
+              order: 1,
+              percentageBps: 2000,
+              submilestoneKey: "foundation-pour",
+            },
+          ],
+        },
+        {
+          ...template.milestones[1]!,
+          dependencyKeys: ["foundation"],
+          percentageBps: 5000,
+          submilestones: [
+            {
+              description: "Frame the shell",
+              durationDays: 12,
+              name: "Frame shell",
+              order: 0,
+              percentageBps: 5000,
+              submilestoneKey: "framing-shell",
+            },
+          ],
+        },
+      ],
+      scenarios: [
+        {
+          ...scenario,
+          draws: scenario.draws.map((draw) => ({
+            ...draw,
+            amountBps: 10_000,
+          })),
+        },
+      ],
+    };
+    const save = vi.fn(
+      async (savedTemplate: TimelineSettingsTemplateDraft) => ({
+        templates: [savedTemplate],
+      })
+    );
+    const { container } = render(
+      <TimelineSettingsWorkspace
+        labels={{
+          emptyBody: "Seed production defaults before editing templates.",
+          emptyTitle: "Production defaults needed",
+          eyebrow: "Production proposal settings",
+          loadingText: "Loading production proposal settings...",
+          sectionLabel: "Production",
+          seedButtonLabel: "Seed defaults to prod",
+          seedConfirmBody:
+            "This seeds tenant-scoped production templates and draw scenarios.",
+          seedConfirmTitle: "Seed production defaults?",
+          title: "Settings workspace",
+        }}
+        onDeleteScenario={vi.fn(async () => ({
+          templates: [templateWithSubmilestones],
+        }))}
+        onResetScenario={vi.fn(async () => ({
+          templates: [templateWithSubmilestones],
+        }))}
+        onResetTemplate={vi.fn(async () => ({
+          templates: [templateWithSubmilestones],
+        }))}
+        onSaveTemplate={save}
+        onSeedDefaults={vi.fn(async () => ({
+          templates: [templateWithSubmilestones],
+        }))}
+        settings={{ templates: [templateWithSubmilestones] }}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("timeline-setup-row-expand-foundation"));
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-submilestone-remove-foundation-excavation"
+      )
+    );
+
+    expect(
+      container.querySelector(".timeline-blueprint-footer")?.textContent
+    ).toContain("100.00%");
+    expect(screen.queryByText(/Included PoC must equal 100\.00%/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save template" }));
+    expect(screen.getByText("Save Full Build?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]?.[0].milestones).toMatchObject([
+      {
+        milestoneKey: "foundation",
+        percentageBps: 2857,
+        submilestones: [
+          {
+            percentageBps: 2857,
+            submilestoneKey: "foundation-pour",
+          },
+        ],
+      },
+      {
+        milestoneKey: "framing",
+        percentageBps: 7143,
+        submilestones: [
+          {
+            percentageBps: 7143,
+            submilestoneKey: "framing-shell",
+          },
+        ],
+      },
+    ]);
+  });
+
   test("renders the full tabbed settings workspace for production data", async () => {
     const productionTemplate: TimelineSettingsTemplateDraft = {
       ...template,
@@ -169,6 +359,25 @@ describe("TimelineSettingsWorkspace", () => {
     ).toBeTruthy();
     expect(screen.getAllByDisplayValue("Standard").length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("Foundation complete")).toBeTruthy();
+    expect(
+      screen.getByRole("columnheader", { name: "Milestone start" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("columnheader", { name: "Milestone end" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("columnheader", { name: "Draw unlock" })
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Draw 01 milestone start day").textContent).toBe(
+      "Day 0"
+    );
+    expect(screen.getByLabelText("Draw 01 milestone end day").textContent).toBe(
+      "Day 10"
+    );
+    expect(
+      (screen.getByLabelText("Draw 01 draw unlock day") as HTMLInputElement)
+        .value
+    ).toBe("12");
     const previewStartingCashInput = screen.getByLabelText(
       "Preview starting cash",
     ) as HTMLInputElement;
@@ -320,10 +529,14 @@ describe("TimelineSettingsWorkspace", () => {
     expect(screen.queryByText(/conflicts with Foundation/)).toBeNull();
     expect(screen.queryByText(/conflicts with Framing/)).toBeNull();
     expect(
-      screen.getByLabelText("Draw 01 timing day").getAttribute("aria-invalid"),
+      screen
+        .getByLabelText("Draw 01 draw unlock day")
+        .getAttribute("aria-invalid"),
     ).toBeNull();
     expect(
-      screen.getByLabelText("Draw 02 timing day").getAttribute("aria-invalid"),
+      screen
+        .getByLabelText("Draw 02 draw unlock day")
+        .getAttribute("aria-invalid"),
     ).toBeNull();
   });
 });

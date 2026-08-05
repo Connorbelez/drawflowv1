@@ -11,6 +11,7 @@ import {
   Eye,
   FileImage,
   Flag,
+  House,
   LinkIcon,
   Loader2,
   Mail,
@@ -51,6 +52,7 @@ import {
   type TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { insertTimelineItemWithSpacing } from "#/components/roadmap/animated-curved-timeline-utils.ts";
+import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -112,6 +114,7 @@ import {
   getAccruedMilestoneDrawCapacity,
 } from "./-timeline-draw-capacity.ts";
 import {
+  calculateHomeEquityInterestCost,
   OPTIMIZED_DRAW_FEE as DRAW_FEE,
   optimizeTimelineDrawSchedule,
 } from "./-timeline-draw-optimizer.ts";
@@ -144,6 +147,7 @@ import {
   getMilestoneEffectiveCashSpendAmount,
   initialTimelineShareState,
   normalizeInterestAnnualBps,
+  PROPOSAL_TIMELINE_MIN_DAY,
   type TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
 import {
@@ -153,6 +157,7 @@ import {
   EditDrawSheet,
 } from "./MobileTimelineSheets.tsx";
 import { MobileTimelineDayDialWorkspace } from "./MobileTimelineWorkspace.tsx";
+import { TimelineCashflowToolbar } from "./TimelineCashflowToolbar.tsx";
 import { TimelineMilestoneContractorList } from "./TimelineMilestoneContractorList.tsx";
 
 export const timelineWorkspaceSearchParsers = {
@@ -166,6 +171,7 @@ interface DrawEditDraft {
 
 interface CapitalSpikeEditDraft {
   amount: string;
+  interestAnnualPercent: string;
   label: string;
   x: string;
 }
@@ -711,6 +717,7 @@ export interface TimelineWorkspacePersistence {
   deleteMilestone?: (input: any) => Promise<unknown>;
   generateEvidenceUploadUrl?: () => Promise<string>;
   recordMilestoneSiteVisit?: (input: any) => Promise<unknown>;
+  replaceDrawSchedule?: (input: any) => Promise<unknown>;
   requestMilestoneSiteVisit?: (
     input: any
   ) => Promise<TimelineSiteVisitRequestInput | void>;
@@ -917,29 +924,38 @@ export function TimelineWorkspace({
   const insertionCount = useRef(0);
   const drawInsertionCount = useRef(0);
   const capitalSpikeInsertionCount = useRef(0);
+  const pendingCapitalEventIds = useRef(new Set<string>());
   const pendingNormalizedInsertSelection =
     useRef<PendingNormalizedInsertSelection | null>(null);
   const pendingExpandedRange = useRef<Required<TimelineRange> | null>(null);
   const mobileInitialPanelDismissed = useRef(false);
-  const workspaceInitialState = useMemo(
-    () =>
-      initialState
-        ? normalizeTimelineShareStateForRoute(initialState)
-        : initialTimelineShareState(
-            NORMALIZED_INITIAL_ITEMS,
-            buildDemoDraws(NORMALIZED_INITIAL_ITEMS, INITIAL_RANGE),
-            INITIAL_CAPITAL_SPIKES,
-            INITIAL_RANGE,
-            { itemId: "rough-in", phase: "inProgress" },
-            66,
-            INITIAL_CURRENT_DAY,
-            true,
-            STARTING_CASH,
-            true,
-            0
-          ),
-    [initialState]
-  );
+  const workspaceInitialState = useMemo(() => {
+    const normalizedState = initialState
+      ? normalizeTimelineShareStateForRoute(initialState)
+      : initialTimelineShareState(
+          NORMALIZED_INITIAL_ITEMS,
+          buildDemoDraws(NORMALIZED_INITIAL_ITEMS, INITIAL_RANGE),
+          INITIAL_CAPITAL_SPIKES,
+          INITIAL_RANGE,
+          { itemId: "rough-in", phase: "inProgress" },
+          66,
+          INITIAL_CURRENT_DAY,
+          true,
+          STARTING_CASH,
+          true,
+          0
+        );
+    if (workspaceMode !== "proposal") {
+      return normalizedState;
+    }
+    return {
+      ...normalizedState,
+      range: {
+        ...normalizedState.range,
+        min: PROPOSAL_TIMELINE_MIN_DAY,
+      },
+    };
+  }, [initialState, workspaceMode]);
   const incomingTimelineStateSignature = useMemo(
     () =>
       initialState ? timelineShareStateSignature(workspaceInitialState) : null,
@@ -982,6 +998,9 @@ export function TimelineWorkspace({
     workspaceInitialState.progressValue
   );
   const [probeValue, setProbeValue] = useTimelineProbeState();
+  const [showCashflowWarnings, setShowCashflowWarnings] = useState(true);
+  const [showCashflowHoverDetails, setShowCashflowHoverDetails] =
+    useState(true);
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
   const [activeCapitalSpikeId, setActiveCapitalSpikeId] = useState<
     string | null
@@ -993,6 +1012,7 @@ export function TimelineWorkspace({
   const [capitalSpikeEditDraft, setCapitalSpikeEditDraft] =
     useState<CapitalSpikeEditDraft>({
       amount: "",
+      interestAnnualPercent: "",
       label: "",
       x: "",
     });
@@ -1169,6 +1189,17 @@ export function TimelineWorkspace({
     return map;
   }, [modificationRequests]);
   const resolvedRange = useMemo(() => normalizeDemoRange(range), [range]);
+  useEffect(() => {
+    if (
+      workspaceMode === "proposal" &&
+      resolvedRange.min !== PROPOSAL_TIMELINE_MIN_DAY
+    ) {
+      setRange((currentRange) => ({
+        ...currentRange,
+        min: PROPOSAL_TIMELINE_MIN_DAY,
+      }));
+    }
+  }, [resolvedRange.min, workspaceMode]);
   const durablePlanStateInitialized = useRef(false);
   const runDurableMutation = useCallback(
     (operation: () => Promise<unknown> | unknown, label: string) => {
@@ -1534,7 +1565,12 @@ export function TimelineWorkspace({
     setActiveDrawId(null);
     setActiveCapitalSpikeId(null);
     setDrawEditDraft({ amount: "", x: "" });
-    setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
+    setCapitalSpikeEditDraft({
+      amount: "",
+      interestAnnualPercent: "",
+      label: "",
+      x: "",
+    });
     setSelectedPanelOpen(hydratedState.selectedPanelOpen);
     setMinimumCashReserve(hydratedState.minimumCashReserve);
     setStartingCash(hydratedState.startingCash);
@@ -1588,9 +1624,16 @@ export function TimelineWorkspace({
       const settingsTemplate = settingsTemplates.find(
         (template) => template.templateKey === result.templateKey
       );
-      const nextRange = settingsTemplate
+      const computedRange = settingsTemplate
         ? timelineSettingsRange(result.items)
         : expandTimelineRangeForMilestones(result.items, BASE_INITIAL_RANGE);
+      const nextRange =
+        workspaceMode === "proposal"
+          ? {
+              ...computedRange,
+              min: PROPOSAL_TIMELINE_MIN_DAY,
+            }
+          : computedRange;
       const nextDraws = settingsTemplate
         ? buildDrawsFromActiveScenario(
             settingsTemplate,
@@ -1722,6 +1765,7 @@ export function TimelineWorkspace({
       interestAnnualBps,
       minimumCashReserve,
       settingsTemplates,
+      workspaceMode,
     ]
   );
 
@@ -1743,115 +1787,147 @@ export function TimelineWorkspace({
     share,
   ]);
 
-  const optimizeCurrentScenario = useCallback(() => {
-    if (!(canWriteLiveTimeline && !liveBuildMode)) {
-      toast.error("Timeline is locked in this status.");
-      return;
-    }
+  const optimizeCurrentScenario = useCallback(
+    (exactDrawCount?: number) => {
+      if (!(canWriteLiveTimeline && !liveBuildMode)) {
+        toast.error("Timeline is locked in this status.");
+        return;
+      }
 
-    const result = optimizeTimelineDrawSchedule({
-      capitalSpikes,
-      interestAnnualBps,
-      items,
-      minimumCashReserve,
-      range: resolvedRange,
-      startingCash,
-    });
+      const result = optimizeTimelineDrawSchedule({
+        capitalSpikes,
+        ...(exactDrawCount === undefined ? {} : { exactDrawCount }),
+        interestAnnualBps,
+        items,
+        minimumCashReserve,
+        range: resolvedRange,
+        startingCash,
+      });
 
-    if (result.status === "infeasible") {
-      toast.error(result.infeasibleReason);
-      return;
-    }
+      if (result.status === "infeasible") {
+        toast.error(result.infeasibleReason);
+        return;
+      }
 
-    const optimizationRunId = Date.now().toString(36);
-    const nextDraws = relabelTimelineDraws(
-      result.draws.map((draw, index) => ({
-        ...draw,
-        id: `optimized-draw-${optimizationRunId}-${index + 1}`,
-      }))
-    );
+      const optimizationRunId = Date.now().toString(36);
+      const nextDraws = relabelTimelineDraws(
+        result.draws.map((draw, index) => ({
+          ...draw,
+          id: `optimized-draw-${optimizationRunId}-${index + 1}`,
+        }))
+      );
 
-    if (drawSchedulesMatchForOptimization(draws, nextDraws)) {
+      if (drawSchedulesMatchForOptimization(draws, nextDraws)) {
+        if (nextDraws.length === 0) {
+          toast.success(
+            "Scenario is already optimized; no draw is needed to maintain the minimum cash reserve."
+          );
+          return;
+        }
+
+        toast.success(
+          `Scenario is already optimized: ${nextDraws.length} draw${
+            nextDraws.length === 1 ? "" : "s"
+          } minimize estimated interest and draw fees while maintaining the minimum cash reserve.`
+        );
+        return;
+      }
+
+      setActiveDrawId(null);
+      setActiveCapitalSpikeId(null);
+      setDrawEditDraft({ amount: "", x: "" });
+      setDraws(nextDraws);
+      const optimizedRangeMax = Math.max(
+        resolvedRange.max,
+        ...nextDraws.map((draw) => Math.ceil(draw.x + 1))
+      );
+      if (optimizedRangeMax > resolvedRange.max) {
+        setRange((currentRange) => ({
+          ...currentRange,
+          max: optimizedRangeMax,
+        }));
+      }
+
+      if (durablePlanId && persistence?.replaceDrawSchedule) {
+        runDurableMutation(
+          () =>
+            persistence.replaceDrawSchedule?.({
+              draws: nextDraws.map((draw, index) => ({
+                amountCents: dollarsToCents(draw.amount),
+                customDate: true,
+                drawKey: draw.id,
+                ...(draw.itemId ? { itemMilestoneKey: draw.itemId } : {}),
+                label: draw.label,
+                order: index + 1,
+                x: draw.x,
+              })),
+              metrics: {
+                drawCount: nextDraws.length,
+                drawFeesCents: dollarsToCents(result.drawFees),
+                interestCostCents: dollarsToCents(result.interestCost),
+                totalCostCents: dollarsToCents(result.totalCost),
+                totalDrawAmountCents: dollarsToCents(result.totalDrawAmount),
+              },
+            }),
+          exactDrawCount === undefined
+            ? "optimized draw replacement"
+            : `exact ${exactDrawCount}-draw replacement`
+        );
+      } else if (durablePlanId) {
+        for (const draw of draws) {
+          runDurableMutation(
+            () => persistDeleteDraw({ drawKey: draw.id }),
+            "optimized draw replacement"
+          );
+        }
+
+        nextDraws.forEach((draw, index) => {
+          runDurableMutation(
+            () =>
+              persistCreateDraw({
+                amountCents: dollarsToCents(draw.amount),
+                customDate: true,
+                drawKey: draw.id,
+                ...(draw.itemId ? { itemMilestoneKey: draw.itemId } : {}),
+                label: draw.label,
+                order: index + 1,
+                x: draw.x,
+              }),
+            "optimized draw"
+          );
+        });
+      }
+
       if (nextDraws.length === 0) {
         toast.success(
-          "Scenario is already optimized; no draw is needed to maintain the minimum cash reserve."
+          "No draw is needed to maintain the minimum cash reserve."
         );
         return;
       }
 
       toast.success(
-        `Scenario is already optimized: ${nextDraws.length} draw${
+        `Optimized ${nextDraws.length} draw${
           nextDraws.length === 1 ? "" : "s"
-        } minimize estimated interest and draw fees while maintaining the minimum cash reserve.`
+        }: ${money(result.totalCost)} total interest and fee cost.`
       );
-      return;
-    }
-
-    setActiveDrawId(null);
-    setActiveCapitalSpikeId(null);
-    setDrawEditDraft({ amount: "", x: "" });
-    setDraws(nextDraws);
-    const optimizedRangeMax = Math.max(
-      resolvedRange.max,
-      ...nextDraws.map((draw) => Math.ceil(draw.x + 1))
-    );
-    if (optimizedRangeMax > resolvedRange.max) {
-      setRange((currentRange) => ({
-        ...currentRange,
-        max: optimizedRangeMax,
-      }));
-    }
-
-    if (durablePlanId) {
-      for (const draw of draws) {
-        runDurableMutation(
-          () => persistDeleteDraw({ drawKey: draw.id }),
-          "optimized draw replacement"
-        );
-      }
-
-      nextDraws.forEach((draw, index) => {
-        runDurableMutation(
-          () =>
-            persistCreateDraw({
-              amountCents: dollarsToCents(draw.amount),
-              customDate: true,
-              drawKey: draw.id,
-              ...(draw.itemId ? { itemMilestoneKey: draw.itemId } : {}),
-              label: draw.label,
-              order: index + 1,
-              x: draw.x,
-            }),
-          "optimized draw"
-        );
-      });
-    }
-
-    if (nextDraws.length === 0) {
-      toast.success("No draw is needed to maintain the minimum cash reserve.");
-      return;
-    }
-
-    toast.success(
-      `Optimized ${nextDraws.length} draw${
-        nextDraws.length === 1 ? "" : "s"
-      }: ${money(result.totalCost)} total interest and fee cost.`
-    );
-  }, [
-    canWriteLiveTimeline,
-    capitalSpikes,
-    draws,
-    durablePlanId,
-    interestAnnualBps,
-    items,
-    liveBuildMode,
-    minimumCashReserve,
-    persistCreateDraw,
-    persistDeleteDraw,
-    resolvedRange,
-    runDurableMutation,
-    startingCash,
-  ]);
+    },
+    [
+      canWriteLiveTimeline,
+      capitalSpikes,
+      draws,
+      durablePlanId,
+      interestAnnualBps,
+      items,
+      liveBuildMode,
+      minimumCashReserve,
+      persistCreateDraw,
+      persistDeleteDraw,
+      persistence,
+      resolvedRange,
+      runDurableMutation,
+      startingCash,
+    ]
+  );
 
   const submitCurrentPlan = useCallback(async () => {
     if (!(durablePlanId && !readOnly)) {
@@ -1994,13 +2070,18 @@ export function TimelineWorkspace({
         cashflowData,
         draws,
         resolvedRange,
-        interestAnnualBps
+        interestAnnualBps,
+        capitalSpikes
       ),
-    [cashflowData, draws, interestAnnualBps, resolvedRange]
+    [capitalSpikes, cashflowData, draws, interestAnnualBps, resolvedRange]
   );
   const cashUseSummary = useMemo(
     () => buildCashUseSummary(items, draws, capitalSpikes),
     [capitalSpikes, draws, items]
+  );
+  const drawAvailabilityViolation = useMemo(
+    () => findDrawUnlockCapacityViolation(items, draws),
+    [draws, items]
   );
   const cashflowExtent = useMemo(
     () => getCashflowChartExtent(cashflowChartData),
@@ -2014,17 +2095,26 @@ export function TimelineWorkspace({
     probeValue === null
       ? null
       : interpolateLinearCashOnHand(cashflowChartData, probeValue);
-  const probeDrawAvailability =
+  const rawProbeDrawAvailability =
     probeValue === null
       ? null
       : interpolateDrawAvailability(
           drawAvailabilityData,
           Math.round(probeValue)
         );
+  const probeDrawAvailability =
+    rawProbeDrawAvailability === null
+      ? null
+      : withHomeEquityInterest(
+          rawProbeDrawAvailability,
+          capitalSpikes,
+          Math.round(probeValue ?? rawProbeDrawAvailability.day)
+        );
   const probeInterestPaid = probeDrawAvailability?.totalInterestAccrued ?? null;
   const endingCashOnHand = cashflowData.at(-1)?.cashOnHand ?? startingCash;
-  const endingAvailability = interpolateDrawAvailability(
-    drawAvailabilityData,
+  const endingAvailability = withHomeEquityInterest(
+    interpolateDrawAvailability(drawAvailabilityData, resolvedRange.max),
+    capitalSpikes,
     resolvedRange.max
   );
   const cashflowDrawPosition = getCumulativeDrawPosition(
@@ -2117,17 +2207,19 @@ export function TimelineWorkspace({
   );
   const cashflowReferenceLines = useMemo(
     () => [
-      ...cashShortfalls.map((point) => ({
-        label: isPhoneLayout
-          ? undefined
-          : point.shortfall > 0
-            ? `Short ${money(point.shortfall)}`
-            : "Cash zero",
-        opacity: 0.52,
-        stroke: "oklch(0.62 0.22 25)",
-        strokeDasharray: "2 3",
-        x: point.day,
-      })),
+      ...(showCashflowWarnings
+        ? cashShortfalls.map((point) => ({
+            label: isPhoneLayout
+              ? undefined
+              : point.shortfall > 0
+                ? `Short ${money(point.shortfall)}`
+                : "Cash zero",
+            opacity: 0.52,
+            stroke: "oklch(0.62 0.22 25)",
+            strokeDasharray: "2 3",
+            x: point.day,
+          }))
+        : []),
       ...(isMobileDrawerLayout
         ? [
             {
@@ -2163,6 +2255,7 @@ export function TimelineWorkspace({
       probeCashOnHand,
       probeValue,
       selectedDay,
+      showCashflowWarnings,
       startingCash,
     ]
   );
@@ -2267,6 +2360,10 @@ export function TimelineWorkspace({
     setSelectedPanelOpen(false);
     setCapitalSpikeEditDraft({
       amount: String(spike.amount),
+      interestAnnualPercent:
+        spike.interestAnnualBps === undefined
+          ? ""
+          : String(spike.interestAnnualBps / 100),
       label: spike.label,
       x: String(Math.round(spike.x)),
     });
@@ -2279,6 +2376,10 @@ export function TimelineWorkspace({
   };
 
   const requestMilestoneCreation = (requestedX: number) => {
+    if (requestedX < 0) {
+      toast.error("Construction milestones cannot start before T0.");
+      return;
+    }
     insertionCount.current += 1;
     const count = insertionCount.current;
     const lane = count % 3 === 0 ? 1 : count % 2 === 0 ? -1 : 0;
@@ -2362,6 +2463,10 @@ export function TimelineWorkspace({
     }
 
     const requestedDay = Math.round(requestedX);
+    if (requestedDay < 0) {
+      toast.error("Construction milestones cannot start before T0.");
+      return;
+    }
     const createdItem = createInsertedMilestoneItem(requestedDay);
     const result = insertTimelineItemWithSpacing(items, createdItem, {
       minGap: 14,
@@ -2408,6 +2513,10 @@ export function TimelineWorkspace({
     if (!canWriteLiveTimeline) {
       return;
     }
+    if (requestedX < 0) {
+      toast.error("Reimbursement draws cannot be scheduled before T0.");
+      return;
+    }
     drawInsertionCount.current += 1;
     const count = drawInsertionCount.current;
     const owner = findTimelineItemForDay(items, requestedX);
@@ -2416,7 +2525,8 @@ export function TimelineWorkspace({
       requestedX,
       items,
       draws,
-      { proposedDrawId: nextDrawId }
+      { proposedDrawId: nextDrawId },
+      approvedDrawLimit
     );
 
     if (maxSchedulableAmount <= 0) {
@@ -2532,6 +2642,30 @@ export function TimelineWorkspace({
         "cash infusion"
       );
     }
+  };
+
+  const addHomeEquityTakeout = (requestedX: number) => {
+    if (!(canWriteLiveTimeline && !liveBuildMode)) {
+      return;
+    }
+    capitalSpikeInsertionCount.current += 1;
+    const count = capitalSpikeInsertionCount.current;
+    const nextTakeout = {
+      amount: 50_000,
+      eventKind: "homeEquityTakeout",
+      id: `home-equity-takeout-${Date.now()}-${count}`,
+      interestAnnualBps,
+      label: `Home Equity Takeout ${count}`,
+      x: Math.max(PROPOSAL_TIMELINE_MIN_DAY, Math.round(requestedX)),
+    } satisfies DemoCapitalSpike;
+
+    pendingCapitalEventIds.current.add(nextTakeout.id);
+    setCapitalSpikes((currentSpikes) =>
+      [...currentSpikes, nextTakeout].sort(
+        (a, b) => a.x - b.x || a.id.localeCompare(b.id)
+      )
+    );
+    openCapitalSpikeEditor(nextTakeout);
   };
 
   const deleteDraw = (drawId: string) => {
@@ -3198,6 +3332,8 @@ export function TimelineWorkspace({
       return;
     }
 
+    const isNonWorseningCapacityEdit =
+      nextAmount <= targetDraw.amount && nextX >= targetDraw.x;
     const maxSchedulableAmount = getMaxSchedulableDrawAmount(
       nextX,
       items,
@@ -3205,10 +3341,11 @@ export function TimelineWorkspace({
       {
         excludeDrawId: drawId,
         proposedDrawId: drawId,
-      }
+      },
+      approvedDrawLimit
     );
 
-    if (nextAmount > maxSchedulableAmount) {
+    if (!isNonWorseningCapacityEdit && nextAmount > maxSchedulableAmount) {
       toast.error(
         maxSchedulableAmount <= 0
           ? DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE
@@ -3320,8 +3457,18 @@ export function TimelineWorkspace({
           );
     const requestedDraw = { ...targetDraw, x: nextX };
     const limit = liveBuildMode
-      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
-      : calculateDrawRequestLimit(requestedDraw, items, draws);
+      ? calculateApprovedDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        )
+      : calculateDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        );
     const nextAmount = clampNumber(
       Math.round(request.amount),
       0,
@@ -3581,6 +3728,13 @@ export function TimelineWorkspace({
     if (!activeCapitalSpikeId) {
       return;
     }
+    const targetSpike = capitalSpikes.find(
+      (spike) => spike.id === activeCapitalSpikeId
+    );
+    if (!targetSpike) {
+      return;
+    }
+    const isHomeEquityTakeout = targetSpike.eventKind === "homeEquityTakeout";
 
     const formData = new FormData(event.currentTarget);
     const nextAmount = Math.max(
@@ -3593,16 +3747,43 @@ export function TimelineWorkspace({
     );
     const nextX = Math.max(
       resolvedRange.min,
-      Math.round(
-        Number(formData.get("capitalSpikeDate") ?? capitalSpikeEditDraft.x)
+      Math.min(
+        resolvedRange.max,
+        Math.round(
+          Number(formData.get("capitalSpikeDate") ?? capitalSpikeEditDraft.x)
+        )
       )
     );
     const nextLabel =
       String(
         formData.get("capitalSpikeLabel") ?? capitalSpikeEditDraft.label
       ).trim() || "Capital spike";
+    const nextInterestAnnualBps = isHomeEquityTakeout
+      ? Math.round(
+          Number(
+            formData.get("capitalSpikeInterestAnnualPercent") ??
+              capitalSpikeEditDraft.interestAnnualPercent
+          ) * 100
+        )
+      : undefined;
 
-    if (!(Number.isFinite(nextAmount) && Number.isFinite(nextX))) {
+    if (
+      !(
+        Number.isFinite(nextAmount) &&
+        Number.isFinite(nextX) &&
+        (!isHomeEquityTakeout ||
+          (nextAmount > 0 &&
+            nextInterestAnnualBps !== undefined &&
+            Number.isFinite(nextInterestAnnualBps) &&
+            nextInterestAnnualBps >= 0 &&
+            nextInterestAnnualBps <= 10_000))
+      )
+    ) {
+      toast.error(
+        isHomeEquityTakeout
+          ? "Enter a positive takeout amount and an annual interest rate between 0% and 100%."
+          : "Enter a valid capital event amount and date."
+      );
       return;
     }
 
@@ -3613,6 +3794,9 @@ export function TimelineWorkspace({
             ? {
                 ...spike,
                 amount: nextAmount,
+                ...(nextInterestAnnualBps === undefined
+                  ? {}
+                  : { interestAnnualBps: nextInterestAnnualBps }),
                 label: nextLabel,
                 x: nextX,
               }
@@ -3621,25 +3805,45 @@ export function TimelineWorkspace({
         .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
     );
     if (durablePlanId) {
-      runDurableMutation(
-        () =>
-          persistUpdateCapitalEvent({
-            amountCents: dollarsToCents(nextAmount),
-            capitalEventKey: activeCapitalSpikeId,
-            eventKind:
-              capitalSpikes.find((spike) => spike.id === activeCapitalSpikeId)
-                ?.eventKind ?? "cost",
-            label: nextLabel,
-            x: nextX,
-          }),
-        "capital event update"
-      );
+      const mutationInput = {
+        amountCents: dollarsToCents(nextAmount),
+        capitalEventKey: activeCapitalSpikeId,
+        eventKind: targetSpike.eventKind ?? "cost",
+        ...(nextInterestAnnualBps === undefined
+          ? {}
+          : { interestAnnualBps: nextInterestAnnualBps }),
+        label: nextLabel,
+        order:
+          capitalSpikes.findIndex(
+            (spike) => spike.id === activeCapitalSpikeId
+          ) + 1,
+        x: nextX,
+      };
+      if (pendingCapitalEventIds.current.has(activeCapitalSpikeId)) {
+        runDurableMutation(
+          () => persistCreateCapitalEvent(mutationInput),
+          "home equity takeout"
+        );
+        pendingCapitalEventIds.current.delete(activeCapitalSpikeId);
+      } else {
+        runDurableMutation(
+          () => persistUpdateCapitalEvent(mutationInput),
+          "capital event update"
+        );
+      }
     }
-    if (nextX > resolvedRange.max) {
-      setRange((currentRange) => ({
-        ...currentRange,
-        max: nextX,
-      }));
+    setActiveCapitalSpikeId(null);
+  };
+
+  const cancelCapitalSpikeEdit = () => {
+    if (
+      activeCapitalSpikeId &&
+      pendingCapitalEventIds.current.has(activeCapitalSpikeId)
+    ) {
+      pendingCapitalEventIds.current.delete(activeCapitalSpikeId);
+      setCapitalSpikes((currentSpikes) =>
+        currentSpikes.filter((spike) => spike.id !== activeCapitalSpikeId)
+      );
     }
     setActiveCapitalSpikeId(null);
   };
@@ -3863,6 +4067,30 @@ export function TimelineWorkspace({
             </div>
           </div>
         ) : null}
+        {drawAvailabilityViolation ? (
+          <Alert
+            data-testid="timeline-draw-availability-warning"
+            variant="warning"
+          >
+            <AlertTriangle aria-hidden />
+            <AlertTitle>
+              Generated draw schedule exceeds maximum availability
+            </AlertTitle>
+            <AlertDescription>
+              {drawAvailabilityViolation.draw.label} schedules{" "}
+              {money(drawAvailabilityViolation.draw.amount)} on day{" "}
+              {drawAvailabilityViolation.draw.x}, but only{" "}
+              {money(drawAvailabilityViolation.limit.availableLimit)} is
+              unlocked after the {DEFAULT_DRAW_REVIEW_LAG_DAYS}-day review lag.
+              Reduce or move this draw by{" "}
+              {money(
+                drawAvailabilityViolation.draw.amount -
+                  drawAvailabilityViolation.limit.availableLimit
+              )}
+              .
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {showWorkspaceHeader ? (
           <motion.section
             className="timeline-route-header"
@@ -4049,12 +4277,23 @@ export function TimelineWorkspace({
                 aria-disabled={!(canWriteLiveTimeline && !liveBuildMode)}
                 data-testid="timeline-optimize-scenario"
                 disabled={!(canWriteLiveTimeline && !liveBuildMode)}
-                onClick={optimizeCurrentScenario}
+                onClick={() => optimizeCurrentScenario()}
                 size="sm"
                 variant="secondary"
               >
                 <Sparkles />
                 Optimize scenario
+              </Button>
+              <Button
+                aria-disabled={!(canWriteLiveTimeline && !liveBuildMode)}
+                data-testid="timeline-optimize-three-draw"
+                disabled={!(canWriteLiveTimeline && !liveBuildMode)}
+                onClick={() => optimizeCurrentScenario(3)}
+                size="sm"
+                variant="secondary"
+              >
+                <CircleDollarSign />
+                3-draw
               </Button>
               <ShareTimelineMenu {...shareMenuProps} />
               {share || durableMeta ? null : (
@@ -4086,6 +4325,98 @@ export function TimelineWorkspace({
                 />
                 Straight line
               </div>
+              <TimelineCashflowToolbar
+                metrics={[
+                  {
+                    label: "Probe",
+                    testId: "timeline-cashflow-probe-day",
+                    value:
+                      probeValue === null
+                        ? "Hover chart"
+                        : `Day ${Math.round(probeValue)}`,
+                  },
+                  {
+                    label: "Cash",
+                    testId: "timeline-cashflow-probe-cash",
+                    value:
+                      probeCashOnHand === null ? "-" : money(probeCashOnHand),
+                  },
+                  {
+                    label: "Interest paid",
+                    testId: "timeline-cashflow-probe-interest-paid",
+                    tone: "interest",
+                    value:
+                      probeInterestPaid === null
+                        ? "-"
+                        : money(probeInterestPaid),
+                  },
+                  {
+                    label: "Ending cash",
+                    testId: "timeline-cashflow-ending-cash",
+                    value: money(endingCashOnHand),
+                  },
+                  {
+                    label: "Total unlocked",
+                    testId: "timeline-cashflow-total-unlocked",
+                    tone: "info",
+                    value: money(cashflowDrawPosition.totalUnlocked),
+                  },
+                  {
+                    label: "Total drawn",
+                    testId: "timeline-cashflow-total-drawn",
+                    tone: "info",
+                    value: money(cashflowDrawPosition.totalDrawn),
+                  },
+                  {
+                    label: "Available",
+                    testId: "timeline-cashflow-available-to-draw",
+                    tone: "positive",
+                    value: money(cashflowDrawPosition.availableToDraw),
+                  },
+                  {
+                    label: "Lender cash",
+                    testId: "timeline-cashflow-lender-cash-used",
+                    tone: "info",
+                    value: money(cashUseSummary.lenderCashUsed),
+                  },
+                  {
+                    label: "Builder cash",
+                    testId: "timeline-cashflow-builder-cash-used",
+                    tone: "positive",
+                    value: money(cashUseSummary.builderCashUsed),
+                  },
+                  {
+                    label: "Construction interest",
+                    testId: "timeline-cashflow-construction-interest",
+                    tone: "interest",
+                    value: money(
+                      Number(
+                        endingAvailability.constructionInterestAccrued ??
+                          endingAvailability.totalInterestAccrued
+                      )
+                    ),
+                  },
+                  {
+                    label: "Home equity interest",
+                    testId: "timeline-cashflow-home-equity-interest",
+                    tone: "interest",
+                    value: money(
+                      Number(endingAvailability.homeEquityInterestAccrued ?? 0)
+                    ),
+                  },
+                  {
+                    label: "Total interest",
+                    testId: "timeline-cashflow-total-interest-paid",
+                    tone: "interest",
+                    value: money(endingAvailability.totalInterestAccrued),
+                  },
+                ]}
+                warnings={cashShortfalls.map((point) => ({
+                  dayLabel: formatTimelineDay(point.day),
+                  id: `${point.day}-${point.milestone}`,
+                  message: formatCashShortfallMessage(point),
+                }))}
+              />
             </div>
           </motion.section>
         ) : null}
@@ -4283,168 +4614,44 @@ export function TimelineWorkspace({
                         />
                       </div>
                     </div>
-                    <div className="grid min-w-0 grid-cols-2 gap-1.5 text-xs sm:grid-cols-4 sm:gap-2 sm:text-sm xl:grid-cols-6 2xl:grid-cols-6">
-                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Probe
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-probe-day"
-                        >
-                          {probeValue === null
-                            ? "Hover chart"
-                            : `Day ${Math.round(probeValue)}`}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-probe-cash"
-                        >
-                          {probeCashOnHand === null
-                            ? "-"
-                            : money(probeCashOnHand)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Interest paid
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-probe-interest-paid"
-                        >
-                          {probeInterestPaid === null
-                            ? "-"
-                            : money(probeInterestPaid)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Ending cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-ending-cash"
-                        >
-                          {money(endingCashOnHand)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Total unlocked
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-total-unlocked"
-                        >
-                          {money(cashflowDrawPosition.totalUnlocked)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Total drawn
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-total-drawn"
-                        >
-                          {money(cashflowDrawPosition.totalDrawn)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Available to draw
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-available-to-draw"
-                        >
-                          {money(cashflowDrawPosition.availableToDraw)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Lender cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-lender-cash-used"
-                        >
-                          {money(cashUseSummary.lenderCashUsed)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Builder cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-builder-cash-used"
-                        >
-                          {money(cashUseSummary.builderCashUsed)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Total interest
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-total-interest-paid"
-                        >
-                          {money(endingAvailability.totalInterestAccrued)}
-                        </p>
-                      </div>
-                      <div
-                        className={cn(
-                          "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
-                          cashShortfalls.length > 0
-                            ? "border-rose-500/30 bg-rose-500/10"
-                            : "border-border bg-muted/30"
-                        )}
-                        data-testid="timeline-cashflow-risk-summary"
-                      >
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Cash risk
-                        </p>
-                        <p className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm">
-                          {cashShortfalls.length > 0
-                            ? `${cashShortfalls.length} flagged`
-                            : `Above ${money(minimumCashReserve)}`}
-                        </p>
-                      </div>
+                    <div
+                      aria-label="Cash flow chart display controls"
+                      className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2"
+                      role="group"
+                    >
+                      <label className="flex cursor-pointer items-center gap-2 font-medium text-muted-foreground text-xs">
+                        <Switch
+                          checked={showCashflowWarnings}
+                          data-testid="timeline-cashflow-warnings-toggle"
+                          onCheckedChange={setShowCashflowWarnings}
+                        />
+                        Cash warnings
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2 font-medium text-muted-foreground text-xs">
+                        <Switch
+                          checked={showCashflowHoverDetails}
+                          data-testid="timeline-cashflow-hover-toggle"
+                          onCheckedChange={(checked) => {
+                            setShowCashflowHoverDetails(checked);
+
+                            if (!checked) {
+                              setProbeValue(null);
+                            }
+                          }}
+                        />
+                        Hover details
+                      </label>
                     </div>
                   </div>
                 </div>
-                {cashShortfalls.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1 sm:mt-3 sm:gap-2">
-                    {cashShortfalls.slice(0, 4).map((point) => (
-                      <div
-                        className="inline-flex max-w-full items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-rose-700 text-xs dark:text-rose-100"
-                        data-testid="timeline-cash-shortfall-point"
-                        key={`${point.day}-${point.milestone}`}
-                      >
-                        <AlertTriangle className="size-3.5" />
-                        <span className="font-medium">
-                          {formatTimelineDay(point.day)}
-                        </span>
-                        <span className="min-w-0 truncate text-muted-foreground">
-                          {formatCashShortfallMessage(point)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <TimelineCashflowCompoundChart
                   barSize={timelineSizing.barSize}
                   data={cashflowChartData}
+                  hideTooltip={!showCashflowHoverDetails}
                   onHotspotDaySelect={handleChartHotspotDaySelect}
-                  onProbeChange={setProbeValue}
+                  onProbeChange={
+                    showCashflowHoverDetails ? setProbeValue : undefined
+                  }
                   referenceLines={cashflowReferenceLines}
                   xDomain={[resolvedRange.min, resolvedRange.max]}
                   xTicks={cashflowTicks}
@@ -4511,7 +4718,7 @@ export function TimelineWorkspace({
                           ? `capital-spike-${activeCapitalSpikeId}`
                           : null
                     }
-                    formatValue={(value) => `Day ${Math.round(value)}`}
+                    formatValue={formatTimelineDay}
                     getItemEndValue={getMilestoneEndX}
                     hoverValue={probeValue}
                     insertion={
@@ -4558,6 +4765,22 @@ export function TimelineWorkspace({
                                 onSelect: ({ requestedX }) =>
                                   addCashInfusion(requestedX),
                               },
+                              ...(proposalMode
+                                ? [
+                                    {
+                                      icon: (
+                                        <House className="size-4 text-sky-600" />
+                                      ),
+                                      id: "add-home-equity-takeout",
+                                      label: "Add Home Equity Takeout",
+                                      onSelect: ({
+                                        requestedX,
+                                      }: {
+                                        requestedX: number;
+                                      }) => addHomeEquityTakeout(requestedX),
+                                    },
+                                  ]
+                                : []),
                             ],
                             createItem: canEditPlanStructure
                               ? createInsertedMilestoneItem
@@ -4775,12 +4998,21 @@ export function TimelineWorkspace({
                         if (capitalSpike) {
                           return (
                             <TimelineDeleteContextMenu
-                              canDelete={canWriteLiveTimeline}
+                              canDelete={
+                                canWriteLiveTimeline &&
+                                !(
+                                  liveBuildMode &&
+                                  capitalSpike.eventKind === "homeEquityTakeout"
+                                )
+                              }
                               deleteDisabledReason="Timeline is locked in this status."
                               deleteLabel={
                                 capitalSpike.eventKind === "cashInfusion"
                                   ? "Remove cash infusion"
-                                  : "Remove capital cost"
+                                  : capitalSpike.eventKind ===
+                                      "homeEquityTakeout"
+                                    ? "Remove Home Equity Takeout"
+                                    : "Remove capital cost"
                               }
                               kind="capitalSpike"
                               onDelete={() =>
@@ -4792,11 +5024,19 @@ export function TimelineWorkspace({
                                   capitalSpike.id === activeCapitalSpikeId
                                 }
                                 draft={capitalSpikeEditDraft}
+                                maxDay={resolvedRange.max}
                                 onApply={applyCapitalSpikeEdit}
-                                onCancel={() => setActiveCapitalSpikeId(null)}
+                                onCancel={cancelCapitalSpikeEdit}
                                 onDraftChange={setCapitalSpikeEditDraft}
                                 onOpen={() => {
-                                  if (canWriteLiveTimeline) {
+                                  if (
+                                    canWriteLiveTimeline &&
+                                    !(
+                                      liveBuildMode &&
+                                      capitalSpike.eventKind ===
+                                        "homeEquityTakeout"
+                                    )
+                                  ) {
                                     openCapitalSpikeEditor(capitalSpike);
                                   }
                                 }}
@@ -4839,7 +5079,8 @@ export function TimelineWorkspace({
                               {
                                 excludeDrawId: draw.id,
                                 proposedDrawId: draw.id,
-                              }
+                              },
+                              approvedDrawLimit
                             )}
                             currentDay={currentDay}
                             draft={drawEditDraft}
@@ -5544,7 +5785,12 @@ function useTimelineSnapshotSharing({
       setActiveDrawId(null);
       setActiveCapitalSpikeId(null);
       setDrawEditDraft({ amount: "", x: "" });
-      setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
+      setCapitalSpikeEditDraft({
+        amount: "",
+        interestAnnualPercent: "",
+        label: "",
+        x: "",
+      });
       setSelectedPanelOpen(hydratedState.selectedPanelOpen);
       setApprovedDrawLimit(hydratedState.approvedDrawLimit);
       setInterestAnnualBps(
@@ -6003,8 +6249,9 @@ function findTimelineItemForDay(
   );
 }
 
-function formatTimelineDay(value: number) {
-  return `Day ${Math.round(value)}`;
+export function formatTimelineDay(value: number) {
+  const day = Math.round(value);
+  return day < 0 ? `T−${Math.abs(day)}` : day === 0 ? "T0" : `T+${day}`;
 }
 
 function formatTimelineDateTime(value: number) {
@@ -6093,10 +6340,50 @@ function getDrawTimelineMarkerCopy(state: DrawTimelineMarkerState) {
   return "Planned";
 }
 
+function calculateApprovedLimitShare(
+  items: TimelineItem<DemoMilestone>[],
+  totalUnlockedAtDay: number,
+  approvedDrawLimit?: number
+): number {
+  const normalizedApprovedDrawLimit =
+    typeof approvedDrawLimit === "number" && Number.isFinite(approvedDrawLimit)
+      ? Math.max(0, Math.round(approvedDrawLimit))
+      : undefined;
+
+  if (normalizedApprovedDrawLimit === undefined) {
+    return 0;
+  }
+
+  const maxTotalUnlocked = items.reduce((total, item) => {
+    if (!item.data) {
+      return total;
+    }
+    return total + getMilestoneRequestableDrawAmount(item.data);
+  }, 0);
+
+  const approvedHeadroom = Math.max(
+    0,
+    normalizedApprovedDrawLimit - maxTotalUnlocked
+  );
+
+  if (approvedHeadroom <= 0) {
+    return 0;
+  }
+
+  if (maxTotalUnlocked <= 0) {
+    return approvedHeadroom;
+  }
+
+  return totalUnlockedAtDay >= maxTotalUnlocked
+    ? approvedHeadroom
+    : Math.round((approvedHeadroom * totalUnlockedAtDay) / maxTotalUnlocked);
+}
+
 export function calculateDrawRequestLimit(
   targetDraw: DemoDraw,
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
+  approvedDrawLimit?: number
 ): DrawRequestLimit {
   const drawDay = targetDraw.x;
   const totalUnlocked = items.reduce((total, item) => {
@@ -6121,7 +6408,13 @@ export function calculateDrawRequestLimit(
 
     return total + draw.amount;
   }, 0);
-  const availableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const baseAvailableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const approvedLimitShare = calculateApprovedLimitShare(
+    items,
+    totalUnlocked,
+    approvedDrawLimit
+  );
+  const availableLimit = baseAvailableLimit + approvedLimitShare;
 
   return {
     alreadyDrawn,
@@ -6169,7 +6462,8 @@ function isMilestoneAdminApproved(item: TimelineItem<DemoMilestone>) {
 export function calculateApprovedDrawRequestLimit(
   targetDraw: DemoDraw,
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
+  approvedDrawLimit?: number
 ): ApprovedDrawRequestLimit {
   const drawDay = targetDraw.x;
   const blockingMilestones: string[] = [];
@@ -6196,7 +6490,13 @@ export function calculateApprovedDrawRequestLimit(
 
     return total + draw.amount;
   }, 0);
-  const availableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const baseAvailableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const approvedLimitShare = calculateApprovedLimitShare(
+    items,
+    totalUnlocked,
+    approvedDrawLimit
+  );
+  const availableLimit = baseAvailableLimit + approvedLimitShare;
 
   return {
     alreadyDrawn,
@@ -6209,14 +6509,20 @@ export function calculateApprovedDrawRequestLimit(
 
 export function findDrawUnlockCapacityViolation(
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
+  approvedDrawLimit?: number
 ): { draw: DemoDraw; limit: DrawRequestLimit } | null {
   const orderedDraws = [...draws].sort(
     (a, b) => a.x - b.x || a.id.localeCompare(b.id)
   );
 
   for (const draw of orderedDraws) {
-    const limit = calculateDrawRequestLimit(draw, items, draws);
+    const limit = calculateDrawRequestLimit(
+      draw,
+      items,
+      draws,
+      approvedDrawLimit
+    );
     if (draw.amount > limit.availableLimit) {
       return { draw, limit };
     }
@@ -6229,7 +6535,8 @@ export function getMaxSchedulableDrawAmount(
   requestedDay: number,
   items: TimelineItem<DemoMilestone>[],
   draws: DemoDraw[],
-  options: { excludeDrawId?: string; proposedDrawId?: string } = {}
+  options: { excludeDrawId?: string; proposedDrawId?: string } = {},
+  approvedDrawLimit?: number
 ): number {
   const proposedDrawId =
     options.proposedDrawId ?? `__proposed-draw-${requestedDay}`;
@@ -6242,10 +6549,12 @@ export function getMaxSchedulableDrawAmount(
     label: "Proposed draw",
     x: requestedDay,
   };
-  let maxAmount = calculateDrawRequestLimit(probeDraw, items, [
-    ...drawsWithoutExcluded,
+  let maxAmount = calculateDrawRequestLimit(
     probeDraw,
-  ]).availableLimit;
+    items,
+    [...drawsWithoutExcluded, probeDraw],
+    approvedDrawLimit
+  ).availableLimit;
 
   for (const laterDraw of drawsWithoutExcluded) {
     const proposedComesBeforeLater =
@@ -6260,7 +6569,8 @@ export function getMaxSchedulableDrawAmount(
     const limitWithoutProposed = calculateDrawRequestLimit(
       laterDraw,
       items,
-      drawsWithoutExcluded
+      drawsWithoutExcluded,
+      approvedDrawLimit
     );
     maxAmount = Math.min(
       maxAmount,
@@ -6324,6 +6634,8 @@ export function buildTimelineCashflowData(
       }),
     ...capitalSpikes.map((spike) => {
       const eventKind = spike.eventKind ?? "cost";
+      const isCashSource =
+        eventKind === "cashInfusion" || eventKind === "homeEquityTakeout";
 
       return {
         amount: spike.amount,
@@ -6331,8 +6643,8 @@ export function buildTimelineCashflowData(
         drawCapacityUnlocked: 0,
         id: spike.id,
         label: spike.label,
-        sortOrder: eventKind === "cashInfusion" ? 0 : 3,
-        type: eventKind === "cashInfusion" ? "cashInfusion" : "capitalSpike",
+        sortOrder: isCashSource ? 0 : 3,
+        type: isCashSource ? "cashInfusion" : "capitalSpike",
       } as const;
     }),
     ...draws.map((draw) => ({
@@ -6987,7 +7299,8 @@ export function buildFinancialOverview(
   cashflowData: CashflowDatum[],
   draws: DemoDraw[],
   range: Required<TimelineRange>,
-  interestAnnualBps = normalizeInterestAnnualBps(undefined)
+  interestAnnualBps = normalizeInterestAnnualBps(undefined),
+  capitalSpikes: DemoCapitalSpike[] = []
 ): FinancialOverview {
   const drawEvents = cashflowData
     .filter((point) => point.event === "draw")
@@ -7014,6 +7327,7 @@ export function buildFinancialOverview(
     Math.max(0, range.max - previousDay),
     normalizedInterestAnnualBps
   );
+  interestPaid += calculateHomeEquityInterestCost(capitalSpikes, range.max);
 
   return {
     drawCount: draws.length,
@@ -7039,7 +7353,10 @@ export function buildCashUseSummary(
     return total + getMilestonePaymentSchedule(item).totalAmount;
   }, 0);
   const costSpikeSpend = capitalSpikes.reduce((total, spike) => {
-    if (spike.eventKind === "cashInfusion") {
+    if (
+      spike.eventKind === "cashInfusion" ||
+      spike.eventKind === "homeEquityTakeout"
+    ) {
       return total;
     }
 
@@ -7251,6 +7568,24 @@ export function interpolateDrawAvailability(
         Math.max(0, value - current.day),
         normalizeInterestAnnualBps(current.interestAnnualBps)
       ),
+  };
+}
+
+function withHomeEquityInterest(
+  availability: DrawAvailabilityDatum,
+  capitalSpikes: readonly DemoCapitalSpike[],
+  throughDay: number
+): DrawAvailabilityDatum {
+  const homeEquityInterestAccrued = calculateHomeEquityInterestCost(
+    capitalSpikes,
+    throughDay
+  );
+  return {
+    ...availability,
+    constructionInterestAccrued: availability.totalInterestAccrued,
+    homeEquityInterestAccrued,
+    totalInterestAccrued:
+      availability.totalInterestAccrued + homeEquityInterestAccrued,
   };
 }
 
@@ -7798,6 +8133,7 @@ function SelectedContextPanel({
     if (role === "lender") {
       return (
         <LenderDrawReviewPanel
+          approvedDrawLimit={approvedDrawLimit}
           draw={activePanelDraw}
           drawItem={activePanelDrawItem}
           draws={draws}
@@ -7809,6 +8145,7 @@ function SelectedContextPanel({
 
     return (
       <DrawRequestPanel
+        approvedDrawLimit={approvedDrawLimit}
         draw={activePanelDraw}
         drawItem={activePanelDrawItem}
         draws={draws}
@@ -9035,6 +9372,7 @@ export function DrawRequestPanel({
   onSubmitDrawRequest,
   onUpdatePlannedDraw,
   requiresApprovedMilestones,
+  approvedDrawLimit,
 }: {
   draw: DemoDraw;
   drawItem: TimelineItem<DemoMilestone> | null;
@@ -9049,6 +9387,7 @@ export function DrawRequestPanel({
     patch: { amount?: number; x?: number }
   ) => void;
   requiresApprovedMilestones: boolean;
+  approvedDrawLimit?: number;
 }) {
   const [requestedDay, setRequestedDay] = useState(() => Math.round(draw.x));
   const [requestedAmount, setRequestedAmount] = useState(() =>
@@ -9059,9 +9398,19 @@ export function DrawRequestPanel({
     setRequestedAmount(Math.round(draw.amount));
   }, [draw.amount, draw.x]);
   const requestedDraw = { ...draw, x: requestedDay };
-  const predictedLimit = calculateDrawRequestLimit(requestedDraw, items, draws);
+  const predictedLimit = calculateDrawRequestLimit(
+    requestedDraw,
+    items,
+    draws,
+    approvedDrawLimit
+  );
   const requestableLimit = requiresApprovedMilestones
-    ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
+    ? calculateApprovedDrawRequestLimit(
+        requestedDraw,
+        items,
+        draws,
+        approvedDrawLimit
+      )
     : predictedLimit;
   const blockingMilestones =
     "blockingMilestones" in requestableLimit
@@ -9105,8 +9454,18 @@ export function DrawRequestPanel({
 
     const requestedDraw = { ...draw, x: requestedX };
     const requestLimit = requiresApprovedMilestones
-      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
-      : calculateDrawRequestLimit(requestedDraw, items, draws);
+      ? calculateApprovedDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        )
+      : calculateDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        );
 
     onSubmitDrawRequest(draw.id, {
       amount: Math.min(
@@ -9328,6 +9687,7 @@ export function LenderDrawReviewPanel({
   draws,
   items,
   onReviewDrawRequest,
+  approvedDrawLimit,
 }: {
   draw: DemoDraw;
   drawItem: TimelineItem<DemoMilestone> | null;
@@ -9337,8 +9697,14 @@ export function LenderDrawReviewPanel({
     drawId: string,
     review: { note?: string; status: "approved" | "rejected" }
   ) => void;
+  approvedDrawLimit?: number;
 }) {
-  const limit = calculateDrawRequestLimit(draw, items, draws);
+  const limit = calculateDrawRequestLimit(
+    draw,
+    items,
+    draws,
+    approvedDrawLimit
+  );
   const hasBuilderRequest =
     draw.requestStatus === "requested" ||
     draw.requestStatus === "approved" ||
@@ -10412,6 +10778,7 @@ function DrawTimelineMarker({
 function CapitalSpikeTimelineMarker({
   active,
   draft,
+  maxDay,
   onApply,
   onCancel,
   onDraftChange,
@@ -10421,6 +10788,7 @@ function CapitalSpikeTimelineMarker({
 }: {
   active: boolean;
   draft: CapitalSpikeEditDraft;
+  maxDay: number;
   onApply: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   onDraftChange: (draft: CapitalSpikeEditDraft) => void;
@@ -10431,8 +10799,15 @@ function CapitalSpikeTimelineMarker({
   const titleInputId = `capital-spike-label-${spike.id}`;
   const dayInputId = `capital-spike-date-${spike.id}`;
   const amountInputId = `capital-spike-amount-${spike.id}`;
+  const interestInputId = `capital-spike-interest-${spike.id}`;
   const isCashInfusion = spike.eventKind === "cashInfusion";
-  const MarkerIcon = isCashInfusion ? Banknote : AlertTriangle;
+  const isHomeEquityTakeout = spike.eventKind === "homeEquityTakeout";
+  const isCashSource = isCashInfusion || isHomeEquityTakeout;
+  const MarkerIcon = isHomeEquityTakeout
+    ? House
+    : isCashInfusion
+      ? Banknote
+      : AlertTriangle;
 
   return (
     <div className="relative flex flex-col items-center">
@@ -10442,12 +10817,16 @@ function CapitalSpikeTimelineMarker({
         aria-label={`Edit ${spike.label}`}
         className={cn(
           "group min-w-32 rounded-md border bg-background/95 px-2.5 py-1.5 text-center text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-zinc-950/90",
-          isCashInfusion
-            ? "border-emerald-300 hover:border-emerald-400 hover:bg-emerald-50 dark:border-emerald-500/35 dark:hover:bg-emerald-500/10"
+          isCashSource
+            ? isHomeEquityTakeout
+              ? "border-sky-300 hover:border-sky-400 hover:bg-sky-50 dark:border-sky-500/35 dark:hover:bg-sky-500/10"
+              : "border-emerald-300 hover:border-emerald-400 hover:bg-emerald-50 dark:border-emerald-500/35 dark:hover:bg-emerald-500/10"
             : "border-amber-300 hover:border-amber-400 hover:bg-amber-50 dark:border-amber-500/35 dark:hover:bg-amber-500/10",
           active &&
-            (isCashInfusion
-              ? "border-emerald-500 bg-emerald-50 shadow-emerald-500/15 dark:bg-emerald-500/10"
+            (isCashSource
+              ? isHomeEquityTakeout
+                ? "border-sky-500 bg-sky-50 shadow-sky-500/15 dark:bg-sky-500/10"
+                : "border-emerald-500 bg-emerald-50 shadow-emerald-500/15 dark:bg-emerald-500/10"
               : "border-amber-500 bg-amber-50 shadow-amber-500/15 dark:bg-amber-500/10")
         )}
         data-testid={`timeline-capital-spike-marker-${spike.id}`}
@@ -10460,8 +10839,10 @@ function CapitalSpikeTimelineMarker({
         <span
           className={cn(
             "flex items-center justify-center gap-1 font-semibold text-[10px] uppercase tracking-normal",
-            isCashInfusion
-              ? "text-emerald-700 dark:text-emerald-100"
+            isCashSource
+              ? isHomeEquityTakeout
+                ? "text-sky-700 dark:text-sky-100"
+                : "text-emerald-700 dark:text-emerald-100"
               : "text-amber-700 dark:text-amber-200"
           )}
         >
@@ -10471,6 +10852,11 @@ function CapitalSpikeTimelineMarker({
         <span className="mt-0.5 block whitespace-nowrap font-semibold text-xs tabular-nums">
           {money(spike.amount)}
         </span>
+        {isHomeEquityTakeout ? (
+          <span className="mt-0.5 block whitespace-nowrap text-[10px] text-sky-700 tabular-nums dark:text-sky-200">
+            {((spike.interestAnnualBps ?? 0) / 100).toFixed(2)}% annual
+          </span>
+        ) : null}
         <span className="mt-0.5 flex items-center justify-center gap-1 whitespace-nowrap text-[10px] text-muted-foreground">
           <CalendarDays className="size-3" />
           {formatTimelineDay(spike.x)}
@@ -10495,12 +10881,18 @@ function CapitalSpikeTimelineMarker({
           >
             <div className="mb-3">
               <p className="font-semibold text-sm">
-                {isCashInfusion ? "Cash infusion" : "Capital cost"}
+                {isHomeEquityTakeout
+                  ? "Home Equity Takeout"
+                  : isCashInfusion
+                    ? "Cash infusion"
+                    : "Capital cost"}
               </p>
               <p className="text-muted-foreground text-xs">
-                {isCashInfusion
-                  ? "Update the borrower cash infusion label, date, and amount."
-                  : "Update the unexpected cost label, date, and amount."}
+                {isHomeEquityTakeout
+                  ? "Track the funded amount, takeout date, and annual interest rate."
+                  : isCashInfusion
+                    ? "Update the borrower cash infusion label, date, and amount."
+                    : "Update the unexpected cost label, date, and amount."}
               </p>
             </div>
             <div className="grid gap-3">
@@ -10508,7 +10900,9 @@ function CapitalSpikeTimelineMarker({
                 <Label className="text-xs" htmlFor={titleInputId}>
                   {isCashInfusion
                     ? "Cash infusion title"
-                    : "Capital cost title"}
+                    : isHomeEquityTakeout
+                      ? "Loan title"
+                      : "Capital cost title"}
                 </Label>
                 <Input
                   id={titleInputId}
@@ -10526,11 +10920,16 @@ function CapitalSpikeTimelineMarker({
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-xs" htmlFor={dayInputId}>
-                  {isCashInfusion ? "Cash infusion date" : "Capital cost date"}
+                  {isHomeEquityTakeout
+                    ? "Takeout date"
+                    : isCashInfusion
+                      ? "Cash infusion date"
+                      : "Capital cost date"}
                 </Label>
                 <Input
                   id={dayInputId}
-                  min={0}
+                  max={maxDay}
+                  min={PROPOSAL_TIMELINE_MIN_DAY}
                   name="capitalSpikeDate"
                   nativeInput
                   onChange={(event) =>
@@ -10546,7 +10945,9 @@ function CapitalSpikeTimelineMarker({
                 <Label className="text-xs" htmlFor={amountInputId}>
                   {isCashInfusion
                     ? "Cash infusion amount"
-                    : "Capital cost amount"}
+                    : isHomeEquityTakeout
+                      ? "Takeout amount"
+                      : "Capital cost amount"}
                 </Label>
                 <Input
                   id={amountInputId}
@@ -10565,6 +10966,30 @@ function CapitalSpikeTimelineMarker({
                   value={draft.amount}
                 />
               </div>
+              {isHomeEquityTakeout ? (
+                <div className="grid gap-1.5">
+                  <Label className="text-xs" htmlFor={interestInputId}>
+                    Annual interest rate
+                  </Label>
+                  <Input
+                    id={interestInputId}
+                    max={100}
+                    min={0}
+                    name="capitalSpikeInterestAnnualPercent"
+                    nativeInput
+                    onChange={(event) =>
+                      onDraftChange({
+                        ...draft,
+                        interestAnnualPercent: event.currentTarget.value,
+                      })
+                    }
+                    size="sm"
+                    step={0.01}
+                    type="number"
+                    value={draft.interestAnnualPercent}
+                  />
+                </div>
+              ) : null}
             </div>
             <div className="mt-3 flex justify-end gap-2">
               <Button

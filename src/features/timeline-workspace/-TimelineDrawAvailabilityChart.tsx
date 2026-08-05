@@ -110,6 +110,7 @@ export const TimelineDrawAvailabilityChart = memo(
         }}
         referenceLines={referenceLines}
         strokeVariant="solid"
+        tooltipIndicator="line"
         tooltipRoundness="xl"
         tooltipVariant="frosted-glass"
         xAxisProps={{

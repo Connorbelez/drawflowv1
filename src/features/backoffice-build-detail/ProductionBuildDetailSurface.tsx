@@ -1,5 +1,6 @@
 "use client";
 
+import { CatchBoundary } from "@tanstack/react-router";
 import {
   AlertTriangle,
   Banknote,
@@ -51,8 +52,10 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import { Separator } from "#/components/ui/separator.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import {
   BuildFundingWorkspace,
   type DrawRequestReceipt,
@@ -129,6 +132,12 @@ import {
   type KanbanColumn,
   MilestoneKanban,
 } from "./MilestoneKanban";
+import {
+  type MilestoneStartConfirmation,
+  MilestoneStartDialog,
+  type MilestoneStartDialogRequest,
+  type MilestoneStartSource,
+} from "./MilestoneStartDialog.tsx";
 import { SitePhotoCarousel } from "./SitePhotoCarousel";
 import {
   type SiteVisitGuidance,
@@ -149,16 +158,14 @@ type ProductionDrawStatus =
   | "approved_for_release"
   | "rejected"
   | "withdrawn"
+  | "cancelled"
   | "released";
 
 export interface ProductionBuildDetailActions {
   addDocument?: (input: {
     documentType: "permit" | "budget" | "plan" | "supporting";
     fileName: string;
-  }) => Promise<unknown> | unknown;
-  addNote?: (input: {
-    body: string;
-    visibility: "internal" | "public";
+    supersedesDocumentId?: string;
   }) => Promise<unknown> | unknown;
   approveDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   approveMilestone?: (input: {
@@ -190,6 +197,14 @@ export interface ProductionBuildDetailActions {
   cancelSiteVisit?: (input: {
     reason: string;
     visitId: string;
+  }) => Promise<unknown> | unknown;
+  correctMilestoneStart?: (input: {
+    actualStartedAt: number;
+    idempotencyKey: string;
+    milestoneKey: string;
+    reason: string;
+    source: MilestoneStartSource;
+    submilestoneKey?: string;
   }) => Promise<unknown> | unknown;
   createAndAssignContractor?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
@@ -305,6 +320,13 @@ export interface ProductionBuildDetailActions {
     requestedTime?: string;
     visitId: string;
   }) => Promise<unknown> | unknown;
+  retractMilestoneStart?: (input: {
+    idempotencyKey: string;
+    milestoneKey: string;
+    reason: string;
+    source: MilestoneStartSource;
+    submilestoneKey?: string;
+  }) => Promise<unknown> | unknown;
   reviewBudgetRevision?: (input: {
     note: string;
     requestId: string;
@@ -371,18 +393,27 @@ export interface ProductionBuildDetailActions {
   }) => Promise<unknown> | unknown;
   startDrawReview?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   startMilestoneWork?: (input: {
+    actualStartedAt: number;
+    dependencyOverrideReason?: string;
+    idempotencyKey: string;
     milestoneKey: string;
-    note?: string;
+    source: MilestoneStartSource;
+    startParent?: boolean;
+    submilestoneKey?: string;
   }) => Promise<unknown> | unknown;
   submitDrawForAdmin?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   submitMilestoneCompletion?: (input: {
     actualCostCents?: number;
+    actualStartedAt?: number;
     completedDay: number;
+    dependencyOverrideReason?: string;
+    idempotencyKey: string;
     milestoneKey: string;
     note?: string;
   }) => Promise<unknown> | unknown;
   updateNonFinancialDetails?: (input: {
     buildName: string;
+    ianaTimezone?: string;
     location: string;
     locationLatitude?: number | null;
     locationLongitude?: number | null;
@@ -392,7 +423,10 @@ export interface ProductionBuildDetailActions {
   }) => Promise<unknown> | unknown;
   updateSubmilestoneExecution?: (input: {
     actualCostCents?: number | null;
+    actualStartedAt?: number;
+    dependencyOverrideReason?: string;
     fieldNote?: string | null;
+    idempotencyKey?: string;
     milestoneKey: string;
     reason?: string;
     status?: ProductionMilestoneStatus;
@@ -422,6 +456,7 @@ export interface ProductionBuildDetail {
     locationLatitude?: number;
     locationLongitude?: number;
     locationPlaceId?: string;
+    timezone?: string;
     brokerageId?: string;
     createdAt?: number;
     updatedAt?: number;
@@ -455,10 +490,6 @@ export interface ProductionBuildDetail {
   } | null;
   milestoneContractorAssignments?: ProductionMilestoneContractorAssignment[];
   milestones: ProductionMilestone[];
-  notes?: {
-    internal: ProductionNote[];
-    public: ProductionNote[];
-  };
   plannedDraws?: ProductionPlannedDraw[];
   quickActionEvents?: ProductionRailEvent[];
   sitePhotos?: ProductionSitePhoto[];
@@ -468,6 +499,7 @@ export interface ProductionBuildDetail {
 
 interface ProductionMilestone {
   _id: string;
+  actualStartedAt?: number;
   budgetCents: number;
   completedSubmilestoneCount?: number;
   completionClaim?: Record<string, unknown>;
@@ -492,7 +524,11 @@ interface ProductionMilestone {
   }>;
   reconciliationState?: "consistent" | "warning";
   siteVisitGuidance?: SiteVisitGuidance;
+  startEventId?: string;
   startedAt?: number;
+  startedByWorkosUserId?: string;
+  startReportedAt?: number;
+  startSource?: MilestoneStartSource;
   status: ProductionMilestoneStatus;
   totalSubmilestoneCount?: number;
   updatedAt?: number;
@@ -501,6 +537,7 @@ interface ProductionMilestone {
 interface ProductionSubmilestone {
   _id: string;
   actualCostCents?: number;
+  actualStartedAt?: number;
   budgetCents?: number;
   completedAt?: number;
   completedByWorkosUserId?: string;
@@ -511,6 +548,10 @@ interface ProductionSubmilestone {
   name: string;
   order: number;
   startDay?: number;
+  startEventId?: string;
+  startedByWorkosUserId?: string;
+  startReportedAt?: number;
+  startSource?: MilestoneStartSource;
   status: ProductionMilestoneStatus;
 }
 
@@ -543,6 +584,7 @@ interface ProductionDraw {
 }
 
 interface ProductionPlannedDraw {
+  _id?: string;
   amountCents: number;
   drawKey: string;
   label: string;
@@ -629,17 +671,11 @@ interface ProductionDocument {
   mimeType?: string;
   name?: string;
   sizeBytes?: number;
+  status?: string;
   storageId?: string;
   storageUrl?: string | null;
   url?: string | null;
-}
-
-interface ProductionNote {
-  _id: string;
-  authorPersona?: string;
-  body: string;
-  createdAt: number | string;
-  visibility: "internal" | "public";
+  version?: number;
 }
 
 interface ProductionRailEvent {
@@ -784,6 +820,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref = "/backoffice/builds",
   breadcrumbSectionLabel = "Builds",
   detail,
+  focusedReference,
   fundingWorkspaceEnabled = false,
   milestoneKey,
   onChangeMilestone,
@@ -805,6 +842,7 @@ export function ProductionBuildDetailSurface({
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   fundingWorkspaceEnabled?: boolean;
   breadcrumbRootHref?: string;
   breadcrumbRootLabel?: string;
@@ -814,7 +852,7 @@ export function ProductionBuildDetailSurface({
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeMilestone?: (milestoneKey?: string) => void;
   onChangeRail: (rail: "open" | "closed") => void;
-  onChangeTab: (tab: BuildDetailSubTab) => void;
+  onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
   /** PROTOTYPE — exposes the real trigger for planned milestones before the production state model changes. */
   prototypeMilestoneStartTrigger?: boolean;
   rail?: "open" | "closed";
@@ -844,6 +882,21 @@ export function ProductionBuildDetailSurface({
   } | null>(null);
   const [siteVisitOrderRequest, setSiteVisitOrderRequest] =
     useState<SiteVisitOrderRequest | null>(null);
+  const [milestoneStartController, setMilestoneStartController] = useState<{
+    onCancel?: () => void;
+    onConfirm?: (
+      input: MilestoneStartConfirmation
+    ) => Promise<unknown> | unknown;
+    request: MilestoneStartDialogRequest;
+  } | null>(null);
+  const milestoneStartRequest = milestoneStartController?.request ?? null;
+  const [localFocusedReference, setLocalFocusedReference] = useState<
+    string | undefined
+  >(focusedReference);
+  const effectiveFocusedReference = localFocusedReference ?? focusedReference;
+  useEffect(() => {
+    setLocalFocusedReference(focusedReference);
+  }, [focusedReference]);
   const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
   const activeMilestone = activeMilestoneKey
     ? (projection.milestones.find(
@@ -854,6 +907,24 @@ export function ProductionBuildDetailSurface({
     setLocalActiveMilestoneKey(next);
     onChangeMilestone?.(next ?? undefined);
   };
+  useEffect(() => {
+    if (focusedReference?.startsWith("milestone:")) {
+      const entityId = focusedReference.slice("milestone:".length);
+      setLocalActiveMilestoneKey(
+        detail.milestones.find((milestone) => milestone._id === entityId)
+          ?.key ?? null
+      );
+      return;
+    }
+    if (focusedReference?.startsWith("submilestone:")) {
+      const entityId = focusedReference.slice("submilestone:".length);
+      setLocalActiveMilestoneKey(
+        detail.submilestones.find(
+          (submilestone) => submilestone._id === entityId
+        )?.milestoneKey ?? null
+      );
+    }
+  }, [detail.milestones, detail.submilestones, focusedReference]);
   const sheetData = useMemo(() => {
     const data = activeMilestoneKey
       ? buildMilestoneSheetData(
@@ -864,18 +935,145 @@ export function ProductionBuildDetailSurface({
         )
       : null;
     return data &&
-      prototypeMilestoneStartTrigger &&
+      viewerRole === "builder" &&
       activeMilestone?.status === "planned"
-      ? { ...data, canStartWork: true }
+      ? { ...data, canStartWork: Boolean(actions?.startMilestoneWork) }
       : data;
   }, [
+    actions?.startMilestoneWork,
     activeMilestone?.status,
     activeMilestoneKey,
     currentDay,
     detail,
     projection,
-    prototypeMilestoneStartTrigger,
+    viewerRole,
   ]);
+  const openMilestoneStart = (
+    milestoneKey: string,
+    source: MilestoneStartSource,
+    submilestoneKey?: string,
+    action: "correct" | "retract" | "start" = "start"
+  ) => {
+    const milestone = detail.milestones.find(
+      (candidate) => candidate.key === milestoneKey
+    );
+    const submilestone = submilestoneKey
+      ? detail.submilestones.find(
+          (candidate) =>
+            candidate.milestoneKey === milestoneKey &&
+            candidate.key === submilestoneKey
+        )
+      : undefined;
+    if (!milestone) {
+      return;
+    }
+    const dependencyBlockers = milestone.dependencyKeys
+      .map((key) =>
+        detail.milestones.find((candidate) => candidate.key === key)
+      )
+      .filter(
+        (
+          candidate
+        ): candidate is ProductionMilestone & {
+          status: "in_progress" | "planned";
+        } =>
+          Boolean(
+            candidate &&
+              (candidate.status === "planned" ||
+                candidate.status === "in_progress")
+          )
+      )
+      .map((candidate) => ({
+        milestoneKey: candidate.key,
+        milestoneName: candidate.name,
+        status: candidate.status,
+      }));
+    const request: MilestoneStartDialogRequest = {
+      action,
+      actualStartedAt:
+        submilestone?.actualStartedAt ?? milestone.actualStartedAt,
+      buildName: detail.build.buildName,
+      dependencyBlockers: action === "start" ? dependencyBlockers : [],
+      milestoneKey,
+      milestoneName: milestone.name,
+      plannedStartDate: addDaysSafe(
+        detail.build.startDate,
+        submilestone?.startDay ?? milestone.dayStart
+      ),
+      scope: submilestone ? "submilestone" : "milestone",
+      source,
+      startParent: Boolean(
+        submilestone && viewerRole === "builder" && !milestone.actualStartedAt
+      ),
+      submilestoneKey: submilestone?.key,
+      submilestoneName: submilestone?.name,
+    };
+    setMilestoneStartController({ request });
+    return request;
+  };
+  const confirmMilestoneStart = async (input: MilestoneStartConfirmation) => {
+    if (milestoneStartController?.onConfirm) {
+      return await milestoneStartController.onConfirm(input);
+    }
+    if (input.action === "correct") {
+      if (input.actualStartedAt === undefined || !input.reason) {
+        throw new Error("A corrected actual start and reason are required.");
+      }
+      return await actions?.correctMilestoneStart?.({
+        actualStartedAt: input.actualStartedAt,
+        idempotencyKey: input.idempotencyKey,
+        milestoneKey: input.milestoneKey,
+        reason: input.reason,
+        source: input.source,
+        submilestoneKey: input.submilestoneKey,
+      });
+    }
+    if (input.action === "retract") {
+      if (!input.reason) {
+        throw new Error("A retraction reason is required.");
+      }
+      return await actions?.retractMilestoneStart?.({
+        idempotencyKey: input.idempotencyKey,
+        milestoneKey: input.milestoneKey,
+        reason: input.reason,
+        source: input.source,
+        submilestoneKey: input.submilestoneKey,
+      });
+    }
+    if (input.actualStartedAt === undefined) {
+      throw new Error("An actual start is required.");
+    }
+    return await actions?.startMilestoneWork?.({
+      actualStartedAt: input.actualStartedAt,
+      dependencyOverrideReason: input.dependencyOverrideReason,
+      idempotencyKey: input.idempotencyKey,
+      milestoneKey: input.milestoneKey,
+      source: input.source,
+      startParent: input.startParent,
+      submilestoneKey: input.submilestoneKey,
+    });
+  };
+  const confirmStartAndCompletion = <T,>(
+    request: MilestoneStartDialogRequest,
+    execute: (input: MilestoneStartConfirmation) => Promise<T> | T
+  ) =>
+    new Promise<T>((resolve, reject) => {
+      setMilestoneStartController({
+        onCancel: () =>
+          reject(new Error("Actual start confirmation was cancelled.")),
+        onConfirm: async (input) => {
+          try {
+            const result = await execute(input);
+            resolve(result);
+            return result;
+          } catch (error) {
+            reject(error);
+            throw error;
+          }
+        },
+        request,
+      });
+    });
   const siteVisitOrderMilestone = siteVisitOrderRequest
     ? (detail.milestones.find(
         (milestone) => milestone.key === siteVisitOrderRequest.milestoneKey
@@ -912,131 +1110,201 @@ export function ProductionBuildDetailSurface({
     });
   };
 
+  useEffect(() => {
+    if (!effectiveFocusedReference) {
+      return;
+    }
+    const focusKind = effectiveFocusedReference.slice(
+      0,
+      effectiveFocusedReference.indexOf(":")
+    );
+    if (
+      focusKind === "milestone" ||
+      focusKind === "participant" ||
+      focusKind === "siteVisit"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    let attempts = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const focusTarget = () => {
+      if (cancelled) {
+        return;
+      }
+      const target = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-collaboration-focus]")
+      ).find(
+        (candidate) =>
+          candidate.dataset.collaborationFocus === effectiveFocusedReference
+      );
+      if (!target) {
+        attempts += 1;
+        if (attempts < 40) {
+          retryTimer = setTimeout(focusTarget, 80);
+        }
+        return;
+      }
+      target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      target.dataset.collaborationFocused = "true";
+      target.classList.add("ring-2", "ring-primary", "ring-offset-2");
+      retryTimer = setTimeout(() => {
+        delete target.dataset.collaborationFocused;
+        target.classList.remove("ring-2", "ring-primary", "ring-offset-2");
+      }, 1800);
+    };
+    retryTimer = setTimeout(focusTarget, 0);
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+    };
+  }, [activeTab, effectiveFocusedReference]);
+
   return (
     <main
       className="min-h-[calc(100vh-4rem)] min-w-0 bg-muted/30 px-2"
       data-testid="production-build-detail-route"
     >
       <section className="flex min-w-0 flex-col gap-3 px-0 py-3 sm:gap-4 sm:py-4 md:gap-5 md:py-0">
-        <ProductionBuildHeader
-          breadcrumbRootHref={breadcrumbRootHref}
-          breadcrumbRootLabel={breadcrumbRootLabel}
-          breadcrumbSectionHref={breadcrumbSectionHref}
-          breadcrumbSectionLabel={breadcrumbSectionLabel}
-          detail={detail}
-          eventCount={eventCount}
-          onOpenEvents={() => onChangeRail("open")}
-          permit={permit}
-        />
-        <BuildDetailTabBar
-          activeTab={activeTab}
-          onChangeTab={onChangeTab}
-          tabs={visibleTabs}
-        />
-        <section
-          aria-label={`${activeTabLabel} workspace`}
-          className="min-w-0"
-          data-testid="active-build-workspace-section"
-        >
-          {activeTab === "details" ? (
-            <ProductionDetailsTab
-              actions={actions}
-              contractorDetailHrefFor={contractorDetailHrefFor}
-              currentDay={currentDay}
-              detail={detail}
-              fundingWorkspaceEnabled={fundingWorkspaceEnabled}
-              onAssignContractor={
-                actions?.assignContractorToMilestone ||
-                actions?.createAndAssignContractor
-                  ? (card) =>
-                      setAssignContractorTarget({
-                        milestoneKey: card.milestoneKey,
-                      })
-                  : undefined
-              }
-              onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
-              onOpenMilestone={setActiveMilestoneKey}
-              projection={projection}
-              viewerRole={viewerRole}
-            />
-          ) : null}
-          {activeTab === "milestones" ? (
-            <ProductionMilestonesTab
-              currentDay={currentDay}
-              detail={detail}
-              onAssignContractor={
-                actions?.assignContractorToMilestone ||
-                actions?.createAndAssignContractor
-                  ? (card) =>
-                      setAssignContractorTarget({
-                        milestoneKey: card.milestoneKey,
-                      })
-                  : undefined
-              }
-              onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
-              projection={projection}
-              viewerRole={viewerRole}
-            />
-          ) : null}
-          {activeTab === "contractors" ? (
-            <ProductionContractorsTab
-              actions={actions}
-              detail={detail}
-              viewerRole={viewerRole}
-            />
-          ) : null}
-          {activeTab === "timeline" ? (
-            <ProductionTimelineTab
-              actions={actions}
-              activeBuildId={activeBuildId}
-              detail={detail}
-              onRequestSiteVisit={requestSiteVisit}
-              timelineWorkspace={timelineWorkspace}
-              viewerRole={viewerRole}
-              workosOrganizationId={workosOrganizationId}
-            />
-          ) : null}
-          {activeTab === "evidence" ? (
-            <ProductionEvidenceTab
-              actions={actions}
-              detail={detail}
-              onOpenMilestone={(milestoneKey) =>
-                setActiveMilestoneKey(milestoneKey)
-              }
-              projection={projection}
-            />
-          ) : null}
-          {activeTab === "materials" ? (
-            <ProductionBuildMaterialsTab
-              actions={actions?.materialPlanning}
-              detail={detail}
-            />
-          ) : null}
-          {activeTab === "staff" ? staff : null}
-          {activeTab === "calendar" ? (
-            <ProductionCalendarTab
-              actions={actions}
-              calendarTimeframe={calendarTimeframe}
-              calendarWorkspace={calendarWorkspace}
-              detail={detail}
-              onChangeCalendarTimeframe={onChangeCalendarTimeframe}
-              onChangeTab={onChangeTab}
-              onRequestSiteVisit={requestSiteVisit}
-              workosOrganizationId={workosOrganizationId}
-            />
-          ) : null}
-          {activeTab === "gantt" ? (
-            <ProductionGanttTab
-              actions={actions}
-              activeBuildId={activeBuildId}
-              detail={detail}
-              onRequestSiteVisit={requestSiteVisit}
-              timelineWorkspace={timelineWorkspace}
-              viewerRole={viewerRole}
-              workosOrganizationId={workosOrganizationId}
-            />
-          ) : null}
-        </section>
+      <ProductionBuildHeader
+        breadcrumbRootHref={breadcrumbRootHref}
+        breadcrumbRootLabel={breadcrumbRootLabel}
+        breadcrumbSectionHref={breadcrumbSectionHref}
+        breadcrumbSectionLabel={breadcrumbSectionLabel}
+        detail={detail}
+        eventCount={eventCount}
+        onOpenEvents={() => onChangeRail("open")}
+        permit={permit}
+      />
+      <BuildDetailTabBar
+        activeTab={activeTab}
+        onChangeTab={onChangeTab}
+        tabs={visibleTabs}
+      />
+      <section
+        aria-label={`${activeTabLabel} workspace`}
+        className="min-w-0"
+        data-testid="active-build-workspace-section"
+      >
+        {activeTab === "details" ? (
+          <ProductionDetailsTab
+            actions={actions}
+            currentDay={currentDay}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+            fundingWorkspaceEnabled={fundingWorkspaceEnabled}
+            onChangeTab={onChangeTab}
+            onFocusReference={setLocalFocusedReference}
+            onOpenMilestone={setActiveMilestoneKey}
+            projection={projection}
+            viewerRole={viewerRole}
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+        {activeTab === "documents" ? (
+          <ProductionDocumentsTab actions={actions} detail={detail} />
+        ) : null}
+        {activeTab === "milestones" ? (
+          <ProductionMilestonesTab
+            currentDay={currentDay}
+            detail={detail}
+            onAssignContractor={
+              actions?.assignContractorToMilestone ||
+              actions?.createAndAssignContractor
+                ? (card) =>
+                    setAssignContractorTarget({
+                      milestoneKey: card.milestoneKey,
+                    })
+                : undefined
+            }
+            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
+            onStartWork={
+              viewerRole === "builder" && actions?.startMilestoneWork
+                ? (milestoneKey) =>
+                    openMilestoneStart(milestoneKey, "milestone_card")
+                : undefined
+            }
+            projection={projection}
+            viewerRole={viewerRole}
+          />
+        ) : null}
+        {activeTab === "contractors" ? (
+          <ProductionContractorsTab
+            actions={actions}
+            contractorDetailHrefFor={contractorDetailHrefFor}
+            detail={detail}
+            viewerRole={viewerRole}
+          />
+        ) : null}
+        {activeTab === "timeline" ? (
+          <ProductionTimelineTab
+            actions={actions}
+            activeBuildId={activeBuildId}
+            detail={detail}
+            onRequestSiteVisit={requestSiteVisit}
+            timelineWorkspace={timelineWorkspace}
+            viewerRole={viewerRole}
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+        {activeTab === "evidence" ? (
+          <ProductionEvidenceTab
+            actions={actions}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+            onOpenMilestone={(milestoneKey) =>
+              setActiveMilestoneKey(milestoneKey)
+            }
+            projection={projection}
+          />
+        ) : null}
+        {activeTab === "materials" ? (
+          <ProductionBuildMaterialsTab
+            actions={actions?.materialPlanning}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+          />
+        ) : null}
+        {activeTab === "staff" ? staff : null}
+        {activeTab === "calendar" ? (
+          <ProductionCalendarTab
+            actions={actions}
+            calendarTimeframe={calendarTimeframe}
+            calendarWorkspace={calendarWorkspace}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+            onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+            onChangeTab={onChangeTab}
+            onRequestSiteVisit={requestSiteVisit}
+            onStartWork={
+              viewerRole === "builder" && actions?.startMilestoneWork
+                ? (milestoneKey) => openMilestoneStart(milestoneKey, "calendar")
+                : undefined
+            }
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+        {activeTab === "gantt" ? (
+          <ProductionGanttTab
+            actions={actions}
+            activeBuildId={activeBuildId}
+            detail={detail}
+            onRequestSiteVisit={requestSiteVisit}
+            onStartWork={
+              viewerRole === "builder" && actions?.startMilestoneWork
+                ? (milestoneKey) => openMilestoneStart(milestoneKey, "gantt")
+                : undefined
+            }
+            timelineWorkspace={timelineWorkspace}
+            viewerRole={viewerRole}
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+      </section>
       </section>
       <EventRailSheet
         auditEvents={detail.auditEvents ?? []}
@@ -1048,7 +1316,23 @@ export function ProductionBuildDetailSurface({
         <MilestoneCompletionReviewSheet
           actions={actions}
           detail={detail}
+          focusedSubmilestoneId={
+            effectiveFocusedReference?.startsWith("submilestone:")
+              ? effectiveFocusedReference.slice("submilestone:".length)
+              : undefined
+          }
           milestone={activeMilestone}
+          onAmendStart={
+            actions?.correctMilestoneStart || actions?.retractMilestoneStart
+              ? (action) =>
+                  openMilestoneStart(
+                    activeMilestone.key,
+                    "milestone_detail",
+                    undefined,
+                    action
+                  )
+              : undefined
+          }
           onOpenChange={(open) => {
             if (!open) {
               setActiveMilestoneKey(null);
@@ -1063,7 +1347,34 @@ export function ProductionBuildDetailSurface({
           assignmentsSourceLabel="buildContractorAssignments"
           data={sheetData}
           eventsSourceLabel="activeBuildAuditEvents"
+          focusedSubmilestoneId={
+            effectiveFocusedReference?.startsWith("submilestone:")
+              ? effectiveFocusedReference.slice("submilestone:".length)
+              : undefined
+          }
+          focusedSubmilestoneKey={
+            effectiveFocusedReference?.startsWith("submilestone:")
+              ? detail.submilestones.find(
+                  (submilestone) =>
+                    submilestone._id ===
+                    effectiveFocusedReference.slice("submilestone:".length)
+                )?.key
+              : undefined
+          }
           key={activeMilestoneKey ?? "milestone-sheet"}
+          onAmendStart={
+            actions?.correctMilestoneStart || actions?.retractMilestoneStart
+              ? (action, milestoneKey, submilestoneKey) =>
+                  openMilestoneStart(
+                    milestoneKey,
+                    submilestoneKey
+                      ? "submilestone_detail"
+                      : "milestone_detail",
+                    submilestoneKey,
+                    action
+                  )
+              : undefined
+          }
           onAssignContractor={
             actions?.assignContractorToMilestone ||
             actions?.createAndAssignContractor
@@ -1077,19 +1388,95 @@ export function ProductionBuildDetailSurface({
               : undefined
           }
           onClose={() => setActiveMilestoneKey(null)}
+          onStartSubmilestone={
+            actions?.startMilestoneWork
+              ? (milestoneKey, submilestoneKey, source) =>
+                  openMilestoneStart(milestoneKey, source, submilestoneKey)
+              : undefined
+          }
           onStartWork={
             actions?.startMilestoneWork
-              ? (milestoneKey, note) => {
-                  void actions.startMilestoneWork?.({ milestoneKey, note });
+              ? (milestoneKey) =>
+                  openMilestoneStart(milestoneKey, "milestone_detail")
+              : undefined
+          }
+          onSubmitCompletion={
+            actions?.submitMilestoneCompletion
+              ? (input) => {
+                  if (activeMilestone?.actualStartedAt) {
+                    return actions.submitMilestoneCompletion?.(input);
+                  }
+                  const request = openMilestoneStart(
+                    input.milestoneKey,
+                    "completion_catch_up"
+                  );
+                  if (!request) {
+                    throw new Error("Milestone start target is unavailable.");
+                  }
+                  return confirmStartAndCompletion(request, (confirmation) => {
+                    if (confirmation.actualStartedAt === undefined) {
+                      throw new Error("An actual start is required.");
+                    }
+                    return actions.submitMilestoneCompletion?.({
+                      ...input,
+                      actualStartedAt: confirmation.actualStartedAt,
+                      dependencyOverrideReason:
+                        confirmation.dependencyOverrideReason,
+                      idempotencyKey: confirmation.idempotencyKey,
+                    });
+                  });
                 }
               : undefined
           }
-          onSubmitCompletion={actions?.submitMilestoneCompletion}
-          onUpdateSubmilestone={actions?.updateSubmilestoneExecution}
+          onUpdateSubmilestone={
+            actions?.updateSubmilestoneExecution
+              ? (input) => {
+                  const target = detail.submilestones.find(
+                    (candidate) =>
+                      candidate.milestoneKey === input.milestoneKey &&
+                      candidate.key === input.submilestoneKey
+                  );
+                  if (input.status !== "complete" || target?.actualStartedAt) {
+                    return actions.updateSubmilestoneExecution?.(input);
+                  }
+                  const request = openMilestoneStart(
+                    input.milestoneKey,
+                    "completion_catch_up",
+                    input.submilestoneKey
+                  );
+                  if (!request) {
+                    throw new Error(
+                      "Submilestone start target is unavailable."
+                    );
+                  }
+                  return confirmStartAndCompletion(request, (confirmation) => {
+                    if (confirmation.actualStartedAt === undefined) {
+                      throw new Error("An actual start is required.");
+                    }
+                    return actions.updateSubmilestoneExecution?.({
+                      ...input,
+                      actualStartedAt: confirmation.actualStartedAt,
+                      dependencyOverrideReason:
+                        confirmation.dependencyOverrideReason,
+                      idempotencyKey: confirmation.idempotencyKey,
+                    });
+                  });
+                }
+              : undefined
+          }
           onUploadEvidence={actions?.uploadSubmilestoneEvidence}
-          prototypeSubmilestoneStartTrigger={prototypeMilestoneStartTrigger}
         />
       )}
+      {milestoneStartRequest ? (
+        <MilestoneStartDialog
+          onClose={() => {
+            milestoneStartController?.onCancel?.();
+            setMilestoneStartController(null);
+          }}
+          onConfirm={confirmMilestoneStart}
+          request={milestoneStartRequest}
+        />
+      ) : null}
       <SiteVisitOrderDialog
         build={{
           location: detail.build.location,
@@ -1261,44 +1648,75 @@ function HeaderStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function BuildCollaborationErrorFallback({
+  reset,
+}: {
+  error: Error;
+  reset: () => void;
+}) {
+  return (
+    <Frame data-testid="build-collaboration-error">
+      <FramePanel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-medium text-sm">
+            Collaboration is temporarily unavailable
+          </p>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Build Overview is still available. Retry this workspace without
+            reloading the Build.
+          </p>
+        </div>
+        <Button onClick={reset} size="sm" type="button" variant="outline">
+          <RefreshCw aria-hidden="true" className="size-4" />
+          Retry collaboration
+        </Button>
+      </FramePanel>
+    </Frame>
+  );
+}
+
 function ProductionDetailsTab({
   actions,
-  contractorDetailHrefFor,
   currentDay,
   detail,
+  focusedReference,
   fundingWorkspaceEnabled,
-  onAssignContractor,
-  onCardClick,
+  onChangeTab,
+  onFocusReference,
   onOpenMilestone,
   projection,
   viewerRole,
+  workosOrganizationId,
 }: {
   actions?: ProductionBuildDetailActions;
-  contractorDetailHrefFor?: (contractorId: string) => string;
   currentDay: number;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   fundingWorkspaceEnabled: boolean;
-  onAssignContractor?: (card: KanbanCardData) => void;
-  onCardClick: (card: KanbanCardData) => void;
+  onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
+  onFocusReference: (focus?: string) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
+  workosOrganizationId?: string;
 }) {
-  const [showCompletedKanban, setShowCompletedKanban] = useState(false);
   const [activeOverviewSection, setActiveOverviewSection] =
     useState<BuildOverviewSection>("current");
-  const kanbanCards = useMemo(
-    () => buildProductionKanbanCards(detail, projection, currentDay),
-    [currentDay, detail, projection]
-  );
+  useEffect(() => {
+    if (focusedReference?.startsWith("draw:")) {
+      setActiveOverviewSection("draws");
+    }
+  }, [focusedReference]);
+
+  const showSitePhotos = activeOverviewSection !== "draws";
 
   return (
-    <div className="flex flex-col gap-4" data-testid="production-build-details">
+    <div className="flex flex-col gap-6" data-testid="production-build-details">
       <section
         className={cn(
-          "grid items-stretch gap-3 sm:gap-4",
-          activeOverviewSection !== "draws" &&
-            "xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]"
+          "grid items-stretch",
+          showSitePhotos &&
+            "xl:grid-cols-[minmax(0,2fr)_auto_minmax(320px,1fr)]"
         )}
         data-testid="build-overview-layout"
       >
@@ -1313,72 +1731,90 @@ function ProductionDetailsTab({
           projection={projection}
           viewerRole={viewerRole}
         />
-        {activeOverviewSection === "draws" ? null : (
-          <SitePhotoCarousel
-            buildName={detail.build.buildName}
-            photos={detail.sitePhotos ?? []}
-            siteAddress={detail.build.location}
-            siteLatitude={detail.build.locationLatitude}
-            siteLongitude={detail.build.locationLongitude}
-          />
-        )}
+        {showSitePhotos ? (
+          <>
+            <Separator className="my-5 xl:hidden" />
+            <Separator className="mx-5 hidden xl:block" orientation="vertical" />
+            <SitePhotoCarousel
+              buildName={detail.build.buildName}
+              photos={detail.sitePhotos ?? []}
+              siteAddress={detail.build.location}
+              siteLatitude={detail.build.locationLatitude}
+              siteLongitude={detail.build.locationLongitude}
+            />
+          </>
+        ) : null}
       </section>
 
-      {viewerRole === "lender" && !fundingWorkspaceEnabled ? (
-        <ProductionDrawsTable
-          actions={actions}
-          detail={detail}
-          projection={projection}
-          viewerRole={viewerRole}
-        />
-      ) : null}
+      <header className="scroll-mt-24 space-y-1" id="build-collaboration">
+        <h2 className="font-semibold text-xl leading-snug">
+          Build collaboration
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          Coordinate updates, linked Build work, decisions, and Action Items
+          with every authorized participant.
+        </p>
+      </header>
 
-      <FacilityChangeRequestsCard actions={actions} detail={detail} />
-      <BudgetRevisionCard
-        actions={actions}
-        detail={detail}
-        viewerRole={viewerRole}
-      />
-
-      <MilestoneKanban
-        cards={kanbanCards}
-        onAssignContractor={onAssignContractor}
-        onCardClick={onCardClick}
-        onToggleShowCompleted={() => setShowCompletedKanban((prev) => !prev)}
-        showCompleted={showCompletedKanban}
-        viewerRole={viewerRole}
-      />
-
-      <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
-        <ContractorsCard
-          actions={contractorsCardActions(actions)}
-          availableContractors={detail.availableContractors ?? []}
+      <CatchBoundary
+        errorComponent={BuildCollaborationErrorFallback}
+        getResetKey={() =>
+          `${detail.build._id}:${workosOrganizationId ?? "unscoped"}`
+        }
+      >
+        <BuildCollaborationWorkspace
           buildId={detail.build._id}
-          contractorDetailHrefFor={contractorDetailHrefFor}
-          contractors={detail.contractors ?? []}
+          focusedReference={focusedReference}
+          onOpenReference={(reference) => {
+            const nextFocus = `${reference.entityKind}:${reference.entityId}`;
+            onFocusReference(nextFocus);
+            window.history.replaceState(
+              window.history.state,
+              "",
+              reference.href
+            );
+            if (reference.entityKind === "milestone") {
+              const milestone = detail.milestones.find(
+                (candidate) => candidate._id === reference.entityId
+              );
+              if (milestone) {
+                onOpenMilestone(milestone.key);
+                return;
+              }
+            }
+            if (reference.entityKind === "submilestone") {
+              const submilestone = detail.submilestones.find(
+                (candidate) => candidate._id === reference.entityId
+              );
+              if (submilestone) {
+                onOpenMilestone(submilestone.milestoneKey);
+                return;
+              }
+            }
+            if (reference.entityKind === "draw") {
+              setActiveOverviewSection("draws");
+              document
+                .querySelector('[data-testid="production-build-details-card"]')
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              return;
+            }
+            const tabByKind: Partial<Record<string, BuildDetailSubTab>> = {
+              actionItem: "details",
+              document: "documents",
+              evidenceAsset: "evidence",
+              evidencePackage: "evidence",
+              material: "materials",
+              participant: "details",
+              siteVisit: "calendar",
+            };
+            const tab = tabByKind[reference.entityKind];
+            if (tab) {
+              onChangeTab(tab, nextFocus);
+            }
+          }}
+          organizationId={workosOrganizationId}
         />
-        <ProductionDocumentsCard
-          actions={actions}
-          documents={detail.documents ?? []}
-        />
-      </section>
-
-      <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
-        <ProductionNotesCard
-          actions={actions}
-          notes={detail.notes?.internal ?? []}
-          testIdPrefix="internal-notes"
-          title="Internal Notes"
-          variant="internal"
-        />
-        <ProductionNotesCard
-          actions={actions}
-          notes={detail.notes?.public ?? []}
-          testIdPrefix="public-notes"
-          title="Public Notes"
-          variant="public"
-        />
-      </section>
+      </CatchBoundary>
     </div>
   );
 }
@@ -1452,9 +1888,13 @@ function ProductionBuildDetailsCard({
   const [editOpen, setEditOpen] = useState(false);
   return (
     <>
-      <Card data-testid="production-build-details-card" id="ui-build-details">
-        <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2 sm:p-5 sm:pb-3">
-          <CardTitle className="text-sm">Build Overview</CardTitle>
+      <section
+        className="min-w-0"
+        data-testid="production-build-details-card"
+        id="ui-build-details"
+      >
+        <header className="mb-1 flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-sm">Build Overview</h2>
           <div className="flex shrink-0 items-center gap-2">
             <span className="text-muted-foreground text-xs">active_builds</span>
             {actions?.updateNonFinancialDetails ? (
@@ -1470,48 +1910,48 @@ function ProductionBuildDetailsCard({
               </Button>
             ) : null}
           </div>
-        </CardHeader>
-        <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
-          <Tabs
-            onValueChange={(value) =>
-              onSectionChange(value as BuildOverviewSection)
-            }
-            value={activeSection}
+        </header>
+        <Tabs
+          onValueChange={(value) =>
+            onSectionChange(value as BuildOverviewSection)
+          }
+          value={activeSection}
+        >
+          <TabsList
+            aria-label="Build overview sections"
+            className="mt-2 mb-4"
+            variant="underline"
           >
-            <TabsList
-              aria-label="Build overview sections"
-              className="mb-4"
-              variant="underline"
-            >
-              <TabsTab data-testid="build-overview-tab-current" value="current">
-                Current
-              </TabsTab>
-              <TabsTab data-testid="build-overview-tab-draws" value="draws">
-                Draws
-              </TabsTab>
-              <TabsTab data-testid="build-overview-tab-build" value="build">
-                Build
-              </TabsTab>
-              <TabsTab data-testid="build-overview-tab-loan" value="loan">
-                Loan
-              </TabsTab>
-            </TabsList>
+            <TabsTab data-testid="build-overview-tab-current" value="current">
+              Current
+            </TabsTab>
+            <TabsTab data-testid="build-overview-tab-draws" value="draws">
+              Draws
+            </TabsTab>
+            <TabsTab data-testid="build-overview-tab-build" value="build">
+              Build
+            </TabsTab>
+            <TabsTab data-testid="build-overview-tab-loan" value="loan">
+              Loan
+            </TabsTab>
+          </TabsList>
 
-            <TabsPanel value="current">
-              <CurrentBuildOverviewPanel
-                actions={actions}
-                currentDay={currentDay}
-                currentOverview={currentOverview}
-                detail={detail}
-                onReviewMilestone={(milestone) =>
-                  onOpenMilestone(milestone.key)
-                }
-                projection={projection}
-                viewerRole={viewerRole}
-              />
-            </TabsPanel>
+          <TabsPanel value="current">
+            <CurrentBuildOverviewPanel
+              actions={actions}
+              currentDay={currentDay}
+              currentOverview={currentOverview}
+              detail={detail}
+              onReviewMilestone={(milestone) =>
+                onOpenMilestone(milestone.key)
+              }
+              projection={projection}
+              viewerRole={viewerRole}
+            />
+          </TabsPanel>
 
-            <TabsPanel value="draws">
+          <TabsPanel value="draws">
+            <div className="space-y-4">
               {fundingWorkspaceEnabled ||
               (viewerRole === "builder" &&
                 (actions?.requestDrawAmount ||
@@ -1525,7 +1965,9 @@ function ProductionBuildDetailsCard({
                     milestones: detail.milestones,
                     plannedDraws:
                       detail.plannedDraws ??
-                      detail.draws.filter((draw) => draw.status === "planned"),
+                      detail.draws.filter(
+                        (draw) => draw.status === "planned"
+                      ),
                     requests: detail.draws.filter(
                       (
                         draw
@@ -1557,7 +1999,12 @@ function ProductionBuildDetailsCard({
                     detail.draws,
                     actions?.submitDrawForAdmin
                   )}
-                  onWithdrawDraw={actions?.withdrawDraw}
+                  onWithdrawDraw={
+                    actions?.withdrawDraw
+                      ? async (requestKey) =>
+                          await actions.withdrawDraw?.(requestKey)
+                      : undefined
+                  }
                   viewerRole={viewerRole}
                 />
               ) : (
@@ -1569,27 +2016,33 @@ function ProductionBuildDetailsCard({
                   viewerRole={viewerRole}
                 />
               )}
-            </TabsPanel>
-
-            <TabsPanel value="build">
-              <BuildMetadataPanel
+              <FacilityChangeRequestsCard actions={actions} detail={detail} />
+              <BudgetRevisionCard
+                actions={actions}
                 detail={detail}
-                openWarnings={openWarnings}
-                projection={projection}
-                siteVisitsOpen={siteVisitsOpen}
+                viewerRole={viewerRole}
               />
-            </TabsPanel>
+            </div>
+          </TabsPanel>
 
-            <TabsPanel value="loan">
-              <LoanMetadataPanel
-                currentOverview={currentOverview}
-                detail={detail}
-                projection={projection}
-              />
-            </TabsPanel>
-          </Tabs>
-        </CardContent>
-      </Card>
+          <TabsPanel value="build">
+            <BuildMetadataPanel
+              detail={detail}
+              openWarnings={openWarnings}
+              projection={projection}
+              siteVisitsOpen={siteVisitsOpen}
+            />
+          </TabsPanel>
+
+          <TabsPanel value="loan">
+            <LoanMetadataPanel
+              currentOverview={currentOverview}
+              detail={detail}
+              projection={projection}
+            />
+          </TabsPanel>
+        </Tabs>
+      </section>
       {actions?.updateNonFinancialDetails ? (
         <BuildNonFinancialDetailsSheet
           detail={detail}
@@ -2521,6 +2974,7 @@ function DrawSummaryItem({
   return (
     <div
       className="grid gap-2 rounded-md border bg-background/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+      data-collaboration-focus={`draw:${draw._id}`}
       data-testid={`${actionTestIdPrefix}-draw-${draw.drawKey}`}
     >
       <div className="min-w-0">
@@ -2799,7 +3253,9 @@ function OverviewMetric({
 function MilestoneCompletionReviewSheet({
   actions,
   detail,
+  focusedSubmilestoneId,
   milestone,
+  onAmendStart,
   onOpenChange,
   onRequestSiteVisit,
   open,
@@ -2807,7 +3263,9 @@ function MilestoneCompletionReviewSheet({
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  focusedSubmilestoneId?: string;
   milestone: ProductionMilestone;
+  onAmendStart?: (action: "correct" | "retract") => void;
   onOpenChange: (open: boolean) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   open: boolean;
@@ -3136,6 +3594,12 @@ function MilestoneCompletionReviewSheet({
                       {scopeRows.map((row) => (
                         <li
                           className="flex items-center justify-between gap-3 py-2.5"
+                          data-collaboration-focus={`submilestone:${row._id}`}
+                          data-collaboration-focused={
+                            row._id === focusedSubmilestoneId
+                              ? "true"
+                              : undefined
+                          }
                           key={row.key}
                         >
                           <div className="min-w-0">
@@ -3440,6 +3904,24 @@ function MilestoneCompletionReviewSheet({
           <SheetClose render={<Button type="button" variant="ghost" />}>
             Close
           </SheetClose>
+          {milestone.actualStartedAt && onAmendStart ? (
+            <>
+              <Button
+                onClick={() => onAmendStart("correct")}
+                type="button"
+                variant="outline"
+              >
+                Correct start
+              </Button>
+              <Button
+                onClick={() => onAmendStart("retract")}
+                type="button"
+                variant="ghost"
+              >
+                Retract start
+              </Button>
+            </>
+          ) : null}
           {milestoneApproved ? (
             <Badge variant="success">
               <CheckCircle2 aria-hidden="true" />
@@ -3759,6 +4241,7 @@ function BuildNonFinancialDetailsSheet({
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [startDate, setStartDate] = useState(detail.build.startDate);
+  const [ianaTimezone, setIanaTimezone] = useState(detail.build.timezone ?? "");
   const [error, setError] = useState<string | null>(null);
   const [locationResolving, setLocationResolving] = useState(false);
   const [locationResolutionError, setLocationResolutionError] = useState<
@@ -3777,6 +4260,7 @@ function BuildNonFinancialDetailsSheet({
     setReason("");
     setSaving(false);
     setStartDate(detail.build.startDate);
+    setIanaTimezone(detail.build.timezone ?? "");
     setError(null);
     setLocationResolving(false);
     setLocationResolutionError(null);
@@ -3815,6 +4299,7 @@ function BuildNonFinancialDetailsSheet({
     try {
       await onSubmit({
         buildName: buildName.trim(),
+        ...(ianaTimezone.trim() ? { ianaTimezone: ianaTimezone.trim() } : {}),
         location: location.trim(),
         locationLatitude,
         locationLongitude,
@@ -3898,6 +4383,22 @@ function BuildNonFinancialDetailsSheet({
                 type="date"
                 value={startDate}
               />
+            </Field>
+            <Field name="ianaTimezone">
+              <FieldLabel htmlFor="build-details-timezone-input">
+                Build timezone (IANA)
+              </FieldLabel>
+              <Input
+                data-testid="build-details-timezone-input"
+                id="build-details-timezone-input"
+                onChange={(event) => setIanaTimezone(event.currentTarget.value)}
+                placeholder="America/Toronto"
+                value={ianaTimezone}
+              />
+              <FieldDescription>
+                Leave blank to preserve a legacy Build with unknown timezone;
+                enter an explicit IANA timezone to repair it.
+              </FieldDescription>
             </Field>
             <Frame>
               <FramePanel className="p-4">
@@ -3998,7 +4499,7 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ProductionDrawsTable({
+export function ProductionDrawsTable({
   actions,
   detail,
   projection,
@@ -4740,6 +5241,7 @@ function ProductionDocumentsCard({
   const [kind, setKind] = useState<"permit" | "budget" | "plan" | "supporting">(
     "supporting"
   );
+  const [supersedesDocumentId, setSupersedesDocumentId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -4750,9 +5252,14 @@ function ProductionDocumentsCard({
     setPending(true);
     setError("");
     try {
-      await actions.addDocument({ documentType: kind, fileName: name.trim() });
+      await actions.addDocument({
+        documentType: kind,
+        fileName: name.trim(),
+        supersedesDocumentId: supersedesDocumentId || undefined,
+      });
       setName("");
       setKind("supporting");
+      setSupersedesDocumentId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -4770,7 +5277,7 @@ function ProductionDocumentsCard({
       </CardHeader>
       <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
         <div
-          className="mb-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_auto]"
+          className="mb-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_minmax(180px,auto)_auto]"
           data-testid="documents-add-form"
         >
           <input
@@ -4794,6 +5301,38 @@ function ProductionDocumentsCard({
               </option>
             ))}
           </select>
+          <select
+            aria-label="Document version relationship"
+            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+            data-testid="documents-supersedes"
+            onChange={(event) => {
+              const documentId = event.target.value;
+              setSupersedesDocumentId(documentId);
+              const selected = documents.find(
+                (document) => document._id === documentId
+              );
+              const selectedType = selected?.documentType ?? selected?.kind;
+              if (
+                selectedType === "permit" ||
+                selectedType === "budget" ||
+                selectedType === "plan" ||
+                selectedType === "supporting"
+              ) {
+                setKind(selectedType);
+              }
+            }}
+            value={supersedesDocumentId}
+          >
+            <option value="">New Document</option>
+            {documents
+              .filter((document) => document.status !== "superseded")
+              .map((document) => (
+                <option key={document._id} value={document._id}>
+                  Supersede {document.name ?? document.fileName} v
+                  {document.version ?? 1}
+                </option>
+              ))}
+          </select>
           <button
             className="rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground text-sm disabled:opacity-50 md:py-1.5"
             data-testid="documents-add"
@@ -4814,6 +5353,7 @@ function ProductionDocumentsCard({
             {documents.map((document) => (
               <li
                 className="flex flex-col items-start gap-1 rounded-md border border-border bg-background/40 p-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+                data-collaboration-focus={`document:${document._id}`}
                 data-testid={`build-detail-document-${document._id}`}
                 key={document._id}
               >
@@ -4823,6 +5363,8 @@ function ProductionDocumentsCard({
                 <div className="flex shrink-0 items-center gap-2 sm:ml-2">
                   <span className="text-muted-foreground text-xs">
                     {document.kind ?? document.documentType}
+                    {` · v${document.version ?? 1}`}
+                    {document.status ? ` · ${document.status}` : ""}
                     {document.sizeBytes
                       ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
                       : ""}
@@ -4856,93 +5398,12 @@ function ProductionDocumentsCard({
   );
 }
 
-function ProductionNotesCard({
-  actions,
-  notes,
-  testIdPrefix,
-  title,
-  variant,
-}: {
-  actions?: ProductionBuildDetailActions;
-  notes: ProductionNote[];
-  testIdPrefix: string;
-  title: string;
-  variant: "internal" | "public";
-}) {
-  const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState(false);
-  const accent =
-    variant === "internal" ? "border-amber-500/40" : "border-emerald-500/40";
-
-  const onSave = async () => {
-    if (!(draft.trim() && actions?.addNote) || pending) {
-      return;
-    }
-    setPending(true);
-    try {
-      await actions.addNote({ body: draft.trim(), visibility: variant });
-      setDraft("");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  return (
-    <Card className={`border-2 ${accent}`} data-testid={testIdPrefix}>
-      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 sm:p-4">
-        <CardTitle className="text-sm">{title}</CardTitle>
-        <span className="shrink-0 text-right text-muted-foreground text-xs">
-          {variant === "internal" ? "Lender-only" : "Borrower-visible"}
-        </span>
-      </CardHeader>
-      <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
-        <div className="min-h-[120px] rounded-md border border-border bg-background/40 p-3">
-          {notes.length === 0 ? (
-            <p className="text-muted-foreground text-xs">No notes yet.</p>
-          ) : (
-            <ul className="space-y-2 text-xs">
-              {notes.map((note) => (
-                <li
-                  data-testid={`${testIdPrefix}-item-${note._id}`}
-                  key={note._id}
-                >
-                  <p className="text-muted-foreground text-xs">
-                    {formatDate(note.createdAt)} - {note.authorPersona}
-                  </p>
-                  <p>{note.body}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <textarea
-            className="min-h-[56px] flex-1 rounded-md border border-border bg-background/40 p-2 text-xs"
-            data-testid={`${testIdPrefix}-input`}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Add a note..."
-            value={draft}
-          />
-          <button
-            className="rounded-md border border-border bg-card px-3 py-2 text-xs hover:bg-accent disabled:opacity-50 sm:self-start sm:py-1.5"
-            data-testid={`${testIdPrefix}-save`}
-            disabled={!(draft.trim() && actions?.addNote) || pending}
-            onClick={onSave}
-            type="button"
-          >
-            {pending ? "Saving..." : "Save"}
-          </button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function ProductionMilestonesTab({
   currentDay,
   detail,
   onAssignContractor,
   onCardClick,
+  onStartWork,
   projection,
   viewerRole,
 }: {
@@ -4950,6 +5411,7 @@ function ProductionMilestonesTab({
   detail: ProductionBuildDetail;
   onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
+  onStartWork?: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
 }) {
@@ -4965,6 +5427,9 @@ function ProductionMilestonesTab({
         cards={kanbanCards}
         onAssignContractor={onAssignContractor}
         onCardClick={onCardClick}
+        onStartWork={
+          onStartWork ? (card) => onStartWork(card.milestoneKey) : undefined
+        }
         onToggleShowCompleted={() => setShowCompletedKanban((prev) => !prev)}
         showCompleted={showCompletedKanban}
         viewerRole={viewerRole}
@@ -4973,12 +5438,31 @@ function ProductionMilestonesTab({
   );
 }
 
+function ProductionDocumentsTab({
+  actions,
+  detail,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+}) {
+  return (
+    <div data-testid="production-build-documents">
+      <ProductionDocumentsCard
+        actions={actions}
+        documents={detail.documents ?? []}
+      />
+    </div>
+  );
+}
+
 function ProductionContractorsTab({
   actions,
+  contractorDetailHrefFor,
   detail,
   viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
+  contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
   viewerRole: "builder" | "lender";
 }) {
@@ -4992,7 +5476,14 @@ function ProductionContractorsTab({
   );
 
   return (
-    <div data-testid="production-build-contractors">
+    <div className="space-y-4" data-testid="production-build-contractors">
+      <ContractorsCard
+        actions={contractorsCardActions(actions)}
+        availableContractors={detail.availableContractors ?? []}
+        buildId={detail.build._id}
+        contractorDetailHrefFor={contractorDetailHrefFor}
+        contractors={detail.contractors ?? []}
+      />
       <ContractorPlanningPanel
         canMutate={Boolean(
           actions?.assignContractorToMilestone ||
@@ -5086,7 +5577,7 @@ function productionBuildMilestonesForContractors(
     }));
 }
 
-function contractorsCardActions(actions?: ProductionBuildDetailActions) {
+export function contractorsCardActions(actions?: ProductionBuildDetailActions) {
   return {
     onAttachAndInviteExisting: actions?.attachAndInviteContractor
       ? async (input: { contractorId: string; role: string }) => {
@@ -5173,11 +5664,13 @@ function ProductionTimelineTab({
 function ProductionEvidenceTab({
   actions,
   detail,
+  focusedReference,
   onOpenMilestone,
   projection,
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
 }) {
@@ -5242,12 +5735,14 @@ function ProductionEvidenceTab({
         <EvidenceSourcePanel
           actions={actions}
           emptyLabel="No builder-submitted milestone evidence yet."
+          focusedReference={focusedReference}
           onOpenMilestone={onOpenMilestone}
           rows={builderEvidence}
           title="Builder Submitted Evidence"
         />
         <EvidenceSourcePanel
           emptyLabel="No completed site visits yet."
+          focusedReference={focusedReference}
           onOpenMilestone={onOpenMilestone}
           rows={completedSiteVisits}
           title="Completed Site Visits"
@@ -5280,12 +5775,14 @@ function EvidenceSummaryStat({
 function EvidenceSourcePanel({
   actions,
   emptyLabel,
+  focusedReference,
   onOpenMilestone,
   rows,
   title,
 }: {
   actions?: ProductionBuildDetailActions;
   emptyLabel: string;
+  focusedReference?: string;
   onOpenMilestone: (milestoneKey: string) => void;
   rows: ProductionEvidenceRow[];
   title: string;
@@ -5301,6 +5798,22 @@ function EvidenceSourcePanel({
     }
     setExpandedRowId(rows[0]?.id ?? null);
   }, [expandedRowId, rows]);
+
+  useEffect(() => {
+    if (!focusedReference) {
+      return;
+    }
+    const focusedRow = rows.find((row) =>
+      row.assets.some(
+        (asset) =>
+          focusedReference === `evidenceAsset:${asset._id}` ||
+          focusedReference === `evidencePackage:${asset.evidenceKey}`
+      )
+    );
+    if (focusedRow) {
+      setExpandedRowId(focusedRow.id);
+    }
+  }, [focusedReference, rows]);
 
   const reviewEvidence = async (
     row: ProductionEvidenceRow,
@@ -5550,9 +6063,15 @@ function EvidenceAssetTile({ asset }: { asset: ProductionEvidenceAsset }) {
   return (
     <div
       className="min-w-0 rounded-lg border bg-card p-3"
+      data-collaboration-focus={
+        asset._id ? `evidenceAsset:${asset._id}` : undefined
+      }
       data-testid={`production-evidence-asset-${asset.evidenceKey}`}
     >
-      <div className="overflow-hidden rounded-md border bg-background">
+      <div
+        className="overflow-hidden rounded-md border bg-background"
+        data-collaboration-focus={`evidencePackage:${asset.evidenceKey}`}
+      >
         <EvidenceAssetPreview asset={asset} canOpenAsset={canOpenAsset} />
       </div>
       <div className="mt-3 min-w-0">
@@ -5805,9 +6324,11 @@ function EvidenceAssetPreview({
 function ProductionBuildMaterialsTab({
   actions,
   detail,
+  focusedReference,
 }: {
   actions?: MaterialPlanningActions;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
 }) {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones) {
@@ -5838,6 +6359,11 @@ function ProductionBuildMaterialsTab({
     <MaterialPlanningTab
       actions={actions}
       budgetTreatmentEnabled
+      focusedItemId={
+        focusedReference?.startsWith("material:")
+          ? focusedReference.slice("material:".length)
+          : undefined
+      }
       items={detail.costItems ?? []}
       lockBudgetTreatment
       milestones={milestones}
@@ -5853,18 +6379,22 @@ function ProductionCalendarTab({
   calendarTimeframe,
   calendarWorkspace,
   detail,
+  focusedReference,
   onChangeCalendarTimeframe,
   onChangeTab,
   onRequestSiteVisit,
+  onStartWork,
   workosOrganizationId,
 }: {
   actions?: ProductionBuildDetailActions;
   calendarTimeframe?: CalendarTimeframe;
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
+  onStartWork?: (milestoneKey: string) => void;
   workosOrganizationId?: string;
 }) {
   const drawByKey = useMemo(
@@ -5942,17 +6472,14 @@ function ProductionCalendarTab({
       setDrawReleaseTargetDate: actions?.setDrawReleaseTargetDate,
       setEvidenceDueDate: actions?.setEvidenceDueDate,
       setReviewTargetDate: actions?.setReviewTargetDate,
-      ...(actions?.startMilestoneWork
+      ...(onStartWork
         ? {
             startMilestoneWork: (milestoneKey: string) =>
-              actions.startMilestoneWork?.({
-                milestoneKey,
-                note: "Started from calendar workspace.",
-              }),
+              onStartWork(milestoneKey),
           }
         : {}),
     }),
-    [actions, drawByKey, onRequestSiteVisit]
+    [actions, drawByKey, onRequestSiteVisit, onStartWork]
   );
   const effectiveWorkspace = useMemo(
     () =>
@@ -5962,6 +6489,16 @@ function ProductionCalendarTab({
       }),
     [calendarWorkspace, detail, workosOrganizationId]
   );
+  const focusedSiteVisitEventId = useMemo(() => {
+    if (!focusedReference?.startsWith("siteVisit:")) {
+      return;
+    }
+    const siteVisitId = focusedReference.slice("siteVisit:".length);
+    const visit = detail.siteVisits?.find(
+      (candidate) => candidate._id === siteVisitId
+    );
+    return visit ? `activeBuild:siteVisit:${visit.visitId}` : undefined;
+  }, [detail.siteVisits, focusedReference]);
   const calendarActions = useMemo(
     () =>
       buildActiveBuildCalendarActions(adapterActions, {
@@ -5982,6 +6519,7 @@ function ProductionCalendarTab({
     <div data-testid="production-build-calendar">
       <CalendarWorkspace
         actions={calendarActions}
+        initialSelectedEventId={focusedSiteVisitEventId}
         initialTimeframe={
           calendarTimeframe ?? effectiveWorkspace.defaultTimeframe
         }
@@ -6009,6 +6547,7 @@ function ProductionGanttTab({
   actions,
   detail,
   onRequestSiteVisit,
+  onStartWork,
   timelineWorkspace,
   viewerRole,
   workosOrganizationId,
@@ -6017,6 +6556,7 @@ function ProductionGanttTab({
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
+  onStartWork?: (milestoneKey: string) => void;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
@@ -6041,6 +6581,7 @@ function ProductionGanttTab({
         canRejectMilestones={Boolean(actions?.rejectMilestone)}
         detail={detail}
         onRequestSiteVisit={onRequestSiteVisit}
+        onStartWork={onStartWork}
         timelineWorkspace={timelineWorkspace}
         viewerRole={viewerRole}
         workosOrganizationId={workosOrganizationId}
@@ -6186,9 +6727,9 @@ function resolveProductionMilestoneKanbanState({
   const isPastEnd = currentDay > milestone.dayEnd;
   if (isPastEnd) {
     return {
-      canStartWork: false,
+      canStartWork: !hasStarted,
       column: "BehindSchedule",
-      status: "in_progress_behind_schedule",
+      status: hasStarted ? "in_progress_behind_schedule" : "blocked",
     };
   }
   if (hasStarted) {
@@ -6200,7 +6741,7 @@ function resolveProductionMilestoneKanbanState({
   }
   if (!dependenciesReady) {
     return {
-      canStartWork: false,
+      canStartWork: true,
       column: "Backlog",
       status: currentDay >= milestone.dayStart ? "blocked" : "planned",
     };
@@ -6212,7 +6753,7 @@ function resolveProductionMilestoneKanbanState({
       status: "ready_to_start",
     };
   }
-  return { canStartWork: false, column: "Backlog", status: "planned" };
+  return { canStartWork: true, column: "Backlog", status: "planned" };
 }
 
 function productionMilestoneDependenciesSatisfied(
@@ -6232,23 +6773,7 @@ function productionMilestoneHasStartedWorkflow(
   if (milestone.status === "in_progress") {
     return true;
   }
-  if ((milestone.progressPercent ?? 0) > 0) {
-    return true;
-  }
-  if (
-    draw?.status === "requested" ||
-    draw?.status === "in_review" ||
-    draw?.status === "ready_for_admin" ||
-    draw?.status === "approved_for_release" ||
-    draw?.status === "released"
-  ) {
-    return true;
-  }
-  const evidenceState = String(milestone.evidenceState ?? "").toLowerCase();
-  return Boolean(
-    evidenceState &&
-      !["draft package", "not started", "planned"].includes(evidenceState)
-  );
+  return Boolean(milestone.actualStartedAt ?? milestone.startedAt);
 }
 
 function buildMilestoneSheetData(
@@ -6319,6 +6844,7 @@ function buildMilestoneSheetData(
       Math.max(1, missingBudgetCount)
   );
   return {
+    actualStartedAt: milestone.actualStartedAt,
     canStartWork: state.canStartWork,
     column: state.column,
     contractors: contractorAssignmentsForMilestone(detail, milestone.key).map(
@@ -6336,6 +6862,7 @@ function buildMilestoneSheetData(
     plannedEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
     plannedStartDate: addDaysSafe(detail.build.startDate, milestone.dayStart),
     recentEvents: events,
+    status: milestone.status,
     reviewRequest:
       reviewStatus === "revisionRequested" && reviewNote
         ? {
@@ -6423,6 +6950,7 @@ function buildMilestoneSheetData(
           visitId: visit.visitId,
         }));
       return {
+        actualStartedAt: submilestone.actualStartedAt,
         actualCostCents: submilestone.actualCostCents,
         assignments,
         budgetCents:
@@ -6682,7 +7210,9 @@ function isRequestableDrawStatus(
 function resolveUpcomingDraw(draws: ProductionDraw[]): ProductionDraw | null {
   return (
     draws
-      .filter((draw) => draw.status !== "released")
+      .filter(
+        (draw) => draw.status !== "released" && draw.status !== "cancelled"
+      )
       .slice()
       .sort((a, b) => {
         const statusDelta =
@@ -6959,6 +7489,8 @@ function drawStatusLabel(status: ProductionDrawStatus): string {
       return "Ready for admin";
     case "rejected":
       return "Rejected";
+    case "cancelled":
+      return "Cancelled";
     case "requested":
       return "Requested";
     case "released":

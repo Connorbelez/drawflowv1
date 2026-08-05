@@ -20,6 +20,7 @@ import {
   type ProductionBuildDetailActions,
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
 import {
   BuilderStaffPermissionsPanel,
@@ -36,6 +37,7 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export type BuilderBuildSearch = {
+  focus?: string;
   timeframe?: CalendarTimeframe;
   milestone?: string;
   variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
@@ -43,6 +45,7 @@ export type BuilderBuildSearch = {
     | "calendar"
     | "contractors"
     | "details"
+    | "documents"
     | "evidence"
     | "gantt"
     | "materials"
@@ -128,6 +131,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
       search.tab === "milestones" ||
@@ -140,6 +144,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         : undefined;
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
+    const focus = normalizeBuildCollaborationFocus(search.focus);
     const variant =
       search.variant === "ledger" ||
       search.variant === "console" ||
@@ -162,6 +167,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
+      ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
       ...(rail ? { rail } : {}),
@@ -296,7 +302,7 @@ function BuilderBuildUnavailable({
           <dl className="grid gap-1 rounded-lg bg-muted/50 p-3 text-sm">
             <div className="flex flex-wrap justify-between gap-2">
               <dt className="text-muted-foreground">Support reference</dt>
-              <dd className="font-mono text-xs">{supportReference}</dd>
+              <dd className="font-medium text-xs">{supportReference}</dd>
             </div>
             <div className="flex flex-wrap justify-between gap-2">
               <dt className="text-muted-foreground">Responsible owner</dt>
@@ -433,6 +439,12 @@ export function BuilderBuildWorkspaceRoute({
   const startMilestoneWork = useMutation(
     (api as any).production_proposals.startActiveBuildMilestone
   );
+  const correctMilestoneStart = useMutation(
+    (api as any).production_proposals.correctActiveBuildMilestoneStart
+  );
+  const retractMilestoneStart = useMutation(
+    (api as any).production_proposals.retractActiveBuildMilestoneStart
+  );
   const updateSubmilestoneExecution = useMutation(
     (api as any).production_proposals.updateActiveBuildSubmilestoneExecution
   );
@@ -443,11 +455,11 @@ export function BuilderBuildWorkspaceRoute({
     (api as any).production_proposals.createActiveBuildTimelineEvidenceAsset
   );
 
-  const onChangeTab = (tab: BuildDetailSubTab) =>
+  const onChangeTab = (tab: BuildDetailSubTab, focus?: string) =>
     navigate({
       params: { buildId },
       replace: true,
-      search: { ...search, tab },
+      search: { ...search, focus, tab },
       to: `${routeBase}/builds/$buildId`,
     } as never);
   const onChangeRail = (rail: "open" | "closed") =>
@@ -694,24 +706,44 @@ export function BuilderBuildWorkspaceRoute({
       "milestone",
       "update"
     )
-      ? ({ milestoneKey, note }) =>
+      ? (input) =>
           startMilestoneWork({
+            ...input,
             buildId: activeBuildId,
-            milestoneKey,
-            note,
+            workosOrganizationId,
+          })
+      : undefined,
+    correctMilestoneStart: canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "update"
+    )
+      ? (input) =>
+          correctMilestoneStart({
+            ...input,
+            buildId: activeBuildId,
+            workosOrganizationId,
+          })
+      : undefined,
+    retractMilestoneStart: canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "update"
+    )
+      ? (input) =>
+          retractMilestoneStart({
+            ...input,
+            buildId: activeBuildId,
             workosOrganizationId,
           })
       : undefined,
     submitMilestoneCompletion:
       canUseAppPermission(appPermissions, "milestone", "update") &&
       canUseAppPermission(appPermissions, "evidence", "update")
-        ? ({ actualCostCents, completedDay, milestoneKey, note }) =>
+        ? (input) =>
             submitMilestoneCompletion({
-              actualCostCents,
+              ...input,
               buildId: activeBuildId,
-              completedDay: completedDay ?? 0,
-              milestoneKey,
-              note,
               workosOrganizationId,
             })
         : undefined,
@@ -771,31 +803,7 @@ export function BuilderBuildWorkspaceRoute({
         }
       : undefined,
   } as ProductionBuildDetailActions;
-  const surfaceActions: ProductionBuildDetailActions =
-    milestoneStartPrototypeEnabled
-      ? {
-          ...actions,
-          startMilestoneWork: ({ milestoneKey, note }) => {
-            setPrototypeStartRequest({
-              entrySource: note?.toLowerCase().includes("calendar")
-                ? "calendar"
-                : "milestone_card",
-              milestoneKey,
-            });
-          },
-          updateSubmilestoneExecution: (input) => {
-            if (input.status === "in_progress") {
-              setPrototypeStartRequest({
-                entrySource: "submilestone",
-                milestoneKey: input.milestoneKey,
-                submilestoneKey: input.submilestoneKey,
-              });
-              return;
-            }
-            return actions.updateSubmilestoneExecution?.(input);
-          },
-        }
-      : actions;
+  const surfaceActions: ProductionBuildDetailActions = actions;
 
   return (
     <>
@@ -816,6 +824,7 @@ export function BuilderBuildWorkspaceRoute({
             : undefined
         }
         detail={detail}
+        focusedReference={search.focus}
         fundingWorkspaceEnabled
         milestoneKey={
           milestoneStartPrototypeEnabled
@@ -839,6 +848,11 @@ export function BuilderBuildWorkspaceRoute({
                   ? VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY
                   : undefined
               }
+              initialSelectedWorkosUserId={
+                search.focus?.startsWith("participant:")
+                  ? search.focus.slice("participant:".length)
+                  : undefined
+              }
               scope="activeBuild"
               workosOrganizationId={workosOrganizationId}
             />
@@ -851,6 +865,7 @@ export function BuilderBuildWorkspaceRoute({
             ? undefined
             : [
                 "details",
+                "documents",
                 "milestones",
                 "contractors",
                 "materials",

@@ -5,7 +5,7 @@ import type {
 import type { DemoMilestone } from "./-timeline-share-snapshot.ts";
 
 export const DEFAULT_MILESTONE_DURATION_DAYS = 14;
-export const DEFAULT_DRAW_REVIEW_LAG_DAYS = 8;
+export const DEFAULT_DRAW_REVIEW_LAG_DAYS = 5;
 export const MINIMUM_MILESTONE_HANDOFF_GAP_DAYS = 5;
 
 export type MilestonePhase = "inProgress" | "complete";

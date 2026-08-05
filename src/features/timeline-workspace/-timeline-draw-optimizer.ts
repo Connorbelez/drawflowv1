@@ -20,6 +20,7 @@ const COST_EPSILON = 0.000_001;
 
 export interface TimelineDrawOptimizationInput {
   capitalSpikes: DemoCapitalSpike[];
+  exactDrawCount?: number;
   interestAnnualBps?: number;
   items: TimelineItem<DemoMilestone>[];
   minimumCashReserve: number;
@@ -32,6 +33,8 @@ export type TimelineDrawOptimizationResult =
       drawFees: number;
       draws: DemoDraw[];
       infeasibleReason?: undefined;
+      constructionInterestCost: number;
+      homeEquityInterestCost: number;
       interestCost: number;
       status: "optimized";
       totalCost: number;
@@ -41,6 +44,8 @@ export type TimelineDrawOptimizationResult =
       drawFees: 0;
       draws: [];
       infeasibleReason: string;
+      constructionInterestCost: 0;
+      homeEquityInterestCost: 0;
       interestCost: 0;
       status: "infeasible";
       totalCost: 0;
@@ -86,10 +91,18 @@ interface PlanState {
 export function optimizeTimelineDrawSchedule(
   input: TimelineDrawOptimizationInput
 ): TimelineDrawOptimizationResult {
-  const range = extendRangeThroughLastCashEvent(normalizeRange(input.range), input);
+  const range = extendRangeThroughLastCashEvent(
+    normalizeRange(input.range),
+    input
+  );
   const startingCash = normalizeCurrency(input.startingCash);
   const reserve = normalizeCurrency(input.minimumCashReserve);
   const interestAnnualBps = normalizeInterestAnnualBps(input.interestAnnualBps);
+  const exactDrawCount = normalizeExactDrawCount(input.exactDrawCount);
+  const homeEquityInterestCost = calculateHomeEquityInterestCost(
+    input.capitalSpikes,
+    range.max
+  );
   const ledger = buildDrawConstraintLedger(input, range, startingCash, reserve);
 
   if (ledger.status === "infeasible") {
@@ -97,6 +110,8 @@ export function optimizeTimelineDrawSchedule(
       drawFees: 0,
       draws: [],
       infeasibleReason: ledger.reason,
+      constructionInterestCost: 0,
+      homeEquityInterestCost: 0,
       interestCost: 0,
       status: "infeasible",
       totalCost: 0,
@@ -105,12 +120,27 @@ export function optimizeTimelineDrawSchedule(
   }
 
   if (ledger.constraints.length === 0) {
+    if (exactDrawCount !== undefined) {
+      return {
+        drawFees: 0,
+        draws: [],
+        infeasibleReason: `An exact ${exactDrawCount}-draw schedule is infeasible because this scenario does not require construction-loan draw cash.`,
+        constructionInterestCost: 0,
+        homeEquityInterestCost: 0,
+        interestCost: 0,
+        status: "infeasible",
+        totalCost: 0,
+        totalDrawAmount: 0,
+      };
+    }
     return {
       drawFees: 0,
       draws: [],
-      interestCost: 0,
+      constructionInterestCost: 0,
+      homeEquityInterestCost,
+      interestCost: homeEquityInterestCost,
       status: "optimized",
-      totalCost: 0,
+      totalCost: homeEquityInterestCost,
       totalDrawAmount: 0,
     };
   }
@@ -125,7 +155,8 @@ export function optimizeTimelineDrawSchedule(
   // draw level only lands on one of the future reserve demand levels.
   const solve = (
     startConstraintIndex: number,
-    cumulativeDrawn: number
+    cumulativeDrawn: number,
+    drawsUsed: number
   ): PlanState | null => {
     const nextConstraintIndex = ledger.constraints.findIndex(
       (constraint, index) =>
@@ -134,10 +165,16 @@ export function optimizeTimelineDrawSchedule(
     );
 
     if (nextConstraintIndex === -1) {
-      return { cost: 0, steps: [] };
+      return exactDrawCount === undefined || drawsUsed === exactDrawCount
+        ? { cost: 0, steps: [] }
+        : null;
     }
 
-    const key = `${nextConstraintIndex}:${cumulativeDrawn}`;
+    if (exactDrawCount !== undefined && drawsUsed >= exactDrawCount) {
+      return null;
+    }
+
+    const key = `${nextConstraintIndex}:${cumulativeDrawn}:${drawsUsed}`;
     const cached = memo.get(key);
     if (cached !== undefined) {
       return cached;
@@ -161,8 +198,19 @@ export function optimizeTimelineDrawSchedule(
         continue;
       }
 
-      const continuation = solve(nextConstraintIndex + 1, targetCumulativeDraw);
+      const continuation = solve(
+        nextConstraintIndex + 1,
+        targetCumulativeDraw,
+        drawsUsed + 1
+      );
       if (!continuation) {
+        continue;
+      }
+      const continuationFirstDrawX = continuation.steps[0]?.x;
+      if (
+        continuationFirstDrawX !== undefined &&
+        continuationFirstDrawX <= drawX
+      ) {
         continue;
       }
 
@@ -190,7 +238,7 @@ export function optimizeTimelineDrawSchedule(
     return best;
   };
 
-  const plan = solve(0, 0);
+  const plan = solve(0, 0, 0);
   if (!plan) {
     const firstBlockingConstraint = ledger.constraints.find(
       (constraint) =>
@@ -200,9 +248,14 @@ export function optimizeTimelineDrawSchedule(
     return {
       drawFees: 0,
       draws: [],
-      infeasibleReason: firstBlockingConstraint
-        ? `${firstBlockingConstraint.label} requires draw cash before the timeline can schedule a draw.`
-        : "No feasible draw schedule can satisfy the minimum cash reserve with the available milestone reimbursement capacity.",
+      infeasibleReason:
+        exactDrawCount === undefined
+          ? firstBlockingConstraint
+            ? `${firstBlockingConstraint.label} requires draw cash before the timeline can schedule a draw.`
+            : "No feasible draw schedule can satisfy the minimum cash reserve with the available milestone reimbursement capacity."
+          : `No feasible schedule can satisfy the minimum cash reserve with exactly ${exactDrawCount} positive draws on distinct dates.`,
+      constructionInterestCost: 0,
+      homeEquityInterestCost: 0,
       interestCost: 0,
       status: "infeasible",
       totalCost: 0,
@@ -224,7 +277,7 @@ export function optimizeTimelineDrawSchedule(
   });
   const totalDrawAmount = draws.reduce((total, draw) => total + draw.amount, 0);
   const drawFees = draws.length * OPTIMIZED_DRAW_FEE;
-  const interestCost = plan.steps.reduce(
+  const constructionInterestCost = plan.steps.reduce(
     (total, step) =>
       total +
       calculateInterestCost(step.amount, step.x, range.max, interestAnnualBps),
@@ -234,9 +287,11 @@ export function optimizeTimelineDrawSchedule(
   return {
     drawFees,
     draws,
-    interestCost,
+    constructionInterestCost,
+    homeEquityInterestCost,
+    interestCost: constructionInterestCost + homeEquityInterestCost,
     status: "optimized",
-    totalCost: drawFees + interestCost,
+    totalCost: drawFees + constructionInterestCost + homeEquityInterestCost,
     totalDrawAmount,
   };
 }
@@ -366,17 +421,17 @@ function buildOptimizerEvents(
       }),
     ...capitalSpikes.map((spike) => {
       const eventKind = spike.eventKind ?? "cost";
+      const isCashSource =
+        eventKind === "cashInfusion" || eventKind === "homeEquityTakeout";
 
       return {
         amount: normalizeCurrency(spike.amount),
         day: clampNumber(spike.x, range.min, range.max),
         id: spike.id,
         label: spike.label,
-        ...(eventKind === "cashInfusion"
-          ? {}
-          : { spendKind: "capitalSpike" as const }),
-        sortOrder: eventKind === "cashInfusion" ? 0 : 3,
-        type: eventKind === "cashInfusion" ? "cashInfusion" : "spend",
+        ...(isCashSource ? {} : { spendKind: "capitalSpike" as const }),
+        sortOrder: isCashSource ? 0 : 3,
+        type: isCashSource ? "cashInfusion" : "spend",
       } satisfies OptimizerEvent;
     }),
   ].sort(
@@ -440,6 +495,36 @@ function calculateInterestCost(
 
   const dailyRate = interestAnnualBps / 10_000 / 365;
   return principal * ((1 + dailyRate) ** elapsedDays - 1);
+}
+
+export function calculateHomeEquityInterestCost(
+  capitalSpikes: readonly DemoCapitalSpike[],
+  throughDay: number
+) {
+  return capitalSpikes.reduce((total, spike) => {
+    if (spike.eventKind !== "homeEquityTakeout") {
+      return total;
+    }
+    return (
+      total +
+      calculateInterestCost(
+        normalizeCurrency(spike.amount),
+        spike.x,
+        throughDay,
+        normalizeInterestAnnualBps(spike.interestAnnualBps)
+      )
+    );
+  }, 0);
+}
+
+function normalizeExactDrawCount(value: number | undefined) {
+  if (value === undefined) {
+    return;
+  }
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error("Exact draw count must be a positive integer.");
+  }
+  return value;
 }
 
 function isBetterPlan(candidate: PlanState, incumbent: PlanState | null) {

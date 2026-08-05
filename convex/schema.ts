@@ -1,6 +1,48 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import {
+  buildActionAssignmentStateValidator,
+  buildActionItemPriorityValidator,
+  buildActionItemStatusValidator,
+  buildActionItemSystemModeValidator,
+  buildActionItemWorkKindValidator,
+  buildActionRelationKindValidator,
+  buildPlanningDiffCategoryValidator,
+  buildPlanningDiffChangeTypeValidator,
+  buildPlanningRevisionKindValidator,
+  buildPlanningStateValidator,
+  buildCollaborationActorKindValidator,
+  buildCollaborationApprovalStateValidator,
+  buildCollaborationAssetScanStateValidator,
+  buildCollaborationAssetStagingContextValidator,
+  buildCollaborationAssetStagingStateValidator,
+  buildCollaborationAssetStateValidator,
+  buildCollaborationAttachmentKindValidator,
+  buildCollaborationAudienceModeValidator,
+  buildCollaborationContentStateValidator,
+  buildCollaborationDraftStateValidator,
+  buildCollaborationNotificationChannelValidator,
+  buildCollaborationNotificationKindValidator,
+  buildCollaborationOwnerKindValidator,
+  buildCollaborationPinKindValidator,
+  buildCollaborationPostTypeValidator,
+  buildCollaborationReactionValidator,
+  buildCollaborationReferenceKindValidator,
+  buildCollaborationRoleValidator,
+  buildCollaborationSourceValidator,
+  buildCollaborationSystemPostKindValidator,
+  buildCollaborationTenantStatusValidator,
+  buildCollaborationThreadStateValidator,
+  buildParticipantStatusValidator,
+} from "./build_collaboration_validators";
+import {
+  buildCollaborationWebhookAttemptStatusValidator,
+  buildCollaborationWebhookDeliveryStatusValidator,
+  buildCollaborationWebhookEndpointStatusValidator,
+  buildCollaborationWebhookEventTypeValidator,
+} from "./build_collaboration_webhook_contracts";
+
 const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
   attempted: v.boolean(),
@@ -175,8 +217,15 @@ const demoTimelineDrawValidator = v.object({
 
 const demoTimelineCapitalSpikeValidator = v.object({
   amount: v.number(),
-  eventKind: v.optional(v.union(v.literal("cashInfusion"), v.literal("cost"))),
+  eventKind: v.optional(
+    v.union(
+      v.literal("cashInfusion"),
+      v.literal("cost"),
+      v.literal("homeEquityTakeout")
+    )
+  ),
   id: v.string(),
+  interestAnnualBps: v.optional(v.number()),
   label: v.string(),
   x: v.number(),
 });
@@ -298,6 +347,13 @@ const productionDocumentStatusValidator = v.union(
   v.literal("waived")
 );
 
+const buildDocumentStatusValidator = v.union(
+  v.literal("uploaded"),
+  v.literal("linked"),
+  v.literal("waived"),
+  v.literal("superseded")
+);
+
 const siteVisitGuidanceFieldValidator = v.union(
   v.string(),
   v.array(v.string())
@@ -327,6 +383,7 @@ const productionBuildDrawStatusValidator = v.union(
   v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
+  v.literal("cancelled"),
   v.literal("released")
 );
 
@@ -338,8 +395,27 @@ const activeBuildDrawRequestStatusValidator = v.union(
   v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
+  v.literal("cancelled"),
   v.literal("released")
 );
+
+const systemPostBackfillUnknownFactValidator = v.union(
+  v.literal("start"),
+  v.literal("actor"),
+  v.literal("evidence"),
+  v.literal("review"),
+  v.literal("approval"),
+  v.literal("disposition"),
+);
+
+const systemPostHistoricalBackfillValidator = v.object({
+  source: v.literal("existing_records"),
+  materializedAt: v.number(),
+  historicalAt: v.optional(v.number()),
+  historicalActorWorkosUserId: v.optional(v.string()),
+  historicalActorRole: v.optional(buildCollaborationRoleValidator),
+  unknownFacts: v.array(systemPostBackfillUnknownFactValidator),
+});
 
 const contractorKindValidator = v.union(
   v.literal("company"),
@@ -363,6 +439,16 @@ const contractorProfileSourceValidator = v.union(
   v.literal("builder_created"),
   v.literal("backoffice_created"),
   v.literal("self_service")
+);
+
+const quoteRecipientCapabilityValidator = v.union(
+  v.literal("contractor"),
+  v.literal("supplier")
+);
+
+const quoteRecipientProvisioningStateValidator = v.union(
+  v.literal("provisional"),
+  v.literal("claimed")
 );
 
 const contractorProfileReviewTypeValidator = v.union(
@@ -527,6 +613,38 @@ const recipientDeliveryStatusValidator = v.union(
 const recipientDeliveryResolutionModeValidator = v.union(
   v.literal("domain"),
   v.literal("recipient")
+);
+
+const buildCollaborationExternalDeliveryStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("dispatched"),
+  v.literal("failed"),
+  v.literal("sent"),
+  v.literal("cancelled")
+);
+
+const buildCollaborationExternalChannelValidator = v.union(
+  v.literal("email"),
+  v.literal("push")
+);
+
+const buildCollaborationDeliveryCadenceValidator = v.union(
+  v.literal("immediate"),
+  v.literal("daily"),
+  v.literal("weekly")
+);
+
+const buildCollaborationDeliveryAttemptStateValidator = v.union(
+  v.literal("sending"),
+  v.literal("succeeded"),
+  v.literal("failed")
+);
+
+const buildCollaborationDeliveryBatchStateValidator = v.union(
+  v.literal("sending"),
+  v.literal("succeeded"),
+  v.literal("failed"),
+  v.literal("cancelled")
 );
 
 const operationsHandoffAcknowledgementStateValidator = v.union(
@@ -1632,6 +1750,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_builder", ["builderProfileId"])
+    .index("by_brokerageId_and_updatedAt", ["brokerageId", "updatedAt"])
     .index("by_builder_assigned_email", ["builderProfileId", "assignedEmail"])
     .index("by_assigned_email", ["assignedEmail"])
     .index("by_user", ["workosUserId"])
@@ -1678,6 +1797,13 @@ export default defineSchema({
     organizationId: v.string(),
     name: v.string(),
     kind: v.optional(contractorKindValidator),
+    // Live quote-solicitation fields; optional so legacy profiles remain valid.
+    quoteRecipientCapabilities: v.optional(
+      v.array(quoteRecipientCapabilityValidator)
+    ),
+    quoteRecipientProvisioningState: v.optional(
+      quoteRecipientProvisioningStateValidator
+    ),
     city: v.optional(v.string()),
     email: v.optional(v.string()),
     normalizedEmail: v.optional(v.string()),
@@ -1701,6 +1827,7 @@ export default defineSchema({
   })
     .index("by_brokerage", ["brokerageId"])
     .index("by_account_user", ["accountWorkosUserId"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"])
     .index("by_brokerage_normalized_email", ["brokerageId", "normalizedEmail"]),
   contractorCapabilities: defineTable({
     brokerageId: v.id("brokerages"),
@@ -2239,6 +2366,7 @@ export default defineSchema({
     name: v.string(),
     order: v.number(),
     budgetCents: v.optional(v.number()),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     createdAt: v.number(),
@@ -2306,11 +2434,17 @@ export default defineSchema({
     itemType: productionCostItemTypeValidator,
     title: v.string(),
     description: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
     budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
     budgetSubmilestoneKey: v.optional(v.string()),
     supplier: v.optional(v.string()),
+    deliveryLocation: v.optional(v.string()),
+    deliveryStartDay: v.optional(v.number()),
+    deliveryEndDay: v.optional(v.number()),
+    deliveryInstructions: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
@@ -2359,7 +2493,12 @@ export default defineSchema({
     capitalEventKey: v.string(),
     label: v.string(),
     amountCents: v.number(),
-    eventKind: v.union(v.literal("cost"), v.literal("cashInfusion")),
+    eventKind: v.union(
+      v.literal("cost"),
+      v.literal("cashInfusion"),
+      v.literal("homeEquityTakeout")
+    ),
+    interestAnnualBps: v.optional(v.number()),
     order: v.number(),
     x: v.number(),
     createdAt: v.number(),
@@ -2520,20 +2659,46 @@ export default defineSchema({
   auditEvents: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
+    // Canonical audit producers may include Build-scoped actor/capacity and
+    // revision context. Keep these optional so legacy producers and records
+    // remain readable while the shared audit contract rolls out.
+    buildId: v.optional(v.id("activeBuilds")),
     entityType: v.string(),
     entityId: v.string(),
     eventType: v.string(),
     command: v.string(),
     actorWorkosUserId: v.string(),
+    actorKind: v.optional(buildCollaborationActorKindValidator),
+    actorRole: v.optional(buildCollaborationRoleValidator),
     actorRoles: v.array(v.string()),
+    effectiveCapacity: v.optional(buildCollaborationRoleValidator),
+    targetRevisions: v.optional(
+      v.array(
+        v.object({
+          entityId: v.string(),
+          entityType: v.string(),
+          revision: v.optional(v.number()),
+        }),
+      ),
+    ),
     priorState: v.optional(v.string()),
     newState: v.optional(v.string()),
     reason: v.optional(v.string()),
+    reconciliationKey: v.optional(v.string()),
+    drawFlowCorrelationId: v.optional(v.string()),
+    providerCorrelationId: v.optional(v.string()),
+    overrideKind: v.optional(v.string()),
+    breakGlass: v.optional(v.boolean()),
     warnings: v.array(v.string()),
     createdAt: v.number(),
   })
     .index("by_entity", ["entityType", "entityId"])
-    .index("by_brokerage", ["brokerageId"]),
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_reconciliationKey", [
+      "organizationId",
+      "reconciliationKey",
+    ]),
   eventOutbox: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -2552,12 +2717,22 @@ export default defineSchema({
     actionRequired: v.boolean(),
     body: v.string(),
     brokerageId: v.id("brokerages"),
+    collaborationActionItemId: v.optional(v.id("buildActionItems")),
+    collaborationAssetId: v.optional(v.id("buildCollaborationAssets")),
+    collaborationBuildId: v.optional(v.id("activeBuilds")),
+    collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
+    collaborationEventKind: v.optional(
+      buildCollaborationNotificationKindValidator
+    ),
+    collaborationPostId: v.optional(v.id("buildCollaborationPosts")),
+    collaborationReferenceId: v.optional(v.id("buildCollaborationReferences")),
     createdAt: v.number(),
     dedupeKey: v.string(),
     entityId: v.string(),
     entityLabel: v.string(),
     entityType: v.string(),
     href: v.string(),
+    inAppVisible: v.optional(v.boolean()),
     organizationId: v.string(),
     recipientWorkosUserId: v.string(),
     resolutionMode: recipientDeliveryResolutionModeValidator,
@@ -2566,6 +2741,7 @@ export default defineSchema({
     title: v.string(),
     updatedAt: v.number(),
   })
+    .index("by_collaborationBuildId", ["collaborationBuildId"])
     .index("by_recipient", [
       "organizationId",
       "recipientWorkosUserId",
@@ -2575,6 +2751,126 @@ export default defineSchema({
       "organizationId",
       "recipientWorkosUserId",
       "dedupeKey",
+    ])
+    .index("by_recipient_actionItem_status", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "collaborationActionItemId",
+      "status",
+    ]),
+  buildCollaborationDeliveryBatches: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    recipientWorkosUserId: v.string(),
+    channel: buildCollaborationExternalChannelValidator,
+    cadence: v.optional(buildCollaborationDeliveryCadenceValidator),
+    deliveryIds: v.array(v.id("buildCollaborationExternalDeliveries")),
+    providerIdempotencyKey: v.string(),
+    payloadSnapshot: v.string(),
+    contactSnapshot: v.string(),
+    state: buildCollaborationDeliveryBatchStateValidator,
+    completedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    safeError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_providerIdempotencyKey", ["providerIdempotencyKey"])
+    .index("by_organizationId_and_recipientWorkosUserId_and_createdAt", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "createdAt",
+    ]),
+  buildCollaborationDeliveryAttempts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    batchId: v.optional(v.id("buildCollaborationDeliveryBatches")),
+    deliveryIds: v.array(v.id("buildCollaborationExternalDeliveries")),
+    channel: buildCollaborationExternalChannelValidator,
+    attemptNumber: v.number(),
+    providerIdempotencyKey: v.string(),
+    state: buildCollaborationDeliveryAttemptStateValidator,
+    attemptedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    responseCode: v.optional(v.number()),
+    providerMessageId: v.optional(v.string()),
+    safeError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_attemptedAt", [
+      "organizationId",
+      "attemptedAt",
+    ])
+    .index("by_batchId_and_state", ["batchId", "state"])
+    .index("by_providerIdempotencyKey", ["providerIdempotencyKey"]),
+  buildCollaborationPushSubscriptions: defineTable({
+    organizationId: v.string(),
+    buildId: v.optional(v.id("activeBuilds")),
+    workosUserId: v.string(),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    ownershipRevision: v.optional(v.number()),
+    state: v.union(v.literal("active"), v.literal("revoked")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_organizationId_and_workosUserId_and_state", [
+      "organizationId",
+      "workosUserId",
+      "state",
+    ])
+    .index("by_organizationId_and_workosUserId_and_endpoint", [
+      "organizationId",
+      "workosUserId",
+      "endpoint",
+    ])
+    .index("by_organizationId_and_workosUserId_and_buildId_and_endpoint", [
+      "organizationId",
+      "workosUserId",
+      "buildId",
+      "endpoint",
+    ])
+    .index("by_organizationId_and_workosUserId_and_buildId_and_state", [
+      "organizationId",
+      "workosUserId",
+      "buildId",
+      "state",
+    ])
+    .index("by_endpoint_and_state", ["endpoint", "state"])
+    .index("by_endpoint_and_workosUserId_and_state", [
+      "endpoint",
+      "workosUserId",
+      "state",
+    ]),
+  buildCollaborationPushEndpointOwners: defineTable({
+    endpoint: v.string(),
+    workosUserId: v.string(),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_endpoint", ["endpoint"]),
+  buildCollaborationPushEndpointBuildBindings: defineTable({
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    endpoint: v.string(),
+    workosUserId: v.string(),
+    subscriptionId: v.id("buildCollaborationPushSubscriptions"),
+    ownershipRevision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_endpoint", ["buildId", "endpoint"])
+    .index("by_organizationId_and_workosUserId_and_buildId_and_endpoint", [
+      "organizationId",
+      "workosUserId",
+      "buildId",
+      "endpoint",
     ]),
   operationsQueueHandoffs: defineTable({
     acknowledgementState: operationsHandoffAcknowledgementStateValidator,
@@ -2651,6 +2947,134 @@ export default defineSchema({
     .index("by_organization_attempted", ["organizationId", "attemptedAt"])
     .index("by_endpoint_attempted", ["endpointId", "attemptedAt"])
     .index("by_event", ["organizationId", "eventId"]),
+  buildCollaborationWebhookEndpoints: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    name: v.string(),
+    endpointUrl: v.string(),
+    payloadVersion: v.string(),
+    signingKeyMaterial: v.string(),
+    secretFingerprint: v.string(),
+    secretVersion: v.number(),
+    authorizedByWorkosUserId: v.string(),
+    authorizedByRole: buildCollaborationRoleValidator,
+    status: buildCollaborationWebhookEndpointStatusValidator,
+    revision: v.number(),
+    deliveryGeneration: v.number(),
+    nextSequence: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    disabledAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  buildCollaborationWebhookEndpointEventTypes: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    eventType: buildCollaborationWebhookEventTypeValidator,
+    createdAt: v.number(),
+  })
+    .index("by_endpointId_and_eventType", ["endpointId", "eventType"])
+    .index("by_endpointId", ["endpointId"]),
+  buildCollaborationWebhookBuildSequences: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    nextSequence: v.number(),
+    updatedAt: v.number(),
+  }).index("by_buildId", ["buildId"]),
+  buildCollaborationWebhookEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    sequence: v.number(),
+    eventType: buildCollaborationWebhookEventTypeValidator,
+    idempotencyKey: v.string(),
+    entityType: v.string(),
+    entityId: v.string(),
+    actorWorkosUserId: v.optional(v.string()),
+    actorRole: v.optional(buildCollaborationRoleValidator),
+    metadataJson: v.string(),
+    payloadVersion: v.string(),
+    occurredAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_buildId_and_sequence", ["buildId", "sequence"])
+    .index("by_organizationId_and_occurredAt", [
+      "organizationId",
+      "occurredAt",
+    ]),
+  buildCollaborationWebhookDeliveries: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    eventId: v.id("buildCollaborationWebhookEvents"),
+    deliveryId: v.string(),
+    sequence: v.number(),
+    status: buildCollaborationWebhookDeliveryStatusValidator,
+    attemptCount: v.number(),
+    attemptLimit: v.number(),
+    endpointGeneration: v.number(),
+    tenantAccessRevision: v.number(),
+    nextAttemptAt: v.optional(v.number()),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    leaseSecretVersion: v.optional(v.number()),
+    replayKey: v.optional(v.string()),
+    replayOfDeliveryId: v.optional(v.id("buildCollaborationWebhookDeliveries")),
+    lastAttemptAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_endpointId_and_sequence", ["endpointId", "sequence"])
+    .index("by_eventId_and_endpointId", ["eventId", "endpointId"])
+    .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
+    .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
+    .index("by_endpointId_and_replayKey", ["endpointId", "replayKey"]),
+  buildCollaborationWebhookReplayRequests: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    originalDeliveryId: v.id("buildCollaborationWebhookDeliveries"),
+    resultDeliveryId: v.id("buildCollaborationWebhookDeliveries"),
+    replayKey: v.string(),
+    reason: v.string(),
+    requestedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_endpointId_and_replayKey", ["endpointId", "replayKey"])
+    .index("by_originalDeliveryId_and_createdAt", [
+      "originalDeliveryId",
+      "createdAt",
+    ]),
+  buildCollaborationWebhookAttempts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    eventId: v.id("buildCollaborationWebhookEvents"),
+    deliveryId: v.id("buildCollaborationWebhookDeliveries"),
+    attemptNumber: v.number(),
+    secretVersion: v.number(),
+    status: buildCollaborationWebhookAttemptStatusValidator,
+    responseCode: v.optional(v.number()),
+    safeError: v.optional(v.string()),
+    startedAt: v.number(),
+    completedAt: v.number(),
+  })
+    .index("by_deliveryId_and_attemptNumber", ["deliveryId", "attemptNumber"])
+    .index("by_organizationId_and_completedAt", [
+      "organizationId",
+      "completedAt",
+    ]),
   calendarSavedViews: defineTable({
     brokerageId: v.id("brokerages"),
     createdAt: v.number(),
@@ -2809,6 +3233,106 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_proposal", ["proposalId"])
     .index("by_entity", ["entityType", "entityKey"]),
+  /**
+   * Immutable approved planning revisions for an Active Build. Canonical
+   * Milestone/Draw/Work Allocation state remains authoritative; these rows are
+   * an auditable history and rebuild input for collaboration projections.
+   */
+  activeBuildPlanningRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+    revision: v.number(),
+    kind: buildPlanningRevisionKindValidator,
+    sourceCommand: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    reason: v.string(),
+    approvedAt: v.number(),
+    previousRevision: v.optional(v.number()),
+    diffCount: v.number(),
+    summary: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_build_revision", ["buildId", "revision"])
+    .index("by_build_kind", ["buildId", "kind"])
+    .index("by_build_approvedAt", ["buildId", "approvedAt"]),
+  activeBuildPlanningRevisionEntities: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+    revisionId: v.id("activeBuildPlanningRevisions"),
+    revision: v.number(),
+    entityType: v.string(),
+    entityKey: v.string(),
+    canonicalId: v.optional(v.string()),
+    planningState: buildPlanningStateValidator,
+    snapshotJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_revision", ["revisionId"])
+    .index("by_build_revision_entity", [
+      "buildId",
+      "revision",
+      "entityType",
+      "entityKey",
+    ])
+    .index("by_build_entity", ["buildId", "entityType", "entityKey"]),
+  activeBuildPlanningRevisionDiffs: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+    revisionId: v.id("activeBuildPlanningRevisions"),
+    revision: v.number(),
+    category: buildPlanningDiffCategoryValidator,
+    entityType: v.string(),
+    entityKey: v.string(),
+    field: v.string(),
+    changeType: buildPlanningDiffChangeTypeValidator,
+    priorValue: v.optional(v.any()),
+    nextValue: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_revision", ["revisionId"])
+    .index("by_build_revision", ["buildId", "revision"])
+    .index("by_build_entity", ["buildId", "entityType", "entityKey"]),
+  /**
+   * Transient bounded materialization chunks for an immutable planning
+   * revision. The revision row is canonical; these rows only carry the
+   * captured entity/diff payload between bounded internal mutations and are
+   * deleted atomically after each batch is materialized.
+   */
+  activeBuildPlanningRevisionChunks: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    chunkIndex: v.number(),
+    chunkKind: v.union(v.literal("entities"), v.literal("diffs")),
+    createdAt: v.number(),
+    organizationId: v.string(),
+    payloadJson: v.string(),
+    revision: v.number(),
+    revisionId: v.id("activeBuildPlanningRevisions"),
+    /**
+     * Transient scheduler recovery metadata.  These fields are mutable by the
+     * bounded sweeper; the revision and captured payload remain immutable.
+     */
+    materializationRecoveryAttemptCount: v.optional(v.number()),
+    materializationRecoveryExhaustedAt: v.optional(v.number()),
+    materializationRecoveryState: v.optional(
+      v.union(v.literal("pending"), v.literal("exhausted")),
+    ),
+    materializationLastScheduledAt: v.optional(v.number()),
+  })
+    .index("by_revision", ["revisionId"])
+    .index("by_revision_and_kind_and_index", [
+      "revisionId",
+      "chunkKind",
+      "chunkIndex",
+    ])
+    .index("by_materialization_recovery_state", [
+      "materializationRecoveryState",
+    ])
+    .index("by_build", ["buildId"]),
   assistantThreads: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
     componentThreadId: v.optional(v.string()),
@@ -2924,6 +3448,10 @@ export default defineSchema({
     locationLatitude: v.optional(v.number()),
     locationLongitude: v.optional(v.number()),
     locationPlaceId: v.optional(v.string()),
+    // Build-local date scheduling is only authoritative when this canonical
+    // IANA timezone is present. Historical rows may omit it and therefore
+    // remain in an explicit unknown/recovery state.
+    timezone: v.optional(v.string()),
     status: productionBuildStatusValidator,
     startDate: v.string(),
     timelineCurrentDay: v.optional(v.number()),
@@ -2949,27 +3477,1789 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_proposal", ["proposalId"])
-    .index("by_brokerage", ["brokerageId"]),
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_organizationId", ["organizationId"])
+    .index("by_status_and_timezone", ["status", "timezone"]),
+  buildParticipants: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    workosUserId: v.string(),
+    displayNameSnapshot: v.string(),
+    emailSnapshot: v.optional(v.string()),
+    role: buildCollaborationRoleValidator,
+    status: buildParticipantStatusValidator,
+    participationPeriod: v.number(),
+    invitedByWorkosUserId: v.optional(v.string()),
+    joinedAt: v.optional(v.number()),
+    removedAt: v.optional(v.number()),
+    removedByWorkosUserId: v.optional(v.string()),
+    removalReason: v.optional(v.string()),
+    revocationCleanupCompletedAt: v.optional(v.number()),
+    revocationCleanupStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("completed"))
+    ),
+    validFrom: v.number(),
+    validUntil: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"])
+    .index("by_buildId_and_workosUserId_and_participationPeriod", [
+      "buildId",
+      "workosUserId",
+      "participationPeriod",
+    ])
+    .index("by_workosUserId_and_status", ["workosUserId", "status"])
+    .index("by_organizationId_and_workosUserId_and_status", [
+      "organizationId",
+      "workosUserId",
+      "status",
+    ]),
+  buildCollaborationTenantSettings: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    status: buildCollaborationTenantStatusValidator,
+    retentionPolicyKey: v.optional(v.string()),
+    generousRateLimitMultiplier: v.number(),
+    accessRevision: v.optional(v.number()),
+    cutoverEpoch: v.optional(v.number()),
+    migrationCompletedAt: v.optional(v.number()),
+    activatedAt: v.optional(v.number()),
+    activatedByWorkosUserId: v.optional(v.string()),
+    serviceLifecycle: v.optional(
+      v.union(v.literal("active"), v.literal("restricted_archive"))
+    ),
+    serviceLifecycleChangedAt: v.optional(v.number()),
+    serviceLifecycleChangedByWorkosUserId: v.optional(v.string()),
+    serviceLifecycleReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId", ["organizationId"]),
+  buildCollaborationCutoverRehearsals: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    representativeBuildId: v.id("activeBuilds"),
+    releaseGitCommit: v.string(),
+    releaseApplicationVersion: v.string(),
+    releaseApplicationUrl: v.string(),
+    releaseConvexDeployment: v.string(),
+    releaseConvexUrl: v.string(),
+    beforeCutoverEpoch: v.number(),
+    disabledCutoverEpoch: v.optional(v.number()),
+    beforeSnapshotId: v.optional(v.id("buildCollaborationCutoverSnapshots")),
+    afterSnapshotId: v.optional(v.id("buildCollaborationCutoverSnapshots")),
+    legacyWriteDeniedAt: v.optional(v.number()),
+    legacyWriteDenialError: v.optional(v.string()),
+    disabledVerifiedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("capturing_before"),
+      v.literal("before_ready"),
+      v.literal("disabled_verified"),
+      v.literal("capturing_after"),
+      v.literal("complete"),
+      v.literal("failed")
+    ),
+    failureReason: v.optional(v.string()),
+    requestedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  buildCollaborationCutoverSnapshots: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    rehearsalId: v.id("buildCollaborationCutoverRehearsals"),
+    kind: v.union(v.literal("before"), v.literal("after")),
+    auditCutoffAt: v.number(),
+    phase: v.union(
+      v.literal("posts"),
+      v.literal("revisions"),
+      v.literal("assets"),
+      v.literal("receipts"),
+      v.literal("auditEvents"),
+      v.literal("complete")
+    ),
+    cursor: v.optional(v.string()),
+    currentHash: v.string(),
+    currentCount: v.number(),
+    postsHash: v.optional(v.string()),
+    postsCount: v.optional(v.number()),
+    revisionsHash: v.optional(v.string()),
+    revisionsCount: v.optional(v.number()),
+    assetsHash: v.optional(v.string()),
+    assetsCount: v.optional(v.number()),
+    receiptsHash: v.optional(v.string()),
+    receiptsCount: v.optional(v.number()),
+    auditEventsHash: v.optional(v.string()),
+    auditEventsCount: v.optional(v.number()),
+    status: v.union(
+      v.literal("capturing"),
+      v.literal("complete"),
+      v.literal("failed")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_rehearsalId_and_kind", ["rehearsalId", "kind"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  buildCollaborationCutoverArtifactAttestations: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    representativeBuildId: v.id("activeBuilds"),
+    rehearsalId: v.id("buildCollaborationCutoverRehearsals"),
+    kind: v.union(
+      v.literal("migration_preview"),
+      v.literal("migration_application"),
+      v.literal("migration_replay"),
+      v.literal("migration_parity"),
+      v.literal("manual_visual_review"),
+      v.literal("manual_keyboard_review")
+    ),
+    artifactSha256: v.string(),
+    attestedByWorkosUserId: v.string(),
+    attestedByRoles: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_rehearsalId_and_kind_and_createdAt", [
+      "rehearsalId",
+      "kind",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  buildCollaborationMigrationParityEvidence: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    reportHash: v.string(),
+    reportVersion: v.optional(v.string()),
+    planToken: v.optional(v.string()),
+    buildReportCount: v.optional(v.number()),
+    cutoverEpoch: v.optional(v.number()),
+    migrationRunId: v.optional(
+      v.id("buildCollaborationLegacyNoteMigrationRuns")
+    ),
+    parityRunId: v.optional(v.id("buildCollaborationLegacyNoteParityRuns")),
+    verificationSource: v.optional(
+      v.union(
+        v.literal("operator_attested"),
+        v.literal("legacy_note_migration_v1")
+      )
+    ),
+    sourceRecordCount: v.number(),
+    importedPostCount: v.number(),
+    mismatchCount: v.number(),
+    parityPassed: v.boolean(),
+    reason: v.optional(v.string()),
+    verifiedAt: v.number(),
+    verifiedByWorkosUserId: v.string(),
+  }).index("by_organizationId_and_verifiedAt", [
+    "organizationId",
+    "verifiedAt",
+  ]),
+  buildCollaborationSystemPostBackfillRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    planToken: v.string(),
+    planVersion: v.string(),
+    mode: v.union(v.literal("validate"), v.literal("materialize")),
+    batchSize: v.number(),
+    phase: v.union(
+      v.literal("milestones"),
+      v.literal("planned_draws"),
+      v.literal("draw_requests"),
+      v.literal("complete")
+    ),
+    status: v.union(
+      v.literal("validating"),
+      v.literal("running"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    milestoneCursor: v.optional(v.string()),
+    plannedDrawCursor: v.optional(v.string()),
+    drawRequestCursor: v.optional(v.string()),
+    processedMilestoneCount: v.number(),
+    processedPlannedDrawCount: v.number(),
+    processedDrawRequestCount: v.number(),
+    materializedPostCount: v.number(),
+    materializedActionItemCount: v.number(),
+    skippedCount: v.number(),
+    warningCount: v.number(),
+    lastError: v.optional(v.string()),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_planToken", ["buildId", "planToken"])
+    .index("by_organizationId_and_updatedAt", [
+      "organizationId",
+      "updatedAt",
+    ]),
+  buildCollaborationLegacyNoteMigrationRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    planToken: v.string(),
+    planVersion: v.string(),
+    sourceRecordCount: v.number(),
+    processedBuildCount: v.number(),
+    processedNoteCount: v.number(),
+    nextImportOrdinal: v.number(),
+    blockingWarningCount: v.number(),
+    cutoverEpoch: v.optional(v.number()),
+    latestBuildCreationTime: v.optional(v.number()),
+    latestBuildId: v.optional(v.id("activeBuilds")),
+    tokenAccumulator: v.string(),
+    validationPhase: v.union(
+      v.literal("builds"),
+      v.literal("notes"),
+      v.literal("complete")
+    ),
+    validationBuildCursor: v.optional(v.string()),
+    validationNoteCursor: v.optional(v.string()),
+    status: v.union(
+      v.literal("validating"),
+      v.literal("importing"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    blockedReason: v.optional(v.string()),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_planToken", ["organizationId", "planToken"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildCollaborationLegacyNotePlanBuilds: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    runId: v.id("buildCollaborationLegacyNoteMigrationRuns"),
+    buildId: v.id("activeBuilds"),
+    buildName: v.string(),
+    ordinal: v.number(),
+    snapshotHash: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_runId_and_ordinal", ["runId", "ordinal"])
+    .index("by_runId_and_buildId", ["runId", "buildId"]),
+  buildCollaborationLegacyNotePlanNotes: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    runId: v.id("buildCollaborationLegacyNoteMigrationRuns"),
+    sourceNoteId: v.id("buildNotes"),
+    importedSourceId: v.string(),
+    buildId: v.id("activeBuilds"),
+    ordinal: v.number(),
+    snapshotHash: v.string(),
+    visibility: v.union(v.literal("internal"), v.literal("public")),
+    body: v.string(),
+    authorWorkosUserId: v.string(),
+    authorRolesSnapshot: v.array(v.string()),
+    authorRole: buildCollaborationRoleValidator,
+    audienceMode: buildCollaborationAudienceModeValidator,
+    audienceFloorTier: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_runId_and_ordinal", ["runId", "ordinal"])
+    .index("by_runId_and_sourceNoteId", ["runId", "sourceNoteId"])
+    .index("by_runId_and_importedSourceId", ["runId", "importedSourceId"]),
+  buildCollaborationLegacyNoteParityRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    cutoverEpoch: v.optional(v.number()),
+    migrationRunId: v.id("buildCollaborationLegacyNoteMigrationRuns"),
+    planToken: v.string(),
+    status: v.union(
+      v.literal("initializing_builds"),
+      v.literal("checking_notes"),
+      v.literal("checking_orphans"),
+      v.literal("finalizing_builds"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    nextBuildOrdinal: v.number(),
+    nextNoteOrdinal: v.number(),
+    orphanBuildOrdinal: v.number(),
+    orphanPostCursor: v.optional(v.string()),
+    finalizeBuildOrdinal: v.number(),
+    sourceRecordCount: v.number(),
+    importedPostCount: v.number(),
+    mismatchCount: v.number(),
+    reportHashAccumulator: v.string(),
+    evidenceId: v.optional(v.id("buildCollaborationMigrationParityEvidence")),
+    blockedReason: v.optional(v.string()),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_planToken", ["organizationId", "planToken"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildCollaborationLegacyNoteParityBuildReports: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    parityRunId: v.id("buildCollaborationLegacyNoteParityRuns"),
+    evidenceId: v.optional(v.id("buildCollaborationMigrationParityEvidence")),
+    buildId: v.id("activeBuilds"),
+    buildOrdinal: v.number(),
+    sourceRecordCount: v.number(),
+    importedPostCount: v.number(),
+    mismatchCount: v.number(),
+    parityPassed: v.boolean(),
+    roleMatrixJson: v.string(),
+    mismatchDetailsJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_parityRunId_and_buildId", ["parityRunId", "buildId"])
+    .index("by_parityRunId_and_buildOrdinal", ["parityRunId", "buildOrdinal"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  buildCollaborationRetentionPolicies: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    policyKey: v.string(),
+    version: v.number(),
+    retentionDays: v.number(),
+    state: v.union(v.literal("active"), v.literal("superseded")),
+    createdByWorkosUserId: v.string(),
+    createdByRole: buildCollaborationRoleValidator,
+    reason: v.string(),
+    createdAt: v.number(),
+    supersededAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_state", ["organizationId", "state"])
+    .index("by_organizationId_and_version", ["organizationId", "version"]),
+  buildCollaborationLegalHolds: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    state: v.union(v.literal("active"), v.literal("released")),
+    reason: v.string(),
+    reference: v.optional(v.string()),
+    placedByWorkosUserId: v.string(),
+    placedByRole: buildCollaborationRoleValidator,
+    placedAt: v.number(),
+    releasedByWorkosUserId: v.optional(v.string()),
+    releasedByRole: v.optional(buildCollaborationRoleValidator),
+    releaseReason: v.optional(v.string()),
+    releasedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_state", ["buildId", "state"])
+    .index("by_organizationId_and_state", ["organizationId", "state"]),
+  buildCollaborationBuildStates: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    state: v.union(v.literal("open"), v.literal("closed"), v.literal("purged")),
+    revision: v.number(),
+    contentRevision: v.optional(v.number()),
+    archiveSnapshotExportId: v.optional(v.id("buildCollaborationExports")),
+    archiveSnapshotStartedAt: v.optional(v.number()),
+    archiveSnapshotLeaseExpiresAt: v.optional(v.number()),
+    closedAt: v.optional(v.number()),
+    closedByWorkosUserId: v.optional(v.string()),
+    closedByRole: v.optional(buildCollaborationRoleValidator),
+    closeReason: v.optional(v.string()),
+    reopenedAt: v.optional(v.number()),
+    reopenedByWorkosUserId: v.optional(v.string()),
+    reopenedByRole: v.optional(buildCollaborationRoleValidator),
+    reopenReason: v.optional(v.string()),
+    retentionEligibleAt: v.optional(v.number()),
+    retentionPolicyId: v.optional(v.id("buildCollaborationRetentionPolicies")),
+    retentionPolicyVersion: v.optional(v.number()),
+    purgedAt: v.optional(v.number()),
+    purgedByWorkosUserId: v.optional(v.string()),
+    purgeReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_organizationId_and_state", ["organizationId", "state"]),
+  buildCollaborationBuildLifecycleEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    eventType: v.union(
+      v.literal("closed"),
+      v.literal("reopened"),
+      v.literal("purged")
+    ),
+    revision: v.number(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    priorState: v.string(),
+    newState: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  }).index("by_buildId_and_createdAt", ["buildId", "createdAt"]),
+  buildCollaborationClosureWaivers: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    lifecycleRevision: v.number(),
+    reason: v.string(),
+    waivedByWorkosUserId: v.string(),
+    waivedByRole: buildCollaborationRoleValidator,
+    createdAt: v.number(),
+  })
+    .index("by_buildId_and_lifecycleRevision", ["buildId", "lifecycleRevision"])
+    .index("by_actionItemId", ["actionItemId"]),
+  buildCollaborationExports: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    requestedByWorkosUserId: v.string(),
+    requestedByRole: buildCollaborationRoleValidator,
+    scope: v.union(
+      v.literal("full_archive"),
+      v.literal("authorized_build"),
+      v.literal("thread"),
+      v.literal("asset")
+    ),
+    postId: v.optional(v.id("buildCollaborationPosts")),
+    assetId: v.optional(v.id("buildCollaborationAssets")),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    state: v.union(
+      v.literal("building"),
+      v.literal("active"),
+      v.literal("failed"),
+      v.literal("cleanup_complete"),
+      v.literal("expired"),
+      v.literal("revoked")
+    ),
+    archiveChunkCount: v.optional(v.number()),
+    archiveCompletedAt: v.optional(v.number()),
+    archiveFailure: v.optional(v.string()),
+    archivePlanPhase: v.optional(
+      v.union(v.literal("posts"), v.literal("assets"), v.literal("complete"))
+    ),
+    archivePlanCursor: v.optional(v.string()),
+    archivePlanCompletedAt: v.optional(v.number()),
+    archivePlanNextOrdinal: v.optional(v.number()),
+    archivePlannedAssetCount: v.optional(v.number()),
+    archivePlannedPostCount: v.optional(v.number()),
+    archiveHeartbeatAt: v.optional(v.number()),
+    archiveContentRevision: v.optional(v.number()),
+    archiveCleanupCompletedAt: v.optional(v.number()),
+    archiveCursor: v.optional(v.string()),
+    archiveNextRecordIndex: v.optional(v.number()),
+    archiveNextSequence: v.optional(v.number()),
+    archiveRecordCount: v.optional(v.number()),
+    aclSnapshotJson: v.string(),
+    manifestJson: v.string(),
+    recordCount: v.number(),
+    createdAt: v.number(),
+    lastAccessedAt: v.optional(v.number()),
+    accessCount: v.number(),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .index("by_state_and_expiresAt", ["state", "expiresAt"])
+    .index("by_state_and_archiveHeartbeatAt", ["state", "archiveHeartbeatAt"])
+    .index("by_requestedByWorkosUserId_and_createdAt", [
+      "requestedByWorkosUserId",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_requestedByWorkosUserId_and_createdAt", [
+      "organizationId",
+      "requestedByWorkosUserId",
+      "createdAt",
+    ]),
+  buildCollaborationExportArchiveChunks: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    exportId: v.id("buildCollaborationExports"),
+    sequence: v.number(),
+    recordIndex: v.number(),
+    partIndex: v.number(),
+    byteLength: v.number(),
+    contentHashSha256: v.string(),
+    content: v.optional(v.bytes()),
+    state: v.optional(v.union(v.literal("reserved"), v.literal("stored"))),
+    claimToken: v.optional(v.string()),
+    reservedAt: v.optional(v.number()),
+    storageId: v.optional(v.id("_storage")),
+    storedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_exportId_and_sequence", ["exportId", "sequence"])
+    .index("by_buildId", ["buildId"]),
+  buildCollaborationExportArchivePlanRecords: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    exportId: v.id("buildCollaborationExports"),
+    ordinal: v.number(),
+    recordKey: v.string(),
+    kind: v.union(
+      v.literal("build_history"),
+      v.literal("post"),
+      v.literal("asset")
+    ),
+    section: v.optional(v.string()),
+    postId: v.optional(v.id("buildCollaborationPosts")),
+    assetId: v.optional(v.id("buildCollaborationAssets")),
+    snapshotJson: v.string(),
+    aclDecisionJson: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_exportId_and_ordinal", ["exportId", "ordinal"])
+    .index("by_exportId_and_recordKey", ["exportId", "recordKey"])
+    .index("by_buildId", ["buildId"]),
+  buildCollaborationExportArchivePlanPosts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    exportId: v.id("buildCollaborationExports"),
+    postId: v.id("buildCollaborationPosts"),
+    snapshotJson: v.string(),
+    aclDecisionJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_exportId_and_postId", ["exportId", "postId"])
+    .index("by_buildId", ["buildId"]),
+  buildCollaborationRetentionPurges: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    retentionPolicyId: v.id("buildCollaborationRetentionPolicies"),
+    requestedByWorkosUserId: v.string(),
+    requestedByRole: buildCollaborationRoleValidator,
+    reason: v.string(),
+    operationKey: v.optional(v.string()),
+    state: v.union(
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("blocked")
+    ),
+    deletedPostCount: v.number(),
+    deletedAssetCount: v.number(),
+    retainedAuditEventCount: v.number(),
+    batchCount: v.optional(v.number()),
+    postsScanned: v.optional(v.boolean()),
+    postCursor: v.optional(v.string()),
+    actionItemsScanned: v.optional(v.boolean()),
+    actionItemCursor: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_completedAt", ["buildId", "completedAt"])
+    .index("by_buildId_and_state", ["buildId", "state"])
+    .index("by_operationKey", ["operationKey"]),
+  buildCollaborationPosts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    source: buildCollaborationSourceValidator,
+    postType: buildCollaborationPostTypeValidator,
+    authorWorkosUserId: v.optional(v.string()),
+    authorDisplayNameSnapshot: v.string(),
+    authorRole: v.optional(buildCollaborationRoleValidator),
+    authorRolesSnapshot: v.array(v.string()),
+    agentDrafted: v.boolean(),
+    systemEventKey: v.optional(v.string()),
+    importedSourceId: v.optional(v.string()),
+    audienceMode: buildCollaborationAudienceModeValidator,
+    audienceFloorTier: v.number(),
+    currentRevisionId: v.optional(v.id("buildCollaborationPostRevisions")),
+    revision: v.number(),
+    readRevision: v.optional(v.number()),
+    threadState: buildCollaborationThreadStateValidator,
+    threadRevision: v.optional(v.number()),
+    contentState: buildCollaborationContentStateValidator,
+    acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
+    decisionOwnerWorkosUserId: v.optional(v.string()),
+    decisionOutcome: v.optional(v.string()),
+    resolutionSummary: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolvedByWorkosUserId: v.optional(v.string()),
+    announcementExpiresAt: v.optional(v.number()),
+    announcementProminent: v.optional(v.boolean()),
+    primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
+    primaryReferenceId: v.optional(v.string()),
+    commentCount: v.number(),
+    openActionItemCount: v.number(),
+    acknowledgementRequired: v.boolean(),
+    lastMeaningfulActivityAt: v.number(),
+    latestActivityActorWorkosUserId: v.optional(v.string()),
+    tombstonedAt: v.optional(v.number()),
+    tombstonedByWorkosUserId: v.optional(v.string()),
+    moderationReason: v.optional(v.string()),
+    moderatedAt: v.optional(v.number()),
+    moderatedByWorkosUserId: v.optional(v.string()),
+    moderatedByRole: v.optional(buildCollaborationRoleValidator),
+    activeModerationCaseId: v.optional(
+      v.id("buildCollaborationModerationCases")
+    ),
+    // Immutable canonical System Post identity.  Ordinary human posts leave
+    // these fields unset; domain-owned posts bind to exactly one occurrence.
+    systemPostKind: v.optional(buildCollaborationSystemPostKindValidator),
+    canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+    canonicalBuildDrawOccurrenceKey: v.optional(v.string()),
+    systemOccurrenceKey: v.optional(v.string()),
+    activationReason: v.optional(v.string()),
+    triggeredByWorkosUserId: v.optional(v.string()),
+    triggeredByRole: v.optional(buildCollaborationRoleValidator),
+    triggeredAt: v.optional(v.number()),
+    // Planning facts are projected from the canonical Build plan. These
+    // fields identify the immutable activation revision without making the
+    // collaboration post a second source of truth.
+    activationPlanningRevisionId: v.optional(
+      v.id("activeBuildPlanningRevisions"),
+    ),
+    currentPlanningRevision: v.optional(v.number()),
+    systemLifecycle: v.optional(
+      v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened")),
+    ),
+    systemDisposition: v.optional(
+      v.union(
+        v.literal("withdrawal"),
+        v.literal("cancellation"),
+        v.literal("final_decline"),
+        v.literal("released"),
+      ),
+    ),
+    // Historical System Posts retain only proven source chronology/actor
+    // facts.  `materializedAt` is migration metadata and must never be used
+    // as feed activity or unread ordering.
+    materializedAt: v.optional(v.number()),
+    historicalBackfill: v.optional(systemPostHistoricalBackfillValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_lastMeaningfulActivityAt", [
+      "buildId",
+      "lastMeaningfulActivityAt",
+    ])
+    .index("by_build_prominence_activity", [
+      "buildId",
+      "announcementProminent",
+      "lastMeaningfulActivityAt",
+    ])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .index("by_buildId_and_threadState_and_postType", [
+      "buildId",
+      "threadState",
+      "postType",
+    ])
+    .index("by_buildId_and_systemEventKey", ["buildId", "systemEventKey"])
+    .index("by_buildId_and_systemPostKind_and_canonicalBuildMilestoneId", [
+      "buildId",
+      "systemPostKind",
+      "canonicalBuildMilestoneId",
+    ])
+    .index("by_buildId_and_systemPostKind", ["buildId", "systemPostKind"])
+    .index("by_buildId_and_systemPostKind_and_drawOccurrenceKey", [
+      "buildId",
+      "systemPostKind",
+      "canonicalBuildDrawOccurrenceKey",
+    ])
+    .index("by_buildId_and_systemOccurrenceKey", [
+      "buildId",
+      "systemOccurrenceKey",
+    ])
+    .index("by_buildId_and_source_and_createdAt", [
+      "buildId",
+      "source",
+      "createdAt",
+    ])
+    .index("by_buildId_and_importedSourceId", ["buildId", "importedSourceId"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  buildCollaborationPostRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    revision: v.number(),
+    tiptapJson: v.string(),
+    plainText: v.string(),
+    contentHash: v.string(),
+    authorWorkosUserId: v.string(),
+    authorRole: buildCollaborationRoleValidator,
+    editReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_revision", ["postId", "revision"])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .searchIndex("search_plainText", {
+      searchField: "plainText",
+      filterFields: ["buildId", "organizationId"],
+    }),
+  buildCollaborationDecisionOutcomeRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    revision: v.number(),
+    outcome: v.string(),
+    ownerWorkosUserId: v.string(),
+    ownerDisplayNameSnapshot: v.string(),
+    changedByWorkosUserId: v.string(),
+    changedByRole: buildCollaborationRoleValidator,
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_revision", ["postId", "revision"])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"]),
+  buildCollaborationThreadEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    eventType: v.union(
+      v.literal("resolved"),
+      v.literal("reopened"),
+      v.literal("reply_reopened"),
+      v.literal("accepted_answer_unavailable"),
+      v.literal("announcement_expiration_changed")
+    ),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    priorState: v.string(),
+    newState: v.string(),
+    reason: v.optional(v.string()),
+    acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
+    decisionRevisionId: v.optional(
+      v.id("buildCollaborationDecisionOutcomeRevisions")
+    ),
+    createdAt: v.number(),
+  }).index("by_postId_and_createdAt", ["postId", "createdAt"]),
+  buildCollaborationAudienceMembers: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    addedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationAudienceSnapshots: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    postRevisionId: v.id("buildCollaborationPostRevisions"),
+    workosUserId: v.string(),
+    resolution: v.union(
+      v.literal("reader"),
+      v.literal("excluded"),
+      v.literal("mandatory")
+    ),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_postRevisionId_and_workosUserId", [
+      "postRevisionId",
+      "workosUserId",
+    ])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationComments: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    parentCommentId: v.optional(v.id("buildCollaborationComments")),
+    logicalDepth: v.number(),
+    authorWorkosUserId: v.string(),
+    authorDisplayNameSnapshot: v.string(),
+    authorRole: buildCollaborationRoleValidator,
+    currentRevisionId: v.optional(v.id("buildCollaborationCommentRevisions")),
+    revision: v.number(),
+    contentState: buildCollaborationContentStateValidator,
+    tombstonedAt: v.optional(v.number()),
+    tombstonedByWorkosUserId: v.optional(v.string()),
+    moderationReason: v.optional(v.string()),
+    moderatedAt: v.optional(v.number()),
+    moderatedByWorkosUserId: v.optional(v.string()),
+    moderatedByRole: v.optional(buildCollaborationRoleValidator),
+    activeModerationCaseId: v.optional(
+      v.id("buildCollaborationModerationCases")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_parentCommentId_and_createdAt", ["parentCommentId", "createdAt"])
+    .index("by_buildId_and_authorWorkosUserId", [
+      "buildId",
+      "authorWorkosUserId",
+    ]),
+  buildCollaborationCommentRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.id("buildCollaborationComments"),
+    revision: v.number(),
+    tiptapJson: v.string(),
+    plainText: v.string(),
+    contentHash: v.string(),
+    authorWorkosUserId: v.string(),
+    authorRole: v.optional(buildCollaborationRoleValidator),
+    editReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_commentId_and_revision", ["commentId", "revision"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .searchIndex("search_plainText", {
+      searchField: "plainText",
+      filterFields: ["buildId", "organizationId"],
+    }),
+  buildCollaborationSearchRecords: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    ownerKind: v.optional(
+      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+    ),
+    ownerId: v.optional(v.string()),
+    readerPartitionKey: v.string(),
+    candidateKey: v.string(),
+    candidateJson: v.string(),
+    searchText: v.string(),
+    contentState: v.union(v.literal("active"), v.literal("retired")),
+    sourceUpdatedAt: v.number(),
+    indexedAt: v.number(),
+    maintenanceJobId: v.optional(v.id("buildCollaborationSearchJobs")),
+  })
+    .index("by_postId", ["postId"])
+    .index("by_postId_and_ownerKind_and_ownerId", [
+      "postId",
+      "ownerKind",
+      "ownerId",
+    ])
+    .index("by_postId_and_reader", ["postId", "readerPartitionKey"])
+    .index("by_build_reader_state_updatedAt", [
+      "buildId",
+      "readerPartitionKey",
+      "contentState",
+      "sourceUpdatedAt",
+    ])
+    .index("by_buildId_and_reader", ["buildId", "readerPartitionKey"])
+    .index("by_maintenanceJobId_and_contentState", [
+      "maintenanceJobId",
+      "contentState",
+    ])
+    .searchIndex("search_searchText", {
+      searchField: "searchText",
+      filterFields: [
+        "buildId",
+        "organizationId",
+        "readerPartitionKey",
+        "contentState",
+      ],
+    }),
+  buildCollaborationSearchStates: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    generation: v.number(),
+    status: v.union(v.literal("building"), v.literal("ready")),
+    readerFingerprint: v.optional(v.string()),
+    targetReaderFingerprint: v.optional(v.string()),
+    requestedAt: v.number(),
+    readyAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_brokerageId_and_status", ["brokerageId", "status"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  buildCollaborationSearchJobs: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.optional(v.id("buildCollaborationPosts")),
+    ownerKind: v.optional(
+      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+    ),
+    ownerId: v.optional(v.string()),
+    scope: v.union(
+      v.literal("owner"),
+      v.literal("post"),
+      v.literal("post_tree"),
+      v.literal("build")
+    ),
+    generation: v.number(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("failed"),
+      v.literal("complete")
+    ),
+    phase: v.union(
+      v.literal("retire"),
+      v.literal("tier"),
+      v.literal("readers"),
+      v.literal("activate"),
+      v.literal("enumerate_posts"),
+      v.literal("enumerate_comments"),
+      v.literal("enumerate_actions"),
+      v.literal("complete")
+    ),
+    readerOffset: v.optional(v.number()),
+    candidateOffset: v.optional(v.number()),
+    candidateCursor: v.optional(v.union(v.string(), v.null())),
+    candidatePhase: v.optional(
+      v.union(v.literal("base"), v.literal("references"), v.literal("assets"))
+    ),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    failureCount: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    lastScheduledAt: v.optional(v.number()),
+    leaseExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_brokerageId_and_status", ["brokerageId", "status"])
+    .index("by_organizationId_and_status", ["organizationId", "status"])
+    .index("by_buildId_and_scope_and_status", ["buildId", "scope", "status"])
+    .index("by_buildId_and_postId_and_scope_and_status", [
+      "buildId",
+      "postId",
+      "scope",
+      "status",
+    ])
+    .index("by_buildId_and_ownerKind_and_ownerId", [
+      "buildId",
+      "ownerKind",
+      "ownerId",
+    ]),
+  buildCollaborationSearchCutoverChecks: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    status: v.union(
+      v.literal("building"),
+      v.literal("blocked"),
+      v.literal("ready")
+    ),
+    authorityCursor: v.optional(v.union(v.string(), v.null())),
+    authorityProjectionComplete: v.optional(v.boolean()),
+    rebuildCursor: v.optional(v.union(v.string(), v.null())),
+    searchRebuildComplete: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    buildCount: v.number(),
+    readyBuildCount: v.number(),
+    latestBuildCreationTime: v.optional(v.number()),
+    authorityReaderFingerprint: v.optional(v.string()),
+    implicitReaderSourceFingerprint: v.optional(v.string()),
+    failureReason: v.optional(v.string()),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_organizationId", ["organizationId"]),
+  buildCollaborationSearchAuthorities: defineTable({
+    organizationId: v.string(),
+    workosMembershipId: v.string(),
+    workosUserId: v.string(),
+    role: v.union(v.literal("admin"), v.literal("principal-broker")),
+    updatedAt: v.number(),
+  })
+    .index("by_workosMembershipId", ["workosMembershipId"])
+    .index("by_organizationId_and_role", ["organizationId", "role"]),
+  buildCollaborationModerationCases: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.optional(v.id("buildCollaborationComments")),
+    entityKind: v.union(v.literal("post"), v.literal("comment")),
+    entityId: v.string(),
+    contentAuthorWorkosUserId: v.string(),
+    contentAuthorRole: buildCollaborationRoleValidator,
+    moderatorWorkosUserId: v.string(),
+    moderatorRole: buildCollaborationRoleValidator,
+    moderatorTier: v.number(),
+    status: v.union(
+      v.literal("moderated"),
+      v.literal("appealed"),
+      v.literal("restored"),
+      v.literal("final_retained")
+    ),
+    currentReason: v.string(),
+    appealReviewerMinimumTier: v.number(),
+    evidenceSnapshotJson: v.string(),
+    lastAppealedAt: v.optional(v.number()),
+    lastAppealedByWorkosUserId: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolvedByWorkosUserId: v.optional(v.string()),
+    resolvedByRole: v.optional(buildCollaborationRoleValidator),
+    resolutionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_entityKind_and_entityId", ["entityKind", "entityId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_postId_and_status", ["postId", "status"])
+    .index("by_contentAuthorWorkosUserId_and_status", [
+      "contentAuthorWorkosUserId",
+      "status",
+    ]),
+  buildCollaborationModerationEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    caseId: v.id("buildCollaborationModerationCases"),
+    eventType: v.union(
+      v.literal("moderated"),
+      v.literal("appealed"),
+      v.literal("restored"),
+      v.literal("retained")
+    ),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    priorState: v.string(),
+    newState: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  }).index("by_caseId_and_createdAt", ["caseId", "createdAt"]),
+  buildCollaborationReferences: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerKind: buildCollaborationOwnerKindValidator,
+    ownerRecordId: v.string(),
+    postId: v.id("buildCollaborationPosts"),
+    entityKind: buildCollaborationReferenceKindValidator,
+    entityId: v.string(),
+    primary: v.boolean(),
+    labelSnapshot: v.string(),
+    summarySnapshot: v.optional(v.string()),
+    actionItemQueueSortAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_ownerKind_and_ownerRecordId", ["ownerKind", "ownerRecordId"])
+    .index("by_buildId_and_entityKind_and_entityId", [
+      "buildId",
+      "entityKind",
+      "entityId",
+    ])
+    .index("by_build_entity_owner_queueSort", [
+      "buildId",
+      "entityKind",
+      "entityId",
+      "ownerKind",
+      "actionItemQueueSortAt",
+    ])
+    .index("by_postId", ["postId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"]),
+  buildCollaborationFollows: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    reason: v.union(
+      v.literal("author"),
+      v.literal("commenter"),
+      v.literal("mentioned"),
+      v.literal("assigned"),
+      v.literal("manual")
+    ),
+    active: v.boolean(),
+    // Draw coordination membership is intentionally orthogonal to the
+    // ordinary follow state above. Joining coordination must not subscribe a
+    // user to the thread, and leaving must not silently destroy an explicit
+    // follow created by another collaboration action.
+    coordinationActive: v.optional(v.boolean()),
+    coordinationJoinedAt: v.optional(v.number()),
+    coordinationJoinedByWorkosUserId: v.optional(v.string()),
+    coordinationLeftAt: v.optional(v.number()),
+    coordinationLeftByWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_buildId_and_workosUserId_and_active", [
+      "buildId",
+      "workosUserId",
+      "active",
+    ])
+    .index("by_postId_and_coordinationActive", [
+      "postId",
+      "coordinationActive",
+    ]),
+  buildCollaborationReactions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.optional(v.id("buildCollaborationComments")),
+    workosUserId: v.string(),
+    reaction: buildCollaborationReactionValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_postId_and_commentId_and_workosUserId", [
+      "postId",
+      "commentId",
+      "workosUserId",
+    ])
+    .index("by_commentId_and_workosUserId", ["commentId", "workosUserId"]),
+  buildCollaborationReceipts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    viewerRole: buildCollaborationRoleValidator,
+    firstViewedAt: v.number(),
+    lastViewedAt: v.number(),
+    latestRevisionViewed: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_firstViewedAt", ["postId", "firstViewedAt"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"])
+    .index("by_organizationId_and_firstViewedAt", [
+      "organizationId",
+      "firstViewedAt",
+    ]),
+  buildCollaborationPins: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.optional(v.id("buildCollaborationComments")),
+    workosUserId: v.string(),
+    kind: buildCollaborationPinKindValidator,
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_buildId_and_kind_and_createdAt", [
+      "buildId",
+      "kind",
+      "createdAt",
+    ])
+    .index("by_postId_and_workosUserId_and_kind", [
+      "postId",
+      "workosUserId",
+      "kind",
+    ])
+    .index("by_postId_and_commentId_and_workosUserId_and_kind", [
+      "postId",
+      "commentId",
+      "workosUserId",
+      "kind",
+    ]),
+  buildCollaborationAcknowledgementTargets: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    dueAt: v.optional(v.number()),
+    waivedAt: v.optional(v.number()),
+    waivedByWorkosUserId: v.optional(v.string()),
+    waiverReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationAcknowledgements: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    targetId: v.id("buildCollaborationAcknowledgementTargets"),
+    workosUserId: v.string(),
+    acknowledgedRevision: v.number(),
+    acknowledgedAt: v.number(),
+  })
+    .index("by_targetId", ["targetId"])
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"]),
+  buildActionItems: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    originatingPostId: v.id("buildCollaborationPosts"),
+    parentActionItemId: v.optional(v.id("buildActionItems")),
+    title: v.string(),
+    descriptionTiptapJson: v.string(),
+    descriptionPlainText: v.string(),
+    status: buildActionItemStatusValidator,
+    workKind: v.optional(buildActionItemWorkKindValidator),
+    previousActiveStatus: v.optional(buildActionItemStatusValidator),
+    priority: buildActionItemPriorityValidator,
+    creatorWorkosUserId: v.string(),
+    creatorRole: v.optional(buildCollaborationRoleValidator),
+    assigneeWorkosUserId: v.optional(v.string()),
+    assignedByWorkosUserId: v.optional(v.string()),
+    assignmentState: buildActionAssignmentStateValidator,
+    assignmentRequestedAt: v.optional(v.number()),
+    dueAt: v.optional(v.number()),
+    dueDateSource: v.optional(
+      v.union(v.literal("manual"), v.literal("policy"))
+    ),
+    dueDatePolicyKey: v.optional(v.string()),
+    policyDueAt: v.optional(v.number()),
+    dueDateOverrideReason: v.optional(v.string()),
+    dueDateOverriddenAt: v.optional(v.number()),
+    dueDateOverriddenByWorkosUserId: v.optional(v.string()),
+    policyObligationKey: v.optional(v.string()),
+    deadlineNextAt: v.optional(v.number()),
+    deadlineScheduleGeneration: v.optional(v.number()),
+    deadlineNextStage: v.optional(
+      v.union(
+        v.literal("before"),
+        v.literal("due"),
+        v.literal("overdue"),
+        v.literal("escalated")
+      )
+    ),
+    deadlineProcessingState: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("complete"),
+        v.literal("quarantined")
+      )
+    ),
+    deadlineProcessingFailure: v.optional(v.string()),
+    deadlineProcessingFailedAt: v.optional(v.number()),
+    requiresAcceptance: v.boolean(),
+    blockedReason: v.optional(v.string()),
+    cancellationReason: v.optional(v.string()),
+    unassignmentReason: v.optional(v.literal("participant_removed")),
+    completionRequestedAt: v.optional(v.number()),
+    completionRequestedByWorkosUserId: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+    completedByWorkosUserId: v.optional(v.string()),
+    completionAcceptedByWorkosUserId: v.optional(v.string()),
+    currentRevision: v.number(),
+    queueSortAt: v.optional(v.number()),
+    primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
+    primaryReferenceId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    // Generated Milestone cards are immutable projections of canonical
+    // Sub-milestones.  User-authored Action Items leave these unset.
+    systemMode: v.optional(buildActionItemSystemModeValidator),
+    canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+    canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    canonicalBindingRevision: v.optional(v.number()),
+    canonicalPlanningState: v.optional(buildPlanningStateValidator),
+  })
+    .index("by_originatingPostId_and_createdAt", [
+      "originatingPostId",
+      "createdAt",
+    ])
+    .index("by_originatingPostId_and_status", ["originatingPostId", "status"])
+    .index("by_originatingPostId_and_queueSortAt", [
+      "originatingPostId",
+      "queueSortAt",
+    ])
+    .index("by_buildId_and_status_and_updatedAt", [
+      "buildId",
+      "status",
+      "updatedAt",
+    ])
+    .index("by_buildId_and_queueSortAt", ["buildId", "queueSortAt"])
+    .index("by_buildId_and_systemMode", ["buildId", "systemMode"])
+    .index("by_buildId_and_assigneeWorkosUserId_and_status", [
+      "buildId",
+      "assigneeWorkosUserId",
+      "status",
+    ])
+    .index("by_organizationId_and_assigneeWorkosUserId_and_status", [
+      "organizationId",
+      "assigneeWorkosUserId",
+      "status",
+    ])
+    .index("by_organizationId_and_assigneeWorkosUserId_and_updatedAt", [
+      "organizationId",
+      "assigneeWorkosUserId",
+      "updatedAt",
+    ])
+    .index("by_organizationId_and_assigneeWorkosUserId_and_queueSortAt", [
+      "organizationId",
+      "assigneeWorkosUserId",
+      "queueSortAt",
+    ])
+    .index("by_parentActionItemId_and_status", ["parentActionItemId", "status"])
+    .index("by_deadlineProcessingState_and_nextDeadlineAt", [
+      "deadlineProcessingState",
+      "deadlineNextAt",
+    ])
+    .index("by_buildId_and_deadlineProcessingState_and_nextDeadlineAt", [
+      "buildId",
+      "deadlineProcessingState",
+      "deadlineNextAt",
+    ])
+    .index("by_buildId_and_policyObligationKey", [
+      "buildId",
+      "policyObligationKey",
+    ])
+    .index("by_dueAt", ["dueAt"])
+    .index("by_buildId_and_dueAt", ["buildId", "dueAt"]),
+  buildActionItemPostLinks: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    actionItemId: v.id("buildActionItems"),
+    linkKind: v.union(v.literal("originating"), v.literal("policy_obligation")),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_actionItemId", ["postId", "actionItemId"])
+    .index("by_actionItemId_and_postId", ["actionItemId", "postId"]),
+  buildActionItemEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    eventType: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    exercisedAuthority: v.optional(v.string()),
+    revision: v.optional(v.number()),
+    priorState: v.optional(v.string()),
+    newState: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    warnings: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+  }).index("by_actionItemId_and_createdAt", ["actionItemId", "createdAt"]),
+  buildActionItemRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    revision: v.number(),
+    snapshotJson: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_actionItemId_and_revision", ["actionItemId", "revision"]),
+  buildActionItemLabels: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    label: v.string(),
+    normalizedLabel: v.string(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_actionItemId_and_normalizedLabel", [
+      "actionItemId",
+      "normalizedLabel",
+    ])
+    .index("by_buildId_and_normalizedLabel", ["buildId", "normalizedLabel"]),
+  buildActionItemComments: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    authorWorkosUserId: v.string(),
+    authorDisplayNameSnapshot: v.string(),
+    authorRole: buildCollaborationRoleValidator,
+    tiptapJson: v.string(),
+    plainText: v.string(),
+    parentCommentId: v.optional(v.id("buildActionItemComments")),
+    createdAt: v.number(),
+  })
+    .index("by_actionItemId_and_createdAt", ["actionItemId", "createdAt"])
+    .index("by_parentCommentId_and_createdAt", [
+      "parentCommentId",
+      "createdAt",
+    ]),
+  buildActionItemCommentReactions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    commentId: v.id("buildActionItemComments"),
+    workosUserId: v.string(),
+    reaction: buildCollaborationReactionValidator,
+    createdAt: v.number(),
+  })
+    .index("by_commentId", ["commentId"])
+    .index("by_commentId_and_workosUserId_and_reaction", [
+      "commentId",
+      "workosUserId",
+      "reaction",
+    ]),
+  buildActionItemCreationRequests: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    creatorWorkosUserId: v.string(),
+    requestId: v.string(),
+    actionItemId: v.id("buildActionItems"),
+    createdAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_postId_and_creatorWorkosUserId_and_requestId", [
+      "postId",
+      "creatorWorkosUserId",
+      "requestId",
+    ]),
+  buildCollaborationActivityProjections: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    actionItemId: v.id("buildActionItems"),
+    targetKind: v.union(
+      v.literal("post"),
+      buildCollaborationReferenceKindValidator
+    ),
+    targetId: v.string(),
+    eventType: v.string(),
+    projectionKey: v.string(),
+    actorWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_buildId_and_projectionKey", ["buildId", "projectionKey"])
+    .index("by_buildId_and_targetKind_and_targetId_and_createdAt", [
+      "buildId",
+      "targetKind",
+      "targetId",
+      "createdAt",
+    ]),
+  buildActionItemRelations: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    sourceActionItemId: v.id("buildActionItems"),
+    targetActionItemId: v.id("buildActionItems"),
+    kind: buildActionRelationKindValidator,
+    relationshipKey: v.optional(v.string()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("suspended"),
+      v.literal("superseded")
+    ),
+    suspensionReason: v.optional(v.string()),
+    suspendedAt: v.optional(v.number()),
+    suspendedByWorkosUserId: v.optional(v.string()),
+    restoredAt: v.optional(v.number()),
+    restoredByWorkosUserId: v.optional(v.string()),
+    supersededAt: v.optional(v.number()),
+    supersededByRelationId: v.optional(v.id("buildActionItemRelations")),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_relationshipKey", ["buildId", "relationshipKey"])
+    .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_sourceActionItemId_and_kind", ["sourceActionItemId", "kind"])
+    .index("by_sourceActionItemId_and_status", ["sourceActionItemId", "status"])
+    .index("by_targetActionItemId_and_kind", ["targetActionItemId", "kind"])
+    .index("by_targetActionItemId_and_status", [
+      "targetActionItemId",
+      "status",
+    ]),
+  buildActionItemChecklistItems: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    label: v.string(),
+    required: v.boolean(),
+    completed: v.boolean(),
+    order: v.number(),
+    completedAt: v.optional(v.number()),
+    completedByWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_actionItemId_and_order", ["actionItemId", "order"]),
+  buildCollaborationAssets: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    state: buildCollaborationAssetStateValidator,
+    scanState: v.optional(buildCollaborationAssetScanStateValidator),
+    contentHashSha256: v.optional(v.string()),
+    stagingSessionId: v.optional(
+      v.id("buildCollaborationAssetStagingSessions")
+    ),
+    uploadedByWorkosUserId: v.string(),
+    version: v.number(),
+    lineageRootAssetId: v.optional(v.id("buildCollaborationAssets")),
+    supersedesAssetId: v.optional(v.id("buildCollaborationAssets")),
+    maximumAudienceMode: buildCollaborationAudienceModeValidator,
+    originatingPostId: v.optional(v.id("buildCollaborationPosts")),
+    readerWorkosUserIds: v.optional(v.array(v.string())),
+    scanMessage: v.optional(v.string()),
+    scanCompletedAt: v.optional(v.number()),
+    storageDeletedAt: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
+    publishedOwnerKind: v.optional(buildCollaborationOwnerKindValidator),
+    publishedOwnerRecordId: v.optional(v.string()),
+    sourceCapturedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_buildId_and_state_and_createdAt", [
+      "buildId",
+      "state",
+      "createdAt",
+    ])
+    .index("by_storageId", ["storageId"])
+    .index("by_supersedesAssetId", ["supersedesAssetId"])
+    .index("by_lineageRootAssetId_and_version", [
+      "lineageRootAssetId",
+      "version",
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  buildCollaborationAssetStagingSessions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerWorkosUserId: v.string(),
+    actorCapacity: v.optional(buildCollaborationRoleValidator),
+    contextKind: buildCollaborationAssetStagingContextValidator,
+    contextRecordId: v.optional(v.string()),
+    expectedFileName: v.optional(v.string()),
+    expectedMimeType: v.optional(v.string()),
+    expectedSizeBytes: v.optional(v.number()),
+    sourceCapturedAt: v.optional(v.number()),
+    state: buildCollaborationAssetStagingStateValidator,
+    assetId: v.optional(v.id("buildCollaborationAssets")),
+    pendingStorageId: v.optional(v.id("_storage")),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_buildId_and_ownerWorkosUserId_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "state",
+    ])
+    .index("by_contextKind_and_contextRecordId_and_state", [
+      "contextKind",
+      "contextRecordId",
+      "state",
+    ])
+    .index("by_assetId", ["assetId"])
+    .index("by_pendingStorageId", ["pendingStorageId"])
+    .index("by_state_and_expiresAt", ["state", "expiresAt"]),
+  buildCollaborationAttachments: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerKind: buildCollaborationOwnerKindValidator,
+    ownerRecordId: v.string(),
+    attachmentKind: buildCollaborationAttachmentKindValidator,
+    attachmentId: v.string(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_ownerKind_and_ownerRecordId", ["ownerKind", "ownerRecordId"])
+    .index("by_buildId_and_attachmentKind_and_attachmentId", [
+      "buildId",
+      "attachmentKind",
+      "attachmentId",
+    ]),
+  buildCollaborationDrafts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerWorkosUserId: v.string(),
+    approvalOwnerWorkosUserId: v.optional(v.string()),
+    preparedByActorKind: v.optional(buildCollaborationActorKindValidator),
+    preparedByWorkosUserId: v.optional(v.string()),
+    preparedByAgent: v.optional(v.boolean()),
+    state: buildCollaborationDraftStateValidator,
+    bundleJson: v.string(),
+    bundleHash: v.string(),
+    revision: v.number(),
+    offlineCapturedAt: v.optional(v.number()),
+    scheduledFor: v.optional(v.number()),
+    scheduleConflictReason: v.optional(v.string()),
+    schedulePausedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_buildId_and_ownerWorkosUserId_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "state",
+    ])
+    .index("by_buildId_and_approvalOwnerWorkosUserId_and_state", [
+      "buildId",
+      "approvalOwnerWorkosUserId",
+      "state",
+    ]),
+  buildCollaborationPublicationApprovals: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    draftId: v.id("buildCollaborationDrafts"),
+    approvingWorkosUserId: v.string(),
+    approvingActorKind: v.optional(buildCollaborationActorKindValidator),
+    approvingRole: v.optional(buildCollaborationRoleValidator),
+    approvingRoles: v.optional(v.array(buildCollaborationRoleValidator)),
+    approvalHash: v.optional(v.string()),
+    bundleHash: v.string(),
+    bundleJsonSnapshot: v.optional(v.string()),
+    draftRevision: v.optional(v.number()),
+    readerSummaryJson: v.string(),
+    mutationSummaryJson: v.string(),
+    state: buildCollaborationApprovalStateValidator,
+    scheduledFor: v.optional(v.number()),
+    approvedAt: v.number(),
+    invalidatedAt: v.optional(v.number()),
+    pausedAt: v.optional(v.number()),
+    conflictReason: v.optional(v.string()),
+    executionAttemptCount: v.optional(v.number()),
+    lastExecutionAt: v.optional(v.number()),
+    lastExecutionError: v.optional(v.string()),
+    postId: v.optional(v.id("buildCollaborationPosts")),
+    publishedAt: v.optional(v.number()),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_draftId_and_state", ["draftId", "state"])
+    .index("by_buildId_and_scheduledFor_and_state", [
+      "buildId",
+      "scheduledFor",
+      "state",
+    ])
+    .index("by_state_and_scheduledFor", ["state", "scheduledFor"]),
+  buildCollaborationNotificationPreferences: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    workosUserId: v.string(),
+    ordinaryMuted: v.boolean(),
+    digestEnabled: v.boolean(),
+    digestCadence: v.union(
+      v.literal("daily"),
+      v.literal("weekly"),
+      v.literal("never")
+    ),
+    channels: v.array(buildCollaborationNotificationChannelValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationExternalDeliveries: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    recipientWorkosUserId: v.string(),
+    recipientParticipationPeriod: v.optional(v.number()),
+    recipientDeliveryId: v.optional(v.id("recipientDeliveries")),
+    channel: v.union(v.literal("email"), v.literal("push")),
+    deliveryMode: v.union(v.literal("immediate"), v.literal("digest")),
+    cadence: v.optional(buildCollaborationDeliveryCadenceValidator),
+    eventKind: buildCollaborationNotificationKindValidator,
+    dedupeKey: v.string(),
+    batchId: v.optional(v.id("buildCollaborationDeliveryBatches")),
+    batchKey: v.optional(v.string()),
+    batchRevision: v.optional(v.number()),
+    renderedItemSnapshot: v.optional(v.string()),
+    collaborationPostId: v.optional(v.id("buildCollaborationPosts")),
+    collaborationPostRevisionId: v.optional(
+      v.id("buildCollaborationPostRevisions")
+    ),
+    collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
+    collaborationCommentRevisionId: v.optional(
+      v.id("buildCollaborationCommentRevisions")
+    ),
+    collaborationActionItemId: v.optional(v.id("buildActionItems")),
+    collaborationReferenceId: v.optional(v.id("buildCollaborationReferences")),
+    collaborationAssetId: v.optional(v.id("buildCollaborationAssets")),
+    status: buildCollaborationExternalDeliveryStatusValidator,
+    scheduledFor: v.number(),
+    attemptCount: v.number(),
+    providerOutboxId: v.optional(v.id("eventOutbox")),
+    lastAttemptAt: v.optional(v.number()),
+    leaseExpiresAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    cancellationReason: v.optional(v.string()),
+    cancelledAt: v.optional(v.number()),
+    sentAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_status_and_scheduledFor", ["status", "scheduledFor"])
+    .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
+    .index("by_providerOutboxId", ["providerOutboxId"])
+    .index("by_batchKey_and_status", ["batchKey", "status"])
+    .index("by_organizationId_and_recipientWorkosUserId_and_dedupeKey", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "dedupeKey",
+    ])
+    .index("by_recipientDeliveryId_and_channel", [
+      "recipientDeliveryId",
+      "channel",
+    ])
+    .index("by_organizationId_and_recipientWorkosUserId_and_createdAt", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "createdAt",
+    ])
+    .index("by_buildId_and_recipientWorkosUserId_and_status", [
+      "buildId",
+      "recipientWorkosUserId",
+      "status",
+    ])
+    .index("by_buildId_and_recipientWorkosUserId_and_status_and_createdAt", [
+      "buildId",
+      "recipientWorkosUserId",
+      "status",
+      "createdAt",
+    ]),
   buildDocuments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     proposalId: v.id("buildProposals"),
     documentType: productionDocumentTypeValidator,
-    status: productionDocumentStatusValidator,
+    status: buildDocumentStatusValidator,
     fileName: v.string(),
+    // A Build Document may be the durable document projection of a scanned,
+    // versioned collaboration asset. Keep this optional for legacy documents.
+    governedAssetId: v.optional(v.id("buildCollaborationAssets")),
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
     // Permits are contractor-visible by default (PRD §3.17, §15). Non-permit
     // documents require an explicit contractor-visible ACL flag (PRD §3.34).
     contractorVisible: v.optional(v.boolean()),
+    clientOperationId: v.optional(v.string()),
+    clientOperationFingerprint: v.optional(v.string()),
+    version: v.optional(v.number()),
+    supersedesDocumentId: v.optional(v.id("buildDocuments")),
+    supersededByDocumentId: v.optional(v.id("buildDocuments")),
+    supersededAt: v.optional(v.number()),
     uploadedByWorkosUserId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
     .index("by_build_type", ["buildId", "documentType"])
+    .index("by_build_operation", ["buildId", "clientOperationId"])
     .index("by_build_contractor_visible", ["buildId", "contractorVisible"]),
   buildEvidenceAssets: defineTable({
     brokerageId: v.id("brokerages"),
@@ -2987,6 +5277,8 @@ export default defineSchema({
     submilestoneKey: v.optional(v.string()),
     contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     clientEvidenceId: v.optional(v.string()),
+    clientEvidenceFingerprint: v.optional(v.string()),
+    collaborationEventRevision: v.optional(v.number()),
     siteVisitId: v.optional(v.id("buildSiteVisits")),
     locationVerified: v.boolean(),
     locationAccuracyMeters: v.optional(v.number()),
@@ -2994,6 +5286,19 @@ export default defineSchema({
     locationDistanceMeters: v.optional(v.number()),
     locationFailureReason: v.optional(v.string()),
     locationGeofenceRadiusMeters: v.optional(v.number()),
+    evidencePackageRevisionId: v.optional(
+      v.id("buildSubmilestoneEvidencePackageRevisions")
+    ),
+    sourceDiscussionAssetId: v.optional(v.id("buildCollaborationAssets")),
+    sourceDiscussionAssetVersion: v.optional(v.number()),
+    sourceDiscussionUploadedByWorkosUserId: v.optional(v.string()),
+    sourceDiscussionPostId: v.optional(v.id("buildCollaborationPosts")),
+    sourceDiscussionCapturedAt: v.optional(v.number()),
+    sourceDiscussionPublishedAt: v.optional(v.number()),
+    sourceDiscussionOwnerKind: v.optional(v.string()),
+    sourceDiscussionOwnerRecordId: v.optional(v.string()),
+    promotedByWorkosUserId: v.optional(v.string()),
+    promotedAt: v.optional(v.number()),
     source: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -3015,7 +5320,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_build_visibility", ["buildId", "visibility"]),
+    .index("by_build_visibility", ["buildId", "visibility"])
+    .index("by_organizationId_and_buildId", ["organizationId", "buildId"]),
   buildContractorAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3032,7 +5338,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_build_contractor", ["buildId", "contractorId"]),
+    .index("by_build_contractor", ["buildId", "contractorId"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
   milestoneContractorAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3094,17 +5401,28 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_broker", ["brokerageId", "assignedBrokerWorkosUserId"]),
+    .index("by_build_and_assignedBrokerWorkosUserId", [
+      "buildId",
+      "assignedBrokerWorkosUserId",
+    ])
+    .index("by_broker", ["brokerageId", "assignedBrokerWorkosUserId"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   loanFacilities: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     proposalId: v.id("buildProposals"),
+    facilityKind: v.optional(
+      v.union(v.literal("construction"), v.literal("homeEquityTakeout"))
+    ),
+    sourceCapitalEventKey: v.optional(v.string()),
+    interestAccrualStartDate: v.optional(v.string()),
     principalCents: v.number(),
     interestAnnualBps: v.number(),
     interestStartsOn: v.literal("funds_released"),
     paybackDate: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("closed")),
+    closedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3204,17 +5522,39 @@ export default defineSchema({
     dependencyKeys: v.array(v.string()),
     completionClaim: v.optional(v.any()),
     completionReview: v.optional(v.any()),
+    reviewDecisionState: v.optional(
+      v.union(
+        v.literal("in_review"),
+        v.literal("ready_for_approval"),
+        v.literal("approved"),
+        v.literal("reopened"),
+      ),
+    ),
+    reviewDecisionId: v.optional(v.id("buildMilestoneReviewDecisions")),
+    reviewRevision: v.optional(v.number()),
+    collaborationEventRevision: v.optional(v.number()),
+    collaborationEvidenceEventRevision: v.optional(v.number()),
     evidenceState: v.optional(v.string()),
     isDragLocked: v.optional(v.boolean()),
     policyState: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
+    actualStartedAt: v.optional(v.number()),
+    startEventId: v.optional(v.id("milestoneStartEvents")),
+    startReportedAt: v.optional(v.number()),
+    startedByWorkosUserId: v.optional(v.string()),
+    startSource: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
       v.literal("complete")
     ),
+    planningState: v.optional(buildPlanningStateValidator),
+    activationPlanningRevision: v.optional(v.number()),
+    scheduledActivationJobId: v.optional(v.string()),
+    supersededAt: v.optional(v.number()),
+    supersededByPlanningRevision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3233,21 +5573,352 @@ export default defineSchema({
     order: v.number(),
     budgetCents: v.optional(v.number()),
     actualCostCents: v.optional(v.number()),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
+    progressPercent: v.optional(v.number()),
+    completionForecastDate: v.optional(v.string()),
+    evidencePackageRevisionId: v.optional(
+      v.id("buildSubmilestoneEvidencePackageRevisions")
+    ),
+    evidenceReviewState: v.optional(
+      v.union(
+        v.literal("not_ready"),
+        v.literal("in_review"),
+        v.literal("changes_requested"),
+        v.literal("approved")
+      )
+    ),
+    evidenceReviewRound: v.optional(v.number()),
+    reviewDecisionState: v.optional(
+      v.union(
+        v.literal("in_review"),
+        v.literal("changes_requested"),
+        v.literal("approved"),
+        v.literal("reopened"),
+      ),
+    ),
+    reviewDecisionId: v.optional(v.id("buildSubmilestoneReviewDecisions")),
+    siteVisitRequirementId: v.optional(
+      v.id("buildSubmilestoneSiteVisitRequirements"),
+    ),
+    reviewRevision: v.optional(v.number()),
+    completionSubmissionId: v.optional(
+      v.id("buildSubmilestoneCompletionSubmissions")
+    ),
+    workflowRevision: v.optional(v.number()),
+    actualStartedAt: v.optional(v.number()),
+    startEventId: v.optional(v.id("milestoneStartEvents")),
+    startReportedAt: v.optional(v.number()),
+    startedByWorkosUserId: v.optional(v.string()),
+    startSource: v.optional(v.string()),
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
       v.literal("complete")
     ),
+    planningState: v.optional(buildPlanningStateValidator),
+    activationPlanningRevision: v.optional(v.number()),
+    scheduledActivationJobId: v.optional(v.string()),
+    supersededAt: v.optional(v.number()),
+    supersededByPlanningRevision: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     completedByWorkosUserId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_milestone", ["buildMilestoneId"]),
+    .index("by_milestone", ["buildMilestoneId"])
+    .index("by_milestone_and_key", ["buildMilestoneId", "key"]),
+  buildSubmilestoneSiteVisitRequirements: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    reviewRound: v.number(),
+    required: v.boolean(),
+    policyRequired: v.boolean(),
+    riskRequired: v.boolean(),
+    manualRequired: v.boolean(),
+    policySignals: v.array(v.string()),
+    riskSignals: v.array(v.string()),
+    manualSignals: v.array(v.string()),
+    status: v.union(
+      v.literal("not_required"),
+      v.literal("required"),
+      v.literal("satisfied"),
+      v.literal("waived"),
+    ),
+    siteVisitId: v.optional(v.id("buildSiteVisits")),
+    waivedByWorkosUserId: v.optional(v.string()),
+    waivedByRole: v.optional(v.string()),
+    waivedAt: v.optional(v.number()),
+    waiverReason: v.optional(v.string()),
+    evaluatedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_submilestone_round", ["buildSubmilestoneId", "reviewRound"])
+    .index("by_submilestone_status", ["buildSubmilestoneId", "status"])
+    .index("by_build", ["buildId"]),
+  buildSubmilestoneReviewDecisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    reviewRound: v.number(),
+    kind: v.union(
+      v.literal("recommendation"),
+      v.literal("changes_requested"),
+      v.literal("approved"),
+      v.literal("site_visit_waived"),
+      v.literal("retracted"),
+    ),
+    siteVisitRequired: v.optional(v.boolean()),
+    siteVisitId: v.optional(v.id("buildSiteVisits")),
+    requirementId: v.optional(
+      v.id("buildSubmilestoneSiteVisitRequirements"),
+    ),
+    remediation: v.optional(v.array(v.string())),
+    note: v.optional(v.string()),
+    priorState: v.string(),
+    newState: v.string(),
+    warnings: v.array(v.string()),
+    reason: v.optional(v.string()),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    createdAt: v.number(),
+    idempotencyKey: v.string(),
+  })
+    .index("by_submilestone_round", ["buildSubmilestoneId", "reviewRound"])
+    .index("by_submilestone_idempotency", [
+      "buildSubmilestoneId",
+      "idempotencyKey",
+    ])
+    .index("by_submilestone_createdAt", [
+      "buildSubmilestoneId",
+      "createdAt",
+    ]),
+  buildSubmilestoneEvidenceRequirements: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    requirementKey: v.string(),
+    label: v.string(),
+    description: v.optional(v.string()),
+    kind: v.union(
+      v.literal("photo"),
+      v.literal("document"),
+      v.literal("site_visit"),
+      v.literal("any")
+    ),
+    required: v.boolean(),
+    locationRequired: v.boolean(),
+    revision: v.number(),
+    active: v.boolean(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_submilestone", ["buildSubmilestoneId", "active"])
+    .index("by_build", ["buildId"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_build_submilestone_requirement", [
+      "buildId",
+      "buildSubmilestoneId",
+      "requirementKey",
+      "revision",
+    ]),
+  buildSubmilestoneEvidencePackageRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    revision: v.number(),
+    requirementsRevision: v.number(),
+    status: v.union(v.literal("draft"), v.literal("frozen")),
+    supersedesRevisionId: v.optional(
+      v.id("buildSubmilestoneEvidencePackageRevisions")
+    ),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    frozenByWorkosUserId: v.optional(v.string()),
+    frozenAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_submilestone_revision", ["buildSubmilestoneId", "revision"])
+    .index("by_submilestone_status", ["buildSubmilestoneId", "status"]),
+  buildSubmilestoneEvidencePackageItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+    evidenceAssetId: v.id("buildEvidenceAssets"),
+    requirementKey: v.string(),
+    sourceKind: v.union(
+      v.literal("canonical_upload"),
+      v.literal("discussion_promotion"),
+      v.literal("site_visit")
+    ),
+    sourceDiscussionAssetId: v.optional(v.id("buildCollaborationAssets")),
+    sourceDiscussionPostId: v.optional(v.id("buildCollaborationPosts")),
+    sourceUploaderWorkosUserId: v.string(),
+    sourceAssetVersion: v.optional(v.number()),
+    sourceCapturedAt: v.optional(v.number()),
+    sourcePublishedAt: v.optional(v.number()),
+    locationVerified: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_package_revision", ["packageRevisionId"])
+    .index("by_submilestone", ["buildSubmilestoneId"]),
+  buildSubmilestoneEvidencePromotions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+    evidenceAssetId: v.id("buildEvidenceAssets"),
+    sourceDiscussionAssetId: v.id("buildCollaborationAssets"),
+    sourceDiscussionPostId: v.optional(v.id("buildCollaborationPosts")),
+    sourceAssetVersion: v.number(),
+    sourceUploaderWorkosUserId: v.string(),
+    sourceCapturedAt: v.optional(v.number()),
+    sourcePublishedAt: v.optional(v.number()),
+    promotedByWorkosUserId: v.string(),
+    promotedAt: v.number(),
+  })
+    .index("by_source_asset", ["sourceDiscussionAssetId"])
+    .index("by_package_revision", ["packageRevisionId"]),
+  buildSubmilestoneCompletionSubmissions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    revision: v.number(),
+    idempotencyKey: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    declaredAt: v.number(),
+    progressPercent: v.number(),
+    actualCostCents: v.optional(v.number()),
+    fieldNote: v.optional(v.string()),
+    completionForecastDate: v.optional(v.string()),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+  })
+    .index("by_submilestone_revision", ["buildSubmilestoneId", "revision"])
+    .index("by_submilestone_idempotency", [
+      "buildSubmilestoneId",
+      "idempotencyKey",
+    ]),
+  buildSubmilestoneReviewRounds: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    round: v.number(),
+    status: v.union(
+      v.literal("in_review"),
+      v.literal("changes_requested"),
+      v.literal("approved")
+    ),
+    completionSubmissionId: v.id("buildSubmilestoneCompletionSubmissions"),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+    enteredByWorkosUserId: v.string(),
+    enteredAt: v.number(),
+    reviewedByWorkosUserId: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    remediation: v.optional(v.array(v.string())),
+  })
+    .index("by_submilestone_round", ["buildSubmilestoneId", "round"])
+    .index("by_submilestone_status", ["buildSubmilestoneId", "status"]),
+  buildSubmilestoneCommandReceipts: defineTable({
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    command: v.string(),
+    idempotencyKey: v.string(),
+    resultJson: v.string(),
+    createdAt: v.number(),
+  }).index("by_submilestone_idempotency", [
+    "buildSubmilestoneId",
+    "idempotencyKey",
+  ]),
+  milestoneStartEvents: defineTable({
+    actualStartedAt: v.optional(v.number()),
+    actorRoles: v.array(v.string()),
+    actorWorkosUserId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    dependencySnapshot: v.array(
+      v.object({
+        milestoneKey: v.string(),
+        milestoneName: v.string(),
+        status: v.union(
+          v.literal("planned"),
+          v.literal("in_progress"),
+          v.literal("complete")
+        ),
+      })
+    ),
+    eventType: v.union(
+      v.literal("started"),
+      v.literal("start_corrected"),
+      v.literal("start_retracted")
+    ),
+    idempotencyKey: v.string(),
+    milestoneKey: v.string(),
+    newLifecycleState: v.union(
+      v.literal("planned"),
+      v.literal("in_progress"),
+      v.literal("complete")
+    ),
+    organizationId: v.string(),
+    originalEventId: v.optional(v.id("milestoneStartEvents")),
+    priorActualStartedAt: v.optional(v.number()),
+    priorLifecycleState: v.union(
+      v.literal("planned"),
+      v.literal("in_progress"),
+      v.literal("complete")
+    ),
+    reason: v.optional(v.string()),
+    reportedAt: v.number(),
+    source: v.string(),
+    startParentRequested: v.optional(v.boolean()),
+    submilestoneKey: v.optional(v.string()),
+    warnings: v.array(v.string()),
+  })
+    .index("by_organization_idempotency", ["organizationId", "idempotencyKey"])
+    .index("by_build", ["buildId"])
+    .index("by_target", ["buildId", "milestoneKey", "submilestoneKey"])
+    .index("by_original", ["originalEventId"]),
   buildCostItems: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3260,11 +5931,17 @@ export default defineSchema({
     itemType: productionCostItemTypeValidator,
     title: v.string(),
     description: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
     budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
     budgetSubmilestoneKey: v.optional(v.string()),
     supplier: v.optional(v.string()),
+    deliveryLocation: v.optional(v.string()),
+    deliveryStartDay: v.optional(v.number()),
+    deliveryEndDay: v.optional(v.number()),
+    deliveryInstructions: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
@@ -3296,11 +5973,17 @@ export default defineSchema({
     releaseNote: v.optional(v.string()),
     releasedAt: v.optional(v.string()),
     status: productionBuildDrawStatusValidator,
+    scheduledActivationJobId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_build_order", ["buildId", "order"]),
+    .index("by_build_order", ["buildId", "order"])
+    .index("by_build_draw_key", ["buildId", "drawKey"])
+    .index("by_build_proposal_draw_schedule_row", [
+      "buildId",
+      "proposalDrawScheduleRowId",
+    ]),
   activeBuildDrawRequests: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3321,21 +6004,26 @@ export default defineSchema({
     reviewNote: v.optional(v.string()),
     releaseNote: v.optional(v.string()),
     withdrawalNote: v.optional(v.string()),
+    cancellationNote: v.optional(v.string()),
     requestedByWorkosUserId: v.string(),
     reviewedByWorkosUserId: v.optional(v.string()),
     withdrawnByWorkosUserId: v.optional(v.string()),
     requestedAt: v.string(),
     reviewedAt: v.optional(v.string()),
     withdrawnAt: v.optional(v.string()),
+    cancelledAt: v.optional(v.string()),
+    cancelledByWorkosUserId: v.optional(v.string()),
     releaseDate: v.optional(v.string()),
     releasedAt: v.optional(v.string()),
+    collaborationEventRevision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
     .index("by_build_status", ["buildId", "status"])
     .index("by_build_operation", ["buildId", "clientOperationId"])
-    .index("by_build_request_key", ["buildId", "requestKey"]),
+    .index("by_build_request_key", ["buildId", "requestKey"])
+    .index("by_build_planned_draw_key", ["buildId", "plannedDrawKey"]),
   activeBuildDrawRequestAllocations: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3370,6 +6058,9 @@ export default defineSchema({
     siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
     submilestoneKeys: v.optional(v.array(v.string())),
     completedAt: v.optional(v.string()),
+    collaborationEventRevision: v.optional(v.number()),
+    scheduleIdempotencyKey: v.optional(v.string()),
+    scheduleRequestFingerprint: v.optional(v.string()),
     locationAttempt: v.optional(siteVisitLocationAttemptValidator),
     missingPrerequisites: v.optional(v.array(v.string())),
     prerequisiteException: v.optional(siteVisitPrerequisiteExceptionValidator),
@@ -3388,7 +6079,33 @@ export default defineSchema({
     .index("by_brokerage", ["brokerageId"])
     .index("by_build", ["buildId"])
     .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_build_schedule_idempotency", [
+      "buildId",
+      "scheduleIdempotencyKey",
+    ])
     .index("by_visit", ["visitId"]),
+  buildMilestoneReviewDecisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    kind: v.union(v.literal("approved"), v.literal("retracted")),
+    reviewRevision: v.number(),
+    priorState: v.string(),
+    newState: v.string(),
+    warnings: v.array(v.string()),
+    reason: v.optional(v.string()),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    createdAt: v.number(),
+    idempotencyKey: v.string(),
+  })
+    .index("by_milestone_revision", ["buildMilestoneId", "reviewRevision"])
+    .index("by_milestone_idempotency", [
+      "buildMilestoneId",
+      "idempotencyKey",
+    ]),
   siteVisitLinkRecoveryRequests: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
     buildId: v.string(),
@@ -3411,8 +6128,10 @@ export default defineSchema({
     eventType: v.union(
       v.literal("borrower_copay"),
       v.literal("draw_release"),
-      v.literal("cost")
+      v.literal("cost"),
+      v.literal("home_equity_takeout")
     ),
+    loanFacilityId: v.optional(v.id("loanFacilities")),
     label: v.string(),
     amountCents: v.number(),
     eventDate: v.string(),
@@ -3477,7 +6196,13 @@ export default defineSchema({
   })
     .index("by_workos_membership_id", ["workosMembershipId"])
     .index("by_user", ["workosUserId"])
-    .index("by_organization", ["workosOrganizationId"]),
+    .index("by_user_and_organization", ["workosUserId", "workosOrganizationId"])
+    .index("by_organization", ["workosOrganizationId"])
+    .index("by_organization_and_status_and_roleSlug", [
+      "workosOrganizationId",
+      "status",
+      "roleSlug",
+    ]),
   workosRoles: defineTable({
     slug: v.string(),
     resourceTypeSlug: v.optional(v.string()),

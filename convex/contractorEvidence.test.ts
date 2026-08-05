@@ -118,6 +118,7 @@ async function createApprovedBuild(admin: ReturnType<typeof withIdentity>, seed:
     (api as any).production_proposals.recordOfflineClosing,
     {
       buildStartDate: "2026-01-01",
+      ianaTimezone: "America/Toronto",
       loanFacility: { interestAnnualBps: 925, principalCents: 100_000_000 },
       proposalId,
       reason: "closed",

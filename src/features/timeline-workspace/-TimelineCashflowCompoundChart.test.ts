@@ -5,10 +5,22 @@ import {
   getCashflowBarHotspotDay,
   isMilestoneEndDatum,
   resolveMilestoneEndDay,
+  TIMELINE_CASHFLOW_DEFAULT_CHART_CLASS_NAME,
+  TIMELINE_CASHFLOW_DEFAULT_CHART_MARGIN,
   type TimelineCashflowCompoundDatum,
 } from "./-TimelineCashflowCompoundChart.tsx";
 
 describe("TimelineCashflowCompoundChart milestone end markers", () => {
+  test("reserves vertical room for stacked chart annotations", () => {
+    expect(TIMELINE_CASHFLOW_DEFAULT_CHART_CLASS_NAME).toContain(
+      "min-h-[280px]"
+    );
+    expect(TIMELINE_CASHFLOW_DEFAULT_CHART_CLASS_NAME).toContain(
+      "sm:min-h-[300px]"
+    );
+    expect(TIMELINE_CASHFLOW_DEFAULT_CHART_MARGIN.top).toBe(52);
+  });
+
   test("pads the x domain so edge bars render inside the plot area", () => {
     const wideDomain = buildCashflowBarSafeXDomain([0, 160]);
     expect(wideDomain[0]).toBeCloseTo(-5.6);

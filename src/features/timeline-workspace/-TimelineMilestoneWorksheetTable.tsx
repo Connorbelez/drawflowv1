@@ -52,6 +52,15 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "#/components/ui/alert-dialog.tsx";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuGroup,
@@ -125,6 +134,7 @@ const DEFAULT_NEW_MILESTONE_BUDGET_TEXT = "$0";
 const DEFAULT_NEW_MILESTONE_DURATION_TEXT = "7";
 const DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT = "$0";
 const DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT = "1";
+const TOTAL_COMPLETION_BPS = 10_000;
 const FOCUSABLE_TABLE_CONTROL_SELECTOR = [
   "button:not([disabled])",
   "input:not([disabled])",
@@ -378,6 +388,9 @@ export function TimelineMilestoneWorksheetTable({
   );
   const [detailsSheetTarget, setDetailsSheetTarget] =
     useState<TimelineDetailsSheetTarget | null>(null);
+  const [pendingMilestoneDeleteKey, setPendingMilestoneDeleteKey] = useState<
+    string | null
+  >(null);
   // Active tab inside the detail sheet. Seeded from `detailsSheetTarget.tab`
   // when the sheet opens (e.g. from a status-chip click), then owned by the
   // user once they start switching tabs.
@@ -477,7 +490,8 @@ export function TimelineMilestoneWorksheetTable({
   );
 
   const addSubMilestone = (rowKey: string, item?: SubMilestoneBankItem) => {
-    const row = rows.find((candidate) => candidate.key === rowKey);
+    const currentRows = rowsRef.current;
+    const row = currentRows.find((candidate) => candidate.key === rowKey);
     if (!row) {
       return;
     }
@@ -490,8 +504,12 @@ export function TimelineMilestoneWorksheetTable({
       id: `${rowKey}-custom-${Date.now()}`,
       name:
         item?.name ?? `New sub-milestone ${row.subMilestoneDetails.length + 1}`,
-      percentageBps: 0,
-      percentageText: "0.00%",
+      percentageBps:
+        row.subMilestoneDetails.length === 0 ? row.percentageBps : 0,
+      percentageText:
+        row.subMilestoneDetails.length === 0
+          ? formatBps(row.percentageBps)
+          : "0.00%",
       startDay:
         row.subMilestoneDetails.length === 0
           ? rowStartDay(row)
@@ -504,21 +522,24 @@ export function TimelineMilestoneWorksheetTable({
             ),
     };
 
+    const nextRows = currentRows.map((candidate) => {
+      if (candidate.key !== rowKey) {
+        return candidate;
+      }
+
+      const nextRow = withSubMilestoneDetails(candidate, [
+        ...candidate.subMilestoneDetails,
+        nextSubMilestone,
+      ]);
+
+      return withDerivedSubMilestoneRollups(nextRow, {
+        includeBudget: mode === "setup",
+      });
+    });
     updateRows(
-      rows.map((candidate) => {
-        if (candidate.key !== rowKey) {
-          return candidate;
-        }
-
-        const nextRow = withSubMilestoneDetails(candidate, [
-          ...candidate.subMilestoneDetails,
-          nextSubMilestone,
-        ]);
-
-        return withDerivedSubMilestoneRollups(nextRow, {
-          includeBudget: mode === "setup",
-        });
-      })
+      mode === "settings"
+        ? rebalanceWorksheetCompletionPercentages(nextRows)
+        : nextRows
     );
     setActiveSubMilestoneByRow((current) => ({
       ...current,
@@ -527,31 +548,39 @@ export function TimelineMilestoneWorksheetTable({
   };
 
   const removeSubMilestone = (rowKey: string, subMilestoneId: string) => {
+    const currentRows = rowsRef.current;
+    const targetRow = currentRows.find((row) => row.key === rowKey);
+    if (!targetRow || targetRow.subMilestoneDetails.length <= 1) {
+      return;
+    }
     let nextActiveSubMilestoneId = "";
 
+    const nextRows = currentRows.map((row) => {
+      if (row.key !== rowKey) {
+        return row;
+      }
+
+      const currentIndex = row.subMilestoneDetails.findIndex(
+        (detail) => detail.id === subMilestoneId
+      );
+      const subMilestoneDetails = row.subMilestoneDetails.filter(
+        (detail) => detail.id !== subMilestoneId
+      );
+      nextActiveSubMilestoneId =
+        subMilestoneDetails[Math.max(0, currentIndex - 1)]?.id ??
+        subMilestoneDetails[0]?.id ??
+        "";
+
+      const nextRow = withSubMilestoneDetails(row, subMilestoneDetails);
+
+      return withDerivedSubMilestoneRollups(nextRow, {
+        includeBudget: mode === "setup",
+      });
+    });
     updateRows(
-      rows.map((row) => {
-        if (row.key !== rowKey) {
-          return row;
-        }
-
-        const currentIndex = row.subMilestoneDetails.findIndex(
-          (detail) => detail.id === subMilestoneId
-        );
-        const subMilestoneDetails = row.subMilestoneDetails.filter(
-          (detail) => detail.id !== subMilestoneId
-        );
-        nextActiveSubMilestoneId =
-          subMilestoneDetails[Math.max(0, currentIndex - 1)]?.id ??
-          subMilestoneDetails[0]?.id ??
-          "";
-
-        const nextRow = withSubMilestoneDetails(row, subMilestoneDetails);
-
-        return withDerivedSubMilestoneRollups(nextRow, {
-          includeBudget: mode === "setup",
-        });
-      })
+      mode === "settings"
+        ? rebalanceWorksheetCompletionPercentages(nextRows)
+        : nextRows
     );
     setActiveSubMilestoneByRow((current) => ({
       ...current,
@@ -577,6 +606,9 @@ export function TimelineMilestoneWorksheetTable({
     if (!(sourceRow && targetRow && movedSubMilestone)) {
       return;
     }
+    if (sourceRow.subMilestoneDetails.length <= 1) {
+      return;
+    }
 
     const sourceIndex = sourceRow.subMilestoneDetails.findIndex(
       (detail) => detail.id === subMilestoneId
@@ -593,22 +625,25 @@ export function TimelineMilestoneWorksheetTable({
       nextSourceSubMilestones[0]?.id ??
       "";
 
+    const nextRows = currentRows.map((row) => {
+      if (row.key === sourceRowKey) {
+        return withDerivedSubMilestoneRollups(
+          withSubMilestoneDetails(row, nextSourceSubMilestones),
+          { includeBudget: mode === "setup" }
+        );
+      }
+      if (row.key === targetRowKey) {
+        return withDerivedSubMilestoneRollups(
+          withSubMilestoneDetails(row, nextTargetSubMilestones),
+          { includeBudget: mode === "setup" }
+        );
+      }
+      return row;
+    });
     updateRows(
-      currentRows.map((row) => {
-        if (row.key === sourceRowKey) {
-          return withDerivedSubMilestoneRollups(
-            withSubMilestoneDetails(row, nextSourceSubMilestones),
-            { includeBudget: mode === "setup" }
-          );
-        }
-        if (row.key === targetRowKey) {
-          return withDerivedSubMilestoneRollups(
-            withSubMilestoneDetails(row, nextTargetSubMilestones),
-            { includeBudget: mode === "setup" }
-          );
-        }
-        return row;
-      })
+      mode === "settings"
+        ? rebalanceWorksheetCompletionPercentages(nextRows)
+        : nextRows
     );
     setActiveSubMilestoneByRow((current) => ({
       ...current,
@@ -626,7 +661,11 @@ export function TimelineMilestoneWorksheetTable({
         { includeBudget: mode === "setup" }
       );
       if (nextRows) {
-        updateRows(nextRows);
+        updateRows(
+          mode === "settings"
+            ? rebalanceWorksheetCompletionPercentages(nextRows)
+            : nextRows
+        );
       }
     },
     [mode, updateRows]
@@ -734,7 +773,12 @@ export function TimelineMilestoneWorksheetTable({
       rows,
     });
 
-    updateRows([...rows, nextRow]);
+    const nextRows = [...rowsRef.current, nextRow];
+    updateRows(
+      mode === "settings"
+        ? rebalanceWorksheetCompletionPercentages(nextRows)
+        : nextRows
+    );
     setExpanded((current) =>
       current === true ? true : { ...current, [nextRow.key]: true }
     );
@@ -744,6 +788,72 @@ export function TimelineMilestoneWorksheetTable({
     }));
     setCustomMilestoneName("");
   };
+
+  const setMilestoneIncluded = useCallback(
+    (rowKey: string, included: boolean) => {
+      const currentRows = rowsRef.current;
+      const row = currentRows.find((candidate) => candidate.key === rowKey);
+      if (!row || row.excluded === !included) {
+        return;
+      }
+      if (
+        !included &&
+        currentRows.filter((candidate) => !candidate.excluded).length <= 1
+      ) {
+        return;
+      }
+
+      updateRows(
+        rebalanceWorksheetCompletionPercentages(
+          currentRows.map((candidate) =>
+            candidate.key === rowKey
+              ? { ...candidate, excluded: !included }
+              : candidate
+          )
+        )
+      );
+    },
+    [updateRows]
+  );
+
+  const deleteMilestone = useCallback(
+    (rowKey: string) => {
+      const currentRows = rowsRef.current;
+      const row = currentRows.find((candidate) => candidate.key === rowKey);
+      if (!row) {
+        return;
+      }
+      if (
+        !row.excluded &&
+        currentRows.filter((candidate) => !candidate.excluded).length <= 1
+      ) {
+        return;
+      }
+
+      const nextRows = currentRows
+        .filter((candidate) => candidate.key !== rowKey)
+        .map((candidate) => ({
+          ...candidate,
+          dependencyKeys: candidate.dependencyKeys.filter(
+            (dependencyKey) => dependencyKey !== rowKey
+          ),
+        }));
+      updateRows(
+        mode === "settings" && !row.excluded
+          ? rebalanceWorksheetCompletionPercentages(nextRows)
+          : nextRows
+      );
+      setPendingMilestoneDeleteKey(null);
+      setDetailsSheetTarget((current) =>
+        current?.rowKey === rowKey ? null : current
+      );
+      setActiveSubMilestoneByRow((current) => {
+        const { [rowKey]: _removed, ...remaining } = current;
+        return remaining;
+      });
+    },
+    [mode, updateRows]
+  );
 
   const reorderRows = useCallback(
     (activeIndex: number, overIndex: number) => {
@@ -809,10 +919,16 @@ export function TimelineMilestoneWorksheetTable({
     [cascadeBudgetEdits, targetBudgetCents, updateRow, updateRows]
   );
 
+  const includedRowCount = rows.filter((row) => !row.excluded).length;
   const columns = useMemo<ColumnDef<TimelineMilestoneWorksheetRow>[]>(
     () =>
       mode === "settings"
-        ? settingsColumns({ updateRow, moveRowByKey })
+        ? settingsColumns({
+            includedRowCount,
+            moveRowByKey,
+            onIncludedChange: setMilestoneIncluded,
+            updateRow,
+          })
         : setupColumns({
             commitBudgetEdit,
             commitRows,
@@ -824,10 +940,12 @@ export function TimelineMilestoneWorksheetTable({
     [
       commitBudgetEdit,
       commitRows,
+      includedRowCount,
       mode,
       moveRowByKey,
       proposedStartDate,
       scheduleDisplayMode,
+      setMilestoneIncluded,
       updateRow,
     ]
   );
@@ -936,60 +1054,84 @@ export function TimelineMilestoneWorksheetTable({
       : detailsSheetRow
         ? `timeline-setup-details-sheet-${detailsSheetRow.key}`
         : undefined;
+  const pendingMilestoneDeleteRow =
+    rows.find((row) => row.key === pendingMilestoneDeleteKey) ?? null;
+  const canDeleteMilestone = (row: TimelineMilestoneWorksheetRow) =>
+    row.excluded || includedRows.length > 1;
 
   const renderMilestoneDetailTabs = (
     row: TimelineMilestoneWorksheetRow,
     placement: "expanded" | "sheet" = "expanded"
   ) => (
-    <MilestoneExpandedTabs
-      activeSubMilestoneId={activeSubMilestoneByRow[row.key]}
-      activeTab={placement === "sheet" ? detailsSheetActiveTab : undefined}
-      contractorActions={contractorActions}
-      contractorOptions={contractorOptions}
-      mode={mode}
-      moveTargetRows={rows.map(({ key, name }) => ({
-        key,
-        name,
-      }))}
-      onActiveSubMilestoneChange={(subMilestoneId) =>
-        setActiveSubMilestoneByRow((current) => ({
-          ...current,
-          [row.key]: subMilestoneId,
-        }))
-      }
-      onActiveTabChange={
-        placement === "sheet" ? handleDetailsSheetTabChange : undefined
-      }
-      onAddContractorAssignment={(assignment) =>
-        addContractorAssignment(row.key, assignment)
-      }
-      onAddSubMilestone={(item) => addSubMilestone(row.key, item)}
-      onCommitField={commitRows}
-      onCreateCostItem={(payload) => createCostItem(row.key, payload)}
-      onDeleteCostItem={(itemId) => deleteCostItem(row.key, itemId)}
-      onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
-        moveSubMilestone(row.key, subMilestoneId, targetRowKey)
-      }
-      onRemoveContractorAssignment={(assignmentId) =>
-        removeContractorAssignment(row.key, assignmentId)
-      }
-      onRemoveSubMilestone={(subMilestoneId) =>
-        removeSubMilestone(row.key, subMilestoneId)
-      }
-      onUpdateCostItem={(itemId, payload) =>
-        updateCostItem(row.key, itemId, payload)
-      }
-      onUpdateFieldGuidance={(siteVisitGuidance) =>
-        updateRow(row.key, { siteVisitGuidance })
-      }
-      onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
-        updateSubMilestone(row.key, subMilestoneId, patch, meta)
-      }
-      placement={placement}
-      proposedStartDate={proposedStartDate}
-      row={row}
-      scheduleDisplayMode={scheduleDisplayMode}
-    />
+    <>
+      <MilestoneExpandedTabs
+        activeSubMilestoneId={activeSubMilestoneByRow[row.key]}
+        activeTab={placement === "sheet" ? detailsSheetActiveTab : undefined}
+        contractorActions={contractorActions}
+        contractorOptions={contractorOptions}
+        mode={mode}
+        moveTargetRows={rows.map(({ key, name }) => ({
+          key,
+          name,
+        }))}
+        onActiveSubMilestoneChange={(subMilestoneId) =>
+          setActiveSubMilestoneByRow((current) => ({
+            ...current,
+            [row.key]: subMilestoneId,
+          }))
+        }
+        onActiveTabChange={
+          placement === "sheet" ? handleDetailsSheetTabChange : undefined
+        }
+        onAddContractorAssignment={(assignment) =>
+          addContractorAssignment(row.key, assignment)
+        }
+        onAddSubMilestone={(item) => addSubMilestone(row.key, item)}
+        onCommitField={commitRows}
+        onCreateCostItem={(payload) => createCostItem(row.key, payload)}
+        onDeleteCostItem={(itemId) => deleteCostItem(row.key, itemId)}
+        onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
+          moveSubMilestone(row.key, subMilestoneId, targetRowKey)
+        }
+        onRemoveContractorAssignment={(assignmentId) =>
+          removeContractorAssignment(row.key, assignmentId)
+        }
+        onRemoveSubMilestone={(subMilestoneId) =>
+          removeSubMilestone(row.key, subMilestoneId)
+        }
+        onUpdateCostItem={(itemId, payload) =>
+          updateCostItem(row.key, itemId, payload)
+        }
+        onUpdateFieldGuidance={(siteVisitGuidance) =>
+          updateRow(row.key, { siteVisitGuidance })
+        }
+        onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
+          updateSubMilestone(row.key, subMilestoneId, patch, meta)
+        }
+        placement={placement}
+        proposedStartDate={proposedStartDate}
+        row={row}
+        scheduleDisplayMode={scheduleDisplayMode}
+      />
+      {mode === "settings" && placement === "sheet" ? (
+        <Button
+          className="mt-4"
+          data-testid={`timeline-settings-details-delete-${row.key}`}
+          disabled={!canDeleteMilestone(row)}
+          onClick={() => setPendingMilestoneDeleteKey(row.key)}
+          title={
+            canDeleteMilestone(row)
+              ? undefined
+              : "At least one milestone must remain included."
+          }
+          type="button"
+          variant="destructive"
+        >
+          <Trash2 aria-hidden="true" />
+          Delete milestone
+        </Button>
+      ) : null}
+    </>
   );
 
   return (
@@ -1262,6 +1404,7 @@ export function TimelineMilestoneWorksheetTable({
             onCommitBudgetEdit={commitBudgetEdit}
             onCommitField={commitRows}
             onCustomMilestoneNameChange={setCustomMilestoneName}
+            onDeleteMilestone={(rowKey) => setPendingMilestoneDeleteKey(rowKey)}
             onMoveSubMilestone={moveSummarySubMilestone}
             onOpenDetails={openDetailsSheet}
             onUpdateRow={updateRow}
@@ -1403,6 +1546,41 @@ export function TimelineMilestoneWorksheetTable({
           </SheetPanel>
         </SheetPopup>
       </Sheet>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingMilestoneDeleteKey(null);
+          }
+        }}
+        open={pendingMilestoneDeleteRow !== null}
+      >
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete milestone</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingMilestoneDeleteRow
+                ? `"${pendingMilestoneDeleteRow.name}" and its sub-milestones will be removed from this draft. Completion percentages will be redistributed across the remaining included sub-milestones.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="outline">Cancel</Button>}
+            />
+            <Button
+              data-testid="timeline-settings-delete-milestone-confirm"
+              onClick={() => {
+                if (pendingMilestoneDeleteRow) {
+                  deleteMilestone(pendingMilestoneDeleteRow.key);
+                }
+              }}
+              variant="destructive"
+            >
+              Delete milestone
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1416,6 +1594,7 @@ function MilestoneSummaryTable({
   onCommitField,
   onCustomMilestoneNameChange,
   onMoveSubMilestone,
+  onDeleteMilestone,
   onOpenDetails,
   onUpdateRow,
   onUpdateSubMilestone,
@@ -1433,6 +1612,7 @@ function MilestoneSummaryTable({
   onCommitField: () => void;
   onCustomMilestoneNameChange: (value: string) => void;
   onMoveSubMilestone: (activeIndex: number, overIndex: number) => void;
+  onDeleteMilestone: (rowKey: string) => void;
   onOpenDetails: (rowKey: string, subMilestoneId?: string) => void;
   onUpdateRow: (
     rowKey: string,
@@ -1641,6 +1821,32 @@ function MilestoneSummaryTable({
                       <PanelRightOpen aria-hidden="true" />
                       Details
                     </Button>
+                    {mode === "settings" ? (
+                      <Button
+                        aria-label={`Delete ${row.name}`}
+                        className="timeline-blueprint-summary-details-button"
+                        data-testid={`timeline-settings-table-delete-${row.key}`}
+                        disabled={
+                          !row.excluded &&
+                          rows.filter((candidate) => !candidate.excluded)
+                            .length <= 1
+                        }
+                        onClick={() => onDeleteMilestone(row.key)}
+                        size="sm"
+                        title={
+                          !row.excluded &&
+                          rows.filter((candidate) => !candidate.excluded)
+                            .length <= 1
+                            ? "At least one milestone must remain included."
+                            : undefined
+                        }
+                        type="button"
+                        variant="destructive"
+                      >
+                        <Trash2 aria-hidden="true" />
+                        Delete
+                      </Button>
+                    ) : null}
                   </div>
                 </TableCell>
               </SortableItem>
@@ -2746,6 +2952,12 @@ export function moveSubMilestoneWithinSummaryRows(
   if (!(sourceRow && targetRow && movedSubMilestone)) {
     return null;
   }
+  if (
+    sourceRow.key !== targetRow.key &&
+    sourceRow.subMilestoneDetails.length <= 1
+  ) {
+    return null;
+  }
 
   const sourceIndex = sourceRow.subMilestoneDetails.findIndex(
     (subMilestone) => subMilestone.id === activeItem.subMilestoneId
@@ -2860,10 +3072,14 @@ function setupColumns({
 }
 
 function settingsColumns({
+  includedRowCount,
   moveRowByKey,
+  onIncludedChange,
   updateRow,
 }: {
+  includedRowCount: number;
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void;
+  onIncludedChange: (rowKey: string, included: boolean) => void;
   updateRow: (
     rowKey: string,
     patch: Partial<TimelineMilestoneWorksheetRow>,
@@ -2952,8 +3168,14 @@ function settingsColumns({
           checked={!row.original.excluded}
           className="timeline-blueprint-switch"
           data-testid={`timeline-setup-row-include-${row.original.key}`}
+          disabled={!row.original.excluded && includedRowCount <= 1}
           onCheckedChange={(included) =>
-            updateRow(row.original.key, { excluded: !included })
+            onIncludedChange(row.original.key, included)
+          }
+          title={
+            !row.original.excluded && includedRowCount <= 1
+              ? "At least one milestone must remain included."
+              : undefined
           }
         />
       ),
@@ -3551,7 +3773,13 @@ function SubMilestoneEditor({
                     aria-label={`Remove ${sanitizeSubMilestoneName(subMilestone.name)}`}
                     className="timeline-submilestone-remove"
                     data-testid={`timeline-setup-submilestone-remove-${subMilestone.id}`}
+                    disabled={subMilestones.length <= 1}
                     onClick={() => onRemoveSubMilestone(subMilestone.id)}
+                    title={
+                      subMilestones.length <= 1
+                        ? "Each milestone must retain at least one sub-milestone."
+                        : undefined
+                    }
                     type="button"
                   >
                     <Trash2 aria-hidden="true" />
@@ -3926,7 +4154,13 @@ function SubMilestoneDetailEditor({
         aria-label={`Remove ${sanitizeSubMilestoneName(activeSubMilestone.name)}`}
         className="timeline-submilestone-detail-remove"
         data-testid={`timeline-setup-submilestone-detail-remove-${activeSubMilestone.id}`}
+        disabled={row.subMilestoneDetails.length <= 1}
         onClick={() => onRemoveSubMilestone(activeSubMilestone.id)}
+        title={
+          row.subMilestoneDetails.length <= 1
+            ? "Each milestone must retain at least one sub-milestone."
+            : undefined
+        }
         type="button"
       >
         <Trash2 aria-hidden="true" />
@@ -5364,6 +5598,70 @@ function withDerivedSubMilestoneRollups(
   };
 }
 
+export function rebalanceWorksheetCompletionPercentages(
+  rows: TimelineMilestoneWorksheetRow[]
+): TimelineMilestoneWorksheetRow[] {
+  const allocationUnits = rows.flatMap((row) => {
+    if (row.excluded) {
+      return [];
+    }
+    if (row.subMilestoneDetails.length === 0) {
+      return [{ percentageBps: row.percentageBps }];
+    }
+    return row.subMilestoneDetails.map((subMilestone) => ({
+      percentageBps: subMilestone.percentageBps ?? 0,
+    }));
+  });
+  if (allocationUnits.length === 0) {
+    return rows;
+  }
+
+  const allocations = allocateWeightedUnits({
+    fallbackWeights: allocationUnits.map(() => 0),
+    preferredWeights: allocationUnits.map(
+      (allocationUnit) => allocationUnit.percentageBps
+    ),
+    totalUnits: TOTAL_COMPLETION_BPS,
+  });
+  let allocationIndex = 0;
+
+  return rows.map((row) => {
+    if (row.excluded) {
+      return row;
+    }
+    if (row.subMilestoneDetails.length === 0) {
+      const percentageBps = allocations[allocationIndex] ?? 0;
+      allocationIndex += 1;
+      return {
+        ...row,
+        percentageBps,
+        percentageText: formatBps(percentageBps),
+      };
+    }
+
+    const subMilestoneDetails = row.subMilestoneDetails.map((subMilestone) => {
+      const percentageBps = allocations[allocationIndex] ?? 0;
+      allocationIndex += 1;
+      return {
+        ...subMilestone,
+        percentageBps,
+        percentageText: formatBps(percentageBps),
+      };
+    });
+    const percentageBps = subMilestoneDetails.reduce(
+      (sum, subMilestone) => sum + (subMilestone.percentageBps ?? 0),
+      0
+    );
+
+    return {
+      ...row,
+      percentageBps,
+      percentageText: formatBps(percentageBps),
+      subMilestoneDetails,
+    };
+  });
+}
+
 function worksheetRowToMaterialMilestone(
   row: TimelineMilestoneWorksheetRow
 ): MaterialPlanningMilestone {
@@ -5594,7 +5892,23 @@ function allocateWeightedCents({
   preferredWeights: number[];
   totalCents: number;
 }) {
-  const roundedTotalCents = Math.max(0, Math.round(totalCents));
+  return allocateWeightedUnits({
+    fallbackWeights,
+    preferredWeights,
+    totalUnits: totalCents,
+  });
+}
+
+function allocateWeightedUnits({
+  fallbackWeights,
+  preferredWeights,
+  totalUnits,
+}: {
+  fallbackWeights: number[];
+  preferredWeights: number[];
+  totalUnits: number;
+}) {
+  const roundedTotalUnits = Math.max(0, Math.round(totalUnits));
   if (preferredWeights.length === 0) {
     return [];
   }
@@ -5602,30 +5916,30 @@ function allocateWeightedCents({
   const weights = resolveAllocationWeights(preferredWeights, fallbackWeights);
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
   const allocations = weights.map((weight, order) => {
-    const raw = roundedTotalCents * weight;
+    const raw = roundedTotalUnits * weight;
     return {
-      cents: Math.floor(raw / totalWeight),
+      units: Math.floor(raw / totalWeight),
       order,
       remainder: raw % totalWeight,
     };
   });
-  let remainderCents =
-    roundedTotalCents -
-    allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+  let remainderUnits =
+    roundedTotalUnits -
+    allocations.reduce((sum, allocation) => sum + allocation.units, 0);
   const byRemainder = [...allocations].sort(
     (a, b) => b.remainder - a.remainder || a.order - b.order
   );
   for (const allocation of byRemainder) {
-    if (remainderCents <= 0) {
+    if (remainderUnits <= 0) {
       break;
     }
-    allocation.cents += 1;
-    remainderCents -= 1;
+    allocation.units += 1;
+    remainderUnits -= 1;
   }
 
   return allocations
     .sort((a, b) => a.order - b.order)
-    .map((allocation) => allocation.cents);
+    .map((allocation) => allocation.units);
 }
 
 function resolveAllocationWeights(
