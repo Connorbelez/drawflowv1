@@ -334,7 +334,7 @@ describe("Cost Document public contract", () => {
     ]);
   });
 
-  test("rejects an explicitly unverified projected uploader even when the token includes email", async () => {
+  test("submits with the signed-in session email when the projected WorkOS email is unverified", async () => {
     const fixture = await seedFixture();
     const batchId = await createBatch(fixture, "unverified-receipt-email");
     const draftId = await addDraft(fixture, batchId, "receipt", "materials");
@@ -370,37 +370,79 @@ describe("Cost Document public contract", () => {
       await ctx.db.patch(user._id, { emailVerified: false });
     });
 
+    const submitted = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "unverified-receipt-email-submit",
+      }
+    );
+    const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    const intents = await fixture.base.run(
+      async (ctx) =>
+        await ctx.db
+          .query("communicationIntents")
+          .withIndex(
+            "by_relatedEntityType_and_relatedEntityId_and_createdAt",
+            (query) =>
+              query
+                .eq("relatedEntityType", "costDocument")
+                .eq("relatedEntityId", String(costDocumentId))
+          )
+          .collect()
+    );
+    expect(intents).toEqual([
+      expect.objectContaining({
+        recipientEmailSnapshot: "builder_owner@example.com",
+      }),
+    ]);
+  });
+
+  test("rejects a signed-in email that disagrees with the projected WorkOS email", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "mismatched-receipt-email");
+    const draftId = await addDraft(fixture, batchId, "receipt", "materials");
+    const assetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "mismatched-receipt-email.pdf"
+    );
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 7_500,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 7_500,
+      pageAssetIds: [assetId],
+      title: "Mismatched email receipt",
+      vendorName: "Cedar Supply Ltd.",
+    });
+    await completeDraft(fixture, draftId);
+    const mismatchedBuilder = fixture.base.withIdentity({
+      email: "other-identity@example.com",
+      name: "builder_owner",
+      organizationId: ORGANIZATION_ID,
+      role: "builder",
+      roles: ["builder"],
+      subject: "builder_owner",
+      tokenIdentifier: "https://api.workos.com/|builder_owner",
+      "https://fairlend.ca/actor_kind": "human",
+    } as never);
+
     await expect(
-      fixture.builder.mutation(
+      mismatchedBuilder.mutation(
         (api as any).cost_documents.submitCostDocumentBatch,
         {
           batchId,
           expectedRevision: await batchRevision(fixture, batchId),
-          idempotencyKey: "unverified-receipt-email-submit",
+          idempotencyKey: "mismatched-receipt-email-submit",
         }
       )
-    ).rejects.toThrow(
-      "A uniquely projected, verified uploader email is required for the receipt."
-    );
-    const state = await fixture.base.run(async (ctx) => ({
-      batch: await ctx.db.get(batchId),
-      documents: await ctx.db
-        .query("costDocuments")
-        .withIndex("by_buildId_and_submittedAt", (query) =>
-          query.eq("buildId", fixture.buildId)
-        )
-        .collect(),
-      intents: await ctx.db
-        .query("communicationIntents")
-        .withIndex(
-          "by_relatedEntityType_and_relatedEntityId_and_createdAt",
-          (query) => query.eq("relatedEntityType", "costDocument")
-        )
-        .collect(),
-    }));
-    expect(state.batch).toMatchObject({ state: "active" });
-    expect(state.documents).toEqual([]);
-    expect(state.intents).toEqual([]);
+    ).rejects.toThrow("WorkOS identity email verification is inconsistent.");
   });
 
   test("keeps Receipt publication durable when provider configuration is unavailable", async () => {

@@ -13,10 +13,8 @@ import {
   type ContractorRosterRow,
   ContractorRosterTable,
 } from "#/features/contractors/ContractorRosterTable.tsx";
-import {
-  getVisualContractorList,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/contractors/contractorVisualFixtures.ts";
+import { getVisualContractorList } from "#/features/contractors/contractorVisualFixtures.ts";
+import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 

@@ -19,10 +19,8 @@ import {
   type ContractorProfileDraft,
   ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
-import {
-  getVisualContractorList,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/contractors/contractorVisualFixtures.ts";
+import { getVisualContractorList } from "#/features/contractors/contractorVisualFixtures.ts";
+import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import {
   buildWorkosUserOptions,
   VISUAL_WORKOS_USER_OPTIONS,

@@ -69,18 +69,6 @@ describe("Header", () => {
     expect(screen.queryByText("TanStack Query")).toBeNull();
   });
 
-  test("keeps the demo navigation only on demo routes", () => {
-    render(<Header mode="demo" />);
-
-    expect(screen.getAllByText("Demos")).toHaveLength(2);
-    expect(screen.getByText("Convex")).toBeTruthy();
-    expect(screen.getByText("TanStack Query")).toBeTruthy();
-    expect(screen.queryByText("Backoffice")).toBeNull();
-    expect(screen.queryByText("Builder dashboard")).toBeNull();
-    expect(screen.queryByText("Builder onboarding")).toBeNull();
-    expect(screen.queryByText("Broker intake")).toBeNull();
-  });
-
   test("opens a landing-only mobile navigation menu", async () => {
     render(<Header enableLandingMobileMenu />);
 

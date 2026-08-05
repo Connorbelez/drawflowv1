@@ -70,7 +70,7 @@ export function BuilderProductionProposalsWorkspace({
   return (
     <BuilderProposalListSurface
       onNavigate={(to, params) => {
-        if (to === "/demo/timeline") {
+        if (to === "/builder/proposals/new") {
           void navigate({ to: "/builder/proposals/new" });
           return;
         }

@@ -1,5 +1,4 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
-import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
 import { getContext } from "./integrations/tanstack-query/root-provider";
 import { routeTree } from "./routeTree.gen";
 
@@ -39,7 +38,10 @@ export function getRouter() {
     },
   });
 
-  setupRouterSsrQueryIntegration({ router, queryClient: context.queryClient });
+  // No setupRouterSsrQueryIntegration and no server-side Convex fetch:
+  // authenticated Convex data loads client-side only, after AuthKit auth is
+  // seeded. Streaming query results from the server and handing them off to
+  // the live Convex client races the client auth handshake.
 
   return router;
 }

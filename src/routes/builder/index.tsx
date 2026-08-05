@@ -275,7 +275,7 @@ function BuilderHomeContent({
       chrome="embedded"
       liveBuildRoute={`${routeBase}/builds/$buildId`}
       onNavigate={(to, params) => {
-        if (to === "/demo/timeline") {
+        if (to === "/builder/proposals/new") {
           navigate({ to: "/builder/proposals/new" }).catch(() => undefined);
           return;
         }

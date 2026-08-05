@@ -1,5 +1,0 @@
-Generated the image with `image_gen.imagegen`, but the tool did not expose a savable PNG path or bytes in this environment.
-
-Wrote the required failure JSON here:
-
-[outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/06-capital-confidence-meter/attempt-2/result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/06-capital-confidence-meter/attempt-2/result.json)

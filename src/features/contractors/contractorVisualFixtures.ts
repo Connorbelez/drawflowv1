@@ -1,7 +1,7 @@
 import {
   isProductionVisualParityFixtureEnabled,
   VISUAL_PARITY_ORGANIZATION_ID,
-} from "#/features/production-proposals/visualParityFixtures.ts";
+} from "#/features/production-proposals/visualParityConstants.ts";
 
 export { isProductionVisualParityFixtureEnabled };
 

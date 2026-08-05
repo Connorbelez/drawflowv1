@@ -2637,27 +2637,28 @@ async function resolveCostDocumentUploaderEmail(
       query.eq("workosUserId", viewer.subject)
     )
     .take(2);
+  const activeProjected = projectedUsers.filter(
+    (user) => user.status !== "deleted"
+  );
+  const projectedUser =
+    activeProjected.length === 1 ? activeProjected[0] : undefined;
+  const projectedEmail = normalizeContractorEmail(projectedUser?.email);
 
-  if (projectedUsers.length === 0) {
-    throw new Error("A verified uploader email is required for the receipt.");
+  // Prefer the signed-in session email. WorkOS AuthKit places it on the
+  // identity; projection emailVerified can lag or stay unset after webhooks.
+  if (tokenEmail) {
+    if (projectedEmail && projectedEmail !== tokenEmail) {
+      throw new Error("WorkOS identity email verification is inconsistent.");
+    }
+    return tokenEmail;
   }
 
-  const projectedUser = projectedUsers[0];
-  if (
-    projectedUsers.length !== 1 ||
-    !projectedUser?.emailVerified ||
-    projectedUser.status === "deleted"
-  ) {
+  if (activeProjected.length !== 1 || !projectedEmail) {
     throw new Error(
-      "A uniquely projected, verified uploader email is required for the receipt."
+      activeProjected.length > 1
+        ? "A uniquely projected, verified uploader email is required for the receipt."
+        : "A verified uploader email is required for the receipt."
     );
-  }
-  const projectedEmail = normalizeContractorEmail(projectedUser.email);
-  if (!projectedEmail) {
-    throw new Error("A verified uploader email is required for the receipt.");
-  }
-  if (tokenEmail && tokenEmail !== projectedEmail) {
-    throw new Error("WorkOS identity email verification is inconsistent.");
   }
   return projectedEmail;
 }

@@ -1682,7 +1682,7 @@ export function useLoadingData(isLoading: boolean, loadingBars = 12) {
 
   const loadingData = useMemo(
     () => getLoadingData(loadingBars, 20, 80),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // deps exhaustive; stale eslint-disable removed (compiler-safe)
     [loadingBars, loadingDataKey]
   );
 

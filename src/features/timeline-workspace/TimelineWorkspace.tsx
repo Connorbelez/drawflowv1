@@ -37,6 +37,8 @@ import {
   type FormEvent,
   type ReactNode,
   type SetStateAction,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -94,14 +96,9 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { MilestoneCard, type MilestoneCardUpdate } from "./-MilestoneCard.tsx";
 import "./timeline-route-header.css";
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
-import { TimelineCashflowCompoundChart } from "./-TimelineCashflowCompoundChart.tsx";
-import { TimelineDrawAvailabilityChart } from "./-TimelineDrawAvailabilityChart.tsx";
 import { TimelineEndNodeButton } from "./-TimelineEndNodeButton.tsx";
 import { TimelineMilestoneSubmilestoneList } from "./-TimelineMilestoneSubmilestoneList.tsx";
-import {
-  TimelineSetupFlow,
-  type TimelineSetupResult,
-} from "./-TimelineSetupFlow.tsx";
+import type { TimelineSetupResult } from "./-TimelineSetupFlow.tsx";
 import {
   buildDrawsFromActiveScenario,
   buildTimelineSetupTemplatesFromSettings,
@@ -159,6 +156,22 @@ import {
 import { MobileTimelineDayDialWorkspace } from "./MobileTimelineWorkspace.tsx";
 import { TimelineCashflowToolbar } from "./TimelineCashflowToolbar.tsx";
 import { TimelineMilestoneContractorList } from "./TimelineMilestoneContractorList.tsx";
+
+const TimelineSetupFlow = lazy(() =>
+  import("./-TimelineSetupFlow.tsx").then((m) => ({
+    default: m.TimelineSetupFlow,
+  }))
+);
+const TimelineCashflowCompoundChart = lazy(() =>
+  import("./-TimelineCashflowCompoundChart.tsx").then((m) => ({
+    default: m.TimelineCashflowCompoundChart,
+  }))
+);
+const TimelineDrawAvailabilityChart = lazy(() =>
+  import("./-TimelineDrawAvailabilityChart.tsx").then((m) => ({
+    default: m.TimelineDrawAvailabilityChart,
+  }))
+);
 
 export const timelineWorkspaceSearchParsers = {
   share: parseAsString,
@@ -268,7 +281,7 @@ const TIMELINE_END_PADDING_DAYS = DEFAULT_DRAW_REVIEW_LAG_DAYS;
 const INITIAL_CAPITAL_SPIKES: DemoCapitalSpike[] = [];
 const INITIAL_COMPLETION_SUBMITTED_AT = "2026-05-01T14:00:00.000Z";
 export const LOCAL_TIMELINE_SHARE_PREFIX = "local-timeline-";
-const DEFAULT_TIMELINE_SHARE_PATH = "/demo/timeline";
+const DEFAULT_TIMELINE_SHARE_PATH = "/proposal-preview";
 const TIMELINE_TO_DEMO_MILESTONE_KEY: Record<string, string> = {
   closeout: "aluminum_windows",
   drywall: "aluminum_windows",
@@ -295,7 +308,7 @@ export function resolveDemoLiveBuildHref({
     return liveBuildHref;
   }
 
-  return buildKey ? `/builder/demo/dashboard/builds/${buildKey}` : undefined;
+  return buildKey ? `/backoffice/builds/${buildKey}` : undefined;
 }
 
 const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
@@ -1614,10 +1627,6 @@ export function TimelineWorkspace({
     setupComplete,
     workspaceInitialState,
   ]);
-
-  useEffect(() => {
-    setModificationRequests(initialModificationRequests);
-  }, [initialModificationRequests]);
 
   const completeTimelineSetup = useCallback(
     (result: TimelineSetupResult) => {
@@ -3974,11 +3983,19 @@ export function TimelineWorkspace({
     return (
       <>
         {settingsFallbackActive ? <TimelineDemoSettingsNotice /> : null}
-        <TimelineSetupFlow
-          baseItems={INITIAL_ITEMS}
-          onComplete={completeTimelineSetup}
-          settingsTemplates={setupTemplates}
-        />
+        <Suspense
+          fallback={
+            <div className="grid min-h-[24rem] place-items-center p-6 text-muted-foreground text-sm">
+              Loading setup…
+            </div>
+          }
+        >
+          <TimelineSetupFlow
+            baseItems={INITIAL_ITEMS}
+            onComplete={completeTimelineSetup}
+            settingsTemplates={setupTemplates}
+          />
+        </Suspense>
       </>
     );
   }
@@ -4644,20 +4661,22 @@ export function TimelineWorkspace({
                     </div>
                   </div>
                 </div>
-                <TimelineCashflowCompoundChart
-                  barSize={timelineSizing.barSize}
-                  data={cashflowChartData}
-                  hideTooltip={!showCashflowHoverDetails}
-                  onHotspotDaySelect={handleChartHotspotDaySelect}
-                  onProbeChange={
-                    showCashflowHoverDetails ? setProbeValue : undefined
-                  }
-                  referenceLines={cashflowReferenceLines}
-                  xDomain={[resolvedRange.min, resolvedRange.max]}
-                  xTicks={cashflowTicks}
-                  yAxisWidth={timelineSizing.yAxisWidth}
-                  yDomain={[cashflowExtent.min, cashflowExtent.max]}
-                />
+                <Suspense fallback={null}>
+                  <TimelineCashflowCompoundChart
+                    barSize={timelineSizing.barSize}
+                    data={cashflowChartData}
+                    hideTooltip={!showCashflowHoverDetails}
+                    onHotspotDaySelect={handleChartHotspotDaySelect}
+                    onProbeChange={
+                      showCashflowHoverDetails ? setProbeValue : undefined
+                    }
+                    referenceLines={cashflowReferenceLines}
+                    xDomain={[resolvedRange.min, resolvedRange.max]}
+                    xTicks={cashflowTicks}
+                    yAxisWidth={timelineSizing.yAxisWidth}
+                    yDomain={[cashflowExtent.min, cashflowExtent.max]}
+                  />
+                </Suspense>
               </motion.section>
             </ResponsiveAnalyticsDisclosure>
 
@@ -5289,17 +5308,19 @@ export function TimelineWorkspace({
               </p>*/}
                   </div>
                 </div>
-                <TimelineDrawAvailabilityChart
-                  data={drawAvailabilityChartData}
-                  formatMoney={formatCompactMoney}
-                  formatTimelineDay={formatTimelineDay}
-                  onProbeChange={setProbeValue}
-                  referenceLines={drawAvailabilityReferenceLines}
-                  xDomain={[resolvedRange.min, resolvedRange.max]}
-                  xTicks={cashflowTicks}
-                  yAxisWidth={timelineSizing.yAxisWidth}
-                  yDomain={[0, drawAvailabilityExtent.max]}
-                />
+                <Suspense fallback={null}>
+                  <TimelineDrawAvailabilityChart
+                    data={drawAvailabilityChartData}
+                    formatMoney={formatCompactMoney}
+                    formatTimelineDay={formatTimelineDay}
+                    onProbeChange={setProbeValue}
+                    referenceLines={drawAvailabilityReferenceLines}
+                    xDomain={[resolvedRange.min, resolvedRange.max]}
+                    xTicks={cashflowTicks}
+                    yAxisWidth={timelineSizing.yAxisWidth}
+                    yDomain={[0, drawAvailabilityExtent.max]}
+                  />
+                </Suspense>
                 <DrawAvailabilityMetrics
                   endingAvailability={endingAvailability}
                   probeDrawAvailability={probeDrawAvailability}

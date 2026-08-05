@@ -5,10 +5,8 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { ContractorDetailSurface } from "#/features/contractors/ContractorDetailSurface.tsx";
-import {
-  getVisualContractorDetail,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/contractors/contractorVisualFixtures.ts";
+import { getVisualContractorDetail } from "#/features/contractors/contractorVisualFixtures.ts";
+import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 

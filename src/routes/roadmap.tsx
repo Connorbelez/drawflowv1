@@ -786,9 +786,6 @@ function RoadmapFooter(): ReactElement {
             <Button render={<Link to="/" />} variant="outline">
               Home
             </Button>
-            <Button render={<Link to="/demo/timeline" />} variant="outline">
-              Timeline demo
-            </Button>
             <Button render={<Link to="/backoffice" />}>Backoffice</Button>
           </div>
         </div>

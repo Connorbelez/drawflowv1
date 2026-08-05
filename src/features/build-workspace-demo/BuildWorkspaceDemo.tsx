@@ -300,12 +300,17 @@ export function BuildWorkspaceDemo({
   showPrimaryAction = true,
   showRoleSelector = true,
   viewer = "lender",
+  workspaceCrumbHref = {
+    active: "/backoffice/builds/$buildId",
+    proposal: "/backoffice/proposals/$planId",
+  },
 }: {
   canFinalizeMilestones?: boolean;
   layout?: "embedded" | "route";
   showPrimaryAction?: boolean;
   showRoleSelector?: boolean;
   viewer?: "builder" | "lender";
+  workspaceCrumbHref?: { active: string; proposal: string };
 } = {}) {
   const workspace = useBuildWorkspace();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -414,6 +419,7 @@ export function BuildWorkspaceDemo({
           showRoleSelector={showRoleSelector}
           totalDrawAmount={totalDrawAmount}
           viewer={viewer}
+          workspaceCrumbHref={workspaceCrumbHref}
         />
         {workspace.terminalMessage ? (
           <div className="mb-3 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-emerald-700 text-sm dark:text-emerald-100">
@@ -499,6 +505,7 @@ function WorkspaceTopBar({
   showRoleSelector,
   totalDrawAmount,
   viewer,
+  workspaceCrumbHref,
 }: {
   blockerCount: number;
   canFinalizeMilestones: boolean;
@@ -509,14 +516,15 @@ function WorkspaceTopBar({
   showRoleSelector: boolean;
   totalDrawAmount: number;
   viewer: "builder" | "lender";
+  workspaceCrumbHref: { active: string; proposal: string };
 }) {
   const workspace = useBuildWorkspace();
   const [addOpen, setAddOpen] = useState(false);
   const isBuilderViewer = viewer === "builder";
   const workspaceCrumb =
     workspace.mode === "active"
-      ? { href: "/demo/drawflow/active", label: "Live Build" }
-      : { href: "/demo/drawflow/proposal", label: "Proposal" };
+      ? { href: workspaceCrumbHref.active, label: "Live Build" }
+      : { href: workspaceCrumbHref.proposal, label: "Proposal" };
   const buildTitle =
     workspace.mode === "active"
       ? activeBuildDisplayName(workspace.build.buildName)
@@ -540,7 +548,7 @@ function WorkspaceTopBar({
           <span>/</span>
           <a
             className="hover:text-emerald-700 dark:text-emerald-100"
-            href="/demo/drawflow/active"
+            href={workspaceCrumbHref.active}
           >
             {workspace.mode === "active" ? "Active" : "Draft"}
           </a>

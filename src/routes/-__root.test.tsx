@@ -138,7 +138,6 @@ describe("RootError", () => {
 describe("root auth boundary", () => {
   test("treats AuthKit failures as an unauthenticated local session", async () => {
     vi.mocked(getAuth).mockRejectedValueOnce(new Error("HTTPError"));
-    const clearAuth = vi.fn();
     const rootBeforeLoad = (
       Route as unknown as {
         beforeLoad?: (input: never) => Promise<unknown>;
@@ -149,7 +148,7 @@ describe("root auth boundary", () => {
       context: {
         convexQueryClient: {
           serverHttpClient: {
-            clearAuth,
+            clearAuth: vi.fn(),
             setAuth: vi.fn(),
           },
         },
@@ -157,6 +156,7 @@ describe("root auth boundary", () => {
     } as never);
 
     expect(auth).toEqual({
+      initialAuth: null,
       organizationId: null,
       permissions: [],
       role: null,
@@ -164,6 +164,39 @@ describe("root auth boundary", () => {
       token: null,
       userId: null,
     });
-    expect(clearAuth).toHaveBeenCalled();
+  });
+
+  test("seeds client initialAuth from the resolved AuthKit session", async () => {
+    vi.mocked(getAuth).mockResolvedValueOnce({
+      accessToken: "header.payload.sig",
+      entitlements: ["backoffice"],
+      featureFlags: ["beta"],
+      impersonator: undefined,
+      organizationId: "org_123",
+      permissions: ["proposal:read"],
+      role: "admin",
+      roles: ["admin", "broker"],
+      sessionId: "session_123",
+      user: { email: "admin@example.com", id: "user_123" },
+    } as never);
+    const rootBeforeLoad = (
+      Route as unknown as {
+        beforeLoad?: (input: never) => Promise<unknown>;
+      }
+    ).beforeLoad;
+
+    const auth = (await rootBeforeLoad?.({ context: {} } as never)) as {
+      initialAuth: {
+        organizationId?: string;
+        sessionId: string;
+        user: { id: string };
+      };
+      token: string | null;
+    };
+
+    expect(auth.token).toBe("header.payload.sig");
+    expect(auth.initialAuth.user.id).toBe("user_123");
+    expect(auth.initialAuth.sessionId).toBe("session_123");
+    expect(auth.initialAuth.organizationId).toBe("org_123");
   });
 });

@@ -28,7 +28,7 @@ import { TooltipProvider } from "../components/ui/tooltip";
 import ConvexProvider from "../integrations/convex/provider";
 import WorkOSProvider from "../integrations/workos/provider";
 import appCss from "../styles.css?url";
-import { VISUAL_PARITY_ORGANIZATION_ID } from "#/features/production-proposals/visualParityFixtures.ts";
+import { VISUAL_PARITY_ORGANIZATION_ID } from "#/features/production-proposals/visualParityConstants.ts";
 
 const LazyAppDevtools = lazy(async () => ({
   default: (await import("#/components/app-devtools.tsx")).AppDevtools,
@@ -46,11 +46,32 @@ interface RouterContext {
   userId?: string | null;
 }
 
+type WorkosUserInfo = Extract<
+  Awaited<ReturnType<typeof getAuth>>,
+  { sessionId: string }
+>;
+
+type AuthKitInitialAuth =
+  | {
+      entitlements?: string[];
+      featureFlags?: string[];
+      impersonator?: WorkosUserInfo["impersonator"];
+      organizationId?: string;
+      permissions?: string[];
+      role?: string;
+      roles?: string[];
+      sessionId: string;
+      user: WorkosUserInfo["user"];
+    }
+  | { user: null }
+  | null;
+
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);root.style.colorScheme=resolved;}catch(e){}})();`;
 
 const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
   if (isVisualParityFixtureEnabled()) {
     const fixtureAuth = {
+      initialAuth: null,
       organizationId: VISUAL_PARITY_ORGANIZATION_ID,
       permissions: ["proposal:read", "proposal:write"],
       role: "admin",
@@ -73,6 +94,9 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
   try {
     auth = await getAuth();
   } catch (error) {
+    // AuthKit resolution failed: treat the session as unauthenticated and
+    // leave initialAuth null so the client provider re-checks the session
+    // instead of seeding a possibly-wrong signed-out state.
     logAuthFailure("getAuth failed", error);
     return emptyAuthContext();
   }
@@ -121,7 +145,25 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
 
   logAuthDebug("getAuth payload", authPayload);
 
+  // Seed for the client AuthKitProvider. Without it the provider mounts in a
+  // loading/unauthenticated window on every page load and Convex queries fire
+  // before the access token is available — the auth race this removes.
+  const initialAuth: AuthKitInitialAuth = auth.user
+    ? {
+        entitlements: auth.entitlements,
+        featureFlags: auth.featureFlags,
+        impersonator: auth.impersonator,
+        organizationId: organizationId ?? undefined,
+        permissions,
+        role: role ?? undefined,
+        roles,
+        sessionId: auth.sessionId,
+        user: auth.user,
+      }
+    : { user: null };
+
   return {
+    initialAuth,
     organizationId: authPayload.organizationId,
     permissions,
     role: authPayload.role,
@@ -133,6 +175,7 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
 
 function emptyAuthContext() {
   return {
+    initialAuth: null,
     organizationId: null,
     permissions: [],
     role: null,
@@ -143,16 +186,13 @@ function emptyAuthContext() {
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
-  beforeLoad: async (ctx) => {
+  beforeLoad: async () => {
     const auth = await fetchWorkosAuth();
-    const { token } = auth;
 
-    if (token) {
-      ctx.context.convexQueryClient.serverHttpClient?.setAuth(token);
-    } else {
-      ctx.context.convexQueryClient.serverHttpClient?.clearAuth();
-    }
-
+    // No convexQueryClient.serverHttpClient.setAuth here: authenticated Convex
+    // data is fetched client-side only. Server-side Convex prefetch streams
+    // results into the page and hands off to the live client, which races the
+    // client auth-token handshake.
     logAuthDebug("root beforeLoad context payload", {
       organizationId: auth.organizationId,
       permissionCount: auth.permissions.length,

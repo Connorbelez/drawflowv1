@@ -44,11 +44,7 @@ export const Route = createFileRoute("/protected-access")({
 function ProtectedAccessRoute() {
   const { reason, workspace } = Route.useSearch();
   const navigate = useNavigate();
-  const context = (
-    Route as typeof Route & {
-      useRouteContext?: () => { organizationId?: string };
-    }
-  ).useRouteContext?.();
+  const context = Route.useRouteContext();
   const organizationId = context?.organizationId;
   const activation = useQuery(
     api.brokerageProvisioning.getTenantActivationState,
@@ -119,9 +115,9 @@ function ProtectedAccessRoute() {
             )}
             <Link
               className="inline-flex h-9 items-center rounded-md border bg-background px-3 font-medium text-sm"
-              to={isProfileLinkRequired ? "/" : "/demo"}
+              to="/"
             >
-              {isProfileLinkRequired ? "Home" : "Demos"}
+              Home
             </Link>
           </div>
         </FramePanel>

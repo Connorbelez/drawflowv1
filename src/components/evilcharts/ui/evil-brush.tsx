@@ -340,7 +340,7 @@ function EvilBrush({
         startIndex: controlledStart,
         endIndex: controlledEnd,
       };
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // Intentional: syncing internal range from controlled props (not a bug).
       setInternalRange(syncedRange);
       lastCommittedRef.current = syncedRange;
     }
@@ -741,7 +741,7 @@ function useEvilBrush<TData extends Record<string, unknown>>({
   const deferredRange = React.useDeferredValue(range);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // Intentional: reset deferred range when data changes (not a bug).
     setRange({
       startIndex: 0,
       endIndex: Math.max(0, data.length - 1),

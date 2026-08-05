@@ -1,7 +1,0 @@
-{
-  "id": "07-permit-to-payout-path",
-  "status": "failed",
-  "image_path": null,
-  "error": "Native image generation did not expose a savable PNG artifact in the workspace.",
-  "caveats": ""
-}

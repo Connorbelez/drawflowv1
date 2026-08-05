@@ -17,7 +17,7 @@ import {
   FAIRLEND_DEFAULT_BROKER_EMAIL,
   FAIRLEND_WORKOS_ORGANIZATION_ID,
 } from "./fairLendConfig";
-import type { Doc, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 /**
  * Lifecycle stage of a builder, derived from the presence and status of their
@@ -103,6 +103,55 @@ interface BrokerAssignmentProjection {
  * Aggregated server-side in a single pass so the surface renders without
  * client-side joins or N+1 reactivity.
  */
+/**
+ * Fetch only the users referenced by a set of WorkOS user ids. Used to avoid
+ * scanning the global `users` projection table on tenant-scoped roster queries.
+ */
+async function loadUsersForOrganization(
+  ctx: QueryCtx,
+  workosUserIds: Iterable<string>,
+): Promise<Doc<"users">[]> {
+  const ids = Array.from(new Set(workosUserIds)).filter(
+    (id): id is string => Boolean(id),
+  );
+  if (ids.length === 0) {
+    return [];
+  }
+  const results = await Promise.all(
+    ids.map((id) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", id))
+        .first(),
+    ),
+  );
+  return results.filter((row): row is Doc<"users"> => row !== null);
+}
+
+/**
+ * Fetch account links scoped to a tenant's brokerages (avoids a full scan of
+ * the global builderAccountLinks table).
+ */
+async function loadLinksForBrokerages(
+  ctx: QueryCtx,
+  brokerageIds: Id<"brokerages">[],
+): Promise<Doc<"builderAccountLinks">[]> {
+  if (brokerageIds.length === 0) {
+    return [];
+  }
+  const rows = await Promise.all(
+    brokerageIds.map((id) =>
+      ctx.db
+        .query("builderAccountLinks")
+        .withIndex("by_brokerageId_and_updatedAt", (q) =>
+          q.eq("brokerageId", id),
+        )
+        .collect(),
+    ),
+  );
+  return rows.flat();
+}
+
 export const listBuilderRoster = backofficeQuery
   .returns(v.any())
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The roster is intentionally aggregated in one server-side pass to avoid client joins and N+1 subscriptions.
@@ -113,16 +162,12 @@ export const listBuilderRoster = backofficeQuery
     if (!(ctx.viewer.roles.includes("admin") || organizationScope)) {
       throw new Error("Active organization context is required.");
     }
-    const [
-      profiles,
-      brokerages,
-      organizations,
-      memberships,
-      users,
-      links,
-      proposals,
-      builds,
-    ] = await Promise.all([
+    // A non-admin is organization-scoped for the primary tables. The join tables
+    // below are then restricted to that same organization's brokerages/profiles so
+    // the roster does not scan every tenant's rows (users/links/proposals/builds)
+    // on every load. The Maps below key join rows by org-scoped profile ids, so
+    // narrowing the reads does not change the returned roster — only read volume.
+    const [profiles, brokerages, organizations, memberships] = await Promise.all([
       organizationScope
         ? ctx.db
             .query("builderProfiles")
@@ -155,11 +200,72 @@ export const listBuilderRoster = backofficeQuery
             )
             .collect()
         : ctx.db.query("workosOrganizationMemberships").collect(),
-      ctx.db.query("users").collect(),
-      ctx.db.query("builderAccountLinks").collect(),
-      ctx.db.query("buildProposals").collect(),
-      ctx.db.query("activeBuilds").collect(),
     ]);
+
+    const brokerageIds = brokerages.map((row) => row._id);
+
+    const scopedProjections = organizationScope
+      ? {
+          links: brokerageIds.length
+            ? await Promise.all(
+                brokerageIds.map((id) =>
+                  ctx.db
+                    .query("builderAccountLinks")
+                    .withIndex("by_brokerageId_and_updatedAt", (q) =>
+                      q.eq("brokerageId", id),
+                    )
+                    .collect(),
+                ),
+              ).then((rows) => rows.flat())
+            : [],
+          proposals: brokerageIds.length
+            ? await Promise.all(
+                brokerageIds.map((id) =>
+                  ctx.db
+                    .query("buildProposals")
+                    .withIndex("by_brokerage", (q) =>
+                      q.eq("brokerageId", id),
+                    )
+                    .collect(),
+                ),
+              ).then((rows) => rows.flat())
+            : [],
+          builds: await ctx.db
+            .query("activeBuilds")
+            .withIndex("by_organizationId", (q) =>
+              q.eq("organizationId", organizationScope),
+            )
+            .collect(),
+        }
+      : {
+          links: await ctx.db.query("builderAccountLinks").collect(),
+          proposals: await ctx.db.query("buildProposals").collect(),
+          builds: await ctx.db.query("activeBuilds").collect(),
+        };
+
+    const { links, proposals, builds } = scopedProjections;
+
+    // Only the users referenced by the scoped (org) account links are needed.
+    const users = organizationScope
+      ? await (async () => {
+          const linkedUserIds = new Set<string>();
+          for (const link of links) {
+            if (link.workosUserId) {
+              linkedUserIds.add(link.workosUserId);
+            }
+          }
+          const results = await Promise.all(
+            [...linkedUserIds].map((id) =>
+              ctx.db
+                .query("users")
+                .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", id))
+                .first(),
+            ),
+          );
+          return results.filter((row) => row !== null);
+        })()
+      : await ctx.db.query("users").collect();
+
 
     const brokeragesById = new Map(brokerages.map((row) => [row._id, row]));
     const orgsByWorkosId = new Map(
@@ -432,7 +538,7 @@ export const listAssignableBrokers = userManagementWriteQuery
       throw new Error("Active organization context is required.");
     }
 
-    const [brokerages, memberships, users] = await Promise.all([
+    const [brokerages, memberships] = await Promise.all([
       organizationScope
         ? ctx.db
             .query("brokerages")
@@ -449,8 +555,15 @@ export const listAssignableBrokers = userManagementWriteQuery
             )
             .collect()
         : ctx.db.query("workosOrganizationMemberships").collect(),
-      ctx.db.query("users").collect(),
     ]);
+    // Only the active organization's members are returned, so only their
+    // WorkOS users need to be loaded.
+    const users = organizationScope
+      ? await loadUsersForOrganization(
+          ctx,
+          memberships.filter((m) => m.status === "active").map((m) => m.workosUserId),
+        )
+      : await ctx.db.query("users").collect();
     const activeUsers = new Map(
       users
         .filter((user) => user.status === "active" && user.workosUserId)
@@ -781,7 +894,7 @@ export const listUnprovisionedBuilders = backofficeQuery
     if (!(ctx.viewer.roles.includes("admin") || organizationScope)) {
       throw new Error("Active organization context is required.");
     }
-    const [memberships, users, brokerages, links] = await Promise.all([
+    const [memberships, brokerages] = await Promise.all([
       organizationScope
         ? ctx.db
             .query("workosOrganizationMemberships")
@@ -790,7 +903,6 @@ export const listUnprovisionedBuilders = backofficeQuery
             )
             .collect()
         : ctx.db.query("workosOrganizationMemberships").collect(),
-      ctx.db.query("users").collect(),
       organizationScope
         ? ctx.db
             .query("brokerages")
@@ -799,8 +911,18 @@ export const listUnprovisionedBuilders = backofficeQuery
             )
             .collect()
         : ctx.db.query("brokerages").collect(),
-      ctx.db.query("builderAccountLinks").collect(),
     ]);
+    // Links and users are scoped to the same organization so the candidates
+    // (org-scoped memberships) are evaluated against this tenant's data only.
+    const links = organizationScope
+      ? await loadLinksForBrokerages(ctx, brokerages.map((row) => row._id))
+      : await ctx.db.query("builderAccountLinks").collect();
+    const users = organizationScope
+      ? await loadUsersForOrganization(
+          ctx,
+          memberships.map((m) => m.workosUserId),
+        )
+      : await ctx.db.query("users").collect();
 
     const usersByWorkosId = new Map(
       users

@@ -47,6 +47,7 @@ const DotField = memo(
     glowColor = "#120F17",
     ...rest
   }: DotFieldProps) => {
+    "use no memo"; // intentional (mount-once canvas setup + React.memo wrapper)
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
     const glowRef = useRef<SVGCircleElement>(null);
@@ -293,7 +294,6 @@ const DotField = memo(
         window.removeEventListener("resize", resize);
         window.removeEventListener("mousemove", onMouseMove);
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {

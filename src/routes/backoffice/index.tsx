@@ -355,12 +355,29 @@ function RouteComponent() {
 
   if (!(dashboard && buildersResult)) {
     return (
-      <div className="grid min-h-[24rem] place-items-center p-4">
-        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
-          <Loader2 className="size-4 animate-spin" />
-          Loading lender operations dashboard...
-        </div>
-      </div>
+      <main
+        className="grid min-h-[calc(100vh-4rem)] gap-4 bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_20rem]"
+        data-testid="backoffice-dashboard-grid"
+      >
+        <section className="flex min-w-0 flex-col gap-4">
+          <DashboardToolbar />
+          <Frame>
+            <FramePanel className="flex min-h-[8rem] items-center justify-center gap-2 p-6 text-muted-foreground text-sm">
+              <Loader2 className="size-4 animate-spin" />
+              Loading lender operations dashboard…
+            </FramePanel>
+          </Frame>
+          <Frame>
+            <FramePanel className="min-h-[12rem] animate-pulse bg-muted/40" />
+          </Frame>
+          <Frame>
+            <FramePanel className="min-h-[16rem] animate-pulse bg-muted/40" />
+          </Frame>
+        </section>
+        <Frame className="hidden lg:block">
+          <FramePanel className="min-h-[24rem] animate-pulse bg-muted/40" />
+        </Frame>
+      </main>
     );
   }
 
@@ -1531,10 +1548,6 @@ export function ProposalKanban({
                               params: { planId: selected.id },
                               to: "/backoffice/proposals/$planId",
                             });
-                            return;
-                          }
-                          if (selected.href?.startsWith("/demo/timeline/")) {
-                            window.location.assign(selected.href);
                             return;
                           }
                           setActiveProposal(selected);

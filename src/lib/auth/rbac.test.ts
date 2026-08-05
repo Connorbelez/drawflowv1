@@ -231,14 +231,6 @@ describe("DrawFlow frontend RBAC policy", () => {
       })
     ).toMatchObject({ status: "allowed" });
 
-    expect(
-      getWorkspaceAccessDecision({
-        isAuthenticated: false,
-        pathname: "/builder/demo/dashboard",
-        roles: [],
-        workspace: "builder",
-      })
-    ).toMatchObject({ status: "allowed", reason: "demo-exception" });
   });
 
   test("builder-staff workspace allows admins and builder staff only", () => {
@@ -347,7 +339,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     );
   });
 
-  test("canonical production proposal routes are guarded while demo routes remain public", () => {
+  test("canonical production proposal routes are guarded", () => {
     for (const pathname of [
       "/builder/proposals/new",
       "/builder/proposals/proposal_123",
@@ -413,14 +405,6 @@ describe("DrawFlow frontend RBAC policy", () => {
       ).toMatchObject({ reason: "no-workspace-access", status: "forbidden" });
     }
 
-    expect(
-      getWorkspaceAccessDecision({
-        isAuthenticated: false,
-        pathname: "/builder/demo/dashboard/proposals",
-        roles: [],
-        workspace: "builder",
-      }),
-    ).toMatchObject({ reason: "demo-exception", status: "allowed" });
   });
 
   test("user management route access requires user-management write roles", () => {

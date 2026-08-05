@@ -1,5 +1,0 @@
-Generated the image with `image_gen.imagegen`, but the native tool did not provide a filesystem path or binary handle I could save as `image.png`.
-
-Wrote the required failed result JSON to:
-
-`outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/02-company-trust-with-quiz/attempt-2/result.json`

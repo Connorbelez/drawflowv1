@@ -23,10 +23,17 @@ import {
   XCircle,
 } from "lucide-react";
 import type * as React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
-import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -55,7 +62,6 @@ import {
 import { Separator } from "#/components/ui/separator.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
-import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import {
   BuildFundingWorkspace,
   type DrawRequestReceipt,
@@ -76,7 +82,6 @@ import {
   buildActiveBuildCalendarWorkspaceFromDetail,
   createActiveBuildCalendarEditHandler,
 } from "#/features/calendar-workspace/adapters/activeBuildCalendarAdapter.ts";
-import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import type {
   CalendarFilters,
   CalendarSyncSubscriptionResult,
@@ -92,10 +97,9 @@ import {
   type ContractorProfileDraft,
   ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
-import {
-  type MaterialPlanningActions,
-  type MaterialPlanningItem,
-  MaterialPlanningTab,
+import type {
+  MaterialPlanningActions,
+  MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
@@ -105,16 +109,27 @@ import {
 } from "#/lib/evidence-image-normalization.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
-import { ActiveBuildGanttWorkspace } from "./ActiveBuildGanttWorkspace";
-import {
-  ActiveBuildTimelineWorkspace,
-  type ActiveBuildTimelineWorkspaceProps,
-} from "./ActiveBuildTimelineWorkspace";
+import type { ActiveBuildTimelineWorkspaceProps } from "./ActiveBuildTimelineWorkspace";
 import {
   BUILD_DETAIL_TABS,
   type BuildDetailSubTab,
   BuildDetailTabBar,
 } from "./BuildDetailTabs";
+import {
+  BuildDetailTabFallback,
+  LazyActiveBuildGanttWorkspace,
+  LazyActiveBuildTimelineWorkspace,
+  LazyBuildCollaborationWorkspace,
+  LazyCalendarWorkspace,
+  LazyMaterialPlanningTab,
+  preloadBuildDetailTab,
+} from "./lazy-build-detail-tabs.tsx";
+
+const LazyFieldRichTextPreview = lazy(() =>
+  import("#/components/rich-text/field-rich-text.tsx").then((m) => ({
+    default: m.FieldRichTextPreview,
+  }))
+);
 import { ContractorsCard } from "./ContractorsCard";
 import { EventRailSheet } from "./EventRail";
 import {
@@ -1188,6 +1203,7 @@ export function ProductionBuildDetailSurface({
         <BuildDetailTabBar
           activeTab={activeTab}
           onChangeTab={onChangeTab}
+          onPreloadTab={preloadBuildDetailTab}
           tabs={visibleTabs}
         />
         <section
@@ -1770,7 +1786,10 @@ function ProductionDetailsTab({
           `${detail.build._id}:${workosOrganizationId ?? "unscoped"}`
         }
       >
-        <BuildCollaborationWorkspace
+        <Suspense
+          fallback={<BuildDetailTabFallback label="collaboration" />}
+        >
+        <LazyBuildCollaborationWorkspace
           buildId={detail.build._id}
           focusedReference={focusedReference}
           onOpenReference={(reference) => {
@@ -1822,6 +1841,7 @@ function ProductionDetailsTab({
           }}
           organizationId={workosOrganizationId}
         />
+        </Suspense>
       </CatchBoundary>
     </div>
   );
@@ -4188,10 +4208,12 @@ function CompletedSiteVisitReview({
     <div className="grid gap-3" data-testid="completed-site-visit-review">
       {visit.recordNote ? (
         visit.recordNoteFormat === "html" ? (
-          <FieldRichTextPreview
-            ariaLabel="Completed site visit report"
-            value={visit.recordNote}
-          />
+          <Suspense fallback={null}>
+            <LazyFieldRichTextPreview
+              ariaLabel="Completed site visit report"
+              value={visit.recordNote}
+            />
+          </Suspense>
         ) : (
           <p className="rounded-md border bg-card p-3 text-sm">
             {visit.recordNote}
@@ -5650,21 +5672,23 @@ function ProductionTimelineTab({
   }
   return (
     <div data-testid="production-build-timeline">
-      <ActiveBuildTimelineWorkspace
-        appPermissions={detail.appPermissions}
-        backofficeHref="/backoffice"
-        buildHref={`/backoffice/builds/${detail.build._id}`}
-        buildId={activeBuildId as any}
-        canApproveMilestones={Boolean(actions?.approveMilestone)}
-        canRecordSiteVisits={Boolean(actions?.reviewEvidence)}
-        canRequestMilestoneInfo={Boolean(actions?.requestMilestoneInfo)}
-        canRequestSiteVisits={Boolean(actions?.assignSiteVisit)}
-        canReviewDraws={Boolean(actions?.approveDraw && actions?.rejectDraw)}
-        initialRole={viewerRole}
-        onRequestSiteVisit={onRequestSiteVisit}
-        workosOrganizationId={workosOrganizationId}
-        workspace={timelineWorkspace}
-      />
+      <Suspense fallback={<BuildDetailTabFallback label="timeline" />}>
+        <LazyActiveBuildTimelineWorkspace
+          appPermissions={detail.appPermissions}
+          backofficeHref="/backoffice"
+          buildHref={`/backoffice/builds/${detail.build._id}`}
+          buildId={activeBuildId as any}
+          canApproveMilestones={Boolean(actions?.approveMilestone)}
+          canRecordSiteVisits={Boolean(actions?.reviewEvidence)}
+          canRequestMilestoneInfo={Boolean(actions?.requestMilestoneInfo)}
+          canRequestSiteVisits={Boolean(actions?.assignSiteVisit)}
+          canReviewDraws={Boolean(actions?.approveDraw && actions?.rejectDraw)}
+          initialRole={viewerRole}
+          onRequestSiteVisit={onRequestSiteVisit}
+          workosOrganizationId={workosOrganizationId}
+          workspace={timelineWorkspace}
+        />
+      </Suspense>
     </div>
   );
 }
@@ -5964,11 +5988,13 @@ function EvidenceRowItem({
           </dl>
           {row.note ? (
             row.noteFormat === "html" ? (
-              <FieldRichTextPreview
-                ariaLabel={`${row.milestoneName} field report`}
-                className="mt-3 max-w-3xl"
-                value={row.note}
-              />
+              <Suspense fallback={null}>
+                <LazyFieldRichTextPreview
+                  ariaLabel={`${row.milestoneName} field report`}
+                  className="mt-3 max-w-3xl"
+                  value={row.note}
+                />
+              </Suspense>
             ) : (
               <p className="mt-3 max-w-3xl text-muted-foreground text-xs">
                 {row.note}
@@ -6364,21 +6390,23 @@ function ProductionBuildMaterialsTab({
     }));
 
   return (
-    <MaterialPlanningTab
-      actions={actions}
-      budgetTreatmentEnabled
-      focusedItemId={
-        focusedReference?.startsWith("material:")
-          ? focusedReference.slice("material:".length)
-          : undefined
-      }
-      items={detail.costItems ?? []}
-      lockBudgetTreatment
-      milestones={milestones}
-      panelLayout="stacked"
-      readOnly={!actions}
-      scopeLabel="Active Build"
-    />
+    <Suspense fallback={<BuildDetailTabFallback label="materials" />}>
+      <LazyMaterialPlanningTab
+        actions={actions}
+        budgetTreatmentEnabled
+        focusedItemId={
+          focusedReference?.startsWith("material:")
+            ? focusedReference.slice("material:".length)
+            : undefined
+        }
+        items={detail.costItems ?? []}
+        lockBudgetTreatment
+        milestones={milestones}
+        panelLayout="stacked"
+        readOnly={!actions}
+        scopeLabel="Active Build"
+      />
+    </Suspense>
   );
 }
 
@@ -6525,19 +6553,21 @@ function ProductionCalendarTab({
 
   return (
     <div data-testid="production-build-calendar">
-      <CalendarWorkspace
-        actions={calendarActions}
-        initialSelectedEventId={focusedSiteVisitEventId}
-        initialTimeframe={
-          calendarTimeframe ?? effectiveWorkspace.defaultTimeframe
-        }
-        onCommitEdit={commitEdit}
-        onCreateSyncSubscription={actions?.createCalendarSyncSubscription}
-        onRecordExternalSyncChange={actions?.recordExternalCalendarSyncChange}
-        onSaveView={actions?.saveCalendarView}
-        onTimeframeChange={onChangeCalendarTimeframe}
-        workspace={effectiveWorkspace}
-      />
+      <Suspense fallback={<BuildDetailTabFallback label="calendar" />}>
+        <LazyCalendarWorkspace
+          actions={calendarActions}
+          initialSelectedEventId={focusedSiteVisitEventId}
+          initialTimeframe={
+            calendarTimeframe ?? effectiveWorkspace.defaultTimeframe
+          }
+          onCommitEdit={commitEdit}
+          onCreateSyncSubscription={actions?.createCalendarSyncSubscription}
+          onRecordExternalSyncChange={actions?.recordExternalCalendarSyncChange}
+          onSaveView={actions?.saveCalendarView}
+          onTimeframeChange={onChangeCalendarTimeframe}
+          workspace={effectiveWorkspace}
+        />
+      </Suspense>
       <div className="sr-only">
         <button onClick={() => onChangeTab("timeline")} type="button">
           Jump to timeline
@@ -6583,17 +6613,19 @@ function ProductionGanttTab({
   }
   return (
     <div className="min-h-[42rem]" data-testid="production-build-gantt">
-      <ActiveBuildGanttWorkspace
-        buildId={activeBuildId as any}
-        canApproveMilestones={Boolean(actions?.approveMilestone)}
-        canRejectMilestones={Boolean(actions?.rejectMilestone)}
-        detail={detail}
-        onRequestSiteVisit={onRequestSiteVisit}
-        onStartWork={onStartWork}
-        timelineWorkspace={timelineWorkspace}
-        viewerRole={viewerRole}
-        workosOrganizationId={workosOrganizationId}
-      />
+      <Suspense fallback={<BuildDetailTabFallback label="Gantt" />}>
+        <LazyActiveBuildGanttWorkspace
+          buildId={activeBuildId as any}
+          canApproveMilestones={Boolean(actions?.approveMilestone)}
+          canRejectMilestones={Boolean(actions?.rejectMilestone)}
+          detail={detail}
+          onRequestSiteVisit={onRequestSiteVisit}
+          onStartWork={onStartWork}
+          timelineWorkspace={timelineWorkspace}
+          viewerRole={viewerRole}
+          workosOrganizationId={workosOrganizationId}
+        />
+      </Suspense>
     </div>
   );
 }

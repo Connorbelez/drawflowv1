@@ -1,5 +1,0 @@
-Failed to save the generated PNG because the native `image_gen.imagegen` tool did not expose a filesystem path or binary handle.
-
-Wrote the required failure JSON at:
-
-`outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/retry-03-07/workers/03-progress-draw-control-plane/attempt-1/result.json`

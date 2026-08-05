@@ -1,7 +1,0 @@
-{
-  "id": "03-progress-draw-control-plane",
-  "status": "failed",
-  "image_path": null,
-  "error": "Native image generation succeeded, but no filesystem path or binary handle was exposed, so the PNG could not be saved to the requested location.",
-  "caveats": ""
-}

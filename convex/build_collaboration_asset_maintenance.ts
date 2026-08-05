@@ -172,6 +172,9 @@ function resolveScanResult(
   };
 }
 
+/** Opt-in integrity-only scanner for local/dev. Not malware AV. */
+export const BUILTIN_INTEGRITY_SCANNER = "builtin:integrity";
+
 export const processBuildCollaborationAssetScan = internalAction
   .input({ assetId: v.id("buildCollaborationAssets") })
   .returns(v.null())
@@ -194,7 +197,26 @@ export const processBuildCollaborationAssetScan = internalAction
       });
       return null;
     }
+    if (isEphemeralTunnelScannerUrl(endpoint)) {
+      await recordResult(ctx, args.assetId, {
+        message:
+          "BUILD_COLLABORATION_ASSET_SCAN_URL points at an ephemeral Cloudflare tunnel. Set it to builtin:integrity for development or a durable HTTPS scanner for production.",
+        outcome: "error",
+        provider: "misconfigured-scanner",
+      });
+      return null;
+    }
     try {
+      if (endpoint === BUILTIN_INTEGRITY_SCANNER) {
+        const payload = await scanWithBuiltinIntegrity(input);
+        await recordResult(ctx, args.assetId, {
+          computedHashSha256: payload.sha256,
+          message: payload.message,
+          outcome: payload.clean ? "clean" : "rejected",
+          provider: "builtin-integrity",
+        });
+        return null;
+      }
       const response = await fetch(endpoint, {
         body: JSON.stringify(input),
         headers: {
@@ -513,4 +535,44 @@ function boundedMessage(value?: string) {
 
 function boundedProvider(value: string) {
   return value.trim().slice(0, 100) || "unknown";
+}
+
+function isEphemeralTunnelScannerUrl(endpoint: string) {
+  try {
+    const hostname = new URL(endpoint).hostname.toLowerCase();
+    return (
+      hostname === "trycloudflare.com" ||
+      hostname.endsWith(".trycloudflare.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function scanWithBuiltinIntegrity(input: {
+  contentHashSha256: string;
+  fileUrl: string;
+}) {
+  const response = await fetch(input.fileUrl);
+  if (!response.ok) {
+    throw new Error(
+      `Unable to download asset for integrity scan (HTTP ${response.status}).`
+    );
+  }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await response.arrayBuffer()
+  );
+  const sha256 = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  const expected = input.contentHashSha256.trim().toLowerCase();
+  const clean = sha256 === expected;
+  return {
+    clean,
+    message: clean
+      ? "Builtin integrity scan matched the upload hash."
+      : "Builtin integrity scan hash mismatch.",
+    sha256,
+  };
 }

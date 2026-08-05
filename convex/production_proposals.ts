@@ -216,6 +216,21 @@ const TOTAL_BPS = 10_000;
 const PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const PROPOSAL_TIMELINE_MIN_DAY = -30;
 const BACKOFFICE_DASHBOARD_PROPOSALS_PER_COLUMN = 50;
+const BACKOFFICE_DASHBOARD_ACTIVE_BUILDS_LIMIT = 50;
+/** Dashboard cards only need summary fields; keep nested scans bounded. */
+const BACKOFFICE_DASHBOARD_MILESTONES_PER_BUILD = 80;
+const BACKOFFICE_DASHBOARD_PLANNED_DRAWS_PER_BUILD = 80;
+const BACKOFFICE_DASHBOARD_DRAW_REQUESTS_PER_BUILD = 80;
+/** Only need the first image for card thumbnails — avoid scanning full evidence trees. */
+const BACKOFFICE_DASHBOARD_EVIDENCE_SCAN_PER_BUILD = 16;
+const BACKOFFICE_DASHBOARD_STORAGE_URL_CAP = 50;
+/** Detail/timeline first-paint caps — full trees remain a follow-up split. */
+const ACTIVE_BUILD_AUDIT_EVENTS_LIMIT = 100;
+const ACTIVE_BUILD_DOCUMENT_URL_CAP = 40;
+const ACTIVE_BUILD_EVIDENCE_URL_CAP = 60;
+const ACTIVE_BUILD_AVAILABLE_CONTRACTORS_LIMIT = 100;
+const TIMELINE_AUDIT_EVENTS_LIMIT = 50;
+const TIMELINE_EVIDENCE_URL_CAP = 40;
 const BACKOFFICE_BUILDER_OPTIONS_LIMIT = 200;
 const milestoneStartSourceValidator = v.union(
   v.literal("milestone_card"),
@@ -11277,6 +11292,8 @@ export const getBackofficeDashboard = authenticatedQuery
         "proposals:read",
       ));
 
+    // Phase 2B: return shaped card summaries only (see activeBuilds / drawRequests /
+    // milestones below). Nested collections are scanned server-side and never shipped.
     const proposalRows = await visibleBackofficeDashboardProposalRows(
       ctx,
       auth,
@@ -11286,50 +11303,75 @@ export const getBackofficeDashboard = authenticatedQuery
     const activeBuildRows = await ctx.db
       .query("activeBuilds")
       .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
-      .take(50);
+      .take(BACKOFFICE_DASHBOARD_ACTIVE_BUILDS_LIMIT);
     type VisibleActiveBuild = {
       build: Doc<"activeBuilds">;
       builder: Doc<"builderProfiles"> | null;
       drawRequests: Doc<"activeBuildDrawRequests">[];
-      evidence: Doc<"buildEvidenceAssets">[];
+      firstImageStorageId: Id<"_storage"> | null;
       plannedDraws: Doc<"plannedDrawScheduleRows">[];
       milestones: Doc<"buildMilestones">[];
       proposal: Doc<"buildProposals">;
     };
+
+    // Batch proposal + builder lookups once (avoids N+1 per active build).
+    const uniqueProposalIds = [
+      ...new Set(activeBuildRows.map((build) => build.proposalId)),
+    ];
+    const uniqueBuilderIds = [
+      ...new Set(activeBuildRows.map((build) => build.builderProfileId)),
+    ];
+    const [proposalDocs, builderDocs] = await Promise.all([
+      Promise.all(uniqueProposalIds.map((id) => ctx.db.get(id))),
+      Promise.all(uniqueBuilderIds.map((id) => ctx.db.get(id))),
+    ]);
+    const proposalById = new Map(
+      proposalDocs.flatMap((proposal) =>
+        proposal ? [[proposal._id, proposal] as const] : [],
+      ),
+    );
+    const builderById = new Map(
+      builderDocs.flatMap((builder) =>
+        builder ? [[builder._id, builder] as const] : [],
+      ),
+    );
+
     const projectedActiveBuilds = await Promise.all(
       activeBuildRows.map(async (build): Promise<VisibleActiveBuild | null> => {
-        const proposal = await ctx.db.get(build.proposalId);
+        const proposal = proposalById.get(build.proposalId);
         if (!proposal) {
           return null;
         }
         if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
           return null;
         }
-        const [builder, milestones, plannedDraws, drawRequests, evidence] =
+        const [milestones, plannedDraws, drawRequests, evidence] =
           await Promise.all([
-            ctx.db.get(build.builderProfileId),
             ctx.db
               .query("buildMilestones")
               .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_MILESTONES_PER_BUILD),
             ctx.db
               .query("plannedDrawScheduleRows")
               .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_PLANNED_DRAWS_PER_BUILD),
             ctx.db
               .query("activeBuildDrawRequests")
               .withIndex("by_build", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_DRAW_REQUESTS_PER_BUILD),
             ctx.db
               .query("buildEvidenceAssets")
               .withIndex("by_build", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_EVIDENCE_SCAN_PER_BUILD),
           ]);
+        const firstImage = evidence.find(
+          (asset) => asset.storageId && asset.mimeType.startsWith("image/"),
+        );
         return {
           build,
-          builder,
+          builder: builderById.get(build.builderProfileId) ?? null,
           drawRequests,
-          evidence,
+          firstImageStorageId: firstImage?.storageId ?? null,
           milestones,
           plannedDraws,
           proposal: withBorrowerStartingCash(proposal),
@@ -11340,13 +11382,18 @@ export const getBackofficeDashboard = authenticatedQuery
       (row): row is VisibleActiveBuild => row !== null,
     );
 
+    const resolveStorageUrl = createStorageUrlResolver(
+      ctx,
+      BACKOFFICE_DASHBOARD_STORAGE_URL_CAP,
+    );
+
     const activeBuilds = await Promise.all(
       visibleActiveBuilds.map(
         async ({
           build,
           builder,
           drawRequests,
-          evidence,
+          firstImageStorageId,
           milestones,
           plannedDraws,
         }) => {
@@ -11354,9 +11401,6 @@ export const getBackofficeDashboard = authenticatedQuery
           const milestonesBehindSchedule = milestones.filter((milestone) =>
             productionMilestoneIsBehindSchedule(milestone, currentDay),
           ).length;
-          const firstImage = evidence.find(
-            (asset) => asset.storageId && asset.mimeType.startsWith("image/"),
-          );
           const activeMilestone =
             milestones.find((milestone) => milestone.status !== "complete") ??
             milestones[0];
@@ -11371,9 +11415,7 @@ export const getBackofficeDashboard = authenticatedQuery
             drawCount: plannedDraws.length,
             href: `/backoffice/builds/${build._id}`,
             id: productionBuildDisplayId(build),
-            imageUrl: firstImage?.storageId
-              ? await ctx.storage.getUrl(firstImage.storageId)
-              : null,
+            imageUrl: await resolveStorageUrl(firstImageStorageId),
             locationLatitude: build.locationLatitude,
             locationLongitude: build.locationLongitude,
             milestoneCount: milestones.length,
@@ -14774,6 +14816,8 @@ export const getActiveBuildDetailByString = authenticatedQuery
         auth.proposal._id,
       ),
     ]);
+    // Phase 4: keep domain collections for workspace UI, but cap audit / URL fan-out.
+    // Follow-up: split evidence/audit/assignment trees into dedicated queries for first paint.
     const [
       documents,
       evidenceAssets,
@@ -14798,13 +14842,14 @@ export const getActiveBuildDetailByString = authenticatedQuery
         .withIndex("by_entity", (q) =>
           q.eq("entityType", "activeBuild").eq("entityId", String(buildId)),
         )
-        .collect(),
+        .order("desc")
+        .take(ACTIVE_BUILD_AUDIT_EVENTS_LIMIT),
       ctx.db
         .query("contractorProfiles")
         .withIndex("by_brokerage", (q) =>
           q.eq("brokerageId", build.brokerageId),
         )
-        .collect(),
+        .take(ACTIVE_BUILD_AVAILABLE_CONTRACTORS_LIMIT),
     ]);
     const buildDocuments = documents as Doc<"buildDocuments">[];
     const buildEvidenceAssets = evidenceAssets as Doc<"buildEvidenceAssets">[];
@@ -14814,6 +14859,31 @@ export const getActiveBuildDetailByString = authenticatedQuery
       milestoneAssignments as Doc<"milestoneContractorAssignments">[]
     ).filter((assignment) => assignment.status !== "removed");
     const buildSiteVisits = siteVisits as Doc<"buildSiteVisits">[];
+    // Ensure contractors attached to this build are present even if outside the
+    // brokerage-wide available-contractor cap.
+    const attachedContractorIdsNeeded = [
+      ...new Set(
+        buildContractorAssignments.map((assignment) => assignment.contractorId),
+      ),
+    ];
+    const missingAttachedContractorIds = attachedContractorIdsNeeded.filter(
+      (contractorId) =>
+        !contractorProfiles.some(
+          (contractor) => contractor._id === contractorId,
+        ),
+    );
+    const missingAttachedContractors =
+      missingAttachedContractorIds.length > 0
+        ? (
+            await Promise.all(
+              missingAttachedContractorIds.map((id) => ctx.db.get(id)),
+            )
+          ).flatMap((contractor) => (contractor ? [contractor] : []))
+        : [];
+    const contractorProfilesForBuild = [
+      ...contractorProfiles,
+      ...missingAttachedContractors,
+    ];
     const proposalGuidanceByMilestoneId = new Map(
       (proposalMilestones as Doc<"proposalMilestones">[]).map((milestone) => [
         String(milestone._id),
@@ -14873,7 +14943,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
       allowLegacyUnattributedRequests: true,
     });
     const contractorById = new Map(
-      contractorProfiles.map((contractor) => [
+      contractorProfilesForBuild.map((contractor) => [
         String(contractor._id),
         contractor,
       ]),
@@ -14995,7 +15065,11 @@ export const getActiveBuildDetailByString = authenticatedQuery
             : appPermissions.role === "staff"
               ? ["builder-staff"]
               : []),
-      documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
+      documents: await withBuildDocumentStorageUrls(
+        ctx,
+        buildDocuments,
+        ACTIVE_BUILD_DOCUMENT_URL_CAP,
+      ),
       drawFunding: {
         approvedMilestoneCents: drawFunding.approvedMilestoneCents,
         attributionShortfallCents: drawFunding.attributionShortfallCents,
@@ -15093,7 +15167,11 @@ export const getActiveBuildDetailByString = authenticatedQuery
             })
         : [],
       evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
-        ? await withBuildEvidenceAssetStorageUrls(ctx, buildEvidenceAssets)
+        ? await withBuildEvidenceAssetStorageUrls(
+            ctx,
+            buildEvidenceAssets,
+            ACTIVE_BUILD_EVIDENCE_URL_CAP,
+          )
         : [],
       budgetRevisionRequests: (
         budgetRevisionRequests as Doc<"activeBuildBudgetRevisionRequests">[]
@@ -15626,6 +15704,8 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
       args.workosOrganizationId,
     );
     const { build, proposal } = auth;
+    // Phase 4: milestones/draws stay for first paint; audit + evidence URLs are capped.
+    // Follow-up: lazy-load evidence previews / audit pages via dedicated queries.
     const [
       milestones,
       submilestones,
@@ -15663,7 +15743,8 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
             .eq("entityType", "activeBuild")
             .eq("entityId", String(args.buildId)),
         )
-        .collect(),
+        .order("desc")
+        .take(TIMELINE_AUDIT_EVENTS_LIMIT),
       build.permitWaiverId ? ctx.db.get(build.permitWaiverId) : null,
       collectByIndex(
         ctx,
@@ -15876,22 +15957,27 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
           ]
         : [],
       evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
-        ? await Promise.all(
-            [...evidenceAssets]
-              .sort((a, b) => a.createdAt - b.createdAt)
-              .map(async (asset) => ({
+        ? await (async () => {
+            const resolveStorageUrl = createStorageUrlResolver(
+              ctx,
+              TIMELINE_EVIDENCE_URL_CAP,
+            );
+            const sortedEvidence = [...evidenceAssets].sort(
+              (a, b) => a.createdAt - b.createdAt,
+            );
+            return await Promise.all(
+              sortedEvidence.map(async (asset) => ({
                 evidenceKey: asset.evidenceKey,
                 fileName: asset.fileName,
                 label: asset.label,
                 milestoneKey: asset.milestoneKey,
                 mimeType: asset.mimeType,
-                previewUrl: asset.storageId
-                  ? await ctx.storage.getUrl(asset.storageId)
-                  : null,
+                previewUrl: await resolveStorageUrl(asset.storageId),
                 sizeBytes: asset.sizeBytes,
                 tag: asset.tag,
               })),
-          )
+            );
+          })()
         : [],
       milestones: canUseAppPermission(appPermissions, "milestone", "view")
         ? sortedMilestones.map((milestone, index) => {
@@ -32950,17 +33036,24 @@ async function getActiveBuildSiteVisitPermit(
 async function withBuildDocumentStorageUrls(
   ctx: QueryCtx,
   documents: Doc<"buildDocuments">[],
+  urlCap: number = ACTIVE_BUILD_DOCUMENT_URL_CAP,
 ) {
+  const resolveStorageUrl = createStorageUrlResolver(ctx, urlCap);
+  // Prefer permit docs for URL resolution so first-paint permit viewers keep working
+  // when the storage URL cap is hit.
   return await Promise.all(
     documents
-      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice()
+      .sort((a, b) => {
+        const aPermit = a.documentType === "permit" ? 0 : 1;
+        const bPermit = b.documentType === "permit" ? 0 : 1;
+        return aPermit - bPermit || a.createdAt - b.createdAt;
+      })
       .map(async (document) => ({
         ...document,
         name: document.fileName,
         kind: document.documentType,
-        storageUrl: document.storageId
-          ? await ctx.storage.getUrl(document.storageId)
-          : null,
+        storageUrl: await resolveStorageUrl(document.storageId),
       })),
   );
 }
@@ -32968,9 +33061,12 @@ async function withBuildDocumentStorageUrls(
 async function withBuildEvidenceAssetStorageUrls(
   ctx: QueryCtx,
   evidenceAssets: Doc<"buildEvidenceAssets">[],
+  urlCap: number = ACTIVE_BUILD_EVIDENCE_URL_CAP,
 ) {
+  const resolveStorageUrl = createStorageUrlResolver(ctx, urlCap);
   return await Promise.all(
     evidenceAssets
+      .slice()
       .sort((a, b) => a.createdAt - b.createdAt)
       .map(async (asset) => ({
         _id: String(asset._id),
@@ -32982,9 +33078,7 @@ async function withBuildEvidenceAssetStorageUrls(
         locationVerified: asset.locationVerified,
         milestoneKey: asset.milestoneKey,
         mimeType: asset.mimeType,
-        previewUrl: asset.storageId
-          ? await ctx.storage.getUrl(asset.storageId)
-          : null,
+        previewUrl: await resolveStorageUrl(asset.storageId),
         sizeBytes: asset.sizeBytes,
         source: asset.source,
         submilestoneKey: asset.submilestoneKey,
@@ -32992,6 +33086,36 @@ async function withBuildEvidenceAssetStorageUrls(
         updatedAt: asset.updatedAt,
       })),
   );
+}
+
+/**
+ * Cap + dedupe `storage.getUrl` work within a single query invocation.
+ * Assets beyond `cap` still return metadata with `null` URLs so counts stay intact.
+ */
+function createStorageUrlResolver(ctx: QueryCtx, cap: number) {
+  const cache = new Map<string, Promise<string | null>>();
+  let resolvedCount = 0;
+  return async (
+    storageId: Id<"_storage"> | null | undefined,
+  ): Promise<string | null> => {
+    if (!storageId) {
+      return null;
+    }
+    const key = String(storageId);
+    const cached = cache.get(key);
+    if (cached) {
+      return cached;
+    }
+    if (resolvedCount >= cap) {
+      const skipped = Promise.resolve(null);
+      cache.set(key, skipped);
+      return skipped;
+    }
+    resolvedCount += 1;
+    const pending = ctx.storage.getUrl(storageId);
+    cache.set(key, pending);
+    return pending;
+  };
 }
 
 async function productionSitePhotosForBuild(
@@ -33574,28 +33698,31 @@ async function visibleBackofficeDashboardProposalRows(
         .then((cards) => cards.reverse()),
     ),
   );
-  const rows = await Promise.all(
-    cardsByColumn.flat().map(async (card) => {
-      const proposal = await ctx.db.get(card.proposalId);
-      if (
-        !(
-          proposal &&
-          (canReadBackofficeProposal(auth, proposal) || staffCanRead)
-        )
-      ) {
-        return null;
-      }
-      return { card, proposal };
-    }),
+  const cards = cardsByColumn.flat();
+  // Batch proposal loads once (deduped) instead of N+1 per kanban card.
+  const uniqueProposalIds = [
+    ...new Set(cards.map((card) => card.proposalId)),
+  ];
+  const proposalDocs = await Promise.all(
+    uniqueProposalIds.map((proposalId) => ctx.db.get(proposalId)),
   );
-  return rows.filter(
-    (
-      row,
-    ): row is {
-      card: Doc<"proposalKanbanCards">;
-      proposal: Doc<"buildProposals">;
-    } => row !== null,
+  const proposalById = new Map(
+    proposalDocs.flatMap((proposal) =>
+      proposal ? [[proposal._id, proposal] as const] : [],
+    ),
   );
+  return cards.flatMap((card) => {
+    const proposal = proposalById.get(card.proposalId);
+    if (
+      !(
+        proposal &&
+        (canReadBackofficeProposal(auth, proposal) || staffCanRead)
+      )
+    ) {
+      return [];
+    }
+    return [{ card, proposal }];
+  });
 }
 
 async function buildProductionSettingsProjection(

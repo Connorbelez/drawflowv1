@@ -25,3 +25,16 @@ convex/_generated/ai/
 .impeccable/live/server.json
 .impeccable-live/
 .impeccable-live.json
+
+# Design/iteration artifacts, prototypes, and worktrees — generated, not source.
+# Kept out of git and therefore out of Vercel/production deployments.
+artifacts/
+prototypes/
+docs/prototypes/
+.claude/worktrees/
+.git/worktrees/
+outputs/
+
+# Memtrace local daemon state + index data — machine-local runtime artifacts.
+.memdb/
+.memtrace/

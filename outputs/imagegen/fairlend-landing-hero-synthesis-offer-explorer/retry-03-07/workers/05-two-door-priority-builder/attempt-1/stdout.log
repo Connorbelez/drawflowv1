@@ -1,5 +1,0 @@
-Generated the image with `image_gen.imagegen`, but the runtime did not expose a savable PNG file path, so I could not write `image.png` without violating your no-placeholder/no-direct-API rule.
-
-Wrote the required failed worker JSON here:
-
-[outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/retry-03-07/workers/05-two-door-priority-builder/attempt-1/result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/retry-03-07/workers/05-two-door-priority-builder/attempt-1/result.json)

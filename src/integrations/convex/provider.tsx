@@ -16,14 +16,17 @@ export default function AppConvexProvider({
   return (
     <ConvexProviderWithAuth
       client={convexQueryClient.convexClient}
-      useAuth={useAuthFromAuthKit}
+      useAuth={convexAuthSession}
     >
       {children}
     </ConvexProviderWithAuth>
   );
 }
 
-function useAuthFromAuthKit() {
+// This adapter is passed to ConvexProviderWithAuth as a VALUE (it is never called
+// directly here), so it deliberately does not start with "use". "use no memo"
+// keeps the Compiler from treating the hook calls inside it as memoizable.
+function convexAuthSession() {
   const { loading, user } = useAuth();
   const { getAccessToken, refresh } = useAccessToken();
 

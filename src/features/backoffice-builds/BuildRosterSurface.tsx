@@ -337,7 +337,7 @@ export function BuildRosterSurface({
                 ) : (
                   table.getRowModel().rows.map((row) => (
                     <TableRow
-                      className="group cursor-pointer"
+                      className="group cursor-pointer [content-visibility:auto] [contain-intrinsic-size:0_4.5rem]"
                       key={row.id}
                       onClick={() => {
                         void navigate({ to: row.original.href });

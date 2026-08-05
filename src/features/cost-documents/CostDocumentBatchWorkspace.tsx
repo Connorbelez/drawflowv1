@@ -279,15 +279,17 @@ function useCostDocumentBatchRouteLifecycle({
   activeBatchId,
   batchId,
   dismissedBatchId,
-  lastReportedBatchId,
+  markBatchReported,
   onBatchIdChange,
+  readLastReportedBatchId,
   setDismissedBatchId,
 }: {
   activeBatchId?: string;
   batchId?: string;
   dismissedBatchId?: string;
-  lastReportedBatchId: { current: string | undefined };
+  markBatchReported: (batchId: string) => void;
   onBatchIdChange: (batchId?: string) => void;
+  readLastReportedBatchId: () => string | undefined;
   setDismissedBatchId: (batchId?: string) => void;
 }) {
   useEffect(() => {
@@ -296,17 +298,18 @@ function useCostDocumentBatchRouteLifecycle({
     }
     if (
       batchId !== activeBatchId &&
-      lastReportedBatchId.current !== activeBatchId
+      readLastReportedBatchId() !== activeBatchId
     ) {
-      lastReportedBatchId.current = activeBatchId;
+      markBatchReported(activeBatchId);
       onBatchIdChange(activeBatchId);
     }
   }, [
     activeBatchId,
     batchId,
     dismissedBatchId,
-    lastReportedBatchId,
+    markBatchReported,
     onBatchIdChange,
+    readLastReportedBatchId,
   ]);
 
   useEffect(() => {
@@ -517,12 +520,21 @@ export function CostDocumentBatchWorkspace({
     setDuplicateOverrideReason("");
   }, [activeBatchId]);
 
+  const readLastReportedBatchId = useCallback(
+    () => lastReportedBatchId.current,
+    []
+  );
+  const markBatchReported = useCallback((batchId: string) => {
+    lastReportedBatchId.current = batchId;
+  }, []);
+
   useCostDocumentBatchRouteLifecycle({
     activeBatchId,
     batchId,
     dismissedBatchId,
-    lastReportedBatchId,
+    markBatchReported,
     onBatchIdChange,
+    readLastReportedBatchId,
     setDismissedBatchId,
   });
 

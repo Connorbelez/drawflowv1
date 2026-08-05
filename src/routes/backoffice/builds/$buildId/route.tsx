@@ -1,141 +1,41 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useRef } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import { DocumentOperationIntentRegistry } from "#/features/backoffice-build-detail/documentOperationIntent.ts";
 import {
+  BuildDetailTabFallback,
+  LazyBuilderStaffPermissionsPanel,
+  LazyCostDocumentBatchWorkspace,
+  LazyCostDocumentRoadmapReconciliation,
+  LazyQuoteRoundComparisonSurface,
+  LazyQuoteRoundsSurface,
+} from "#/features/backoffice-build-detail/lazy-build-detail-tabs.tsx";
+import {
   type ProductionBuildDetail,
   type ProductionBuildDetailActions,
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import { SiteVisitScheduleIntentRegistry } from "#/features/backoffice-build-detail/siteVisitScheduleIntent.ts";
-import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import {
   canUseAppPermission,
   filterMaterialPlanningActionsForPermissions,
 } from "#/features/builder-staff/app-permissions.ts";
-import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
-import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
-import { CostDocumentRoadmapReconciliation } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
-import {
-  type CostDocumentRouteSearch,
-  normalizeCostDocumentSearch,
-} from "#/features/cost-documents/costDocumentRouteState.ts";
 import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
-import {
-  getVisualParityActiveBuildDetail,
-  getVisualParityActiveBuildTimelineWorkspace,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/production-proposals/visualParityFixtures.ts";
-import { QuoteRoundComparisonSurface } from "#/features/quote-solicitation/QuoteRoundComparisonSurface.tsx";
-import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
+import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import { validateBuildDetailSearch } from "./-route-search.ts";
 
-interface BuildDetailSearch extends CostDocumentRouteSearch {
-  focus?: string;
-  milestone?: string;
-  rail?: "open" | "closed";
-  roundId?: string;
-  tab?:
-    | "calendar"
-    | "contractors"
-    | "costs"
-    | "details"
-    | "documents"
-    | "evidence"
-    | "gantt"
-    | "materials"
-    | "milestones"
-    | "staff"
-    | "quotes"
-    | "timeline";
-  timeframe?: CalendarTimeframe;
-}
+export { validateBuildDetailSearch } from "./-route-search.ts";
 
 export const Route = createFileRoute("/backoffice/builds/$buildId")({
-  validateSearch: (search: Record<string, unknown>): BuildDetailSearch => {
-    const costDocumentSearch = normalizeCostDocumentSearch(search);
-    const tab =
-      search.tab === "timeline" ||
-      search.tab === "costs" ||
-      search.tab === "documents" ||
-      search.tab === "evidence" ||
-      search.tab === "contractors" ||
-      search.tab === "milestones" ||
-      search.tab === "materials" ||
-      search.tab === "quotes" ||
-      search.tab === "staff" ||
-      search.tab === "calendar" ||
-      search.tab === "gantt" ||
-      search.tab === "details"
-        ? (search.tab as BuildDetailSearch["tab"])
-        : undefined;
-    const milestone =
-      typeof search.milestone === "string" ? search.milestone : undefined;
-    const roundId =
-      typeof search.roundId === "string" && search.roundId.trim()
-        ? search.roundId.trim()
-        : undefined;
-    const focus = normalizeBuildCollaborationFocus(search.focus);
-    const rail =
-      search.rail === "closed" || search.rail === "open"
-        ? (search.rail as BuildDetailSearch["rail"])
-        : undefined;
-    const timeframe =
-      search.timeframe === "day" ||
-      search.timeframe === "week" ||
-      search.timeframe === "month" ||
-      search.timeframe === "quarter" ||
-      search.timeframe === "agenda"
-        ? (search.timeframe as CalendarTimeframe)
-        : undefined;
-    const costWorkspaceActive = Boolean(
-      costDocumentSearch.costBatch ||
-        costDocumentSearch.costDocument ||
-        costDocumentSearch.costDocumentDraft
-    );
-    const out: BuildDetailSearch = {};
-    if (focus !== undefined) {
-      out.focus = focus;
-    }
-    if (milestone !== undefined) {
-      out.milestone = milestone;
-    }
-    if (
-      tab !== undefined ||
-      costDocumentSearch.costBatch !== undefined ||
-      costDocumentSearch.costDocument !== undefined ||
-      costDocumentSearch.costDocumentDraft !== undefined ||
-      roundId !== undefined
-    ) {
-      out.tab = roundId ? "quotes" : costWorkspaceActive ? "costs" : tab;
-    }
-    if (costDocumentSearch.costBatch !== undefined) {
-      out.costBatch = costDocumentSearch.costBatch;
-    }
-    if (costDocumentSearch.costDocument !== undefined) {
-      out.costDocument = costDocumentSearch.costDocument;
-    }
-    if (costDocumentSearch.costDocumentDraft !== undefined) {
-      out.costDocumentDraft = costDocumentSearch.costDocumentDraft;
-    }
-    if (rail !== undefined) {
-      out.rail = rail;
-    }
-    if (timeframe !== undefined) {
-      out.timeframe = timeframe;
-    }
-    if (roundId !== undefined) {
-      out.roundId = roundId;
-    }
-    return out;
-  },
+  validateSearch: validateBuildDetailSearch,
   component: RouteComponent,
 });
 
@@ -145,6 +45,33 @@ function RouteComponent() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const [visualParityDetail, setVisualParityDetail] =
+    useState<ProductionBuildDetail | null>(null);
+  const [visualParityTimeline, setVisualParityTimeline] = useState<
+    unknown | null
+  >(null);
+  useEffect(() => {
+    if (!visualFixtureEnabled) {
+      setVisualParityDetail(null);
+      setVisualParityTimeline(null);
+      return;
+    }
+    let cancelled = false;
+    void import(
+      "#/features/production-proposals/visualParityFixtures.ts"
+    ).then((mod) => {
+      if (cancelled) {
+        return;
+      }
+      setVisualParityDetail(mod.getVisualParityActiveBuildDetail(buildId));
+      setVisualParityTimeline(
+        mod.getVisualParityActiveBuildTimelineWorkspace(buildId)
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildId, visualFixtureEnabled]);
   const documentOperationIntents = useRef(
     new DocumentOperationIntentRegistry()
   );
@@ -271,6 +198,10 @@ function RouteComponent() {
   const recordExternalCalendarSyncChange = useMutation(
     (api as any).production_proposals.recordExternalCalendarSyncChange
   );
+  const activeTab = search.tab ?? "details";
+  const tabNeedsTimeline =
+    activeTab === "timeline" || activeTab === "gantt";
+  const tabNeedsCalendar = activeTab === "calendar";
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     visualFixtureEnabled
@@ -281,12 +212,12 @@ function RouteComponent() {
         }
   );
   const effectiveProductionBuild = visualFixtureEnabled
-    ? getVisualParityActiveBuildDetail(buildId)
+    ? visualParityDetail
     : productionBuildQuery;
   const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
   const timelineWorkspaceQuery = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
-    visualFixtureEnabled
+    visualFixtureEnabled || !tabNeedsTimeline
       ? "skip"
       : effectiveProductionBuild
         ? {
@@ -296,11 +227,11 @@ function RouteComponent() {
         : "skip"
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
-    ? getVisualParityActiveBuildTimelineWorkspace(buildId)
+    ? visualParityTimeline
     : timelineWorkspaceQuery;
   const calendarWorkspaceQuery = useQuery(
     (api as any).production_proposals.getActiveBuildCalendarWorkspace,
-    visualFixtureEnabled
+    visualFixtureEnabled || !tabNeedsCalendar
       ? "skip"
       : effectiveProductionBuild
         ? {
@@ -887,84 +818,90 @@ function RouteComponent() {
           `/backoffice/contractors/${contractorId}`
         }
         costs={
-          costDocumentActorCapacity ? (
-            <CostDocumentBatchWorkspace
-              actorCapacity={costDocumentActorCapacity}
-              batchId={search.costBatch}
-              buildId={activeBuildId as Id<"activeBuilds">}
-              draftId={search.costDocumentDraft}
-              onBatchIdChange={(batchId) =>
-                navigate({
-                  params: { buildId },
-                  replace: Boolean(search.costBatch) || !batchId,
-                  search: {
-                    ...search,
-                    costBatch: batchId,
-                    costDocument: undefined,
-                    costDocumentDraft: undefined,
-                    tab: "costs",
-                  },
-                  to: "/backoffice/builds/$buildId",
-                } as never)
-              }
-              organizationId={workosOrganizationId}
-              reconciliation={{
-                onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+          <Suspense fallback={<BuildDetailTabFallback label="costs" />}>
+            {costDocumentActorCapacity ? (
+              <LazyCostDocumentBatchWorkspace
+                actorCapacity={costDocumentActorCapacity}
+                batchId={search.costBatch}
+                buildId={activeBuildId as Id<"activeBuilds">}
+                draftId={search.costDocumentDraft}
+                onBatchIdChange={(batchId) =>
                   navigate({
                     params: { buildId },
-                    replace: false,
+                    replace: Boolean(search.costBatch) || !batchId,
                     search: {
                       ...search,
                       costBatch: batchId,
                       costDocument: undefined,
-                      costDocumentDraft: draftId,
-                      tab: "costs",
-                    },
-                    to: "/backoffice/builds/$buildId",
-                  } as never),
-                onCostDocumentIdChange: (costDocumentId) =>
-                  navigate({
-                    params: { buildId },
-                    replace: !costDocumentId,
-                    search: {
-                      ...search,
-                      costBatch: undefined,
-                      costDocument: costDocumentId,
                       costDocumentDraft: undefined,
                       tab: "costs",
                     },
                     to: "/backoffice/builds/$buildId",
-                  } as never),
-                selectedCostDocumentId: search.costDocument,
-              }}
-              submilestones={costDocumentSubmilestones}
-            />
-          ) : (
-            <CostDocumentRoadmapReconciliation
-              actorCapacity={costDocumentActorCapacity}
-              buildId={activeBuildId as Id<"activeBuilds">}
-              interactionMode="brokerage-review"
-              onCloseCostDocument={() =>
-                navigate({
-                  params: { buildId },
-                  replace: true,
-                  search: { ...search, costDocument: undefined, tab: "costs" },
-                  to: "/backoffice/builds/$buildId",
-                } as never)
-              }
-              onOpenCostDocument={(costDocument) =>
-                navigate({
-                  params: { buildId },
-                  replace: false,
-                  search: { ...search, costDocument, tab: "costs" },
-                  to: "/backoffice/builds/$buildId",
-                } as never)
-              }
-              organizationId={workosOrganizationId}
-              selectedCostDocumentId={search.costDocument}
-              submilestones={costDocumentSubmilestones}
-            />
-          )
+                  } as never)
+                }
+                organizationId={workosOrganizationId}
+                reconciliation={{
+                  onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+                    navigate({
+                      params: { buildId },
+                      replace: false,
+                      search: {
+                        ...search,
+                        costBatch: batchId,
+                        costDocument: undefined,
+                        costDocumentDraft: draftId,
+                        tab: "costs",
+                      },
+                      to: "/backoffice/builds/$buildId",
+                    } as never),
+                  onCostDocumentIdChange: (costDocumentId) =>
+                    navigate({
+                      params: { buildId },
+                      replace: !costDocumentId,
+                      search: {
+                        ...search,
+                        costBatch: undefined,
+                        costDocument: costDocumentId,
+                        costDocumentDraft: undefined,
+                        tab: "costs",
+                      },
+                      to: "/backoffice/builds/$buildId",
+                    } as never),
+                  selectedCostDocumentId: search.costDocument,
+                }}
+                submilestones={costDocumentSubmilestones}
+              />
+            ) : (
+              <LazyCostDocumentRoadmapReconciliation
+                actorCapacity={costDocumentActorCapacity}
+                buildId={activeBuildId as Id<"activeBuilds">}
+                interactionMode="brokerage-review"
+                onCloseCostDocument={() =>
+                  navigate({
+                    params: { buildId },
+                    replace: true,
+                    search: {
+                      ...search,
+                      costDocument: undefined,
+                      tab: "costs",
+                    },
+                    to: "/backoffice/builds/$buildId",
+                  } as never)
+                }
+                onOpenCostDocument={(costDocument) =>
+                  navigate({
+                    params: { buildId },
+                    replace: false,
+                    search: { ...search, costDocument, tab: "costs" },
+                    to: "/backoffice/builds/$buildId",
+                  } as never)
+                }
+                organizationId={workosOrganizationId}
+                selectedCostDocumentId={search.costDocument}
+                submilestones={costDocumentSubmilestones}
+              />
+            )}
+          </Suspense>
         }
         detail={detail}
         focusedReference={search.focus}
@@ -975,56 +912,60 @@ function RouteComponent() {
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         quotes={
-          search.roundId ? (
-            <QuoteRoundComparisonSurface
-              buildId={String(activeBuildId)}
-              onExit={() =>
-                navigate({
-                  params: { buildId },
-                  replace: true,
-                  search: { ...search, roundId: undefined, tab: "quotes" },
-                  to: "/backoffice/builds/$buildId",
-                } as never)
-              }
-              organizationId={workosOrganizationId}
-              quoteRoundId={search.roundId}
-              readerKind="backoffice"
-              readOnly
-            />
-          ) : (
-            <QuoteRoundsSurface
-              buildId={String(activeBuildId)}
-              onCreate={() =>
-                navigate({
-                  params: { buildId },
-                  search: {},
-                  to: "/backoffice/builds/$buildId/quotes/new",
-                })
-              }
-              onOpen={(roundId) =>
-                navigate({
-                  params: { buildId },
-                  search: { roundId },
-                  to: "/backoffice/builds/$buildId/quotes/new",
-                })
-              }
-              organizationId={workosOrganizationId}
-            />
-          )
+          <Suspense fallback={<BuildDetailTabFallback label="quotes" />}>
+            {search.roundId ? (
+              <LazyQuoteRoundComparisonSurface
+                buildId={String(activeBuildId)}
+                onExit={() =>
+                  navigate({
+                    params: { buildId },
+                    replace: true,
+                    search: { ...search, roundId: undefined, tab: "quotes" },
+                    to: "/backoffice/builds/$buildId",
+                  } as never)
+                }
+                organizationId={workosOrganizationId}
+                quoteRoundId={search.roundId}
+                readerKind="backoffice"
+                readOnly
+              />
+            ) : (
+              <LazyQuoteRoundsSurface
+                buildId={String(activeBuildId)}
+                onCreate={() =>
+                  navigate({
+                    params: { buildId },
+                    search: {},
+                    to: "/backoffice/builds/$buildId/quotes/new",
+                  })
+                }
+                onOpen={(roundId) =>
+                  navigate({
+                    params: { buildId },
+                    search: { roundId },
+                    to: "/backoffice/builds/$buildId/quotes/new",
+                  })
+                }
+                organizationId={workosOrganizationId}
+              />
+            )}
+          </Suspense>
         }
         rail={search.rail}
         staff={
           visualFixtureEnabled ? undefined : (
-            <BuilderStaffPermissionsPanel
-              buildId={activeBuildId as Id<"activeBuilds">}
-              initialSelectedWorkosUserId={
-                search.focus?.startsWith("participant:")
-                  ? search.focus.slice("participant:".length)
-                  : undefined
-              }
-              scope="activeBuild"
-              workosOrganizationId={workosOrganizationId}
-            />
+            <Suspense fallback={<BuildDetailTabFallback label="staff" />}>
+              <LazyBuilderStaffPermissionsPanel
+                buildId={activeBuildId as Id<"activeBuilds">}
+                initialSelectedWorkosUserId={
+                  search.focus?.startsWith("participant:")
+                    ? search.focus.slice("participant:".length)
+                    : undefined
+                }
+                scope="activeBuild"
+                workosOrganizationId={workosOrganizationId}
+              />
+            </Suspense>
           )
         }
         timelineWorkspace={effectiveTimelineWorkspace as any}

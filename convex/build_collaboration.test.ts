@@ -1614,6 +1614,116 @@ describe("Build collaboration governed assets", () => {
     }
   });
 
+  test("finalizes through the builtin integrity scanner without an external tunnel", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const body = "builtin integrity fixture";
+    const staged = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "builtin-scanner-fixture.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: body.length,
+      },
+    );
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(new Blob([body], { type: "text/plain" })),
+    );
+    const hash = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)),
+      ),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const fetchMock = vi.fn(
+      async () => new Response(body, { status: 200 }),
+    );
+    vi.stubEnv("BUILD_COLLABORATION_ASSET_SCAN_URL", "builtin:integrity");
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const status = await admin.action(
+        (api as any).build_collaboration_asset_actions
+          .finalizeAndScanBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contentHashSha256: hash,
+          fileName: "builtin-scanner-fixture.txt",
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          stagingSessionId: staged.stagingSessionId,
+          storageId,
+        },
+      );
+      expect(status).toMatchObject({
+        contentHashSha256: hash,
+        scanMessage: "Builtin integrity scan matched the upload hash.",
+        scanState: "clean",
+        state: "available",
+        version: 1,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("rejects ephemeral Cloudflare tunnel scanner URLs before calling them", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const body = "tunnel fail!";
+    const staged = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "tunnel-scanner-fixture.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: body.length,
+      },
+    );
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(new Blob([body], { type: "text/plain" })),
+    );
+    const hash = "b".repeat(64);
+    const fetchMock = vi.fn();
+    vi.stubEnv(
+      "BUILD_COLLABORATION_ASSET_SCAN_URL",
+      "https://full-quantitative-gender-mothers.trycloudflare.com/",
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const status = await admin.action(
+        (api as any).build_collaboration_asset_actions
+          .finalizeAndScanBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contentHashSha256: hash,
+          fileName: "tunnel-scanner-fixture.txt",
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          stagingSessionId: staged.stagingSessionId,
+          storageId,
+        },
+      );
+      expect(status).toMatchObject({
+        scanState: "error",
+        state: "quarantined",
+      });
+      expect(status.scanMessage).toContain("ephemeral Cloudflare tunnel");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
   test("refuses to abandon or expire an asset while an active Cost Document draft page owns it", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     const staged = await admin.mutation(

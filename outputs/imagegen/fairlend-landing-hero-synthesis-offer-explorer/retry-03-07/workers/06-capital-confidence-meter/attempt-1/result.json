@@ -1,7 +1,0 @@
-{
-  "id": "06-capital-confidence-meter",
-  "status": "failed",
-  "image_path": null,
-  "error": "Native image generation returned an image but did not expose a savable filesystem artifact path, so image.png could not be written.",
-  "caveats": ""
-}
