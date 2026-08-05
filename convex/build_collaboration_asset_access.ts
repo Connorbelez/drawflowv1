@@ -122,6 +122,26 @@ export async function resolveCollaborationAssetReadDecision(
   ) {
     return null;
   }
+  const session = input.asset.stagingSessionId
+    ? await ctx.db.get(input.asset.stagingSessionId)
+    : null;
+  // Cost Document assets are governed by the live exact-Draft/submitted-document
+  // audience, so that decision is evaluated before the uploader reader snapshot
+  // or attachment ACLs.
+  const costDocumentDecision = await costDocumentAssetReadDecision(
+    ctx,
+    input,
+    session
+  );
+  if (costDocumentDecision.decision) {
+    return costDocumentDecision.decision;
+  }
+  // A Cost Document source asset must never fall through to a stale uploader
+  // reader snapshot or generic session-owner decision once its exact Draft or
+  // submitted-document authorization says no.
+  if (costDocumentDecision.governed) {
+    return null;
+  }
   if (
     input.asset.readerWorkosUserIds &&
     !input.asset.readerWorkosUserIds.includes(
@@ -170,9 +190,6 @@ export async function resolveCollaborationAssetReadDecision(
       };
     }
   }
-  const session = input.asset.stagingSessionId
-    ? await ctx.db.get(input.asset.stagingSessionId)
-    : null;
   if (
     session &&
     !(await canReadAssetStagingContext(ctx, input.authorization, session))
@@ -184,19 +201,6 @@ export async function resolveCollaborationAssetReadDecision(
     session.organizationId !== input.authorization.organizationId ||
     session.buildId !== input.authorization.build._id
   ) {
-    return null;
-  }
-  const costDocumentDecision = await costDocumentAssetReadDecision(
-    ctx,
-    input,
-    session
-  );
-  if (costDocumentDecision.decision) {
-    return costDocumentDecision.decision;
-  }
-  // Cost Document assets must not fall through into the generic staging
-  // reader snapshot or session-owner decision once governed.
-  if (costDocumentDecision.governed) {
     return null;
   }
   if (session.state !== "finalized" || session.expiresAt <= Date.now()) {
