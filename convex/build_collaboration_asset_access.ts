@@ -5,6 +5,10 @@ import {
 } from "./build_collaboration_access";
 import { canReadDrawCoordination } from "./build_draw_coordination";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
+import {
+  canReadSubmittedCostDocument,
+  resolveCostDocumentDraftAccessForAuthorization,
+} from "./cost_document_access";
 import type { Doc, QueryCtx } from "./types";
 
 const ASSET_ATTACHMENT_PAGE_SIZE = 100;
@@ -118,6 +122,26 @@ export async function resolveCollaborationAssetReadDecision(
   ) {
     return null;
   }
+  const session = input.asset.stagingSessionId
+    ? await ctx.db.get(input.asset.stagingSessionId)
+    : null;
+  // Cost Document assets are governed by the live exact-Draft/submitted-document
+  // audience, so that decision is evaluated before the uploader reader snapshot
+  // or attachment ACLs.
+  const costDocumentDecision = await costDocumentAssetReadDecision(
+    ctx,
+    input,
+    session
+  );
+  if (costDocumentDecision.decision) {
+    return costDocumentDecision.decision;
+  }
+  // A Cost Document source asset must never fall through to a stale uploader
+  // reader snapshot or generic session-owner decision once its exact Draft or
+  // submitted-document authorization says no.
+  if (costDocumentDecision.governed) {
+    return null;
+  }
   if (
     input.asset.readerWorkosUserIds &&
     !input.asset.readerWorkosUserIds.includes(
@@ -166,9 +190,6 @@ export async function resolveCollaborationAssetReadDecision(
       };
     }
   }
-  const session = input.asset.stagingSessionId
-    ? await ctx.db.get(input.asset.stagingSessionId)
-    : null;
   if (
     session &&
     !(await canReadAssetStagingContext(ctx, input.authorization, session))
@@ -178,10 +199,11 @@ export async function resolveCollaborationAssetReadDecision(
   if (
     !session ||
     session.organizationId !== input.authorization.organizationId ||
-    session.buildId !== input.authorization.build._id ||
-    session.state !== "finalized" ||
-    session.expiresAt <= Date.now()
+    session.buildId !== input.authorization.build._id
   ) {
+    return null;
+  }
+  if (session.state !== "finalized" || session.expiresAt <= Date.now()) {
     return null;
   }
   if (session.ownerWorkosUserId === input.authorization.viewer.subject) {
@@ -283,6 +305,118 @@ async function listAssetAttachments(
     }
     cursor = page.continueCursor;
   }
+}
+
+async function costDocumentAssetReadDecision(
+  ctx: QueryCtx,
+  input: {
+    asset: Doc<"buildCollaborationAssets">;
+    authorization: ActiveBuildAuthorization;
+  },
+  session: Doc<"buildCollaborationAssetStagingSessions"> | null
+) {
+  const submittedPages = await ctx.db
+    .query("costDocumentPages")
+    .withIndex("by_buildId_and_assetId", (query) =>
+      query
+        .eq("buildId", input.authorization.build._id)
+        .eq("assetId", input.asset._id)
+    )
+    .take(101);
+  if (submittedPages.length > 100) {
+    return { decision: null, governed: true };
+  }
+  if (submittedPages.length > 0) {
+    for (const page of submittedPages) {
+      const document = await ctx.db.get(page.costDocumentId);
+      if (
+        page.organizationId === input.authorization.organizationId &&
+        page.brokerageId === input.authorization.brokerage._id &&
+        page.buildId === input.authorization.build._id &&
+        document &&
+        (await canReadSubmittedCostDocument(ctx, input.authorization, document))
+      ) {
+        return {
+          decision: {
+            basis: "cost_document_submitted_page" as const,
+            costDocumentId: document._id,
+          },
+          governed: true,
+        };
+      }
+    }
+    return { decision: null, governed: true };
+  }
+  if (
+    !session ||
+    session.contextKind !== "costDocumentDraft" ||
+    !session.contextRecordId
+  ) {
+    return { decision: null, governed: false };
+  }
+  const draftId = ctx.db.normalizeId(
+    "costDocumentDrafts",
+    session.contextRecordId
+  );
+  if (!draftId) {
+    return { decision: null, governed: true };
+  }
+  const access = await resolveCostDocumentDraftAccessForAuthorization(ctx, {
+    authorization: input.authorization,
+    draftId,
+  });
+  if (
+    !access ||
+    session.organizationId !== input.authorization.organizationId ||
+    session.brokerageId !== input.authorization.brokerage._id ||
+    session.buildId !== input.authorization.build._id
+  ) {
+    return { decision: null, governed: true };
+  }
+  const pages = await ctx.db
+    .query("costDocumentDraftPages")
+    .withIndex("by_assetId_and_state", (query) =>
+      query.eq("assetId", input.asset._id).eq("state", "active")
+    )
+    .take(2);
+  if (pages.length > 1) {
+    return { decision: null, governed: true };
+  }
+  const page = pages[0];
+  if (page) {
+    if (
+      page.draftId !== access.draft._id ||
+      page.batchId !== access.batch._id ||
+      page.organizationId !== input.authorization.organizationId ||
+      page.brokerageId !== input.authorization.brokerage._id ||
+      page.buildId !== input.authorization.build._id
+    ) {
+      return { decision: null, governed: true };
+    }
+    return {
+      decision: {
+        basis: "cost_document_draft_access" as const,
+        draftId: access.draft._id,
+        stagingSessionId: session._id,
+      },
+      governed: true,
+    };
+  }
+  if (
+    session.ownerWorkosUserId === input.authorization.viewer.subject &&
+    session.state === "finalized" &&
+    session.expiresAt > Date.now()
+  ) {
+    return {
+      decision: {
+        basis: "cost_document_draft_session_owner" as const,
+        draftId: access.draft._id,
+        stagingSessionId: session._id,
+      },
+      governed: true,
+    };
+  }
+  return { decision: null, governed: true };
 }
 
 async function isDraftApprovalOwner(

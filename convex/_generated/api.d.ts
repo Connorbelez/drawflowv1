@@ -10,6 +10,7 @@
 
 import type * as activeBuildAccess from "../activeBuildAccess.js";
 import type * as active_build_document_lineage from "../active_build_document_lineage.js";
+import type * as administrative_override_policy from "../administrative_override_policy.js";
 import type * as assistant from "../assistant.js";
 import type * as assistantProvider from "../assistantProvider.js";
 import type * as auth from "../auth.js";
@@ -129,7 +130,11 @@ import type * as contractorEvidence from "../contractorEvidence.js";
 import type * as contractorMerge from "../contractorMerge.js";
 import type * as contractorOnboarding from "../contractorOnboarding.js";
 import type * as contractorWorkspace from "../contractorWorkspace.js";
+import type * as cost_document_access from "../cost_document_access.js";
+import type * as cost_document_working_state from "../cost_document_working_state.js";
+import type * as cost_documents from "../cost_documents.js";
 import type * as crons from "../crons.js";
+import type * as data_retention from "../data_retention.js";
 import type * as demo_build_address from "../demo_build_address.js";
 import type * as demo_builder_proposals from "../demo_builder_proposals.js";
 import type * as demo_drawflow from "../demo_drawflow.js";
@@ -140,6 +145,7 @@ import type * as demo_site_visit_guidance from "../demo_site_visit_guidance.js";
 import type * as demo_site_visit_tokens from "../demo_site_visit_tokens.js";
 import type * as demo_timeline_plans from "../demo_timeline_plans.js";
 import type * as demo_timeline_snapshots from "../demo_timeline_snapshots.js";
+import type * as email_transport from "../email_transport.js";
 import type * as evidence_preview from "../evidence_preview.js";
 import type * as fairLendConfig from "../fairLendConfig.js";
 import type * as fluent from "../fluent.js";
@@ -150,11 +156,23 @@ import type * as milestone_start from "../milestone_start.js";
 import type * as production_proposals from "../production_proposals.js";
 import type * as proposal_collaboration from "../proposal_collaboration.js";
 import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
+import type * as quote_authoring_access from "../quote_authoring_access.js";
+import type * as quote_comparisons from "../quote_comparisons.js";
+import type * as quote_invitation_access from "../quote_invitation_access.js";
+import type * as quote_notifications from "../quote_notifications.js";
+import type * as quote_preferred from "../quote_preferred.js";
+import type * as quote_response_drafts from "../quote_response_drafts.js";
+import type * as quote_response_submissions from "../quote_response_submissions.js";
+import type * as quote_response_template_migrations from "../quote_response_template_migrations.js";
+import type * as quote_response_templates from "../quote_response_templates.js";
+import type * as quote_round_lifecycle from "../quote_round_lifecycle.js";
+import type * as quote_rounds from "../quote_rounds.js";
 import type * as siteVisitGuidance from "../siteVisitGuidance.js";
 import type * as todos from "../todos.js";
 import type * as types from "../types.js";
 import type * as workosManagement from "../workosManagement.js";
 import type * as workosProjection from "../workosProjection.js";
+import type * as workos_permission_access from "../workos_permission_access.js";
 
 import type {
   ApiFromModules,
@@ -165,6 +183,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   activeBuildAccess: typeof activeBuildAccess;
   active_build_document_lineage: typeof active_build_document_lineage;
+  administrative_override_policy: typeof administrative_override_policy;
   assistant: typeof assistant;
   assistantProvider: typeof assistantProvider;
   auth: typeof auth;
@@ -284,7 +303,11 @@ declare const fullApi: ApiFromModules<{
   contractorMerge: typeof contractorMerge;
   contractorOnboarding: typeof contractorOnboarding;
   contractorWorkspace: typeof contractorWorkspace;
+  cost_document_access: typeof cost_document_access;
+  cost_document_working_state: typeof cost_document_working_state;
+  cost_documents: typeof cost_documents;
   crons: typeof crons;
+  data_retention: typeof data_retention;
   demo_build_address: typeof demo_build_address;
   demo_builder_proposals: typeof demo_builder_proposals;
   demo_drawflow: typeof demo_drawflow;
@@ -295,6 +318,7 @@ declare const fullApi: ApiFromModules<{
   demo_site_visit_tokens: typeof demo_site_visit_tokens;
   demo_timeline_plans: typeof demo_timeline_plans;
   demo_timeline_snapshots: typeof demo_timeline_snapshots;
+  email_transport: typeof email_transport;
   evidence_preview: typeof evidence_preview;
   fairLendConfig: typeof fairLendConfig;
   fluent: typeof fluent;
@@ -305,11 +329,23 @@ declare const fullApi: ApiFromModules<{
   production_proposals: typeof production_proposals;
   proposal_collaboration: typeof proposal_collaboration;
   proposal_collaboration_model: typeof proposal_collaboration_model;
+  quote_authoring_access: typeof quote_authoring_access;
+  quote_comparisons: typeof quote_comparisons;
+  quote_invitation_access: typeof quote_invitation_access;
+  quote_notifications: typeof quote_notifications;
+  quote_preferred: typeof quote_preferred;
+  quote_response_drafts: typeof quote_response_drafts;
+  quote_response_submissions: typeof quote_response_submissions;
+  quote_response_template_migrations: typeof quote_response_template_migrations;
+  quote_response_templates: typeof quote_response_templates;
+  quote_round_lifecycle: typeof quote_round_lifecycle;
+  quote_rounds: typeof quote_rounds;
   siteVisitGuidance: typeof siteVisitGuidance;
   todos: typeof todos;
   types: typeof types;
   workosManagement: typeof workosManagement;
   workosProjection: typeof workosProjection;
+  workos_permission_access: typeof workos_permission_access;
 }>;
 
 /**
@@ -343,5 +379,6 @@ export declare const components: {
   migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
   presence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"presence">;
+  resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
   timeline: import("convex-timeline/_generated/component.js").ComponentApi<"timeline">;
 };

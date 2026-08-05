@@ -930,6 +930,8 @@ describe("Build collaboration external delivery", () => {
   });
 
   test("reschedules queued digest work when cadence changes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse("2026-07-31T14:30:00.000Z"));
     const fixture = await seedDeliveryBuild();
     await fixture.broker.mutation(
       (api as any).build_collaboration_notifications
@@ -1280,6 +1282,7 @@ describe("Build collaboration external delivery", () => {
 
   test("reclaims an interrupted dispatch after its lease with stable idempotency", async () => {
     const fixture = await seedDeliveryBuild();
+    await muteBuilderOrdinaryActivity(fixture.base, fixture.buildId);
     await fixture.admin.mutation(
       (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
       publicationArgs(fixture.buildId, {
@@ -1691,6 +1694,7 @@ describe("Build collaboration external delivery", () => {
 
   test("retries provider failures with one stable idempotency key", async () => {
     const fixture = await seedDeliveryBuild();
+    await muteBuilderOrdinaryActivity(fixture.base, fixture.buildId);
     await fixture.admin.mutation(
       (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
       publicationArgs(fixture.buildId, {
@@ -1799,6 +1803,7 @@ describe("Build collaboration external delivery", () => {
 
   test("supersedes a failed batch before sending to a changed email destination", async () => {
     const fixture = await seedDeliveryBuild();
+    await muteBuilderOrdinaryActivity(fixture.base, fixture.buildId);
     await fixture.admin.mutation(
       (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
       publicationArgs(fixture.buildId, {

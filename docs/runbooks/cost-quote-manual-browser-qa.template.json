@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "cost-quote-manual-browser-qa/v1",
+  "gitCommit": "<40-character-git-sha>",
+  "applicationOrigin": "https://<required-production-host>",
+  "browser": "codex-in-app",
+  "reviewerModel": "gpt-5.6-luna",
+  "signedInAccountCapabilities": "all_roles",
+  "completedAt": "<ISO-8601-timestamp-with-explicit-timezone>",
+  "workflowResults": [
+    {
+      "workflowId": "<required-workflow-id>",
+      "canonicalRoute": "<exact-canonical-route-from-workflow-definition>",
+      "targetViewport": {
+        "width": 0,
+        "height": 0
+      },
+      "devicePixelRatio": 1,
+      "operationsCompleted": [
+        "<every-required-operation-from-workflow-definition>"
+      ],
+      "recoveryScenariosCompleted": [
+        "<every-required-recovery-scenario-from-workflow-definition>"
+      ],
+      "hierarchyPreserved": true,
+      "horizontalOverflow": false,
+      "inaccessibleControls": [],
+      "unexpectedConsoleErrors": [],
+      "screenshots": [
+        {
+          "path": "<relative-or-absolute-screenshot-path>",
+          "sha256": "<64-character-sha256>"
+        }
+      ]
+    }
+  ]
+}

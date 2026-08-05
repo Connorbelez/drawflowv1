@@ -27,33 +27,43 @@ import {
   type StaffDirectory,
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
+import { CostDocumentRoadmapReconciliation } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
+import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
+import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
+import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
-export type BuilderBuildSearch = {
+export interface BuilderBuildSearch {
+  costBatch?: string;
+  costDocument?: string;
+  costDocumentDraft?: string;
   focus?: string;
-  timeframe?: CalendarTimeframe;
   milestone?: string;
-  variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
+  rail?: "open" | "closed";
   tab?:
     | "calendar"
     | "contractors"
+    | "costs"
     | "details"
     | "documents"
     | "evidence"
     | "gantt"
     | "materials"
     | "milestones"
+    | "quotes"
     | "staff"
     | "timeline";
-  rail?: "open" | "closed";
-};
+  timeframe?: CalendarTimeframe;
+  variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
+}
 
 function isMilestoneStartPrototypeVariant(
   variant: BuilderBuildSearch["variant"]
@@ -129,13 +139,16 @@ const VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY: StaffDirectory = {
 
 export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
+    const costDocumentSearch = normalizeCostDocumentSearch(search);
     const tab =
       search.tab === "timeline" ||
+      search.tab === "costs" ||
       search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "quotes" ||
       search.tab === "staff" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
@@ -167,6 +180,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
+      ...costDocumentSearch,
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
@@ -209,6 +223,7 @@ function BuilderBuildRoute() {
       includeStaffTab
       routeBase="/builder"
       search={search}
+      viewerRoles={[context.role, ...(context.roles ?? [])]}
       workosOrganizationId={context.organizationId as string}
     />
   );
@@ -335,6 +350,7 @@ export function BuilderBuildWorkspaceRoute({
   includeStaffTab,
   routeBase,
   search,
+  viewerRoles = [],
   workosOrganizationId,
 }: {
   buildId: string;
@@ -342,6 +358,7 @@ export function BuilderBuildWorkspaceRoute({
   includeStaffTab: boolean;
   routeBase: "/builder" | "/builder-staff";
   search: BuilderBuildSearch;
+  viewerRoles?: string[];
   workosOrganizationId: string;
 }) {
   const navigate = useNavigate();
@@ -804,6 +821,35 @@ export function BuilderBuildWorkspaceRoute({
       : undefined,
   } as ProductionBuildDetailActions;
   const surfaceActions: ProductionBuildDetailActions = actions;
+  const requestedCostDocumentCapacity =
+    routeBase === "/builder-staff" ? "builder-staff" : "builder";
+  const backofficeCostDocumentCapacity = viewerRoles.includes("admin")
+    ? "admin"
+    : viewerRoles.includes("principle-broker")
+      ? "principle-broker"
+      : undefined;
+  const costDocumentActorCapacity =
+    visualFixtureEnabled ||
+    detail.viewerBuildRoles?.includes(requestedCostDocumentCapacity)
+      ? requestedCostDocumentCapacity
+      : backofficeCostDocumentCapacity;
+  const costDocumentSubmilestones = buildCostDocumentSubmilestoneOptions(
+    detail.milestones ?? [],
+    detail.submilestones ?? []
+  );
+  const onCostDocumentIdChange = (costDocumentId?: string) =>
+    navigate({
+      params: { buildId },
+      replace: !costDocumentId,
+      search: {
+        ...search,
+        costBatch: undefined,
+        costDocument: costDocumentId,
+        costDocumentDraft: undefined,
+        tab: "costs",
+      },
+      to: `${routeBase}/builds/$buildId` as never,
+    } as never);
 
   return (
     <>
@@ -823,6 +869,59 @@ export function BuilderBuildWorkspaceRoute({
                 `/builder/contractors/${contractorId}?fromBuildId=${buildId}`
             : undefined
         }
+        costs={
+          costDocumentActorCapacity ? (
+            <CostDocumentBatchWorkspace
+              actorCapacity={costDocumentActorCapacity}
+              batchId={search.costBatch}
+              buildId={activeBuildId as Id<"activeBuilds">}
+              draftId={search.costDocumentDraft}
+              onBatchIdChange={(batchId) =>
+                navigate({
+                  params: { buildId },
+                  replace: Boolean(search.costBatch) || !batchId,
+                  search: {
+                    ...search,
+                    costBatch: batchId,
+                    costDocument: undefined,
+                    costDocumentDraft: undefined,
+                    tab: "costs",
+                  },
+                  to: `${routeBase}/builds/$buildId` as never,
+                } as never)
+              }
+              organizationId={workosOrganizationId}
+              reconciliation={{
+                onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+                  navigate({
+                    params: { buildId },
+                    replace: false,
+                    search: {
+                      ...search,
+                      costBatch: batchId,
+                      costDocument: undefined,
+                      costDocumentDraft: draftId,
+                      tab: "costs",
+                    },
+                    to: `${routeBase}/builds/$buildId` as never,
+                  } as never),
+                onCostDocumentIdChange,
+                selectedCostDocumentId: search.costDocument,
+              }}
+              submilestones={costDocumentSubmilestones}
+            />
+          ) : (
+            <CostDocumentRoadmapReconciliation
+              buildId={activeBuildId as Id<"activeBuilds">}
+              interactionMode="brokerage-review"
+              onCloseCostDocument={() => onCostDocumentIdChange(undefined)}
+              onOpenCostDocument={onCostDocumentIdChange}
+              organizationId={workosOrganizationId}
+              selectedCostDocumentId={search.costDocument}
+              submilestones={costDocumentSubmilestones}
+            />
+          )
+        }
         detail={detail}
         focusedReference={search.focus}
         fundingWorkspaceEnabled
@@ -838,6 +937,26 @@ export function BuilderBuildWorkspaceRoute({
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         prototypeMilestoneStartTrigger={milestoneStartPrototypeEnabled}
+        quotes={
+          <QuoteRoundsSurface
+            buildId={String(activeBuildId)}
+            onCreate={() =>
+              navigate({
+                params: { buildId },
+                search: {},
+                to: `${routeBase}/builds/$buildId/quotes/new` as never,
+              } as never)
+            }
+            onOpen={(roundId) =>
+              navigate({
+                params: { buildId },
+                search: { roundId },
+                to: `${routeBase}/builds/$buildId/quotes/new` as never,
+              } as never)
+            }
+            organizationId={workosOrganizationId}
+          />
+        }
         rail={search.rail}
         staff={
           includeStaffTab ? (
@@ -865,10 +984,12 @@ export function BuilderBuildWorkspaceRoute({
             ? undefined
             : [
                 "details",
+                "costs",
                 "documents",
                 "milestones",
                 "contractors",
                 "materials",
+                "quotes",
                 "timeline",
                 "evidence",
                 "calendar",

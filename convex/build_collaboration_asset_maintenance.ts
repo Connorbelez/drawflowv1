@@ -364,6 +364,44 @@ async function expireStagingSession(
   now: number
 ) {
   const asset = session.assetId ? await ctx.db.get(session.assetId) : null;
+  const activeCostDocumentDraftPages = asset
+    ? await ctx.db
+        .query("costDocumentDraftPages")
+        .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+        .filter((query) => query.eq(query.field("state"), "active"))
+        .take(1)
+    : [];
+  if (
+    asset &&
+    !asset.publishedAt &&
+    session.state === "finalized" &&
+    activeCostDocumentDraftPages.length > 0
+  ) {
+    // A durable Cost Document draft page owns this otherwise-private source
+    // asset. This is an interrupted bind convergence, not an expiry: retain
+    // the storage and consume the session so a subsequent pass cannot delete
+    // a page the draft already references.
+    await ctx.db.patch(session._id, { state: "consumed", updatedAt: now });
+    await ctx.db.insert("auditEvents", {
+      actorRoles: ["system"],
+      actorWorkosUserId: "system:asset-staging-expiry",
+      brokerageId: session.brokerageId,
+      command: "expireBuildCollaborationAssetStagingSession",
+      createdAt: now,
+      entityId: asset._id,
+      entityType: "buildCollaborationAsset",
+      eventType: "build.collaboration.asset.staging_retained",
+      newState: JSON.stringify({
+        assetState: asset.state,
+        reason: "active_cost_document_draft_page",
+        sessionState: "consumed",
+        storageDeleted: false,
+      }),
+      organizationId: session.organizationId,
+      warnings: [],
+    });
+    return;
+  }
   const attachments = asset
     ? await ctx.db
         .query("buildCollaborationAttachments")

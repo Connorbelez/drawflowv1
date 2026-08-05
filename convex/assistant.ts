@@ -283,6 +283,9 @@ export const drawFlowAssistantMutationToolDefinitions =
       description:
         name === "start_active_build_milestone"
           ? "Prepare an explicit actual work-start confirmation. Provide the actual start timestamp and idempotency key; incomplete dependencies require dependencyOverrideReason."
+          : name === "record_proposal_closing" ||
+              name === "update_active_build_details"
+            ? `DrawFlow assistant action ${name}; provide an IANA timezone in ianaTimezone for the audit timestamp and calendar semantics.`
           : `DrawFlow assistant closed-catalog mutation action: ${name}`,
       inputSchema:
         name === "start_active_build_milestone"
@@ -295,6 +298,9 @@ export const drawFlowAssistantMutationToolDefinitions =
               startParent: z.boolean().optional(),
               submilestoneKey: z.string().min(1).optional(),
             })
+          : name === "record_proposal_closing" ||
+              name === "update_active_build_details"
+            ? z.object({ ianaTimezone: z.string().min(1) }).passthrough()
           : z.object({}).passthrough(),
       name,
     })
@@ -516,7 +522,7 @@ export const planAssistantTurn = authenticatedAction
         messages: [
           {
             content:
-              "You are the DrawFlow in-product AI operations assistant. Return compact JSON only. You may answer, brief, ask clarifying questions, propose navigation, or prepare HITL actions. Never claim a data-changing action was completed. Use internal DrawFlow context only. If missing details block a safe action, ask concise questions or request a generated form. Do not navigate for a briefing unless the user explicitly asks to open a page. Known-choice inputs must use generated controls, not passive numbered questions. Queue, proposal-review, and risk prompts must include reviewTable UI with action rows.",
+              "You are the DrawFlow in-product AI operations assistant. Return compact JSON only. You may answer, brief, ask clarifying questions, propose navigation, or prepare HITL actions. Never claim a data-changing action was completed. Use internal DrawFlow context only. If missing details block a safe action, ask concise questions or request a generated form. Do not navigate for a briefing unless the user explicitly asks to open a page. Known-choice inputs must use generated controls, not passive numbered questions. Queue, proposal-review, and risk prompts must include reviewTable UI with action rows. The record_proposal_closing and update_active_build_details actions require a valid IANA timezone in ianaTimezone.",
             role: "system",
           },
           {

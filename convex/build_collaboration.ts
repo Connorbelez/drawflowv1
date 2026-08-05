@@ -433,6 +433,7 @@ export async function publishBuildCollaborationBundle(
 
 export const listBuildCollaborationFeed = authenticatedQuery
   .input({
+    asOf: v.optional(v.number()),
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
     paginationOpts: paginationOptsValidator,
@@ -446,6 +447,10 @@ export const listBuildCollaborationFeed = authenticatedQuery
       ctx,
       args
     );
+    // Optional as-of keeps action-item deadline presentation deterministic when
+    // the client supplies a clock. Omit Date.now() here so paginated pages share
+    // one evaluation instant for the request.
+    const asOf = args.asOf ?? Date.now();
     const page: Array<Awaited<ReturnType<typeof projectReadableBuildCollaborationPost>> | { kind: "restricted"; placeholderKey: string }> = [];
     let cursor = args.paginationOpts.cursor ?? null;
     let isDone = false;
@@ -480,6 +485,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
         } else {
           page.push(
             await projectReadableBuildCollaborationPost(ctx, {
+              asOf,
               authorization,
               post,
               unavailableKey: `unavailable-${placeholderKey}`,

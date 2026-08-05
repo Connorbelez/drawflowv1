@@ -547,6 +547,7 @@ async function projectSystemDrawFacts(
 export async function projectReadableBuildCollaborationPost(
   ctx: QueryCtx,
   input: {
+    asOf?: number;
     authorization: ActiveBuildAuthorization;
     post: Doc<"buildCollaborationPosts">;
     unavailableKey: string;
@@ -733,7 +734,9 @@ export async function projectReadableBuildCollaborationPost(
       readableActionItems.push(item);
     }
   }
-  const asOf = Date.now();
+  // Prefer a caller-supplied as-of so feed queries stay deterministic when the
+  // client passes a stable clock; fall back only when the caller omits it.
+  const asOf = input.asOf ?? Date.now();
   const projectedActionItems = await Promise.all(
     readableActionItems.map((item) =>
       projectActionItemSummary(ctx, authorization, item, asOf)

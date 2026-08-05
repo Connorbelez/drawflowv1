@@ -5,7 +5,10 @@ import {
   contractorMutation,
   contractorQuery,
 } from "./authz";
-import { requireContractorLinkedProfile } from "./contractorAuth";
+import {
+  getContractorProfileByAccount,
+  requireContractorLinkedProfile,
+} from "./contractorAuth";
 import {
   type MilestoneStartSource,
   recordMilestoneStart,
@@ -38,6 +41,21 @@ const contractorRoleQuery = contractorQuery.use(requireContractorLinkedProfile);
 const contractorRoleMutation = contractorMutation.use(
   requireContractorLinkedProfile
 );
+
+/**
+ * Resolve the profile-link prerequisite without invoking linked-profile
+ * middleware. The Contractor route uses this gate before mounting any child
+ * workspace query, so an unlinked but correctly authenticated role reaches the
+ * canonical onboarding recovery surface instead of a route error boundary.
+ */
+export const getContractorWorkspaceAccess = contractorQuery
+  .returns(v.object({ profileLinked: v.boolean() }))
+  .handler(async (ctx) => ({
+    profileLinked: Boolean(
+      await getContractorProfileByAccount(ctx, ctx.viewer.subject)
+    ),
+  }))
+  .public();
 
 // ---------------------------------------------------------------------------
 // Email normalization (PRD §6.2 canonical email rules)
@@ -84,8 +102,8 @@ export function normalizeContractorEmail(value: string | undefined): string {
 // ---------------------------------------------------------------------------
 
 interface ContractorAssignmentContext {
-  proposalAssignments: Doc<"proposalMilestoneContractorAssignments">[];
   buildAssignments: Doc<"milestoneContractorAssignments">[];
+  proposalAssignments: Doc<"proposalMilestoneContractorAssignments">[];
 }
 
 async function loadContractorAssignments(
@@ -147,7 +165,7 @@ async function isCanonicalBuildAssignment(
     rootAssignment.brokerageId !== build.brokerageId ||
     rootAssignment.buildId !== build._id ||
     rootAssignment.contractorId !== contractorId ||
-    rootAssignment.status !== "active"
+    rootAssignment.status === "inactive"
   ) {
     return false;
   }
@@ -273,25 +291,25 @@ function redactDocument(doc: {
 
 interface ContractorWorkItem {
   _id: string;
-  assignmentId: string;
-  objectType: "proposal" | "build";
-  parentName: string;
-  parentId: string;
-  milestoneKey: string;
-  milestoneName: string;
-  submilestoneKey: string | null;
-  submilestoneName: string | null;
-  role: string;
-  status: string;
-  scheduleStatus: string;
   acknowledgementStatus: string;
+  assignmentId: string;
   evidenceStatus: string;
   issueStatus: string;
-  plannedStartDay: number | null;
+  milestoneKey: string;
+  milestoneName: string;
+  nextActionDueDay: number | null;
+  objectType: "proposal" | "build";
+  parentId: string;
+  parentName: string;
+  plannedEndDate: string | null;
   plannedEndDay: number | null;
   plannedStartDate: string | null;
-  plannedEndDate: string | null;
-  nextActionDueDay: number | null;
+  plannedStartDay: number | null;
+  role: string;
+  scheduleStatus: string;
+  status: string;
+  submilestoneKey: string | null;
+  submilestoneName: string | null;
 }
 
 const workItemValidator = v.object({
@@ -705,6 +723,30 @@ export const getContractorBuildDetail = contractorRoleQuery
       };
     }
 
+    // The contractor workspace can continue to show completed assignment
+    // history, but Cost Document capture may only be offered for a current
+    // parent Build assignment. The Cost Document command boundary repeats the
+    // complete graph check; this boolean is a conservative route projection,
+    // never an authorization grant.
+    const buildContractorAssignments = await ctx.db
+      .query("buildContractorAssignments")
+      .withIndex("by_build_contractor", (query) =>
+        query.eq("buildId", build._id).eq("contractorId", contractor._id)
+      )
+      .take(201);
+    const currentBuildContractorAssignmentIds = new Set(
+      buildContractorAssignments.length > 200
+        ? []
+        : buildContractorAssignments
+            .filter(
+              (assignment) =>
+                assignment.organizationId === build.organizationId &&
+                assignment.brokerageId === build.brokerageId &&
+                assignment.status !== "inactive"
+            )
+            .map((assignment) => assignment._id)
+    );
+
     const assignedMilestoneIds = new Set(
       myAssignments.map((a) => a.buildMilestoneId)
     );
@@ -773,6 +815,23 @@ export const getContractorBuildDetail = contractorRoleQuery
             milestoneName: candidate?.name,
             status: candidate?.status,
           }));
+        const costDocumentCaptureEligible = Boolean(
+          contractor.status === "active" &&
+            assignment.status === "active" &&
+            assignment.buildSubmilestoneId &&
+            currentBuildContractorAssignmentIds.has(
+              assignment.buildContractorAssignmentId
+            ) &&
+            milestone &&
+            submilestone &&
+            milestone._id === submilestone.buildMilestoneId &&
+            milestone.key === assignment.milestoneKey &&
+            submilestone.organizationId === build.organizationId &&
+            submilestone.brokerageId === build.brokerageId &&
+            submilestone.buildId === build._id &&
+            submilestone.milestoneKey === assignment.milestoneKey &&
+            submilestone.key === assignment.submilestoneKey
+        );
         return {
           assignmentId: assignment._id,
           acknowledgement:
@@ -782,6 +841,8 @@ export const getContractorBuildDetail = contractorRoleQuery
           dependencyBlockers,
           actualStartedAt: submilestone?.actualStartedAt ?? null,
           startReportedAt: submilestone?.startReportedAt ?? null,
+          buildSubmilestoneId: assignment.buildSubmilestoneId ?? null,
+          costDocumentCaptureEligible,
           submilestoneKey: assignment.submilestoneKey ?? null,
           submilestoneName: submilestone?.name ?? null,
           workStatus: submilestone?.status ?? null,
@@ -808,7 +869,6 @@ export const startAssignedSubmilestone = contractorRoleMutation
   .input({
     actualStartedAt: v.number(),
     buildId: v.id("activeBuilds"),
-    dependencyOverrideReason: v.optional(v.string()),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     source: v.union(
@@ -891,7 +951,6 @@ export const startAssignedSubmilestone = contractorRoleMutation
       },
       actualStartedAt: args.actualStartedAt,
       build,
-      dependencyOverrideReason: args.dependencyOverrideReason,
       idempotencyKey: args.idempotencyKey,
       milestone,
       milestones,
@@ -946,18 +1005,18 @@ export const listContractorScheduleEvents = contractorRoleQuery
 
 interface ContractorScheduleEvent {
   _id: string;
+  endsAt: string | null;
   entityType:
     | "milestone_start"
     | "milestone_end"
     | "submilestone"
     | "site_visit"
     | "reminder";
-  title: string;
-  startsAt: string;
-  endsAt: string | null;
-  parentName: string;
-  parentId: string;
   milestoneKey: string | null;
+  parentId: string;
+  parentName: string;
+  startsAt: string;
+  title: string;
 }
 
 async function projectContractorSchedule(

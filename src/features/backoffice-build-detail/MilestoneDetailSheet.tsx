@@ -1461,6 +1461,8 @@ export function EvidenceUploader({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const id = `milestone-evidence-${item.key}-${compact ? "compact" : "detail"}`;
+  const hasCanonicalKeys = Boolean(data.milestoneKey.trim() && item.key.trim());
+  const canUpload = Boolean(onUpload && hasCanonicalKeys);
   return (
     <div className={cn(!compact && "grid gap-2 text-center")}>
       {compact ? null : (
@@ -1478,7 +1480,7 @@ export function EvidenceUploader({
       <label
         className={cn(
           buttonVariants({ size: "sm", variant: "outline" }),
-          (!onUpload || uploading) && "pointer-events-none opacity-60"
+          (!canUpload || uploading) && "pointer-events-none opacity-60"
         )}
         htmlFor={id}
       >
@@ -1490,12 +1492,12 @@ export function EvidenceUploader({
             : "Choose file"}
         <input
           className="sr-only"
-          disabled={!onUpload || uploading}
+          disabled={!canUpload || uploading}
           id={id}
           onChange={async (event) => {
             const file = event.currentTarget.files?.[0];
             event.currentTarget.value = "";
-            if (!(file && onUpload)) {
+            if (!(file && canUpload && onUpload)) {
               return;
             }
             setUploading(true);

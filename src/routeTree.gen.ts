@@ -24,6 +24,7 @@ import { Route as ContractorIndexRouteImport } from './routes/contractor/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
+import { Route as QuoteInvitationMagicTokenRouteImport } from './routes/quote-invitation.$magicToken'
 import { Route as PrototypeSystemPostsRouteImport } from './routes/prototype/system-posts'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
@@ -36,6 +37,8 @@ import { Route as ContractorScheduleRouteImport } from './routes/contractor/sche
 import { Route as ContractorProfileRouteImport } from './routes/contractor/profile'
 import { Route as ContractorOnboardingRouteImport } from './routes/contractor/onboarding'
 import { Route as ContractorEvidenceRouteImport } from './routes/contractor/evidence'
+import { Route as BuilderQuoteTemplatesRouteImport } from './routes/builder/quote-templates'
+import { Route as BuilderStaffQuoteTemplatesRouteImport } from './routes/builder-staff/quote-templates'
 import { Route as BackofficeUserManagementRouteImport } from './routes/backoffice/user-management'
 import { Route as BackofficeOnboardContractorRouteImport } from './routes/backoffice/onboard-contractor'
 import { Route as BackofficeOnboardBuilderRouteImport } from './routes/backoffice/onboard-builder'
@@ -101,6 +104,9 @@ import { Route as BuilderDemoDashboardProposalsIndexRouteImport } from './routes
 import { Route as BuilderDemoDashboardBuildsIndexRouteImport } from './routes/builder/demo/dashboard/builds/index'
 import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './routes/builder/demo/dashboard/proposals/$draftId'
 import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
+import { Route as BuilderBuildsBuildIdQuotesNewRouteImport } from './routes/builder/builds/$buildId/quotes/new'
+import { Route as BuilderStaffBuildsBuildIdQuotesNewRouteImport } from './routes/builder-staff/builds/$buildId/quotes/new'
+import { Route as BackofficeBuildsBuildIdQuotesNewRouteImport } from './routes/backoffice/builds/$buildId/quotes/new'
 
 const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
   id: '/protected-access',
@@ -177,6 +183,12 @@ const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
   path: '/',
   getParentRoute: () => BackofficeRouteRoute,
 } as any)
+const QuoteInvitationMagicTokenRoute =
+  QuoteInvitationMagicTokenRouteImport.update({
+    id: '/quote-invitation/$magicToken',
+    path: '/quote-invitation/$magicToken',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const PrototypeSystemPostsRoute = PrototypeSystemPostsRouteImport.update({
   id: '/prototype/system-posts',
   path: '/prototype/system-posts',
@@ -238,6 +250,17 @@ const ContractorEvidenceRoute = ContractorEvidenceRouteImport.update({
   path: '/evidence',
   getParentRoute: () => ContractorRouteRoute,
 } as any)
+const BuilderQuoteTemplatesRoute = BuilderQuoteTemplatesRouteImport.update({
+  id: '/quote-templates',
+  path: '/quote-templates',
+  getParentRoute: () => BuilderRouteRoute,
+} as any)
+const BuilderStaffQuoteTemplatesRoute =
+  BuilderStaffQuoteTemplatesRouteImport.update({
+    id: '/quote-templates',
+    path: '/quote-templates',
+    getParentRoute: () => BuilderStaffRouteRoute,
+  } as any)
 const BackofficeUserManagementRoute =
   BackofficeUserManagementRouteImport.update({
     id: '/user-management',
@@ -600,6 +623,24 @@ const BuilderDemoDashboardBuildsBuildIdRoute =
     path: '/$buildId',
     getParentRoute: () => BuilderDemoDashboardBuildsRouteRoute,
   } as any)
+const BuilderBuildsBuildIdQuotesNewRoute =
+  BuilderBuildsBuildIdQuotesNewRouteImport.update({
+    id: '/builds/$buildId/quotes/new',
+    path: '/builds/$buildId/quotes/new',
+    getParentRoute: () => BuilderRouteRoute,
+  } as any)
+const BuilderStaffBuildsBuildIdQuotesNewRoute =
+  BuilderStaffBuildsBuildIdQuotesNewRouteImport.update({
+    id: '/$buildId/quotes/new',
+    path: '/$buildId/quotes/new',
+    getParentRoute: () => BuilderStaffBuildsRouteRoute,
+  } as any)
+const BackofficeBuildsBuildIdQuotesNewRoute =
+  BackofficeBuildsBuildIdQuotesNewRouteImport.update({
+    id: '/quotes/new',
+    path: '/quotes/new',
+    getParentRoute: () => BackofficeBuildsBuildIdRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -628,6 +669,8 @@ export interface FileRoutesByFullPath {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
@@ -640,6 +683,7 @@ export interface FileRoutesByFullPath {
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
+  '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -690,6 +734,9 @@ export interface FileRoutesByFullPath {
   '/builder/builds/$buildId/': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId/': typeof BuilderProposalsProposalIdIndexRoute
+  '/backoffice/builds/$buildId/quotes/new': typeof BackofficeBuildsBuildIdQuotesNewRoute
+  '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
+  '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
   '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
   '/builder/demo/dashboard/builds/': typeof BuilderDemoDashboardBuildsIndexRoute
@@ -709,6 +756,8 @@ export interface FileRoutesByTo {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
@@ -721,6 +770,7 @@ export interface FileRoutesByTo {
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
+  '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder-staff': typeof BuilderStaffIndexRoute
   '/builder': typeof BuilderIndexRoute
@@ -765,6 +815,9 @@ export interface FileRoutesByTo {
   '/builder/builds/$buildId': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdIndexRoute
+  '/backoffice/builds/$buildId/quotes/new': typeof BackofficeBuildsBuildIdQuotesNewRoute
+  '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
+  '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
   '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
   '/builder/demo/dashboard/builds': typeof BuilderDemoDashboardBuildsIndexRoute
@@ -798,6 +851,8 @@ export interface FileRoutesById {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
@@ -810,6 +865,7 @@ export interface FileRoutesById {
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
+  '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -860,6 +916,9 @@ export interface FileRoutesById {
   '/builder/builds/$buildId/': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId/': typeof BuilderProposalsProposalIdIndexRoute
+  '/backoffice/builds/$buildId/quotes/new': typeof BackofficeBuildsBuildIdQuotesNewRoute
+  '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
+  '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
   '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
   '/builder/demo/dashboard/builds/': typeof BuilderDemoDashboardBuildsIndexRoute
@@ -894,6 +953,8 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/builder-staff/quote-templates'
+    | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
@@ -906,6 +967,7 @@ export interface FileRouteTypes {
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/prototype/system-posts'
+    | '/quote-invitation/$magicToken'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -956,6 +1018,9 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId/'
     | '/builder/demo/dashboard/'
     | '/builder/proposals/$proposalId/'
+    | '/backoffice/builds/$buildId/quotes/new'
+    | '/builder-staff/builds/$buildId/quotes/new'
+    | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
     | '/builder/demo/dashboard/proposals/$draftId'
     | '/builder/demo/dashboard/builds/'
@@ -975,6 +1040,8 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/builder-staff/quote-templates'
+    | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
@@ -987,6 +1054,7 @@ export interface FileRouteTypes {
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/prototype/system-posts'
+    | '/quote-invitation/$magicToken'
     | '/backoffice'
     | '/builder-staff'
     | '/builder'
@@ -1031,6 +1099,9 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId'
     | '/builder/demo/dashboard'
     | '/builder/proposals/$proposalId'
+    | '/backoffice/builds/$buildId/quotes/new'
+    | '/builder-staff/builds/$buildId/quotes/new'
+    | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
     | '/builder/demo/dashboard/proposals/$draftId'
     | '/builder/demo/dashboard/builds'
@@ -1063,6 +1134,8 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/builder-staff/quote-templates'
+    | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
@@ -1075,6 +1148,7 @@ export interface FileRouteTypes {
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/prototype/system-posts'
+    | '/quote-invitation/$magicToken'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -1125,6 +1199,9 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId/'
     | '/builder/demo/dashboard/'
     | '/builder/proposals/$proposalId/'
+    | '/backoffice/builds/$buildId/quotes/new'
+    | '/builder-staff/builds/$buildId/quotes/new'
+    | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
     | '/builder/demo/dashboard/proposals/$draftId'
     | '/builder/demo/dashboard/builds/'
@@ -1147,6 +1224,7 @@ export interface RootRouteChildren {
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
   PrototypeSystemPostsRoute: typeof PrototypeSystemPostsRoute
+  QuoteInvitationMagicTokenRoute: typeof QuoteInvitationMagicTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -1259,6 +1337,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeIndexRouteImport
       parentRoute: typeof BackofficeRouteRoute
     }
+    '/quote-invitation/$magicToken': {
+      id: '/quote-invitation/$magicToken'
+      path: '/quote-invitation/$magicToken'
+      fullPath: '/quote-invitation/$magicToken'
+      preLoaderRoute: typeof QuoteInvitationMagicTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/prototype/system-posts': {
       id: '/prototype/system-posts'
       path: '/prototype/system-posts'
@@ -1342,6 +1427,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/contractor/evidence'
       preLoaderRoute: typeof ContractorEvidenceRouteImport
       parentRoute: typeof ContractorRouteRoute
+    }
+    '/builder/quote-templates': {
+      id: '/builder/quote-templates'
+      path: '/quote-templates'
+      fullPath: '/builder/quote-templates'
+      preLoaderRoute: typeof BuilderQuoteTemplatesRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
+    '/builder-staff/quote-templates': {
+      id: '/builder-staff/quote-templates'
+      path: '/quote-templates'
+      fullPath: '/builder-staff/quote-templates'
+      preLoaderRoute: typeof BuilderStaffQuoteTemplatesRouteImport
+      parentRoute: typeof BuilderStaffRouteRoute
     }
     '/backoffice/user-management': {
       id: '/backoffice/user-management'
@@ -1798,6 +1897,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BuilderDemoDashboardBuildsBuildIdRouteImport
       parentRoute: typeof BuilderDemoDashboardBuildsRouteRoute
     }
+    '/builder/builds/$buildId/quotes/new': {
+      id: '/builder/builds/$buildId/quotes/new'
+      path: '/builds/$buildId/quotes/new'
+      fullPath: '/builder/builds/$buildId/quotes/new'
+      preLoaderRoute: typeof BuilderBuildsBuildIdQuotesNewRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
+    '/builder-staff/builds/$buildId/quotes/new': {
+      id: '/builder-staff/builds/$buildId/quotes/new'
+      path: '/$buildId/quotes/new'
+      fullPath: '/builder-staff/builds/$buildId/quotes/new'
+      preLoaderRoute: typeof BuilderStaffBuildsBuildIdQuotesNewRouteImport
+      parentRoute: typeof BuilderStaffBuildsRouteRoute
+    }
+    '/backoffice/builds/$buildId/quotes/new': {
+      id: '/backoffice/builds/$buildId/quotes/new'
+      path: '/quotes/new'
+      fullPath: '/backoffice/builds/$buildId/quotes/new'
+      preLoaderRoute: typeof BackofficeBuildsBuildIdQuotesNewRouteImport
+      parentRoute: typeof BackofficeBuildsBuildIdRouteRoute
+    }
   }
 }
 
@@ -1819,11 +1939,14 @@ const BackofficeBuildersRouteRouteWithChildren =
 
 interface BackofficeBuildsBuildIdRouteRouteChildren {
   BackofficeBuildsBuildIdIndexRoute: typeof BackofficeBuildsBuildIdIndexRoute
+  BackofficeBuildsBuildIdQuotesNewRoute: typeof BackofficeBuildsBuildIdQuotesNewRoute
 }
 
 const BackofficeBuildsBuildIdRouteRouteChildren: BackofficeBuildsBuildIdRouteRouteChildren =
   {
     BackofficeBuildsBuildIdIndexRoute: BackofficeBuildsBuildIdIndexRoute,
+    BackofficeBuildsBuildIdQuotesNewRoute:
+      BackofficeBuildsBuildIdQuotesNewRoute,
   }
 
 const BackofficeBuildsBuildIdRouteRouteWithChildren =
@@ -2035,17 +2158,21 @@ const BuilderProposalsRouteRouteWithChildren =
 interface BuilderRouteRouteChildren {
   BuilderDemoRouteRoute: typeof BuilderDemoRouteRouteWithChildren
   BuilderProposalsRouteRoute: typeof BuilderProposalsRouteRouteWithChildren
+  BuilderQuoteTemplatesRoute: typeof BuilderQuoteTemplatesRoute
   BuilderIndexRoute: typeof BuilderIndexRoute
   BuilderContractorsContractorIdRoute: typeof BuilderContractorsContractorIdRoute
   BuilderBuildsBuildIdIndexRoute: typeof BuilderBuildsBuildIdIndexRoute
+  BuilderBuildsBuildIdQuotesNewRoute: typeof BuilderBuildsBuildIdQuotesNewRoute
 }
 
 const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
   BuilderDemoRouteRoute: BuilderDemoRouteRouteWithChildren,
   BuilderProposalsRouteRoute: BuilderProposalsRouteRouteWithChildren,
+  BuilderQuoteTemplatesRoute: BuilderQuoteTemplatesRoute,
   BuilderIndexRoute: BuilderIndexRoute,
   BuilderContractorsContractorIdRoute: BuilderContractorsContractorIdRoute,
   BuilderBuildsBuildIdIndexRoute: BuilderBuildsBuildIdIndexRoute,
+  BuilderBuildsBuildIdQuotesNewRoute: BuilderBuildsBuildIdQuotesNewRoute,
 }
 
 const BuilderRouteRouteWithChildren = BuilderRouteRoute._addFileChildren(
@@ -2055,12 +2182,15 @@ const BuilderRouteRouteWithChildren = BuilderRouteRoute._addFileChildren(
 interface BuilderStaffBuildsRouteRouteChildren {
   BuilderStaffBuildsIndexRoute: typeof BuilderStaffBuildsIndexRoute
   BuilderStaffBuildsBuildIdIndexRoute: typeof BuilderStaffBuildsBuildIdIndexRoute
+  BuilderStaffBuildsBuildIdQuotesNewRoute: typeof BuilderStaffBuildsBuildIdQuotesNewRoute
 }
 
 const BuilderStaffBuildsRouteRouteChildren: BuilderStaffBuildsRouteRouteChildren =
   {
     BuilderStaffBuildsIndexRoute: BuilderStaffBuildsIndexRoute,
     BuilderStaffBuildsBuildIdIndexRoute: BuilderStaffBuildsBuildIdIndexRoute,
+    BuilderStaffBuildsBuildIdQuotesNewRoute:
+      BuilderStaffBuildsBuildIdQuotesNewRoute,
   }
 
 const BuilderStaffBuildsRouteRouteWithChildren =
@@ -2103,12 +2233,14 @@ const BuilderStaffProposalsRouteRouteWithChildren =
 interface BuilderStaffRouteRouteChildren {
   BuilderStaffBuildsRouteRoute: typeof BuilderStaffBuildsRouteRouteWithChildren
   BuilderStaffProposalsRouteRoute: typeof BuilderStaffProposalsRouteRouteWithChildren
+  BuilderStaffQuoteTemplatesRoute: typeof BuilderStaffQuoteTemplatesRoute
   BuilderStaffIndexRoute: typeof BuilderStaffIndexRoute
 }
 
 const BuilderStaffRouteRouteChildren: BuilderStaffRouteRouteChildren = {
   BuilderStaffBuildsRouteRoute: BuilderStaffBuildsRouteRouteWithChildren,
   BuilderStaffProposalsRouteRoute: BuilderStaffProposalsRouteRouteWithChildren,
+  BuilderStaffQuoteTemplatesRoute: BuilderStaffQuoteTemplatesRoute,
   BuilderStaffIndexRoute: BuilderStaffIndexRoute,
 }
 
@@ -2209,6 +2341,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
   PrototypeSystemPostsRoute: PrototypeSystemPostsRoute,
+  QuoteInvitationMagicTokenRoute: QuoteInvitationMagicTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:

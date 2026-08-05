@@ -39,6 +39,49 @@ export interface WorkosMembershipRow {
   workosUserId: string;
 }
 
+/**
+ * WorkOS owns one mutable membership per external membership id. Projection
+ * replay or legacy seed data can temporarily expose more than one local row
+ * for that membership, so collapse those rows before rendering mutation
+ * controls while preserving their complete projected role set.
+ */
+export function canonicalizeWorkosMembershipRows(
+  memberships: WorkosMembershipRow[]
+): WorkosMembershipRow[] {
+  const canonicalByMembershipId = new Map<string, WorkosMembershipRow>();
+  for (const membership of memberships) {
+    const existing = canonicalByMembershipId.get(membership.workosMembershipId);
+    if (!existing) {
+      canonicalByMembershipId.set(membership.workosMembershipId, {
+        ...membership,
+        roleSlugs: membershipRoleSlugs(membership),
+      });
+      continue;
+    }
+    canonicalByMembershipId.set(membership.workosMembershipId, {
+      ...existing,
+      roleSlug: existing.roleSlug ?? membership.roleSlug,
+      roleSlugs: [
+        ...new Set([
+          ...membershipRoleSlugs(existing),
+          ...membershipRoleSlugs(membership),
+        ]),
+      ],
+    });
+  }
+  return [...canonicalByMembershipId.values()];
+}
+
+function membershipRoleSlugs(membership: WorkosMembershipRow): string[] {
+  return [
+    ...new Set(
+      [membership.roleSlug, ...(membership.roleSlugs ?? [])].filter(
+        (role): role is string => Boolean(role)
+      )
+    ),
+  ];
+}
+
 export interface WorkosRoleRow {
   _id?: string;
   description?: string;

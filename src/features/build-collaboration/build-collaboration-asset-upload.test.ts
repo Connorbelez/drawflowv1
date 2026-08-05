@@ -2,13 +2,40 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { uploadGovernedCollaborationAssets } from "./build-collaboration-asset-upload.ts";
+import {
+  abandonGovernedCollaborationAssets,
+  uploadGovernedCollaborationAssets,
+} from "./build-collaboration-asset-upload.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("uploadGovernedCollaborationAssets", () => {
+  test("abandons large cleanup sets in mutation-safe batches", async () => {
+    const abandonAssets = vi.fn(async () => 25);
+    const assetIds = Array.from(
+      { length: 51 },
+      (_, index) => `asset-${index + 1}` as never
+    );
+
+    await abandonGovernedCollaborationAssets({
+      abandonAssets,
+      assetIds,
+      buildId: "build-1" as never,
+      organizationId: "org-1",
+      reason: "Cost Document submission did not commit.",
+    });
+
+    expect(abandonAssets).toHaveBeenCalledTimes(3);
+    expect(
+      abandonAssets.mock.calls.map(([input]) => input.assetIds.length)
+    ).toEqual([25, 25, 1]);
+    expect(
+      abandonAssets.mock.calls.flatMap(([input]) => input.assetIds)
+    ).toEqual(assetIds);
+  });
+
   test("uploads bytes, hashes the exact file, and returns only a clean asset", async () => {
     const bytes = new TextEncoder().encode("hello");
     const capturedAt = Date.parse("2026-07-31T12:00:00.000Z");
@@ -122,6 +149,108 @@ describe("uploadGovernedCollaborationAssets", () => {
     ).rejects.toThrow("Malware signature detected.");
     expect(abandonAssets).toHaveBeenCalledWith({
       assetIds: ["asset-2"],
+      buildId: "build-1",
+      organizationId: "org-1",
+      reason: "Upload bundle did not reach publication.",
+    });
+  });
+
+  test("keeps an asset retained by its clean-finalization callback when a later file fails", async () => {
+    const firstFile = fileWithBytes(
+      "first.pdf",
+      "application/pdf",
+      new TextEncoder().encode("first")
+    );
+    const secondFile = fileWithBytes(
+      "second.pdf",
+      "application/pdf",
+      new TextEncoder().encode("second")
+    );
+    const abandonAssets = vi.fn(async () => 0);
+    const onFinalizedCleanAsset = vi.fn(async () => undefined);
+    const beginUpload = vi.fn(async ({ fileName }: { fileName: string }) => ({
+      stagingSessionId: `staging-${fileName}`,
+      uploadUrl: `https://uploads.example.test/${fileName}`,
+    }));
+    const finalizeAndScan = vi.fn(async ({ fileName }: { fileName: string }) => ({
+      _id: `asset-${fileName}`,
+      scanState: "clean" as const,
+      state: "available" as const,
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ storageId: "storage-first" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response("failed", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      uploadGovernedCollaborationAssets([firstFile, secondFile], {
+        abandonAssets,
+        beginUpload: beginUpload as never,
+        buildId: "build-1" as never,
+        contextKind: "costDocumentDraft",
+        contextRecordId: "draft-1",
+        finalizeAndScan: finalizeAndScan as never,
+        onFinalizedCleanAsset,
+        organizationId: "org-1",
+        registerUpload: async () => null,
+      })
+    ).rejects.toThrow("Unable to upload second.pdf.");
+
+    expect(onFinalizedCleanAsset).toHaveBeenCalledWith({
+      assetId: "asset-first.pdf",
+      file: firstFile,
+    });
+    expect(abandonAssets).not.toHaveBeenCalled();
+  });
+
+  test("abandons a clean asset when its retention callback fails", async () => {
+    const file = fileWithBytes(
+      "bind-failure.pdf",
+      "application/pdf",
+      new TextEncoder().encode("bind-failure")
+    );
+    const abandonAssets = vi.fn(async () => 1);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ storageId: "storage-bind-failure" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        })
+      )
+    );
+
+    await expect(
+      uploadGovernedCollaborationAssets([file], {
+        abandonAssets,
+        beginUpload: (async () => ({
+          stagingSessionId: "staging-bind-failure",
+          uploadUrl: "https://uploads.example.test/bind-failure",
+        })) as never,
+        buildId: "build-1" as never,
+        contextKind: "costDocumentDraft",
+        contextRecordId: "draft-1",
+        finalizeAndScan: (async () => ({
+          _id: "asset-bind-failure",
+          scanState: "clean",
+          state: "available",
+        })) as never,
+        onFinalizedCleanAsset: async () => {
+          throw new Error("Unable to bind this Cost Document source page.");
+        },
+        organizationId: "org-1",
+        registerUpload: async () => null,
+      })
+    ).rejects.toThrow("Unable to bind this Cost Document source page.");
+
+    expect(abandonAssets).toHaveBeenCalledWith({
+      assetIds: ["asset-bind-failure"],
       buildId: "build-1",
       organizationId: "org-1",
       reason: "Upload bundle did not reach publication.",

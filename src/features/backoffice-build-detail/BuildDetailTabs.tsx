@@ -5,22 +5,26 @@ import { useMediaQuery } from "#/hooks/use-media-query.ts";
 export type BuildDetailSubTab =
   | "calendar"
   | "contractors"
+  | "costs"
   | "details"
   | "documents"
   | "evidence"
   | "gantt"
   | "materials"
   | "milestones"
+  | "quotes"
   | "staff"
   | "timeline";
 
 export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
   [
     { value: "details", label: "Details" },
+    { value: "costs", label: "Costs" },
     { value: "documents", label: "Documents" },
     { value: "milestones", label: "Milestones" },
     { value: "contractors", label: "Contractors" },
     { value: "materials", label: "Materials" },
+    { value: "quotes", label: "Quotes" },
     { value: "timeline", label: "Timeline" },
     { value: "evidence", label: "Evidence" },
     { value: "staff", label: "Staff" },
@@ -30,16 +34,18 @@ export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
 
 export function BuildDetailTabBar({
   activeTab,
+  labels,
   onChangeTab,
   tabs = BUILD_DETAIL_TABS.map((tab) => tab.value),
 }: {
   activeTab: BuildDetailSubTab;
+  labels?: Partial<Record<BuildDetailSubTab, string>>;
   onChangeTab: (tab: BuildDetailSubTab) => void;
   tabs?: BuildDetailSubTab[];
 }) {
   const visibleTabs = BUILD_DETAIL_TABS.filter((tab) =>
     tabs.includes(tab.value)
-  );
+  ).map((tab) => ({ ...tab, label: labels?.[tab.value] ?? tab.label }));
   const compact = useMediaQuery("max-md");
 
   if (compact) {

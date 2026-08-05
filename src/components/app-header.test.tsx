@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("@workos/authkit-tanstack-react-start/client", () => ({
   useAuth: () => ({
+    loading: false,
     user: {
       email: "connor.belez@gmail.com",
       firstName: "Connor",

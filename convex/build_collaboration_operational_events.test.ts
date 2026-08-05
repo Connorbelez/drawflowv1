@@ -4501,6 +4501,19 @@ describe("Build Collaboration operational events", () => {
         .recoverActiveBuildPlanningRevisionMaterialization,
       { asOf: now },
     );
+    // Pending indexed recovery finds nothing for legacy chunks and schedules
+    // the first legacy page on a separate mutation (Convex allows one
+    // paginated query per function). Drain that handoff before asserting.
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .recoverActiveBuildPlanningRevisionMaterialization,
+      {
+        asOf: now,
+        cursor: encodeURIComponent(
+          JSON.stringify({ cursor: null, phase: "legacy" }),
+        ),
+      },
+    );
     const scheduled = await fixture.base.run(async (ctx) =>
       (await ctx.db.get(revisionId))
         ? await ctx.db

@@ -248,6 +248,12 @@ describe("contractor workspace authorization", () => {
     await expect(
       unlinked.query((api as any).contractorWorkspace.getContractorProfile, {}),
     ).rejects.toThrow(/not linked/);
+    await expect(
+      unlinked.query(
+        (api as any).contractorWorkspace.getContractorWorkspaceAccess,
+        {},
+      ),
+    ).resolves.toEqual({ profileLinked: false });
   });
 
   test("unlinking the contractor account immediately revokes workspace access", async () => {
@@ -258,6 +264,12 @@ describe("contractor workspace authorization", () => {
     await expect(
       me.query((api as any).contractorWorkspace.getContractorProfile, {}),
     ).resolves.toMatchObject({ profile: { _id: contractorId } });
+    await expect(
+      me.query(
+        (api as any).contractorWorkspace.getContractorWorkspaceAccess,
+        {},
+      ),
+    ).resolves.toEqual({ profileLinked: true });
 
     await admin.mutation((api as any).contractorMerge.unlinkContractorAccount, {
       contractorId,
@@ -268,6 +280,12 @@ describe("contractor workspace authorization", () => {
     await expect(
       me.query((api as any).contractorWorkspace.getContractorProfile, {}),
     ).rejects.toThrow(/not linked/);
+    await expect(
+      me.query(
+        (api as any).contractorWorkspace.getContractorWorkspaceAccess,
+        {},
+      ),
+    ).resolves.toEqual({ profileLinked: false });
   });
 
   test("denies workspace queries to an unauthenticated caller", async () => {
@@ -457,6 +475,7 @@ describe("contractor workspace scope + redaction", () => {
         contractorId: myContractor,
         milestoneKey: "foundation",
         role: "mason",
+        submilestoneKeys: ["forms"],
         workosOrganizationId: ORG,
       },
     );
@@ -468,6 +487,8 @@ describe("contractor workspace scope + redaction", () => {
     );
     expect(detail.build.buildName).toBe("Contractor workspace build");
     expect(detail.assignedScope[0].milestoneKey).toBe("foundation");
+    expect(detail.assignedScope[0].buildSubmilestoneId).toBeDefined();
+    expect(detail.assignedScope[0].costDocumentCaptureEligible).toBe(true);
     expect(detail.permitDocuments.every((d: any) => d.documentType === "permit")).toBe(true);
     // Raw/internal ratings and financing never reach the contractor.
     expect(detail.ratings).toBeUndefined();

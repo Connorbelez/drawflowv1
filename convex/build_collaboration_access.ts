@@ -32,12 +32,26 @@ export async function canReadCollaborationPost(
     return false;
   }
   if (
+    post.systemPostKind === "milestone" &&
+    post.primaryReferenceKind !== undefined &&
+    post.primaryReferenceKind !== "milestone"
+  ) {
+    return false;
+  }
+  if (
     isDrawSystemPost(post) &&
     !(await canReadDrawSystemEvent(ctx, {
       buildId: authorization.build._id,
       role: authorization.effectiveRole.role,
       workosUserId: authorization.viewer.subject,
     }))
+  ) {
+    return false;
+  }
+  if (
+    post.systemPostKind === "draw" &&
+    post.primaryReferenceKind !== undefined &&
+    post.primaryReferenceKind !== "draw"
   ) {
     return false;
   }

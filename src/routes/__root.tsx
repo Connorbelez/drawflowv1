@@ -279,7 +279,10 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
         <script>{THEME_INIT_SCRIPT}</script>
         <HeadContent />
       </head>
-      <body className="isolate relative flex min-h-svh flex-col bg-background font-sans text-foreground antialiased [overflow-wrap:anywhere] selection:bg-primary/20">
+      <body
+        className="isolate relative flex min-h-svh flex-col bg-background font-sans text-foreground antialiased [overflow-wrap:anywhere] selection:bg-primary/20"
+        suppressHydrationWarning
+      >
         <WorkOSProvider>
           <ConvexProvider>
             <QueryClientProvider client={queryClient}>

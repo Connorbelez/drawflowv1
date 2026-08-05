@@ -548,6 +548,12 @@ export async function filterReadableBuildActionItems(
   const postAccess = new Map<string, boolean>();
   for (const item of items) {
     if (
+      item.systemMode === "generated_milestone_submilestone" &&
+      item.canonicalPlanningState === "superseded"
+    ) {
+      continue;
+    }
+    if (
       await canReadActionItemProjection(ctx, authorization, item, postAccess)
     ) {
       readable.push(item);
@@ -695,11 +701,19 @@ export const updateBuildActionItem = authenticatedMutation
       if (!descriptionPost) {
         throw new Error("Action Item parent post is unavailable.");
       }
-      descriptionReaderIds = await resolveCurrentCollaborationPostReaderIds(
+      const postReaderIds = await resolveCurrentCollaborationPostReaderIds(
         ctx,
         authorization,
         descriptionPost
       );
+      descriptionReaderIds =
+        descriptionPost.systemPostKind === "draw"
+          ? await resolveCurrentDrawCoordinationReaderIds(
+              ctx,
+              authorization,
+              descriptionPost,
+            )
+          : postReaderIds;
       canonicalDescriptionReferences =
         await resolveCanonicalBuildCollaborationReferences(ctx, {
           authorization,

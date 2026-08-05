@@ -35,6 +35,11 @@ import {
   buildCollaborationTenantStatusValidator,
   buildCollaborationThreadStateValidator,
   buildParticipantStatusValidator,
+  costDocumentBatchStateValidator,
+  costDocumentDraftLifecycleValidator,
+  costDocumentDraftPageStateValidator,
+  costDocumentDraftStepValidator,
+  costDocumentFinancialComponentKindValidator,
 } from "./build_collaboration_validators";
 import {
   buildCollaborationWebhookAttemptStatusValidator,
@@ -446,6 +451,9 @@ const quoteRecipientCapabilityValidator = v.union(
   v.literal("supplier")
 );
 
+// A cold Quote recipient is still represented by the canonical,
+// brokerage-scoped contractorProfiles identity. Capabilities distinguish a
+// Contractor from a Supplier without creating a second identity system.
 const quoteRecipientProvisioningStateValidator = v.union(
   v.literal("provisional"),
   v.literal("claimed")
@@ -597,10 +605,252 @@ const builderStaffPermissionResourceValidator = v.union(
   v.literal("reminder")
 );
 
+const quoteResponseTemplateAudienceValidator = v.union(
+  v.literal("contractor"),
+  v.literal("supplier"),
+  v.literal("either")
+);
+
+const quoteResponseTemplateFieldKindValidator = v.union(
+  v.literal("priced_line"),
+  v.literal("short_text"),
+  v.literal("long_text"),
+  v.literal("date"),
+  v.literal("choice"),
+  v.literal("attachment")
+);
+
+const quoteResponseTemplateFieldScopeValidator = v.union(
+  v.literal("whole_quote"),
+  v.literal("labour"),
+  v.literal("materials")
+);
+
+const quoteResponseTemplateFieldRendererValidator = v.union(
+  v.literal("input"),
+  v.literal("tiptap")
+);
+
+const quoteResponseTemplateFieldValidationValidator = v.object({
+  allowedMimeTypes: v.optional(v.array(v.string())),
+  maxFiles: v.optional(v.number()),
+  maxLength: v.optional(v.number()),
+  maxValueCents: v.optional(v.number()),
+  minFiles: v.optional(v.number()),
+  minLength: v.optional(v.number()),
+  minValueCents: v.optional(v.number()),
+  pattern: v.optional(v.string()),
+});
+
+const quoteResponseTemplateTaxValidator = v.object({
+  label: v.string(),
+  rateBps: v.number(),
+});
+
+// Quote solicitation is intentionally modelled as a Build-scoped aggregate.
+// Draft rows are mutable only while a Round is in `draft`; recipient-visible
+// Package Revision rows are append-only snapshots.
+const quoteRoundModeValidator = v.union(
+  v.literal("labour"),
+  v.literal("material"),
+  v.literal("combined")
+);
+
+const quoteRoundStateValidator = v.union(
+  v.literal("draft"),
+  v.literal("open"),
+  v.literal("closed"),
+  v.literal("cancelled")
+);
+
+const quoteRoundMaterialSourceValidator = v.union(
+  v.literal("build_cost_item"),
+  v.literal("ad_hoc")
+);
+
+const quoteInvitationParticipationStateValidator = v.union(
+  v.literal("active"),
+  v.literal("revoked")
+);
+
+const quoteInvitationCredentialStateValidator = v.union(
+  v.literal("active"),
+  v.literal("expired"),
+  v.literal("rotated"),
+  v.literal("revoked")
+);
+
+const quoteInvitationCredentialPurposeValidator = v.union(
+  v.literal("initial"),
+  v.literal("reminder"),
+  v.literal("renewal"),
+  v.literal("rotation")
+);
+
+const quoteInvitationBrowserSessionStateValidator = v.union(
+  v.literal("active"),
+  v.literal("expired"),
+  v.literal("revoked")
+);
+
+const quoteInvitationAccessEventTypeValidator = v.union(
+  v.literal("credential_expired"),
+  v.literal("session_exchanged"),
+  v.literal("session_reused"),
+  v.literal("profile_claimed")
+);
+
+const quoteRoundRecipientNoticeKindValidator = v.union(
+  v.literal("package_revision_published"),
+  v.literal("access_reminder"),
+  v.literal("access_rotated"),
+  v.literal("recipient_replaced")
+);
+
+const quoteRoundRecipientNoticeStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("acknowledged"),
+  v.literal("cancelled")
+);
+
+const quoteInvitationPackageRevisionAcknowledgementStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("acknowledged")
+);
+
+// A recipient response is deliberately a separate mutable aggregate from the
+// immutable Quote Package. These values never become a submitted Quote
+// Response until the later submission workflow explicitly snapshots them.
+const quoteInvitationResponseDraftLineSourceValidator = v.union(
+  v.literal("package_labour"),
+  v.literal("package_material"),
+  v.literal("template_priced"),
+  v.literal("expanded_scope")
+);
+
+const quoteInvitationResponseDraftLineScopeValidator = v.union(
+  v.literal("labour"),
+  v.literal("materials"),
+  v.literal("whole_quote")
+);
+
+// Upload URLs cannot carry application authorization state after they are
+// issued, so every recipient file gets a bounded, invitation-scoped staging
+// session before storage accepts bytes. `finalized` means the storage ID was
+// registered; only `consumed` storage is retained by the Field Ledger.
+const quoteInvitationResponseDraftAttachmentStagingStateValidator = v.union(
+  v.literal("open"),
+  v.literal("finalized"),
+  v.literal("consumed"),
+  v.literal("abandoned")
+);
+
+// Quote response content is immutable at submission time. Lifecycle changes
+// (supersession and withdrawal) are separate append-only events so the
+// commercial response itself is never rewritten or deleted.
+const quoteInvitationResponseSubmissionLifecycleEventTypeValidator = v.union(
+  v.literal("submitted"),
+  v.literal("superseded"),
+  v.literal("withdrawn")
+);
+
+const quoteInvitationResponseSubmissionActorKindValidator = v.union(
+  v.literal("browser_session"),
+  v.literal("claimed_account")
+);
+
+const quotePackageAttachmentKindValidator = v.union(
+  v.literal("permit"),
+  v.literal("inherited")
+);
+
+const buildSubmilestoneDocumentLinkVisibilityValidator = v.union(
+  v.literal("recipient_shareable"),
+  v.literal("internal"),
+  v.literal("unclassified")
+);
+
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
   v.literal("failed")
+);
+
+const emailMessageStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("sent"),
+  v.literal("delivered"),
+  v.literal("delivery_delayed"),
+  v.literal("bounced"),
+  v.literal("failed"),
+  v.literal("complained"),
+  v.literal("cancelled")
+);
+
+// Application-owned communication intents are the durable, organization-scoped
+// email outbox. They are deliberately separate from the official Resend
+// component's internal queue: a domain mutation commits this row atomically,
+// while a bounded worker dispatches it after commit.
+const communicationIntentKindValidator = v.union(
+  v.literal("cost_document_integrity_action_required"),
+  v.literal("cost_document_receipt"),
+  v.literal("quote_invitation_initial"),
+  v.literal("quote_package_revision"),
+  v.literal("quote_invitation_rotation"),
+  v.literal("quote_invitation_recipient_replaced"),
+  v.literal("quote_invitation_reminder_manual"),
+  v.literal("quote_invitation_reminder_auto"),
+  v.literal("quote_invitation_revoked"),
+  v.literal("quote_round_cancelled"),
+  v.literal("quote_response_submitted"),
+  v.literal("quote_response_resubmitted"),
+  v.literal("quote_response_withdrawn")
+);
+
+const communicationIntentStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("dispatching"),
+  v.literal("sent"),
+  v.literal("retry_scheduled"),
+  v.literal("delivered"),
+  v.literal("suppressed"),
+  v.literal("action_required"),
+  v.literal("superseded"),
+  v.literal("cancelled")
+);
+
+const communicationAttemptStateValidator = v.union(
+  v.literal("claimed"),
+  v.literal("enqueued"),
+  v.literal("failed"),
+  v.literal("completed"),
+  v.literal("abandoned")
+);
+
+const communicationOutcomeTypeValidator = v.union(
+  v.literal("dispatch_queued"),
+  v.literal("dispatch_failed"),
+  v.literal("dispatch_suppressed"),
+  v.literal("action_required"),
+  v.literal("email.sent"),
+  v.literal("email.delivered"),
+  v.literal("email.delivery_delayed"),
+  v.literal("email.complained"),
+  v.literal("email.bounced"),
+  v.literal("email.opened"),
+  v.literal("email.clicked"),
+  v.literal("email.failed")
+);
+
+const resendEmailEventTypeValidator = v.union(
+  v.literal("email.sent"),
+  v.literal("email.delivered"),
+  v.literal("email.delivery_delayed"),
+  v.literal("email.complained"),
+  v.literal("email.bounced"),
+  v.literal("email.opened"),
+  v.literal("email.clicked"),
+  v.literal("email.failed")
 );
 
 const recipientDeliveryStatusValidator = v.union(
@@ -1777,6 +2027,7 @@ export default defineSchema({
     .index("by_builder", ["builderProfileId"])
     .index("by_link", ["builderAccountLinkId"])
     .index("by_user", ["workosUserId"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"])
     .index("by_proposal_link_resource", [
       "proposalId",
       "builderAccountLinkId",
@@ -1797,10 +2048,16 @@ export default defineSchema({
     organizationId: v.string(),
     name: v.string(),
     kind: v.optional(contractorKindValidator),
-    // Live quote-solicitation fields; optional so legacy profiles remain valid.
+    // A Contractor Profile is the existing, brokerage-scoped quote-recipient
+    // identity. The optional capability list and provisioning state are additive
+    // so legacy profiles remain valid Contractor recipients while
+    // Supplier/Combined solicitation requires an explicit compatible capability.
     quoteRecipientCapabilities: v.optional(
       v.array(quoteRecipientCapabilityValidator)
     ),
+    // A provisional quote profile is intentionally not a partner-network
+    // membership, Build assignment, or Contractor Workspace admission. An
+    // exact-email WorkOS claim changes only this local ownership marker.
     quoteRecipientProvisioningState: v.optional(
       quoteRecipientProvisioningStateValidator
     ),
@@ -2144,6 +2401,906 @@ export default defineSchema({
   })
     .index("by_brokerage", ["brokerageId"])
     .index("by_brokerage_template", ["brokerageId", "templateKey"]),
+  quoteResponseTemplates: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    templateKey: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    audience: quoteResponseTemplateAudienceValidator,
+    status: v.union(v.literal("active"), v.literal("archived")),
+    currentVersionId: v.optional(v.id("quoteResponseTemplateVersions")),
+    selectedVersionId: v.optional(v.id("quoteResponseTemplateVersions")),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_organization", ["organizationId"])
+    .index("by_organization_status", ["organizationId", "status"])
+    .index("by_organization_templateKey", ["organizationId", "templateKey"]),
+  quoteResponseTemplateVersions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    templateId: v.id("quoteResponseTemplates"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    audience: quoteResponseTemplateAudienceValidator,
+    version: v.number(),
+    status: v.union(v.literal("draft"), v.literal("published")),
+    releaseNote: v.optional(v.string()),
+    validationState: v.union(v.literal("invalid"), v.literal("valid")),
+    createdByWorkosUserId: v.string(),
+    publishedByWorkosUserId: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_template", ["templateId"])
+    .index("by_template_version", ["templateId", "version"])
+    .index("by_template_status", ["templateId", "status"])
+    .index("by_organization_status", ["organizationId", "status"]),
+  quoteResponseTemplateFields: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    templateId: v.id("quoteResponseTemplates"),
+    versionId: v.id("quoteResponseTemplateVersions"),
+    fieldKey: v.string(),
+    label: v.string(),
+    kind: quoteResponseTemplateFieldKindValidator,
+    scope: quoteResponseTemplateFieldScopeValidator,
+    order: v.number(),
+    required: v.boolean(),
+    isPermanent: v.boolean(),
+    repeatable: v.boolean(),
+    renderer: quoteResponseTemplateFieldRendererValidator,
+    choiceOptions: v.optional(v.array(v.string())),
+    validation: v.optional(quoteResponseTemplateFieldValidationValidator),
+    tax: v.optional(quoteResponseTemplateTaxValidator),
+    supportsTax: v.boolean(),
+    allowAlternates: v.boolean(),
+    allowExclusions: v.boolean(),
+    richTextDefaultHtml: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_version", ["versionId"])
+    .index("by_version_order", ["versionId", "order"])
+    .index("by_version_fieldKey", ["versionId", "fieldKey"])
+    .index("by_organization", ["organizationId"]),
+  quoteRounds: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    mode: quoteRoundModeValidator,
+    state: quoteRoundStateValidator,
+    title: v.string(),
+    // Optimistic revision of mutable draft configuration and the terminal
+    // draft-to-open transition. Package Revision numbers are independent.
+    revision: v.number(),
+    currentPackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    closedAt: v.optional(v.number()),
+    closedByWorkosUserId: v.optional(v.string()),
+    closeReason: v.optional(v.string()),
+    cancelledAt: v.optional(v.number()),
+    cancelledByWorkosUserId: v.optional(v.string()),
+    cancellationReason: v.optional(v.string()),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_buildId_and_state", ["buildId", "state"])
+    .index("by_state_and_updatedAt", ["state", "updatedAt"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  quoteRoundDrafts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    templateVersionId: v.optional(v.id("quoteResponseTemplateVersions")),
+    responseDeadline: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_quoteRoundId", ["quoteRoundId"]),
+  quoteRoundDraftLabourScope: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_order", ["quoteRoundId", "order"])
+    .index("by_quoteRoundId_and_buildSubmilestoneId", [
+      "quoteRoundId",
+      "buildSubmilestoneId",
+    ]),
+  quoteRoundDraftMaterialRows: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    rowKey: v.string(),
+    source: quoteRoundMaterialSourceValidator,
+    sourceBuildCostItemId: v.optional(v.id("buildCostItems")),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
+    specificationTiptapJson: v.optional(v.string()),
+    deliveryLocation: v.optional(v.string()),
+    deliveryStartDay: v.optional(v.number()),
+    deliveryEndDay: v.optional(v.number()),
+    deliveryInstructions: v.optional(v.string()),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_order", ["quoteRoundId", "order"])
+    .index("by_quoteRoundId_and_rowKey", ["quoteRoundId", "rowKey"]),
+  quoteRoundDraftMaterialAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundDraftMaterialRowId: v.id("quoteRoundDraftMaterialRows"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundDraftMaterialRowId_and_order", [
+      "quoteRoundDraftMaterialRowId",
+      "order",
+    ])
+    .index("by_quoteRoundId", ["quoteRoundId"]),
+  quoteRoundDraftRecipients: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    recipientProfileId: v.id("contractorProfiles"),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_order", ["quoteRoundId", "order"])
+    .index("by_quoteRoundId_and_recipientProfileId", [
+      "quoteRoundId",
+      "recipientProfileId",
+    ]),
+  quotePackageRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    revision: v.number(),
+    sourceDraftRevision: v.number(),
+    previousPackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    changedFieldKeys: v.optional(v.array(v.string())),
+    templateId: v.id("quoteResponseTemplates"),
+    templateVersionId: v.id("quoteResponseTemplateVersions"),
+    responseDeadline: v.number(),
+    // One immutable Access Window applies to every invitation sent with this
+    // package revision. Individual credentials can rotate, but cannot outlive
+    // this shared window.
+    accessExpiresAt: v.optional(v.number()),
+    permitDocumentId: v.id("buildDocuments"),
+    permitDocumentVersion: v.number(),
+    siteAddressSnapshot: v.string(),
+    siteLatitudeSnapshot: v.optional(v.number()),
+    siteLongitudeSnapshot: v.optional(v.number()),
+    sitePlaceIdSnapshot: v.optional(v.string()),
+    siteMapUrlSnapshot: v.string(),
+    timelineStartDateSnapshot: v.string(),
+    timelineCurrentDaySnapshot: v.optional(v.number()),
+    timelineRangeMinSnapshot: v.optional(v.number()),
+    timelineRangeMaxSnapshot: v.optional(v.number()),
+    roadmapSnapshotFingerprint: v.string(),
+    publishedByWorkosUserId: v.string(),
+    publishedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_revision", ["quoteRoundId", "revision"])
+    .index("by_buildId_and_publishedAt", ["buildId", "publishedAt"]),
+  quotePackageRevisionLabourLines: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    milestoneName: v.string(),
+    submilestoneKey: v.string(),
+    submilestoneName: v.string(),
+    order: v.number(),
+    startDay: v.optional(v.number()),
+    durationDays: v.optional(v.number()),
+    budgetCents: v.optional(v.number()),
+    scopeOfWorkTiptapJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_quotePackageRevisionId_and_order", [
+      "quotePackageRevisionId",
+      "order",
+    ])
+    .index("by_quotePackageRevisionId_and_buildSubmilestoneId", [
+      "quotePackageRevisionId",
+      "buildSubmilestoneId",
+    ]),
+  quotePackageRevisionMaterialLines: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    source: quoteRoundMaterialSourceValidator,
+    sourceBuildCostItemId: v.optional(v.id("buildCostItems")),
+    sourceDraftRowKey: v.optional(v.string()),
+    title: v.string(),
+    description: v.optional(v.string()),
+    quantity: v.number(),
+    unit: v.string(),
+    specificationTiptapJson: v.string(),
+    deliveryLocation: v.string(),
+    deliveryStartDay: v.number(),
+    deliveryEndDay: v.number(),
+    deliveryInstructions: v.string(),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_quotePackageRevisionId_and_order", [
+    "quotePackageRevisionId",
+    "order",
+  ]),
+  quotePackageRevisionMaterialAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quotePackageRevisionMaterialLineId: v.id(
+      "quotePackageRevisionMaterialLines"
+    ),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    milestoneName: v.string(),
+    submilestoneKey: v.string(),
+    submilestoneName: v.string(),
+    startDay: v.optional(v.number()),
+    durationDays: v.optional(v.number()),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_quotePackageRevisionMaterialLineId_and_order", [
+    "quotePackageRevisionMaterialLineId",
+    "order",
+  ]),
+  quotePackageRevisionResponseFields: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    sourceTemplateFieldId: v.id("quoteResponseTemplateFields"),
+    fieldKey: v.string(),
+    label: v.string(),
+    kind: quoteResponseTemplateFieldKindValidator,
+    scope: quoteResponseTemplateFieldScopeValidator,
+    order: v.number(),
+    required: v.boolean(),
+    isPermanent: v.boolean(),
+    repeatable: v.boolean(),
+    renderer: quoteResponseTemplateFieldRendererValidator,
+    choiceOptions: v.optional(v.array(v.string())),
+    validation: v.optional(quoteResponseTemplateFieldValidationValidator),
+    tax: v.optional(quoteResponseTemplateTaxValidator),
+    supportsTax: v.boolean(),
+    allowAlternates: v.boolean(),
+    allowExclusions: v.boolean(),
+    richTextDefaultHtml: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_quotePackageRevisionId_and_order", [
+      "quotePackageRevisionId",
+      "order",
+    ])
+    .index("by_quotePackageRevisionId_and_fieldKey", [
+      "quotePackageRevisionId",
+      "fieldKey",
+    ]),
+  quotePackageRevisionAttachments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    kind: quotePackageAttachmentKindValidator,
+    sourceBuildDocumentId: v.id("buildDocuments"),
+    sourceBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    fileNameSnapshot: v.string(),
+    mimeTypeSnapshot: v.string(),
+    sizeBytesSnapshot: v.number(),
+    storageIdSnapshot: v.optional(v.id("_storage")),
+    contentHashSha256Snapshot: v.string(),
+    sourceDocumentVersionSnapshot: v.number(),
+    order: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_quotePackageRevisionId_and_order", [
+      "quotePackageRevisionId",
+      "order",
+    ])
+    .index("by_quotePackageRevisionId_and_sourceBuildDocumentId", [
+      "quotePackageRevisionId",
+      "sourceBuildDocumentId",
+    ]),
+  // One canonical, mutable Field Ledger exists for an Invitation + immutable
+  // Package Revision. It intentionally contains only aggregate progress and a
+  // bounded rich-text note; response line values, answers, and files are
+  // separate rows so a long-lived draft never rewrites an unbounded document.
+  quoteInvitationResponseDrafts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    version: v.number(),
+    commentsHtml: v.optional(v.string()),
+    completedPricingLineCount: v.number(),
+    answeredFieldCount: v.number(),
+    attachmentCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    // Terminal drafts remain recoverable for the retention window before
+    // editable rows and attachments are physically removed. Submitted
+    // response revisions are separate immutable history and are never deleted
+    // by this lifecycle.
+    retentionState: v.optional(
+      v.union(v.literal("active"), v.literal("recovery"), v.literal("purged"))
+    ),
+    terminalAt: v.optional(v.number()),
+    purgeEligibleAt: v.optional(v.number()),
+    purgedAt: v.optional(v.number()),
+    retentionNextCheckAt: v.optional(v.number()),
+  })
+    .index("by_quoteRoundInvitationId_and_quotePackageRevisionId", [
+      "quoteRoundInvitationId",
+      "quotePackageRevisionId",
+    ])
+    .index("by_buildId_and_retentionState_and_purgeEligibleAt", [
+      "buildId",
+      "retentionState",
+      "purgeEligibleAt",
+    ])
+    .index("by_buildId_and_retentionState_and_retentionNextCheckAt", [
+      "buildId",
+      "retentionState",
+      "retentionNextCheckAt",
+    ])
+    .index("by_quoteRoundId_and_updatedAt", ["quoteRoundId", "updatedAt"]),
+  quoteInvitationResponseDraftLineItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseDraftId: v.id("quoteInvitationResponseDrafts"),
+    lineKey: v.string(),
+    source: quoteInvitationResponseDraftLineSourceValidator,
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    sourcePackageRevisionLabourLineId: v.optional(
+      v.id("quotePackageRevisionLabourLines")
+    ),
+    sourcePackageRevisionMaterialLineId: v.optional(
+      v.id("quotePackageRevisionMaterialLines")
+    ),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    title: v.string(),
+    quotedAmountCents: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseDraftId_and_lineKey", [
+      "quoteInvitationResponseDraftId",
+      "lineKey",
+    ])
+    .index("by_quoteInvitationResponseDraftId_and_updatedAt", [
+      "quoteInvitationResponseDraftId",
+      "updatedAt",
+    ]),
+  quoteInvitationResponseDraftAnswers: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseDraftId: v.id("quoteInvitationResponseDrafts"),
+    sourcePackageRevisionResponseFieldId: v.id(
+      "quotePackageRevisionResponseFields"
+    ),
+    fieldKey: v.string(),
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    value: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_draft_and_responseFieldId", [
+    "quoteInvitationResponseDraftId",
+    "sourcePackageRevisionResponseFieldId",
+  ]),
+  quoteInvitationResponseDraftAttachments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseDraftId: v.id("quoteInvitationResponseDrafts"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseDraftId_and_createdAt", [
+      "quoteInvitationResponseDraftId",
+      "createdAt",
+    ])
+    .index("by_storageId", ["storageId"]),
+  // A reserved slot is scoped to the exact Invitation + Package Revision and
+  // its initiating browser lease or claimed WorkOS identity. This prevents a
+  // generated upload URL from becoming an unbounded, transferable file sink.
+  quoteInvitationResponseDraftAttachmentStagingSessions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationBrowserSessionId: v.optional(
+      v.id("quoteInvitationBrowserSessions")
+    ),
+    ownerWorkosUserId: v.optional(v.string()),
+    expectedFileName: v.string(),
+    expectedMimeType: v.string(),
+    expectedSizeBytes: v.number(),
+    // Consumed staging rows may predate verifier-backed uploads. Live upload
+    // authorization treats a missing verifier as unavailable, while keeping
+    // those immutable historical rows schema-readable during deployment.
+    uploadSecretVerifier: v.optional(v.string()),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    pendingStorageId: v.optional(v.id("_storage")),
+    state: quoteInvitationResponseDraftAttachmentStagingStateValidator,
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_quotePackageRevisionId_and_state", [
+      "quoteRoundInvitationId",
+      "quotePackageRevisionId",
+      "state",
+    ])
+    .index("by_buildId_and_state_and_expiresAt", [
+      "buildId",
+      "state",
+      "expiresAt",
+    ])
+    .index("by_pendingStorageId", ["pendingStorageId"])
+    .index("by_state_and_expiresAt", ["state", "expiresAt"]),
+  // A submission revision is a durable commercial snapshot. Its state never
+  // lives on this row: withdrawal and supersession are immutable lifecycle
+  // events, while the small state projection below is only a current pointer.
+  quoteInvitationResponseSubmissionRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    revision: v.number(),
+    sourceDraftVersion: v.number(),
+    canonicalTotalCents: v.number(),
+    commentsHtml: v.optional(v.string()),
+    submittedByKind: quoteInvitationResponseSubmissionActorKindValidator,
+    submittedByWorkosUserId: v.optional(v.string()),
+    submittedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_revision", [
+      "quoteRoundInvitationId",
+      "revision",
+    ])
+    .index("by_quotePackageRevisionId_and_submittedAt", [
+      "quotePackageRevisionId",
+      "submittedAt",
+    ])
+    .index("by_quoteRoundId_and_submittedAt", ["quoteRoundId", "submittedAt"]),
+  quoteInvitationResponseSubmissionLineItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    lineKey: v.string(),
+    source: quoteInvitationResponseDraftLineSourceValidator,
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    sourcePackageRevisionLabourLineId: v.optional(
+      v.id("quotePackageRevisionLabourLines")
+    ),
+    sourcePackageRevisionMaterialLineId: v.optional(
+      v.id("quotePackageRevisionMaterialLines")
+    ),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    title: v.string(),
+    quotedAmountCents: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_lineKey", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "lineKey",
+    ])
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_createdAt", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "createdAt",
+    ]),
+  quoteInvitationResponseSubmissionAnswers: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    sourcePackageRevisionResponseFieldId: v.id(
+      "quotePackageRevisionResponseFields"
+    ),
+    fieldKey: v.string(),
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    value: v.string(),
+    createdAt: v.number(),
+  }).index("by_quoteInvitationResponseSubmissionRevisionId", [
+    "quoteInvitationResponseSubmissionRevisionId",
+  ]),
+  quoteInvitationResponseSubmissionAttachments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_createdAt", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "createdAt",
+    ])
+    .index("by_storageId", ["storageId"]),
+  quoteInvitationResponseSubmissionLifecycleEvents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    eventType: quoteInvitationResponseSubmissionLifecycleEventTypeValidator,
+    replacementSubmissionRevisionId: v.optional(
+      v.id("quoteInvitationResponseSubmissionRevisions")
+    ),
+    withdrawalExplanation: v.optional(v.string()),
+    actorKind: quoteInvitationResponseSubmissionActorKindValidator,
+    actorWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_createdAt", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "createdAt",
+    ])
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ]),
+  // This row is a transactional projection, not commercial history. It lets
+  // us enforce one authoritative response per Invitation without mutating an
+  // immutable submission revision or scanning unbounded historical rows.
+  quoteInvitationResponseSubmissionStates: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    latestSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    activeSubmissionRevisionId: v.optional(
+      v.id("quoteInvitationResponseSubmissionRevisions")
+    ),
+    latestRevision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_quoteRoundInvitationId_and_quotePackageRevisionId", [
+    "quoteRoundInvitationId",
+    "quotePackageRevisionId",
+  ]),
+  // A Quote Round has at most one current Preferred Quote pointer. The
+  // selected submission remains immutable; lifecycle changes clear this
+  // projection and record the reason in auditEvents.
+  quoteRoundPreferredSubmissionStates: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    quoteRoundInvitationId: v.optional(v.id("quoteRoundInvitations")),
+    quoteInvitationResponseSubmissionRevisionId: v.optional(
+      v.id("quoteInvitationResponseSubmissionRevisions")
+    ),
+    submissionRevision: v.optional(v.number()),
+    stateVersion: v.number(),
+    selectedAt: v.optional(v.number()),
+    selectedByWorkosUserId: v.optional(v.string()),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundId", ["quoteRoundId"])
+    .index("by_preferredSubmissionRevisionId", [
+      "quoteInvitationResponseSubmissionRevisionId",
+    ]),
+  // Replaying a client command returns the exact receipt even if its original
+  // network response was lost. The fingerprint makes key reuse with a stale
+  // Draft version a hard conflict rather than a second commercial response.
+  quoteInvitationResponseSubmissionRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    idempotencyKey: v.string(),
+    requestFingerprint: v.string(),
+    expectedDraftVersion: v.number(),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    createdAt: v.number(),
+  }).index("by_quoteRoundInvitationId_and_idempotencyKey", [
+    "quoteRoundInvitationId",
+    "idempotencyKey",
+  ]),
+  quoteRoundInvitations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    // Immutable provenance for the Invitation. During a Quote Round reopen,
+    // this value remains pinned while currentQuotePackageRevisionId advances
+    // so recipient Drafts and Submissions retain their original revision
+    // scope without creating a second Invitation row.
+    currentQuotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    supersedesInvitationId: v.optional(v.id("quoteRoundInvitations")),
+    recipientProfileId: v.id("contractorProfiles"),
+    recipientNameSnapshot: v.string(),
+    recipientEmailSnapshot: v.string(),
+    recipientCapabilitiesSnapshot: v.array(quoteRecipientCapabilityValidator),
+    participationState: quoteInvitationParticipationStateValidator,
+    accessGeneration: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revocationReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_participationState", [
+      "quoteRoundId",
+      "participationState",
+    ])
+    .index("by_quoteRoundId_and_recipientProfileId", [
+      "quoteRoundId",
+      "recipientProfileId",
+    ]),
+  quoteInvitationAccessCredentials: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    // Never persist a raw bearer secret. The secure delivery transport receives
+    // it only as the outgoing email body; application rows retain this verifier.
+    // Cleared after the credential's terminal retention window. The index
+    // remains useful for live verifiers while optionality lets cleanup remove
+    // the bearer-derived material without deleting lifecycle history.
+    credentialVerifier: v.optional(v.string()),
+    verifierPurgedAt: v.optional(v.number()),
+    credentialVersion: v.number(),
+    accessGeneration: v.optional(v.number()),
+    purpose: v.optional(quoteInvitationCredentialPurposeValidator),
+    deliveryEmailMessageId: v.optional(v.id("emailMessages")),
+    state: quoteInvitationCredentialStateValidator,
+    accessExpiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_state", [
+      "quoteRoundInvitationId",
+      "state",
+    ])
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
+    .index("by_quoteRoundInvitationId_and_credentialVersion", [
+      "quoteRoundInvitationId",
+      "credentialVersion",
+    ])
+    .index("by_buildId_and_state_and_verifierPurgedAt_and_updatedAt", [
+      "buildId",
+      "state",
+      "verifierPurgedAt",
+      "updatedAt",
+    ])
+    .index("by_credentialVerifier", ["credentialVerifier"]),
+  // Browser leases are exchange artifacts, not bearer credentials. The raw
+  // session secret is returned once to the browser and this table stores only
+  // its verifier, bounded by both inactivity and the invitation Access Window.
+  quoteInvitationBrowserSessions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quoteInvitationAccessCredentialId: v.id("quoteInvitationAccessCredentials"),
+    // Cleared after an expired/revoked browser lease ages past retention.
+    sessionVerifier: v.optional(v.string()),
+    verifierPurgedAt: v.optional(v.number()),
+    state: quoteInvitationBrowserSessionStateValidator,
+    accessExpiresAt: v.number(),
+    sessionExpiresAt: v.number(),
+    lastActiveAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_sessionVerifier", ["sessionVerifier"])
+    .index("by_quoteRoundInvitationId_and_state", [
+      "quoteRoundInvitationId",
+      "state",
+    ])
+    .index("by_quoteInvitationAccessCredentialId_and_state", [
+      "quoteInvitationAccessCredentialId",
+      "state",
+    ])
+    .index("by_buildId_and_state_and_verifierPurgedAt_and_updatedAt", [
+      "buildId",
+      "state",
+      "verifierPurgedAt",
+      "updatedAt",
+    ]),
+  // Privacy-preserving access telemetry. It supports the invitation lifecycle
+  // without retaining raw magic links, browser metadata, or response content.
+  quoteInvitationAccessEvents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quoteInvitationAccessCredentialId: v.optional(
+      v.id("quoteInvitationAccessCredentials")
+    ),
+    quoteInvitationBrowserSessionId: v.optional(
+      v.id("quoteInvitationBrowserSessions")
+    ),
+    eventType: quoteInvitationAccessEventTypeValidator,
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
+    .index("by_quoteInvitationAccessCredentialId_and_createdAt", [
+      "quoteInvitationAccessCredentialId",
+      "createdAt",
+    ]),
+  quoteRoundPublicationRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    idempotencyKey: v.string(),
+    requestFingerprint: v.string(),
+    expectedDraftRevision: v.number(),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_idempotencyKey", [
+      "quoteRoundId",
+      "idempotencyKey",
+    ])
+    .index("by_organizationId_and_idempotencyKey", [
+      "organizationId",
+      "idempotencyKey",
+    ]),
+  // Durable recipient notice intent. Provider delivery/outbox mechanics are
+  // deliberately owned by the notification ticket; lifecycle transitions
+  // still record one organization-scoped intent per active recipient.
+  quoteRoundRecipientNoticeIntents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    kind: quoteRoundRecipientNoticeKindValidator,
+    reason: v.string(),
+    status: quoteRoundRecipientNoticeStatusValidator,
+    createdAt: v.number(),
+    acknowledgedAt: v.optional(v.number()),
+  })
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
+    .index("by_quoteRoundInvitationId_and_quotePackageRevisionId_and_kind", [
+      "quoteRoundInvitationId",
+      "quotePackageRevisionId",
+      "kind",
+    ])
+    .index("by_quoteRoundId_and_createdAt", ["quoteRoundId", "createdAt"]),
+  // A new Package Revision never silently migrates a recipient response. The
+  // row is an explicit review/acknowledgement gate for changed or added
+  // recipient-visible fields.
+  quoteInvitationPackageRevisionAcknowledgements: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    previousPackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    changedFieldKeys: v.array(v.string()),
+    acknowledgedFieldKeys: v.array(v.string()),
+    status: quoteInvitationPackageRevisionAcknowledgementStatusValidator,
+    acknowledgedAt: v.optional(v.number()),
+    acknowledgedByWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_quoteRoundInvitationId_and_quotePackageRevisionId", [
+    "quoteRoundInvitationId",
+    "quotePackageRevisionId",
+  ]),
   proposalTemplateMilestones: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -2438,13 +3595,13 @@ export default defineSchema({
     specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
-    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
-    budgetSubmilestoneKey: v.optional(v.string()),
-    supplier: v.optional(v.string()),
     deliveryLocation: v.optional(v.string()),
     deliveryStartDay: v.optional(v.number()),
     deliveryEndDay: v.optional(v.number()),
     deliveryInstructions: v.optional(v.string()),
+    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
+    budgetSubmilestoneKey: v.optional(v.string()),
+    supplier: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
@@ -2712,6 +3869,196 @@ export default defineSchema({
   })
     .index("by_brokerage_status", ["brokerageId", "status"])
     .index("by_entity", ["relatedEntityType", "relatedEntityId"]),
+  emailMessages: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    organizationId: v.string(),
+    idempotencyKey: v.string(),
+    relatedEntityType: v.string(),
+    relatedEntityId: v.string(),
+    recipientEmail: v.string(),
+    sender: v.string(),
+    subject: v.string(),
+    resendEmailId: v.string(),
+    status: emailMessageStatusValidator,
+    lastError: v.optional(v.string()),
+    providerCreatedAt: v.optional(v.number()),
+    finalizedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    communicationIntentId: v.optional(v.id("communicationIntents")),
+    communicationAttemptId: v.optional(v.id("communicationAttempts")),
+    providerEventType: v.optional(resendEmailEventTypeValidator),
+  })
+    .index("by_organization_and_idempotencyKey", [
+      "organizationId",
+      "idempotencyKey",
+    ])
+    .index("by_resendEmailId", ["resendEmailId"])
+    .index("by_entity_and_createdAt", [
+      "relatedEntityType",
+      "relatedEntityId",
+      "createdAt",
+    ])
+    .index("by_organization_status_updatedAt", [
+      "organizationId",
+      "status",
+      "updatedAt",
+    ])
+    .index("by_communicationIntentId_and_createdAt", [
+      "communicationIntentId",
+      "createdAt",
+    ]),
+  emailDeliveryEvents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    emailMessageId: v.id("emailMessages"),
+    resendEmailId: v.string(),
+    eventFingerprint: v.string(),
+    eventType: resendEmailEventTypeValidator,
+    providerCreatedAt: v.number(),
+    receivedAt: v.number(),
+    safeDetail: v.optional(v.string()),
+  })
+    .index("by_eventFingerprint", ["eventFingerprint"])
+    .index("by_emailMessageId_and_providerCreatedAt", [
+      "emailMessageId",
+      "providerCreatedAt",
+    ])
+    .index("by_organization_and_receivedAt", ["organizationId", "receivedAt"]),
+  // This is the application-level durable outbox. It contains only safe
+  // template data and references; bearer secrets are derived transiently by
+  // the dispatcher from the intent identity and never stored here.
+  communicationIntents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    channel: v.literal("email"),
+    kind: communicationIntentKindValidator,
+    status: communicationIntentStatusValidator,
+    idempotencyKey: v.string(),
+    templateKey: v.string(),
+    payloadSnapshot: v.string(),
+    recipientEmailSnapshot: v.string(),
+    recipientNameSnapshot: v.optional(v.string()),
+    relatedEntityType: v.string(),
+    relatedEntityId: v.string(),
+    quoteRoundId: v.optional(v.id("quoteRounds")),
+    quoteRoundInvitationId: v.optional(v.id("quoteRoundInvitations")),
+    quotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    quoteInvitationAccessCredentialId: v.optional(
+      v.id("quoteInvitationAccessCredentials")
+    ),
+    attemptCount: v.number(),
+    nextAttemptAt: v.number(),
+    lastAttemptAt: v.optional(v.number()),
+    lastOutcomeAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    suppressionReason: v.optional(v.string()),
+    actionRequiredReason: v.optional(v.string()),
+    supersededByCommunicationIntentId: v.optional(v.id("communicationIntents")),
+    providerEmailMessageId: v.optional(v.id("emailMessages")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_idempotencyKey", [
+      "organizationId",
+      "idempotencyKey",
+    ])
+    .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
+    .index("by_relatedEntityType_and_relatedEntityId_and_createdAt", [
+      "relatedEntityType",
+      "relatedEntityId",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  // A short organization-scoped lease closes the race between archive
+  // transition and the irreversible provider submission side effect.
+  communicationProviderReservations: defineTable({
+    organizationId: v.string(),
+    communicationIntentId: v.id("communicationIntents"),
+    communicationAttemptId: v.id("communicationAttempts"),
+    state: v.union(
+      v.literal("active"),
+      v.literal("released"),
+      v.literal("expired")
+    ),
+    leaseExpiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    releasedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_state_and_leaseExpiresAt", [
+      "organizationId",
+      "state",
+      "leaseExpiresAt",
+    ])
+    .index("by_state_and_leaseExpiresAt", ["state", "leaseExpiresAt"])
+    .index("by_communicationAttemptId", ["communicationAttemptId"]),
+  // Dispatch attempts are append-only so operators can distinguish a retry,
+  // provider acceptance, and a permanent action-required failure.
+  communicationAttempts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    communicationIntentId: v.id("communicationIntents"),
+    attemptNumber: v.number(),
+    state: communicationAttemptStateValidator,
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    providerEmailMessageId: v.optional(v.id("emailMessages")),
+    providerResendEmailId: v.optional(v.string()),
+    retryAt: v.optional(v.number()),
+    safeError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_communicationIntentId_and_attemptNumber", [
+      "communicationIntentId",
+      "attemptNumber",
+    ])
+    .index("by_communicationIntentId_and_createdAt", [
+      "communicationIntentId",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  // Provider and dispatcher outcomes are append-only. eventFingerprint makes
+  // webhook replay idempotent; precedence is explicit for equal timestamps.
+  communicationOutcomes: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    communicationIntentId: v.id("communicationIntents"),
+    communicationAttemptId: v.optional(v.id("communicationAttempts")),
+    eventFingerprint: v.string(),
+    outcomeType: communicationOutcomeTypeValidator,
+    providerResendEmailId: v.optional(v.string()),
+    providerCreatedAt: v.number(),
+    receivedAt: v.number(),
+    precedence: v.number(),
+    safeDetail: v.optional(v.string()),
+  })
+    .index("by_eventFingerprint", ["eventFingerprint"])
+    .index("by_communicationIntentId_and_providerCreatedAt", [
+      "communicationIntentId",
+      "providerCreatedAt",
+    ])
+    .index("by_organizationId_and_receivedAt", [
+      "organizationId",
+      "receivedAt",
+    ]),
+  communicationSweepStates: defineTable({
+    createdAt: v.number(),
+    cursor: v.optional(v.string()),
+    kind: v.literal("quote_invitation_reminders"),
+    lastRoundUpdatedAt: v.optional(v.number()),
+    sweepStartedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_kind", ["kind"]),
   recipientDeliveries: defineTable({
     actionLabel: v.string(),
     actionRequired: v.boolean(),
@@ -3521,6 +4868,15 @@ export default defineSchema({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
     status: buildCollaborationTenantStatusValidator,
+    // Retention cancellation is distinct from the collaboration rollout
+    // status. A restricted archive keeps canonical Build history readable and
+    // prevents new writes without making records purge-eligible early.
+    serviceLifecycle: v.optional(
+      v.union(v.literal("active"), v.literal("restricted_archive"))
+    ),
+    serviceLifecycleChangedAt: v.optional(v.number()),
+    serviceLifecycleChangedByWorkosUserId: v.optional(v.string()),
+    serviceLifecycleReason: v.optional(v.string()),
     retentionPolicyKey: v.optional(v.string()),
     generousRateLimitMultiplier: v.number(),
     accessRevision: v.optional(v.number()),
@@ -3528,12 +4884,6 @@ export default defineSchema({
     migrationCompletedAt: v.optional(v.number()),
     activatedAt: v.optional(v.number()),
     activatedByWorkosUserId: v.optional(v.string()),
-    serviceLifecycle: v.optional(
-      v.union(v.literal("active"), v.literal("restricted_archive"))
-    ),
-    serviceLifecycleChangedAt: v.optional(v.number()),
-    serviceLifecycleChangedByWorkosUserId: v.optional(v.string()),
-    serviceLifecycleReason: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organizationId", ["organizationId"]),
@@ -4056,6 +5406,260 @@ export default defineSchema({
     .index("by_buildId_and_completedAt", ["buildId", "completedAt"])
     .index("by_buildId_and_state", ["buildId", "state"])
     .index("by_operationKey", ["operationKey"]),
+  // Organization policy for the product-wide retention contract. The
+  // platform baseline is fixed at seven years after the later Build/Loan
+  // closure; tenants may only add days through this append-only versioned
+  // policy.
+  dataRetentionTenantPolicies: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    baselineYears: v.number(),
+    extensionDays: v.number(),
+    version: v.number(),
+    state: v.union(v.literal("active"), v.literal("superseded")),
+    reason: v.string(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    supersededAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_state", ["organizationId", "state"])
+    .index("by_organizationId_and_version", ["organizationId", "version"]),
+  // One derived schedule per Build. This is a rebuildable projection from
+  // canonical Build/Loan closure and the versioned tenant extension.
+  dataRetentionSchedules: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    policyId: v.id("dataRetentionTenantPolicies"),
+    policyVersion: v.number(),
+    state: v.union(
+      v.literal("active"),
+      v.literal("restricted_archive"),
+      v.literal("eligible"),
+      v.literal("held"),
+      v.literal("purged")
+    ),
+    revision: v.number(),
+    buildClosedAt: v.optional(v.number()),
+    loanClosedAt: v.optional(v.number()),
+    laterClosureAt: v.optional(v.number()),
+    baselineRetainUntil: v.optional(v.number()),
+    retainUntil: v.optional(v.number()),
+    derivedAt: v.number(),
+    lastReconciledAt: v.optional(v.number()),
+    restrictedArchiveAt: v.optional(v.number()),
+    purgedAt: v.optional(v.number()),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_organizationId_and_state", ["organizationId", "state"])
+    .index("by_state_and_retainUntil", ["state", "retainUntil"]),
+  // Durable cursor and retry state for paginated tenant/global retention jobs.
+  dataRetentionFanoutRuns: defineTable({
+    runKey: v.string(),
+    mode: v.union(
+      v.literal("archive"),
+      v.literal("maintenance"),
+      v.literal("reconcile")
+    ),
+    organizationId: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    state: v.union(
+      v.literal("running"),
+      v.literal("retry_scheduled"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    attemptCount: v.number(),
+    failureCount: v.number(),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_runKey", ["runKey"]),
+  dataRetentionFanoutBuildFailures: defineTable({
+    runKey: v.string(),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    mode: v.union(
+      v.literal("archive"),
+      v.literal("maintenance"),
+      v.literal("reconcile")
+    ),
+    state: v.union(
+      v.literal("retry_scheduled"),
+      v.literal("resolved"),
+      v.literal("failed")
+    ),
+    failureCount: v.number(),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  }).index("by_runKey_and_buildId", ["runKey", "buildId"]),
+  // Idempotency and progress ledger for every destructive or data-minimizing
+  // operation. A completed key is replay-safe and never executes twice.
+  dataRetentionOperations: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    scopeKind: v.string(),
+    scopeId: v.string(),
+    operationKey: v.string(),
+    operationKind: v.union(
+      v.literal("quote_draft"),
+      v.literal("cost_upload"),
+      v.literal("isolated_asset"),
+      v.literal("credential_verifier"),
+      v.literal("communication_payload"),
+      v.literal("physical_file"),
+      v.literal("build_purge"),
+      v.literal("retention_reminder"),
+      v.literal("restore")
+    ),
+    state: v.union(
+      v.literal("started"),
+      v.literal("blocked"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    reasonCode: v.string(),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    attemptCount: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    affectedCount: v.optional(v.number()),
+    blockReason: v.optional(v.string()),
+  })
+    .index("by_operationKey", ["organizationId", "operationKey"])
+    .index("by_organizationId_and_startedAt", ["organizationId", "startedAt"])
+    .index("by_buildId_and_operationKind", ["buildId", "operationKind"]),
+  // Deliberately minimized linked disposal certificate. It carries no source
+  // bytes, invoice facts, names, addresses, or free-text content.
+  dataRetentionTombstones: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    scopeKind: v.string(),
+    scopeId: v.string(),
+    operationId: v.id("dataRetentionOperations"),
+    lifecycleState: v.string(),
+    revisionCount: v.optional(v.number()),
+    sourceProofHmacSha256: v.optional(v.string()),
+    physicalStorageDeletedAt: v.optional(v.number()),
+    completedAt: v.number(),
+    tombstoneExpiresAt: v.number(),
+    auditEventId: v.optional(v.id("auditEvents")),
+  })
+    .index("by_scopeKind_and_scopeId", ["scopeKind", "scopeId"])
+    .index("by_organizationId_and_completedAt", [
+      "organizationId",
+      "completedAt",
+    ])
+    .index("by_tombstoneExpiresAt", ["tombstoneExpiresAt"]),
+  // Daily, tenant-scoped backup evidence. The manifest is a hash-addressed
+  // description of document and storage coverage, not the backup bytes.
+  dataRetentionBackupManifests: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    backupDate: v.string(),
+    capturedAt: v.number(),
+    rpoDeadlineAt: v.number(),
+    documentsCount: v.number(),
+    buildCount: v.number(),
+    relationshipCount: v.number(),
+    revisionLineageCount: v.number(),
+    storageObjectsCount: v.number(),
+    storageBytes: v.number(),
+    manifestSha256: v.string(),
+    manifestJson: v.string(),
+    // A manifest records controls that are intentionally never persisted in
+    // canonical communication tables (for example rendered provider bodies,
+    // raw provider payloads, IP addresses, and user agents).
+    neverPersistedControls: v.optional(v.array(v.string())),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("verified"),
+      v.literal("failed")
+    ),
+    verifiedAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    createdByWorkosUserId: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_backupDate", ["organizationId", "backupDate"])
+    .index("by_organizationId_and_capturedAt", ["organizationId", "capturedAt"])
+    .index("by_organizationId_and_state_and_capturedAt", [
+      "organizationId",
+      "state",
+      "capturedAt",
+    ]),
+  dataRetentionRestoreIncidents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    incidentReference: v.string(),
+    reason: v.string(),
+    breakGlassConfirmed: v.boolean(),
+    freshBackupManifestId: v.id("dataRetentionBackupManifests"),
+    state: v.union(
+      v.literal("started"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    startedAt: v.number(),
+    targetStartDeadlineAt: v.number(),
+    targetCompletionDeadlineAt: v.number(),
+    completedAt: v.optional(v.number()),
+    correctionHistoryJson: v.string(),
+    createdByWorkosUserId: v.string(),
+    auditEventId: v.optional(v.id("auditEvents")),
+  })
+    .index("by_organizationId_and_startedAt", ["organizationId", "startedAt"])
+    .index("by_organizationId_and_incidentReference", [
+      "organizationId",
+      "incidentReference",
+    ])
+    .index("by_incidentReference", ["incidentReference"]),
+  dataRetentionDrills: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    quarterKey: v.string(),
+    isolatedNamespace: v.string(),
+    backupManifestId: v.id("dataRetentionBackupManifests"),
+    buildCount: v.number(),
+    relationshipCount: v.number(),
+    revisionLineageCount: v.number(),
+    sampleSha256: v.string(),
+    isolationEvidenceSha256: v.string(),
+    passed: v.boolean(),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    createdByWorkosUserId: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_quarterKey", ["organizationId", "quarterKey"])
+    .index("by_isolatedNamespace", ["isolatedNamespace"]),
+  dataRetentionReconciliationRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    runKey: v.string(),
+    asOf: v.number(),
+    state: v.union(
+      v.literal("started"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    scheduleCount: v.number(),
+    reminderCount: v.number(),
+    outboxCount: v.number(),
+    retentionMismatchCount: v.number(),
+    backupRpoBreaches: v.number(),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_runKey", ["organizationId", "runKey"])
+    .index("by_organizationId_and_startedAt", ["organizationId", "startedAt"]),
   buildCollaborationPosts: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -5021,6 +6625,12 @@ export default defineSchema({
       "state",
       "createdAt",
     ])
+    .index("by_buildId_and_state_and_storageDeletedAt_and_createdAt", [
+      "buildId",
+      "state",
+      "storageDeletedAt",
+      "createdAt",
+    ])
     .index("by_storageId", ["storageId"])
     .index("by_supersedesAssetId", ["supersedesAssetId"])
     .index("by_lineageRootAssetId_and_version", [
@@ -5052,6 +6662,12 @@ export default defineSchema({
       "buildId",
       "ownerWorkosUserId",
       "state",
+    ])
+    .index("by_buildId_and_contextKind_and_state_and_expiresAt", [
+      "buildId",
+      "contextKind",
+      "state",
+      "expiresAt",
     ])
     .index("by_contextKind_and_contextRecordId_and_state", [
       "contextKind",
@@ -5238,12 +6854,15 @@ export default defineSchema({
     documentType: productionDocumentTypeValidator,
     status: buildDocumentStatusValidator,
     fileName: v.string(),
-    // A Build Document may be the durable document projection of a scanned,
-    // versioned collaboration asset. Keep this optional for legacy documents.
-    governedAssetId: v.optional(v.id("buildCollaborationAssets")),
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
+    // A Build Document may be the durable document projection of a scanned,
+    // versioned collaboration asset. Recipient-visible package sources resolve
+    // through a clean governed asset; this pointer contributes scan state and
+    // immutable SHA-256 provenance without a parallel file model. Keep this
+    // optional for legacy documents.
+    governedAssetId: v.optional(v.id("buildCollaborationAssets")),
     // Permits are contractor-visible by default (PRD §3.17, §15). Non-permit
     // documents require an explicit contractor-visible ACL flag (PRD §3.34).
     contractorVisible: v.optional(v.boolean()),
@@ -5422,6 +7041,8 @@ export default defineSchema({
     interestStartsOn: v.literal("funds_released"),
     paybackDate: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("closed")),
+    // Explicit closure timestamp lets retention use the later Build/Loan
+    // closure without inferring from a mutable updatedAt value.
     closedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -5573,10 +7194,12 @@ export default defineSchema({
     order: v.number(),
     budgetCents: v.optional(v.number()),
     actualCostCents: v.optional(v.number()),
-    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
+    // Canonical scope content for recipient-visible Quote Package snapshots.
+    // Legacy fieldNote remains a plain-text fallback until this field is set.
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     completionForecastDate: v.optional(v.string()),
     evidencePackageRevisionId: v.optional(
@@ -5631,6 +7254,23 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"])
     .index("by_milestone_and_key", ["buildMilestoneId", "key"]),
+  buildSubmilestoneDocumentLinks: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    buildDocumentId: v.id("buildDocuments"),
+    visibility: buildSubmilestoneDocumentLinkVisibilityValidator,
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"])
+    .index("by_buildId_and_visibility", ["buildId", "visibility"])
+    .index("by_buildSubmilestoneId_and_buildDocumentId", [
+      "buildSubmilestoneId",
+      "buildDocumentId",
+    ]),
   buildSubmilestoneSiteVisitRequirements: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -5868,8 +7508,7 @@ export default defineSchema({
   }).index("by_submilestone_idempotency", [
     "buildSubmilestoneId",
     "idempotencyKey",
-  ]),
-  milestoneStartEvents: defineTable({
+  ]),  milestoneStartEvents: defineTable({
     actualStartedAt: v.optional(v.number()),
     actorRoles: v.array(v.string()),
     actorWorkosUserId: v.string(),
@@ -5935,13 +7574,16 @@ export default defineSchema({
     specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
-    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
-    budgetSubmilestoneKey: v.optional(v.string()),
-    supplier: v.optional(v.string()),
+    // Material solicitation fields belong on canonical Build cost items, not
+    // on a parallel quote-planning source. Quote drafts may additionally own
+    // explicitly ad-hoc rows without mutating this budget record.
     deliveryLocation: v.optional(v.string()),
     deliveryStartDay: v.optional(v.number()),
     deliveryEndDay: v.optional(v.number()),
     deliveryInstructions: v.optional(v.string()),
+    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
+    budgetSubmilestoneKey: v.optional(v.string()),
+    supplier: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
@@ -5953,6 +7595,289 @@ export default defineSchema({
     .index("by_build_milestone", ["buildId", "milestoneKey"])
     .index("by_milestone", ["buildMilestoneId"])
     .index("by_proposal", ["proposalId"]),
+  costDocuments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.optional(v.id("costDocumentBatches")),
+    draftId: v.optional(v.id("costDocumentDrafts")),
+    // Immutable creator provenance for Contractor-owned records. Optional
+    // only so pre-cutover Builder/Homeowner rows remain readable; Contractor
+    // access fails closed when this value is absent or no longer matches the
+    // exact linked profile.
+    contractorProfileId: v.optional(v.id("contractorProfiles")),
+    kind: v.union(v.literal("invoice"), v.literal("receipt")),
+    category: v.union(v.literal("labour"), v.literal("materials")),
+    state: v.literal("submitted"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    vendorName: v.string(),
+    documentDate: v.string(),
+    grossTotalCents: v.number(),
+    currency: v.literal("CAD"),
+    uploaderWorkosUserId: v.string(),
+    uploaderEmailSnapshot: v.string(),
+    // Integrity/lifecycle metadata is append-only or lifecycle-only. The
+    // submitted source facts above remain immutable after insertion.
+    sourceHashDigest: v.optional(v.string()),
+    likelyDuplicateFingerprint: v.optional(v.string()),
+    duplicateOverrideReason: v.optional(v.string()),
+    revisionNumber: v.optional(v.number()),
+    supersedesCostDocumentId: v.optional(v.id("costDocuments")),
+    supersededByCostDocumentId: v.optional(v.id("costDocuments")),
+    supersededAt: v.optional(v.number()),
+    voidedAt: v.optional(v.number()),
+    voidedByWorkosUserId: v.optional(v.string()),
+    voidReason: v.optional(v.string()),
+    submittedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_buildId_and_submittedAt", ["buildId", "submittedAt"])
+    .index("by_batchId", ["batchId"])
+    .index("by_draftId", ["draftId"])
+    .index("by_organizationId_and_submittedAt", [
+      "organizationId",
+      "submittedAt",
+    ])
+    .index("by_buildId_and_uploaderWorkosUserId_and_submittedAt", [
+      "buildId",
+      "uploaderWorkosUserId",
+      "submittedAt",
+    ])
+    .index("by_buildId_and_sourceHashDigest", ["buildId", "sourceHashDigest"])
+    .index("by_buildId_and_likelyDuplicateFingerprint", [
+      "buildId",
+      "likelyDuplicateFingerprint",
+    ])
+    .index("by_supersedesCostDocumentId", ["supersedesCostDocumentId"]),
+  costDocumentPages: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    assetId: v.id("buildCollaborationAssets"),
+    order: v.number(),
+    fileNameSnapshot: v.string(),
+    mimeTypeSnapshot: v.string(),
+    contentHashSha256Snapshot: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_order", ["costDocumentId", "order"])
+    .index("by_costDocumentId_and_assetId", ["costDocumentId", "assetId"])
+    .index("by_buildId_and_assetId", ["buildId", "assetId"]),
+  costDocumentAllocations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    amountCents: v.number(),
+    order: v.number(),
+    submilestoneKeySnapshot: v.string(),
+    submilestoneNameSnapshot: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_order", ["costDocumentId", "order"])
+    .index("by_buildSubmilestoneId_and_createdAt", [
+      "buildSubmilestoneId",
+      "createdAt",
+    ]),
+  costDocumentFinancialComponents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    kind: costDocumentFinancialComponentKindValidator,
+    label: v.optional(v.string()),
+    amountCents: v.number(),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_costDocumentId_and_order", ["costDocumentId", "order"]),
+  costDocumentReviewAnnotations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    reviewType: v.union(v.literal("builder"), v.literal("brokerage")),
+    outcome: v.union(v.literal("accepted"), v.literal("needs_correction")),
+    annotation: v.string(),
+    revision: v.number(),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_reviewType_and_revision", [
+      "costDocumentId",
+      "reviewType",
+      "revision",
+    ])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"]),
+  costDocumentIntegrityExceptions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    pageId: v.id("costDocumentPages"),
+    assetId: v.id("buildCollaborationAssets"),
+    kind: v.union(
+      v.literal("unavailable"),
+      v.literal("quarantined"),
+      v.literal("missing"),
+      v.literal("corrupt")
+    ),
+    actionRequired: v.boolean(),
+    detectedHashSha256: v.optional(v.string()),
+    expectedHashSha256: v.string(),
+    resolvedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_createdAt", ["costDocumentId", "createdAt"])
+    .index("by_costDocumentId_and_pageId_and_kind", [
+      "costDocumentId",
+      "pageId",
+      "kind",
+    ]),
+  costDocumentBatches: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    ownerWorkosUserId: v.string(),
+    // Capacity is durable provenance. A shared identity may hold independent
+    // Homeowner, Builder, Builder Staff, and Contractor working batches.
+    creatorCapacity: v.optional(buildCollaborationRoleValidator),
+    contractorProfileId: v.optional(v.id("contractorProfiles")),
+    correctionSourceCostDocumentId: v.optional(v.id("costDocuments")),
+    state: costDocumentBatchStateValidator,
+    createIdempotencyKey: v.optional(v.string()),
+    submitIdempotencyKey: v.optional(v.string()),
+    submittedAt: v.optional(v.number()),
+    // Optimistic aggregate revision. Legacy rows default to revision 1 at the
+    // authorization boundary until first material mutation backfills it.
+    revision: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_ownerWorkosUserId_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "state",
+    ])
+    .index("by_buildId_and_ownerWorkosUserId_and_creatorCapacity_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "creatorCapacity",
+      "state",
+    ])
+    .index("by_organizationId_and_createIdempotencyKey", [
+      "organizationId",
+      "createIdempotencyKey",
+    ]),
+  costDocumentDrafts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    ownerWorkosUserId: v.string(),
+    contractorProfileId: v.optional(v.id("contractorProfiles")),
+    order: v.number(),
+    kind: v.union(v.literal("invoice"), v.literal("receipt")),
+    category: v.union(v.literal("labour"), v.literal("materials")),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    vendorName: v.optional(v.string()),
+    documentDate: v.optional(v.string()),
+    grossTotalCents: v.optional(v.number()),
+    // Exact owner-private in-progress editor state. Canonical monetary rows
+    // remain validated separately when the workflow advances.
+    workingStateJson: v.optional(v.string()),
+    currency: v.literal("CAD"),
+    activeStep: costDocumentDraftStepValidator,
+    lifecycle: costDocumentDraftLifecycleValidator,
+    completedAt: v.optional(v.number()),
+    submittedCostDocumentId: v.optional(v.id("costDocuments")),
+    supersedesCostDocumentId: v.optional(v.id("costDocuments")),
+    // Optimistic revision for all material draft edits and collaboration
+    // decisions. Legacy rows default to revision 1 at read/write time.
+    revision: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_batchId_and_order", ["batchId", "order"])
+    .index("by_buildId_and_ownerWorkosUserId_and_lifecycle", [
+      "buildId",
+      "ownerWorkosUserId",
+      "lifecycle",
+    ])
+    .index("by_batchId_and_lifecycle", ["batchId", "lifecycle"])
+    .index("by_supersedesCostDocumentId", ["supersedesCostDocumentId"]),
+  costDocumentDraftCollaborationEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    creatorWorkosUserId: v.string(),
+    collaboratorWorkosUserId: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    eventType: v.union(v.literal("granted"), v.literal("revoked")),
+    draftRevision: v.number(),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_draftId_and_draftRevision", ["draftId", "draftRevision"])
+    .index("by_draftId_and_collaboratorWorkosUserId_and_draftRevision", [
+      "draftId",
+      "collaboratorWorkosUserId",
+      "draftRevision",
+    ])
+    .index("by_buildId_and_collaboratorWorkosUserId_and_draftRevision", [
+      "buildId",
+      "collaboratorWorkosUserId",
+      "draftRevision",
+    ]),
+  costDocumentDraftPages: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    order: v.number(),
+    assetId: v.id("buildCollaborationAssets"),
+    priorAssetId: v.optional(v.id("buildCollaborationAssets")),
+    state: costDocumentDraftPageStateValidator,
+    replacedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_draftId_and_order", ["draftId", "order"])
+    .index("by_draftId_and_state_and_order", ["draftId", "state", "order"])
+    .index("by_assetId", ["assetId"])
+    .index("by_assetId_and_state", ["assetId", "state"]),
+  costDocumentDraftAllocations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    amountCents: v.number(),
+    order: v.number(),
+    submilestoneKeySnapshot: v.string(),
+    submilestoneNameSnapshot: v.string(),
+    createdAt: v.number(),
+  }).index("by_draftId_and_order", ["draftId", "order"]),
+  costDocumentDraftFinancialComponents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    kind: costDocumentFinancialComponentKindValidator,
+    label: v.optional(v.string()),
+    amountCents: v.number(),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_draftId_and_order", ["draftId", "order"]),
   plannedDrawScheduleRows: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

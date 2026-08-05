@@ -1966,6 +1966,7 @@ export function ProductionProposalReviewSurface({
   initialActiveTab?: ProductionReviewTab;
 }) {
   const [reason, setReason] = useState("");
+  const [closingReason, setClosingReason] = useState("");
   const [permitWaiverReason, setPermitWaiverReason] = useState("");
   const [startDate, setStartDate] = useState("");
   const [ianaTimezone, setIanaTimezone] = useState(
@@ -1980,6 +1981,7 @@ export function ProductionProposalReviewSurface({
     "approve" | "reject" | "requestChanges" | null
   >(null);
   const [submitPending, setSubmitPending] = useState(false);
+  const [closingPending, setClosingPending] = useState(false);
   const proposal = detail.proposal;
   const proposedStartDate = proposal.proposedStartDate ?? "";
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
@@ -2196,6 +2198,33 @@ export function ProductionProposalReviewSurface({
       toast.error(productionProposalActionErrorMessage(error));
     } finally {
       setSubmitPending(false);
+    }
+  };
+
+  const recordClosing = async () => {
+    if (!canRecordClosing) {
+      toast.error("You do not have permission to record closing.");
+      return;
+    }
+    if (proposal.status !== "approved") {
+      toast.error("This proposal is no longer awaiting closing.");
+      return;
+    }
+    if (!startDate || !ianaTimezone.trim()) {
+      toast.error("Build start date and IANA timezone are required.");
+      return;
+    }
+    setClosingPending(true);
+    try {
+      await onClose?.(
+        startDate,
+        closingReason.trim() || "Loan closed offline.",
+        ianaTimezone.trim(),
+      );
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setClosingPending(false);
     }
   };
 
@@ -2727,24 +2756,28 @@ export function ProductionProposalReviewSurface({
                       Enter a valid IANA timezone such as America/Toronto.
                     </p>
                   ) : null}
+                  <Label htmlFor="production-closing-reason">
+                    Closing reason
+                  </Label>
+                  <Input
+                    id="production-closing-reason"
+                    onChange={(event) => setClosingReason(event.target.value)}
+                    placeholder="Loan closed offline."
+                    value={closingReason}
+                  />
                   <Button
                     disabled={
+                      closingPending ||
                       !canRecordClosing ||
                       proposal.status !== "approved" ||
                       !startDate ||
                       !ianaTimezoneValid
                     }
-                    onClick={() =>
-                      onClose?.(
-                        startDate,
-                        reason || "Loan closed offline.",
-                        normalizedIanaTimezone
-                      )
-                    }
+                    onClick={() => void recordClosing()}
                     size="sm"
                   >
                     <CalendarClock />
-                    Record closing
+                    {closingPending ? "Recording..." : "Record closing"}
                   </Button>
                 </div>
               </Section>

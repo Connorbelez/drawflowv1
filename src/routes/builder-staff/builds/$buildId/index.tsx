@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
 import {
   type BuilderBuildSearch,
   BuilderBuildWorkspaceRoute,
@@ -8,13 +9,16 @@ import {
 
 export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
+    const costDocumentSearch = normalizeCostDocumentSearch(search);
     const tab =
       search.tab === "timeline" ||
+      search.tab === "costs" ||
       search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "quotes" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
       search.tab === "details"
@@ -36,6 +40,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
+      ...costDocumentSearch,
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
@@ -57,6 +62,7 @@ function BuilderStaffBuildRoute() {
       includeStaffTab={false}
       routeBase="/builder-staff"
       search={search}
+      viewerRoles={[context.role, ...(context.roles ?? [])]}
       workosOrganizationId={context.organizationId as string}
     />
   );

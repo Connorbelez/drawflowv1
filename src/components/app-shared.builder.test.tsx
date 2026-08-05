@@ -15,6 +15,7 @@ describe("builderNavGroups", () => {
       "Dashboard",
       "Proposals",
       "Live Builds",
+      "Quote templates",
       "Timeline Setup",
     ]);
     expect(targets).toContain("/builder");
@@ -33,11 +34,17 @@ describe("builderNavGroups", () => {
       group.items.map((item) => item.to),
     );
 
-    expect(titles).toEqual(["Dashboard", "Proposals", "Live Builds"]);
+    expect(titles).toEqual([
+      "Dashboard",
+      "Proposals",
+      "Live Builds",
+      "Quote templates",
+    ]);
     expect(targets).toEqual([
       "/builder-staff",
       "/builder-staff/proposals",
       "/builder-staff/builds",
+      "/builder-staff/quote-templates",
     ]);
     expect(titles).not.toContain("Timeline Setup");
     expect(titles).not.toContain("Builders");
