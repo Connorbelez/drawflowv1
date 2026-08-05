@@ -925,6 +925,7 @@ async function projectActionItemSummary(
         build: authorization.build,
         viewer: {
           role: authorization.effectiveRole.role,
+          roles: authorization.roles,
           workosUserId: authorization.viewer.subject,
         },
       }),

@@ -51,6 +51,10 @@ import {
 } from "./build_collaboration_workflow_events";
 import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import {
+  operateDenialMessage,
+  resolveSubmilestoneOperateAuthority,
+} from "./build_submilestone_operate_authority";
+import {
   appendActiveSubmilestoneEvidenceAssetToDraft,
   assertActiveSubmilestoneEvidenceRequirementKind,
   ensureActiveSubmilestoneEvidencePackageDraft,
@@ -17495,12 +17499,12 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
         message: "Only the exact assigned Contractor may promote evidence.",
       });
     }
-  } else if (isBackoffice(actorRoles)) {
+  } else if (isLenderOnlyForBuilderExecution(actorRoles)) {
     throw new ConvexError({
       code: "LENDER_EXECUTION_FORBIDDEN",
       message: "Lender staff may review evidence but cannot execute Builder work.",
     });
-  } else {
+  } else if (!actorRoles.includes("admin")) {
     await requireActiveBuildAppPermission(
       ctx,
       {
@@ -17894,29 +17898,6 @@ export const startActiveBuildMilestone = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
-    if (isBackoffice(auth.roles)) {
-      throw new Error(
-        "Forbidden: lender roles cannot originate builder milestone starts.",
-      );
-    }
-    const contractorStart = auth.roles.includes("contractor");
-    if (contractorStart) {
-      if (!args.submilestoneKey || args.startParent) {
-        throw new Error(
-          "Assigned Contractors may start only an assigned Sub-milestone."
-        );
-      }
-    } else {
-      await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
-    }
-    if (args.submilestoneKey && !contractorStart) {
-      await requireActiveBuildAppPermission(
-        ctx,
-        auth,
-        "submilestone",
-        "update",
-      );
-    }
     const [milestone, milestones] = await Promise.all([
       getActiveBuildMilestoneOrThrow(ctx, args.buildId, args.milestoneKey),
       collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
@@ -17943,24 +17924,64 @@ export const startActiveBuildMilestone = authenticatedMutation
     if (submilestone) {
       assertActiveBuildPlanningTargetActive(milestone, submilestone);
     }
+
+    const contractorStart = auth.roles.includes("contractor");
     if (contractorStart) {
-      const ownership = submilestone
-        ? await resolveCanonicalMilestoneExecutionOwnership(ctx, {
-            build: auth.build,
-            milestone,
-            submilestone,
-          })
-        : undefined;
-      if (
-        !ownership ||
-        ownership.state !== "assigned" ||
-        ownership.contractor?.accountWorkosUserId !== auth.subject
-      ) {
+      if (!args.submilestoneKey || args.startParent || !submilestone) {
         throw new Error(
-          "Assignment required: contractor is not assigned to this Sub-milestone."
+          "Assigned Contractors may start only an assigned Sub-milestone."
         );
       }
     }
+
+    if (submilestone) {
+      const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+        build: auth.build,
+        milestone,
+        submilestone,
+      });
+      const operate = await resolveSubmilestoneOperateAuthority(ctx, {
+        build: auth.build,
+        intent: "start",
+        milestoneCompleted:
+          milestone.status === "complete" ||
+          milestone.completionClaim !== undefined,
+        ownership,
+        submilestone,
+        viewer: {
+          roles: auth.roles,
+          workosUserId: auth.subject,
+        },
+      });
+      if (!operate.allowed) {
+        throw new ConvexError({
+          code:
+            operate.denial === "assignment_required"
+              ? "ASSIGNMENT_REQUIRED"
+              : operate.denial === "lender_review_only"
+                ? "LENDER_EXECUTION_FORBIDDEN"
+                : "OPERATE_FORBIDDEN",
+          message: operateDenialMessage(operate.denial),
+        });
+      }
+    } else if (!canOriginateParentMilestoneStart(auth.roles)) {
+      throw new Error(
+        "Forbidden: lender roles cannot originate builder milestone starts.",
+      );
+    }
+
+    if (!(contractorStart || auth.roles.includes("admin"))) {
+      await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+      if (args.submilestoneKey) {
+        await requireActiveBuildAppPermission(
+          ctx,
+          auth,
+          "submilestone",
+          "update",
+        );
+      }
+    }
+
     return await recordMilestoneStart(ctx, {
       actor: {
         brokerageId: auth.brokerage._id,
@@ -25765,6 +25786,34 @@ function isBackoffice(roles: readonly RoleSlug[]) {
   );
 }
 
+function hasBuilderExecutionRole(roles: readonly RoleSlug[]) {
+  return roles.some(
+    (role) =>
+      role === "builder" ||
+      role === "builder-staff" ||
+      role === "contractor",
+  );
+}
+
+/** Lender review roles without Admin or Builder execution capability. */
+function isLenderOnlyForBuilderExecution(roles: readonly RoleSlug[]) {
+  if (roles.includes("admin")) {
+    return false;
+  }
+  return isBackoffice(roles) && !hasBuilderExecutionRole(roles);
+}
+
+/** Parent Milestone start (no child): Admin or Builder-side, not review-only lenders. */
+function canOriginateParentMilestoneStart(roles: readonly RoleSlug[]) {
+  if (roles.includes("admin")) {
+    return true;
+  }
+  if (hasBuilderExecutionRole(roles)) {
+    return true;
+  }
+  return !isBackoffice(roles);
+}
+
 type CanonicalSubmilestoneCommandInput = {
   buildId: Id<"activeBuilds">;
   milestoneKey: string;
@@ -25790,30 +25839,43 @@ async function authorizeCanonicalSubmilestoneOperator(
     milestoneKey: input.milestoneKey,
     submilestoneKey: input.submilestoneKey,
   });
-  if (auth.roles.includes("contractor")) {
-    const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
-      build: auth.build,
-      milestone,
-      submilestone,
-    });
-    if (
-      ownership.state !== "assigned" ||
-      ownership.contractor?.accountWorkosUserId !== auth.subject
-    ) {
-      throw new ConvexError({
-        code: "ASSIGNMENT_REQUIRED",
-        message: "Only the exact assigned Contractor may update this Sub-milestone.",
-      });
-    }
-    return auth;
-  }
-  if (isBackoffice(auth.roles)) {
+  const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+    build: auth.build,
+    milestone,
+    submilestone,
+  });
+  const operate = await resolveSubmilestoneOperateAuthority(ctx, {
+    build: auth.build,
+    intent: "update",
+    milestoneCompleted:
+      milestone.status === "complete" ||
+      milestone.completionClaim !== undefined,
+    ownership,
+    submilestone,
+    viewer: {
+      roles: auth.roles,
+      workosUserId: auth.subject,
+    },
+  });
+  if (!operate.allowed) {
     throw new ConvexError({
-      code: "LENDER_EXECUTION_FORBIDDEN",
-      message: "Lender staff may review evidence but cannot execute Builder work.",
+      code:
+        operate.denial === "assignment_required"
+          ? "ASSIGNMENT_REQUIRED"
+          : operate.denial === "lender_review_only"
+            ? "LENDER_EXECUTION_FORBIDDEN"
+            : "OPERATE_FORBIDDEN",
+      message: operateDenialMessage(operate.denial),
     });
   }
-  await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
+  if (
+    !(
+      auth.roles.includes("admin") ||
+      auth.roles.includes("contractor")
+    )
+  ) {
+    await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
+  }
   return auth;
 }
 

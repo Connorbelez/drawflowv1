@@ -52,6 +52,7 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import { Separator } from "#/components/ui/separator.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
@@ -1707,13 +1708,15 @@ function ProductionDetailsTab({
     }
   }, [focusedReference]);
 
+  const showSitePhotos = activeOverviewSection !== "draws";
+
   return (
-    <div className="flex flex-col gap-4" data-testid="production-build-details">
+    <div className="flex flex-col gap-6" data-testid="production-build-details">
       <section
         className={cn(
-          "grid items-stretch gap-3 sm:gap-4",
-          activeOverviewSection !== "draws" &&
-            "xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]"
+          "grid items-stretch",
+          showSitePhotos &&
+            "xl:grid-cols-[minmax(0,2fr)_auto_minmax(320px,1fr)]"
         )}
         data-testid="build-overview-layout"
       >
@@ -1728,15 +1731,19 @@ function ProductionDetailsTab({
           projection={projection}
           viewerRole={viewerRole}
         />
-        {activeOverviewSection === "draws" ? null : (
-          <SitePhotoCarousel
-            buildName={detail.build.buildName}
-            photos={detail.sitePhotos ?? []}
-            siteAddress={detail.build.location}
-            siteLatitude={detail.build.locationLatitude}
-            siteLongitude={detail.build.locationLongitude}
-          />
-        )}
+        {showSitePhotos ? (
+          <>
+            <Separator className="my-5 xl:hidden" />
+            <Separator className="mx-5 hidden xl:block" orientation="vertical" />
+            <SitePhotoCarousel
+              buildName={detail.build.buildName}
+              photos={detail.sitePhotos ?? []}
+              siteAddress={detail.build.location}
+              siteLatitude={detail.build.locationLatitude}
+              siteLongitude={detail.build.locationLongitude}
+            />
+          </>
+        ) : null}
       </section>
 
       <header className="scroll-mt-24 space-y-1" id="build-collaboration">
@@ -1881,9 +1888,13 @@ function ProductionBuildDetailsCard({
   const [editOpen, setEditOpen] = useState(false);
   return (
     <>
-      <Card data-testid="production-build-details-card" id="ui-build-details">
-        <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2 sm:p-5 sm:pb-3">
-          <CardTitle className="text-sm">Build Overview</CardTitle>
+      <section
+        className="min-w-0"
+        data-testid="production-build-details-card"
+        id="ui-build-details"
+      >
+        <header className="mb-1 flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-sm">Build Overview</h2>
           <div className="flex shrink-0 items-center gap-2">
             <span className="text-muted-foreground text-xs">active_builds</span>
             {actions?.updateNonFinancialDetails ? (
@@ -1899,141 +1910,139 @@ function ProductionBuildDetailsCard({
               </Button>
             ) : null}
           </div>
-        </CardHeader>
-        <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
-          <Tabs
-            onValueChange={(value) =>
-              onSectionChange(value as BuildOverviewSection)
-            }
-            value={activeSection}
+        </header>
+        <Tabs
+          onValueChange={(value) =>
+            onSectionChange(value as BuildOverviewSection)
+          }
+          value={activeSection}
+        >
+          <TabsList
+            aria-label="Build overview sections"
+            className="mt-2 mb-4"
+            variant="underline"
           >
-            <TabsList
-              aria-label="Build overview sections"
-              className="mb-4"
-              variant="underline"
-            >
-              <TabsTab data-testid="build-overview-tab-current" value="current">
-                Current
-              </TabsTab>
-              <TabsTab data-testid="build-overview-tab-draws" value="draws">
-                Draws
-              </TabsTab>
-              <TabsTab data-testid="build-overview-tab-build" value="build">
-                Build
-              </TabsTab>
-              <TabsTab data-testid="build-overview-tab-loan" value="loan">
-                Loan
-              </TabsTab>
-            </TabsList>
+            <TabsTab data-testid="build-overview-tab-current" value="current">
+              Current
+            </TabsTab>
+            <TabsTab data-testid="build-overview-tab-draws" value="draws">
+              Draws
+            </TabsTab>
+            <TabsTab data-testid="build-overview-tab-build" value="build">
+              Build
+            </TabsTab>
+            <TabsTab data-testid="build-overview-tab-loan" value="loan">
+              Loan
+            </TabsTab>
+          </TabsList>
 
-            <TabsPanel value="current">
-              <CurrentBuildOverviewPanel
-                actions={actions}
-                currentDay={currentDay}
-                currentOverview={currentOverview}
-                detail={detail}
-                onReviewMilestone={(milestone) =>
-                  onOpenMilestone(milestone.key)
-                }
-                projection={projection}
-                viewerRole={viewerRole}
-              />
-            </TabsPanel>
+          <TabsPanel value="current">
+            <CurrentBuildOverviewPanel
+              actions={actions}
+              currentDay={currentDay}
+              currentOverview={currentOverview}
+              detail={detail}
+              onReviewMilestone={(milestone) =>
+                onOpenMilestone(milestone.key)
+              }
+              projection={projection}
+              viewerRole={viewerRole}
+            />
+          </TabsPanel>
 
-            <TabsPanel value="draws">
-              <div className="space-y-4">
-                {fundingWorkspaceEnabled ||
-                (viewerRole === "builder" &&
-                  (actions?.requestDrawAmount ||
-                    detail.plannedDraws !== undefined)) ? (
-                  <BuildFundingWorkspace
-                    model={projectBuildFunding({
-                      availability: detail.drawFunding,
-                      canRequest: Boolean(actions?.requestDrawAmount),
-                      buildLabel: detail.build.buildName,
-                      facilityCents: detail.loanFacility?.principalCents,
-                      milestones: detail.milestones,
-                      plannedDraws:
-                        detail.plannedDraws ??
-                        detail.draws.filter(
-                          (draw) => draw.status === "planned"
-                        ),
-                      requests: detail.draws.filter(
-                        (
-                          draw
-                        ): draw is ProductionDraw & {
-                          status: Exclude<ProductionDrawStatus, "planned">;
-                        } => draw.status !== "planned"
+          <TabsPanel value="draws">
+            <div className="space-y-4">
+              {fundingWorkspaceEnabled ||
+              (viewerRole === "builder" &&
+                (actions?.requestDrawAmount ||
+                  detail.plannedDraws !== undefined)) ? (
+                <BuildFundingWorkspace
+                  model={projectBuildFunding({
+                    availability: detail.drawFunding,
+                    canRequest: Boolean(actions?.requestDrawAmount),
+                    buildLabel: detail.build.buildName,
+                    facilityCents: detail.loanFacility?.principalCents,
+                    milestones: detail.milestones,
+                    plannedDraws:
+                      detail.plannedDraws ??
+                      detail.draws.filter(
+                        (draw) => draw.status === "planned"
                       ),
-                      startDate: detail.build.startDate,
-                    })}
-                    onApproveDraw={fundingRequestAction(
-                      detail.draws,
-                      actions?.approveDraw
-                    )}
-                    onOpenMilestone={onOpenMilestone}
-                    onRejectDraw={fundingRejectAction(
-                      detail.draws,
-                      actions?.rejectDraw
-                    )}
-                    onReleaseDraw={fundingRequestAction(
-                      detail.draws,
-                      actions?.releaseDraw
-                    )}
-                    onRequestDraw={actions?.requestDrawAmount}
-                    onStartDrawReview={fundingRequestAction(
-                      detail.draws,
-                      actions?.startDrawReview
-                    )}
-                    onSubmitDrawForAdmin={fundingRequestAction(
-                      detail.draws,
-                      actions?.submitDrawForAdmin
-                    )}
-                    onWithdrawDraw={
-                      actions?.withdrawDraw
-                        ? async (requestKey) =>
-                            await actions.withdrawDraw?.(requestKey)
-                        : undefined
-                    }
-                    viewerRole={viewerRole}
-                  />
-                ) : (
-                  <DrawOverviewPanel
-                    actions={actions}
-                    currentOverview={currentOverview}
-                    detail={detail}
-                    projection={projection}
-                    viewerRole={viewerRole}
-                  />
-                )}
-                <FacilityChangeRequestsCard actions={actions} detail={detail} />
-                <BudgetRevisionCard
-                  actions={actions}
-                  detail={detail}
+                    requests: detail.draws.filter(
+                      (
+                        draw
+                      ): draw is ProductionDraw & {
+                        status: Exclude<ProductionDrawStatus, "planned">;
+                      } => draw.status !== "planned"
+                    ),
+                    startDate: detail.build.startDate,
+                  })}
+                  onApproveDraw={fundingRequestAction(
+                    detail.draws,
+                    actions?.approveDraw
+                  )}
+                  onOpenMilestone={onOpenMilestone}
+                  onRejectDraw={fundingRejectAction(
+                    detail.draws,
+                    actions?.rejectDraw
+                  )}
+                  onReleaseDraw={fundingRequestAction(
+                    detail.draws,
+                    actions?.releaseDraw
+                  )}
+                  onRequestDraw={actions?.requestDrawAmount}
+                  onStartDrawReview={fundingRequestAction(
+                    detail.draws,
+                    actions?.startDrawReview
+                  )}
+                  onSubmitDrawForAdmin={fundingRequestAction(
+                    detail.draws,
+                    actions?.submitDrawForAdmin
+                  )}
+                  onWithdrawDraw={
+                    actions?.withdrawDraw
+                      ? async (requestKey) =>
+                          await actions.withdrawDraw?.(requestKey)
+                      : undefined
+                  }
                   viewerRole={viewerRole}
                 />
-              </div>
-            </TabsPanel>
-
-            <TabsPanel value="build">
-              <BuildMetadataPanel
+              ) : (
+                <DrawOverviewPanel
+                  actions={actions}
+                  currentOverview={currentOverview}
+                  detail={detail}
+                  projection={projection}
+                  viewerRole={viewerRole}
+                />
+              )}
+              <FacilityChangeRequestsCard actions={actions} detail={detail} />
+              <BudgetRevisionCard
+                actions={actions}
                 detail={detail}
-                openWarnings={openWarnings}
-                projection={projection}
-                siteVisitsOpen={siteVisitsOpen}
+                viewerRole={viewerRole}
               />
-            </TabsPanel>
+            </div>
+          </TabsPanel>
 
-            <TabsPanel value="loan">
-              <LoanMetadataPanel
-                currentOverview={currentOverview}
-                detail={detail}
-                projection={projection}
-              />
-            </TabsPanel>
-          </Tabs>
-        </CardContent>
-      </Card>
+          <TabsPanel value="build">
+            <BuildMetadataPanel
+              detail={detail}
+              openWarnings={openWarnings}
+              projection={projection}
+              siteVisitsOpen={siteVisitsOpen}
+            />
+          </TabsPanel>
+
+          <TabsPanel value="loan">
+            <LoanMetadataPanel
+              currentOverview={currentOverview}
+              detail={detail}
+              projection={projection}
+            />
+          </TabsPanel>
+        </Tabs>
+      </section>
       {actions?.updateNonFinancialDetails ? (
         <BuildNonFinancialDetailsSheet
           detail={detail}

@@ -120,6 +120,9 @@ import {
   type CollaborationTagReference,
 } from "./CollaborationRichTextEditor.tsx";
 import {
+  SystemPostExperience,
+} from "./SystemPostExperience.tsx";
+import {
   type AudienceMode,
   audienceLabel,
   type CollaborationActionItemQueueRow,
@@ -720,6 +723,7 @@ function BuildCollaborationFeedContent({
     buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const viewerRole = viewerBinding?.role;
+  const viewerRoles = viewerBinding?.roles ?? (viewerRole ? [viewerRole] : []);
   const canPublishAnnouncements = Boolean(
     viewerRole &&
       !["builder-staff", "homeowner", "contractor"].includes(viewerRole)
@@ -1781,7 +1785,7 @@ function BuildCollaborationFeedContent({
         />
       </aside>
 
-      <FramePanel className="build-collaboration-main space-y-4 p-4">
+      <div className="build-collaboration-main space-y-4 p-3 sm:p-4">
         {connectionOnline ? null : (
           <Frame data-testid="build-collaboration-offline-banner">
             <FramePanel
@@ -2041,7 +2045,26 @@ function BuildCollaborationFeedContent({
             </FramePanel>
           </Frame>
         ) : null}
-        {collaborationState === "open" || !connectionOnline ? (
+        <div className="space-y-3">
+          <Tabs
+            onValueChange={(value) => setFilter(value as FeedFilter)}
+            value={filter}
+          >
+            <TabsList aria-label="Feed filters" variant="underline">
+              <TabsTab value="all">All</TabsTab>
+              <TabsTab value="active_operations">Active operations</TabsTab>
+              <TabsTab value="actionable">Actionable</TabsTab>
+              <TabsTab value="pinned">Pinned</TabsTab>
+              <TabsTab value="following">Following</TabsTab>
+            </TabsList>
+          </Tabs>
+          <BuildCollaborationSearch
+            buildId={activeBuildId}
+            onOpen={openSearchResult}
+            organizationId={organizationId}
+            participants={participants}
+          />
+          {collaborationState === "open" || !connectionOnline ? (
           <Frame>
             <FramePanel className="p-0">
               <button
@@ -2371,26 +2394,6 @@ function BuildCollaborationFeedContent({
             </FramePanel>
           </Frame>
         ) : null}
-
-        <div className="space-y-3">
-          <Tabs
-            onValueChange={(value) => setFilter(value as FeedFilter)}
-            value={filter}
-          >
-            <TabsList aria-label="Feed filters" variant="underline">
-              <TabsTab value="all">All</TabsTab>
-              <TabsTab value="active_operations">Active operations</TabsTab>
-              <TabsTab value="actionable">Actionable</TabsTab>
-              <TabsTab value="pinned">Pinned</TabsTab>
-              <TabsTab value="following">Following</TabsTab>
-            </TabsList>
-          </Tabs>
-          <BuildCollaborationSearch
-            buildId={activeBuildId}
-            onOpen={openSearchResult}
-            organizationId={organizationId}
-            participants={participants}
-          />
         </div>
 
         {feed.status === "LoadingFirstPage" ? (
@@ -2450,6 +2453,8 @@ function BuildCollaborationFeedContent({
               planningReconciliation={planningFeed.planningReconciliation}
               referenceByKey={referenceByKey}
               tagOptions={tagOptions}
+              viewerRole={viewerRole}
+              viewerRoles={viewerRoles}
             />
           ) : null
         )}
@@ -2470,7 +2475,7 @@ function BuildCollaborationFeedContent({
             </FramePanel>
           </Frame>
         ) : null}
-      </FramePanel>
+      </div>
 
       <aside
         aria-label="Build collaboration context"
@@ -2588,7 +2593,7 @@ function BuildCollaborationFeedContent({
   } as const;
 
   return (
-    <Frame>
+    <Frame className="build-collaboration-frame rounded-none bg-transparent p-0">
       <section
         {...collaborationSurfaceAttributes}
         className="build-collaboration-layout"
@@ -2830,11 +2835,20 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
       )}
       <Badge variant="outline">{postTypeLabel(entry.post.postType)}</Badge>
       {entry.post.systemPost ? (
-        <Badge variant="secondary">
-          System · {entry.post.systemPost.kind === "draw" ? "Draw" : "Milestone"}
-        </Badge>
-      ) : null}
-      {systemLifecycle === "reopened" ? (
+        <>
+          <Badge variant="info">System post</Badge>
+          <Badge variant="outline">
+            {entry.post.systemPost.kind === "draw" ? "Draw" : "Milestone"}
+          </Badge>
+          {systemLifecycle === "reopened" ? (
+            <Badge variant="info">Reopened</Badge>
+          ) : systemLifecycle === "resolved" ? (
+            <Badge variant="success">Resolved</Badge>
+          ) : (
+            <Badge variant="success">Active</Badge>
+          )}
+        </>
+      ) : systemLifecycle === "reopened" ? (
         <Badge variant="warning">Reopened</Badge>
       ) : systemLifecycle === "resolved" ||
         entry.post.threadState === "resolved" ? (
@@ -3093,6 +3107,8 @@ function CollaborationPostCard({
   planningReconciliation,
   referenceByKey,
   tagOptions,
+  viewerRole,
+  viewerRoles,
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
@@ -3110,6 +3126,8 @@ function CollaborationPostCard({
   planningReconciliation?: CollaborationPlanningReconciliation;
   referenceByKey: Map<string, ReferenceOption>;
   tagOptions: ReferenceOption[];
+  viewerRole?: string;
+  viewerRoles?: string[];
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   useFocusedCollaborationPostCard(cardRef, focusedPost);
@@ -3356,27 +3374,40 @@ function CollaborationPostCard({
         organizationId={organizationId}
       />
       <CardPanel className="space-y-3 px-4 pb-4">
-        <CollaborationRichTextPreview
-          ariaLabel="Published Build update"
-          className="border-0 bg-transparent [&_.ProseMirror]:px-0"
-          onReferenceOpen={openReference}
-          tagOptions={tagOptions}
-          value={parseDocument(entry.revision.tiptapJson)}
-        />
         {entry.post.systemPost ? (
-        <SystemPostFacts
+          <SystemPostExperience
+            brief={
+              <CollaborationRichTextPreview
+                ariaLabel="System Post operations brief"
+                className="border-0 bg-transparent text-muted-foreground [&_.ProseMirror]:px-0"
+                onReferenceOpen={openReference}
+                tagOptions={tagOptions}
+                value={parseDocument(entry.revision.tiptapJson)}
+              />
+            }
             buildId={buildId}
             coordinationVisible={drawCoordinationVisible}
             entry={entry}
             mutationsAllowed={mutationsAllowed}
             onCreateActionItem={onCreateActionItem}
             onLoadMorePlanningDiffs={onLoadMorePlanningDiffs}
+            onOpenActionItem={onOpenActionItem}
             organizationId={organizationId}
             planningDiffsLoadingMore={planningDiffsLoadingMore}
             planningReconciliation={planningReconciliation}
             tagOptions={tagOptions}
+            viewerRole={viewerRole}
+            viewerRoles={viewerRoles}
           />
-        ) : null}
+        ) : (
+          <CollaborationRichTextPreview
+            ariaLabel="Published Build update"
+            className="border-0 bg-transparent [&_.ProseMirror]:px-0"
+            onReferenceOpen={openReference}
+            tagOptions={tagOptions}
+            value={parseDocument(entry.revision.tiptapJson)}
+          />
+        )}
         {entry.references.length > 0 ? (
           <div className="grid gap-2 sm:grid-cols-2">
             {entry.references.map((reference) => {
@@ -3586,163 +3617,6 @@ function CollaborationPostCard({
   );
 }
 
-type CollaborationSystemPost = NonNullable<
-  CollaborationFeedPostEntry["post"]["systemPost"]
->;
-type SystemMilestonePlanningSummary = NonNullable<
-  CollaborationFeedPostEntry["post"]["planningSummary"]
->;
-type PlanningDiff = CollaborationPlanningReconciliation["diffs"][number];
-
-const planningCountLabels = [
-  ["backlog", "Backlog"],
-  ["behind_schedule", "Behind schedule"],
-  ["in_progress", "In progress"],
-  ["in_review", "In review"],
-  ["approved", "Approved"],
-  ["superseded", "Superseded"],
-] as const;
-
-const planningAttentionLabels = [
-  ["assignmentGaps", "Assignment gaps"],
-  ["dependencyExceptions", "Dependency exceptions"],
-  ["overdueCompletion", "Overdue completion"],
-  ["requiredSiteVisits", "Required site visits"],
-  ["reviewSla", "Review SLA"],
-] as const;
-
-function planningLifecycleLabel(
-  lifecycle: SystemMilestonePlanningSummary["lifecycle"]
-) {
-  return humanizeEnumLabel(lifecycle);
-}
-
-function humanizeEnumLabel(value: string) {
-  const normalized = value.replaceAll("_", " ").trim();
-  return normalized
-    ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
-    : value;
-}
-
-function planningCategoryLabel(category: PlanningDiff["category"]) {
-  switch (category) {
-    case "allocations":
-      return "Assignments";
-    case "dates":
-      return "Schedule";
-    case "dependencies":
-      return "Dependencies";
-    case "evidence_requirements":
-      return "Evidence requirements";
-    case "scope":
-      return "Scope";
-  }
-}
-
-function planningChangeTypeLabel(changeType: PlanningDiff["changeType"]) {
-  switch (changeType) {
-    case "added":
-      return "added";
-    case "removed":
-      return "removed";
-    case "changed":
-      return "changed";
-  }
-}
-
-function planningEntityTypeLabel(entityType: string) {
-  switch (entityType) {
-    case "milestone":
-      return "Milestone";
-    case "submilestone":
-      return "Sub-milestone";
-    case "budget":
-      return "Budget";
-    case "draw":
-      return "Draw";
-    case "allocation":
-      return "Assignment";
-    case "evidenceRequirement":
-      return "Evidence requirement";
-    default:
-      return entityType;
-  }
-}
-
-function SystemPostPlanningSummary({
-  summary,
-}: {
-  summary?: SystemMilestonePlanningSummary;
-}) {
-  if (!summary) {
-    return null;
-  }
-  const counts = planningCountLabels.filter(([key]) => summary.counts[key] > 0);
-  const attention = planningAttentionLabels.filter(
-    ([key]) => summary.attention[key] > 0
-  );
-  return (
-    <section
-      aria-label="Milestone planning summary"
-      className="space-y-3 border-t pt-3"
-      data-testid="system-post-planning-summary"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-medium text-xs">Planning summary</p>
-          <p className="text-muted-foreground text-xs">
-            Live canonical roadmap state
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Badge
-            variant={summary.lifecycle === "reopened" ? "warning" : "outline"}
-          >
-            {planningLifecycleLabel(summary.lifecycle)}
-          </Badge>
-          <Badge variant={summary.readyForApproval ? "success" : "warning"}>
-            {summary.readyForApproval
-              ? "Ready for approval"
-              : "Not ready for approval"}
-          </Badge>
-        </div>
-      </div>
-      {counts.length > 0 ? (
-        <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
-          {counts.map(([key, label]) => (
-            <Frame
-              className="rounded-md border bg-muted/20 p-0"
-              key={key}
-            >
-              <FramePanel className="rounded-md border-0 bg-transparent px-2 py-1.5 shadow-none">
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd className="font-semibold text-sm">{summary.counts[key]}</dd>
-              </FramePanel>
-            </Frame>
-          ))}
-        </dl>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          No active Sub-milestones are currently projected.
-        </p>
-      )}
-      {attention.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {attention.map(([key, label]) => (
-            <Badge key={key} variant="warning">
-              {label} · {summary.attention[key]}
-            </Badge>
-          ))}
-        </div>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          No planning exceptions are currently reported.
-        </p>
-      )}
-    </section>
-  );
-}
-
 function planningSnapshotFromEntities(
   buildId: string,
   entities: Array<{
@@ -3775,581 +3649,6 @@ function planningSnapshotFromEntities(
     }
   }
   return snapshot;
-}
-
-function SystemPostPlanningComparison({
-  diffsLoadingMore,
-  onLoadMoreDiffs,
-  planningReconciliation,
-  systemPost,
-}: {
-  diffsLoadingMore: boolean;
-  onLoadMoreDiffs: () => void;
-  planningReconciliation?: CollaborationPlanningReconciliation;
-  systemPost: CollaborationSystemPost;
-}) {
-  const activationRevision =
-    planningReconciliation?.activation?.revision ??
-    systemPost.activationPlanningRevision;
-  const currentRevision =
-    planningReconciliation?.current.revision ??
-    systemPost.currentPlanningRevision;
-  const diffs =
-    planningReconciliation?.diffs.filter((diff) => {
-      const milestoneKey = systemPost.milestoneKey;
-      if (!milestoneKey) {
-        return false;
-      }
-      return (
-        diff.entityKey === milestoneKey ||
-        diff.entityKey.startsWith(`${milestoneKey}:`)
-      );
-    }) ?? [];
-  const hasComparison =
-    planningReconciliation !== undefined ||
-    activationRevision !== undefined ||
-    currentRevision !== undefined;
-  if (!hasComparison) {
-    return null;
-  }
-  const changed =
-    diffs.length > 0 ||
-    (activationRevision !== undefined &&
-      currentRevision !== undefined &&
-      activationRevision !== currentRevision);
-  const categoryCounts = new Map<
-    PlanningDiff["category"],
-    {
-      changeTypes: Map<PlanningDiff["changeType"], number>;
-      count: number;
-      entityTypes: Set<string>;
-    }
-  >();
-  for (const diff of diffs) {
-    const current = categoryCounts.get(diff.category) ?? {
-      changeTypes: new Map<PlanningDiff["changeType"], number>(),
-      count: 0,
-      entityTypes: new Set<string>(),
-    };
-    current.count += 1;
-    current.changeTypes.set(
-      diff.changeType,
-      (current.changeTypes.get(diff.changeType) ?? 0) + 1
-    );
-    current.entityTypes.add(diff.entityType);
-    categoryCounts.set(diff.category, current);
-  }
-  return (
-    <section
-      aria-label="Planning revision comparison"
-      className="space-y-3 border-t pt-3"
-      data-testid="system-post-planning-comparison"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-medium text-xs">Planning revision comparison</p>
-          <p className="text-muted-foreground text-xs">
-            Activation snapshot versus the current approved plan
-          </p>
-        </div>
-        <Badge
-          variant={
-            planningReconciliation === undefined
-              ? "outline"
-              : changed
-                ? "warning"
-                : "success"
-          }
-        >
-          {planningReconciliation === undefined
-            ? "Loading comparison…"
-            : changed
-              ? "Changed since activation"
-              : "Matches activation"}
-        </Badge>
-      </div>
-      <dl className="grid grid-cols-2 gap-2 text-xs">
-        <div>
-          <dt className="text-muted-foreground">Activation revision</dt>
-          <dd className="font-medium">
-            {activationRevision === undefined
-              ? "Unavailable"
-              : `v${activationRevision}`}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">Current revision</dt>
-          <dd className="font-medium">
-            {currentRevision === undefined
-              ? "Unavailable"
-              : `v${currentRevision}`}
-          </dd>
-        </div>
-      </dl>
-      {planningReconciliation?.revisionsTruncated ? (
-        <p
-          className="text-muted-foreground text-xs"
-          data-testid="planning-revisions-truncated"
-          role="status"
-        >
-          Only the latest 100 planning revisions are shown. Earlier revision
-          history is unavailable in this view; the canonical planning record
-          remains authoritative.
-        </p>
-      ) : null}
-      {planningReconciliation?.diffsTruncated ? (
-        <p
-          className="text-muted-foreground text-xs"
-          data-testid="planning-diffs-truncated"
-          role="status"
-        >
-          Structured planning diffs are truncated at 10,000 changes. The
-          canonical planning record remains authoritative.
-        </p>
-      ) : null}
-      {planningReconciliation?.diffPagesPending || diffsLoadingMore ? (
-        <div
-          className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs"
-          data-testid="planning-diffs-more-available"
-          role="status"
-        >
-          <span>
-            {diffsLoadingMore
-              ? "Loading more structured planning changes…"
-              : "More structured planning changes are available."}
-          </span>
-          {!diffsLoadingMore && planningReconciliation?.diffPagesPending ? (
-            <Button
-              onClick={onLoadMoreDiffs}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Load more changes
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {planningReconciliation === undefined ? (
-        <p className="text-muted-foreground text-xs" role="status">
-          Loading structured planning changes…
-        </p>
-      ) : diffs.length === 0 ? (
-        planningReconciliation.diffPagesPending ? null : (
-          planningReconciliation.diffsTruncated || !systemPost.milestoneKey ? (
-            <p
-              className="text-muted-foreground text-xs"
-              data-testid="planning-diffs-indeterminate"
-              role="status"
-            >
-              Structured planning changes cannot be determined because the
-              available diff window is truncated. The canonical planning record
-              remains authoritative.
-            </p>
-          ) : (
-            <p className="text-muted-foreground text-xs">
-              No structured planning changes are recorded after activation.
-            </p>
-          )
-        )
-      ) : (
-        <div className="space-y-2">
-          <p className="font-medium text-xs">
-            Structured changes · {diffs.length}
-          </p>
-          <ul
-            aria-label="Structured planning changes"
-            className="grid gap-1.5 text-xs sm:grid-cols-2"
-          >
-            {[...categoryCounts].map(([category, value]) => (
-              <li key={category}>
-                <Frame className="rounded-md border bg-muted/20 p-0">
-                  <FramePanel className="flex items-center justify-between gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 shadow-none">
-                    <span>{planningCategoryLabel(category)}</span>
-                    <span className="text-muted-foreground">
-                      {value.count} change{value.count === 1 ? "" : "s"} ·{" "}
-                      {[...value.changeTypes]
-                        .map(
-                          ([changeType, count]) =>
-                            String(count) +
-                            " " +
-                            planningChangeTypeLabel(changeType)
-                        )
-                        .join(", ")}
-                      {" · "}
-                      {[...value.entityTypes]
-                        .map(planningEntityTypeLabel)
-                        .join(", ")}
-                    </span>
-                  </FramePanel>
-                </Frame>
-              </li>
-            ))}
-          </ul>
-          <p className="text-muted-foreground text-xs">
-            Change values stay governed by the canonical planning record.
-          </p>
-        </div>
-      )}
-    </section>
-  );
-}
-
-type SystemDrawFacts = NonNullable<CollaborationSystemPost["drawFacts"]>;
-type DrawCoordinationState = NonNullable<
-  CollaborationSystemPost["drawCoordination"]
->;
-type HistoricalBackfillFacts = NonNullable<
-  CollaborationSystemPost["historicalBackfill"]
->;
-
-function historicalFactLabel(
-  fact: HistoricalBackfillFacts["unknownFacts"][number],
-) {
-  switch (fact) {
-    case "start":
-      return "start time";
-    case "actor":
-      return "actor";
-    case "evidence":
-      return "evidence";
-    case "review":
-      return "review";
-    case "approval":
-      return "approval";
-    case "disposition":
-      return "disposition";
-  }
-}
-
-function drawFactMoney(amountCents: number) {
-  return new Intl.NumberFormat("en-CA", {
-    currency: "CAD",
-    maximumFractionDigits: 0,
-    style: "currency",
-  }).format(amountCents / 100);
-}
-
-function drawFactStatusLabel(value: string) {
-  return humanizeEnumLabel(value);
-}
-
-function SystemPostDrawFacts({
-  buildId,
-  coordination,
-  coordinationVisible,
-  facts,
-  mutationsAllowed,
-  onCreateActionItem,
-  organizationId,
-  postId,
-}: {
-  buildId: Id<"activeBuilds">;
-  coordination?: DrawCoordinationState;
-  coordinationVisible: boolean;
-  facts: SystemDrawFacts;
-  mutationsAllowed: boolean;
-  onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
-  organizationId: string;
-  postId: Id<"buildCollaborationPosts">;
-}) {
-  const join = useBuildCollaborationMutation(
-    api.build_draw_coordination.joinDrawCoordination
-  );
-  const leave = useBuildCollaborationMutation(
-    api.build_draw_coordination.leaveDrawCoordination
-  );
-  const [pending, setPending] = useState(false);
-  const updateCoordination = async (action: "join" | "leave") => {
-    setPending(true);
-    try {
-      await (action === "join" ? join : leave)({
-        buildId,
-        organizationId,
-        postId,
-      });
-      toast.success(action === "join" ? "Joined Draw coordination." : "Left Draw coordination.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to update Draw coordination."
-      );
-    } finally {
-      setPending(false);
-    }
-  };
-  const planned = facts.planned;
-  const request = facts.request;
-  const canCoordinate = coordinationVisible && coordination?.eligible === true;
-  return (
-    <section
-      aria-label="Draw lifecycle facts"
-      className="space-y-3 border-t pt-3"
-      data-testid="system-post-draw-facts"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-medium text-xs">Draw lifecycle</p>
-          <p className="text-muted-foreground text-xs">
-            Live canonical Draw Request and evidence state
-          </p>
-        </div>
-        <Badge variant="outline">
-          {drawFactStatusLabel(facts.review.state)}
-        </Badge>
-      </div>
-      <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
-        <div>
-          <dt className="text-muted-foreground">Planned Draw</dt>
-          <dd className="font-medium">
-            {planned?.label ?? request?.displayId ?? "Unplanned Draw"}
-            {planned ? ` · ${drawFactMoney(planned.amountCents)}` : ""}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">Request</dt>
-          <dd className="font-medium">
-            {request
-              ? `${request.displayId} · ${drawFactStatusLabel(request.status)}`
-              : "Not requested"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">Release</dt>
-          <dd className="font-medium">{drawFactStatusLabel(facts.release.state)}</dd>
-        </div>
-      </dl>
-      <div className="flex flex-wrap gap-1.5">
-        <Badge variant="secondary">
-          Evidence · {drawFactStatusLabel(facts.evidence.state)}
-        </Badge>
-        <Badge variant="secondary">
-          Site Visits · {facts.siteVisit.count}
-        </Badge>
-        <Badge variant="secondary">
-          Approval · {drawFactStatusLabel(facts.approval.state)}
-        </Badge>
-        {facts.disposition ? (
-          <Badge variant="warning">
-            Disposition · {drawFactStatusLabel(facts.disposition.kind)}
-          </Badge>
-        ) : null}
-      </div>
-      {canCoordinate ? (
-        <Frame className="rounded-md border bg-background/60 p-0">
-          <FramePanel className="flex flex-wrap items-center justify-between gap-2 rounded-md border-0 bg-transparent p-2 shadow-none">
-            <div className="flex items-center gap-2 text-xs">
-              <Users aria-hidden="true" className="size-4" />
-              <span>
-                Working audience · {coordination.workingAudienceCount}
-                {coordination.workingAudienceTruncated ? "+" : ""}
-              </span>
-              {coordination.oversight ? (
-                <Badge variant="outline">Oversight only</Badge>
-              ) : null}
-            </div>
-            {coordination.workingAudienceTruncated ? (
-              <p
-                className="basis-full text-amber-700 text-xs dark:text-amber-300"
-                data-testid="draw-coordination-audience-truncated"
-                role="status"
-              >
-                Working audience exceeds the display limit; the count shown is
-                a conservative lower bound.
-              </p>
-            ) : null}
-            {!coordination.oversight ? (
-              <div className="flex flex-wrap gap-1.5">
-                {coordination.canJoin ? (
-                  <Button
-                    disabled={!mutationsAllowed || pending}
-                    onClick={() => updateCoordination("join")}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    Join coordination
-                  </Button>
-                ) : null}
-                {coordination.canLeave ? (
-                  <Button
-                    disabled={!mutationsAllowed || pending}
-                    onClick={() => updateCoordination("leave")}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    Leave coordination
-                  </Button>
-                ) : null}
-                <Button
-                  disabled={!mutationsAllowed || pending}
-                  onClick={() => onCreateActionItem(postId)}
-                  size="sm"
-                  type="button"
-                >
-                  Add coordination Action Item
-                </Button>
-              </div>
-            ) : null}
-          </FramePanel>
-        </Frame>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          Internal coordination is unavailable for this role.
-        </p>
-      )}
-      <p className="text-muted-foreground text-xs">
-        {coordination?.eligible
-          ? "No generated Action Items or Draw board. Discussion remains available; all workflow commands stay in the canonical Draw surfaces."
-          : "Canonical Draw facts remain visible. Internal coordination, discussion, and related work are restricted to eligible Build participants."}
-      </p>
-    </section>
-  );
-}
-
-function SystemPostFacts({
-  buildId,
-  coordinationVisible,
-  entry,
-  mutationsAllowed,
-  onCreateActionItem,
-  onLoadMorePlanningDiffs,
-  organizationId,
-  planningDiffsLoadingMore,
-  planningReconciliation,
-  tagOptions,
-}: {
-  buildId: Id<"activeBuilds">;
-  coordinationVisible: boolean;
-  entry: CollaborationFeedPostEntry;
-  mutationsAllowed: boolean;
-  onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
-  onLoadMorePlanningDiffs: () => void;
-  organizationId: string;
-  planningDiffsLoadingMore: boolean;
-  planningReconciliation?: CollaborationPlanningReconciliation;
-  tagOptions: ReferenceOption[];
-}) {
-  const systemPost = entry.post.systemPost;
-  if (!systemPost) {
-    return null;
-  }
-  const milestoneReference = entry.references.find(
-    (reference) => reference.entityKind === "milestone"
-  );
-  const isDrawSystemPost = systemPost.kind === "draw";
-  const drawFacts = isDrawSystemPost ? systemPost.drawFacts : undefined;
-  const triggeredByLabel = systemPost.triggeredByWorkosUserId
-    ? tagOptions.find(
-        (option) =>
-          option.kind === "participant" &&
-          option.id === systemPost.triggeredByWorkosUserId
-      )?.label ?? "Former Build participant"
-    : systemPost.triggeredByRole
-      ? roleLabel(systemPost.triggeredByRole)
-      : "DrawFlow System";
-  return (
-    <Frame className="border-dashed bg-muted/20" size="sm">
-      <FramePanel className="space-y-2 p-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Badge variant="secondary">Canonical facts</Badge>
-          <span className="text-muted-foreground">
-            Immutable domain binding
-          </span>
-        </div>
-        {systemPost.historicalBackfill ? (
-          <section
-            aria-label="Historical System Post provenance"
-            className="space-y-1 border-y py-2 text-xs"
-            data-testid="system-post-historical-backfill"
-          >
-            <p className="font-medium">Historical backfill</p>
-            <p className="text-muted-foreground">
-              Materialized from existing canonical records. Missing history is
-              preserved as Unknown; no start, actor, evidence, review,
-              approval, or disposition facts are inferred.
-            </p>
-            {systemPost.historicalBackfill.unknownFacts.length > 0 ? (
-              <p>
-                <span className="font-medium">Unknown historical facts:</span>{" "}
-                {systemPost.historicalBackfill.unknownFacts
-                  .map(historicalFactLabel)
-                  .join(", ")}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-        <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
-          <div>
-            <dt className="text-muted-foreground">
-              {systemPost.kind === "draw" ? "Draw occurrence" : "Milestone"}
-            </dt>
-            <dd className="font-medium">
-              {systemPost.kind === "draw"
-                ? drawFacts?.planned?.drawKey ?? "Canonical Draw"
-                : milestoneReference?.labelSnapshot ?? "Canonical Milestone"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Triggered by</dt>
-            <dd className="font-medium">
-              {triggeredByLabel}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Activation</dt>
-            <dd className="font-medium">
-              {systemPost.activationReason.replaceAll("_", " ")}
-            </dd>
-          </div>
-        </dl>
-        {isDrawSystemPost ? (
-          drawFacts ? (
-            <SystemPostDrawFacts
-              buildId={buildId}
-              coordination={systemPost.drawCoordination}
-              coordinationVisible={coordinationVisible}
-              facts={drawFacts}
-              mutationsAllowed={mutationsAllowed}
-              onCreateActionItem={onCreateActionItem}
-              organizationId={organizationId}
-              postId={entry.post._id}
-            />
-          ) : (
-            <section
-              aria-label="Draw lifecycle facts"
-              className="space-y-2 border-t pt-3"
-              data-testid="system-post-draw-facts-unavailable"
-            >
-              <p className="font-medium text-xs">Draw lifecycle facts</p>
-              <p className="text-muted-foreground text-xs" role="status">
-                Draw facts are unavailable in this view. Open the canonical
-                Draw surface for authoritative lifecycle details.
-              </p>
-            </section>
-          )
-        ) : (
-          <>
-            <SystemPostPlanningSummary summary={entry.post.planningSummary} />
-            <SystemPostPlanningComparison
-              diffsLoadingMore={planningDiffsLoadingMore}
-              onLoadMoreDiffs={onLoadMorePlanningDiffs}
-              planningReconciliation={planningReconciliation}
-              systemPost={systemPost}
-            />
-          </>
-        )}
-        {systemPost.recoveryState === "recovery_required" ? (
-          <p className="text-amber-700 text-xs dark:text-amber-300">
-            Recovery required: add a valid Sub-milestone through the canonical
-            roadmap revision before starting work.
-          </p>
-        ) : null}
-      </FramePanel>
-    </Frame>
-  );
 }
 
 function CollaborationComment({

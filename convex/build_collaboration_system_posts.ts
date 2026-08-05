@@ -11,9 +11,11 @@ import {
 } from "./build_collaboration_model";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import {
-  canBuilderStartMilestone,
   resolveCanonicalMilestoneExecutionOwnership,
 } from "./build_collaboration_system_event_access";
+import {
+  resolveSubmilestoneOperateAuthority,
+} from "./build_submilestone_operate_authority";
 import {
   publishCanonicalBuildCollaborationSystemEvent,
   resolveSystemEventScope,
@@ -155,6 +157,7 @@ export type SystemActionItemPresentation = {
       | "already_started"
       | "assignment_required"
       | "completed"
+      | "lender_review_only"
       | "permission_denied";
     milestoneKey: string;
     milestoneName: string;
@@ -345,6 +348,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
     planningCache?: MilestoneActionItemPlanningCache;
     viewer?: {
       role: BuildCollaborationRole;
+      roles?: readonly BuildCollaborationRole[];
       workosUserId: string;
     };
   }
@@ -495,6 +499,7 @@ async function projectMilestoneExecutionPresentation(
     submilestone: Doc<"buildSubmilestones">;
     viewer: {
       role: BuildCollaborationRole;
+      roles?: readonly BuildCollaborationRole[];
       workosUserId: string;
     };
   }
@@ -543,6 +548,7 @@ async function projectMilestoneExecutionPresentation(
       milestone: input.milestone,
       submilestone: input.submilestone,
     });
+  const viewerRoles = input.viewer.roles ?? [input.viewer.role];
   const viewerIsAssignee =
     ownership.state === "assigned" &&
     ownership.contractor?.accountWorkosUserId === input.viewer.workosUserId;
@@ -646,8 +652,8 @@ async function projectMilestoneExecutionPresentation(
     "principle-broker",
     "broker",
     "broker-staff",
-  ].includes(input.viewer.role);
-  const viewerIsAdmin = input.viewer.role === "admin";
+  ].some((role) => viewerRoles.includes(role as BuildCollaborationRole));
+  const viewerIsAdmin = viewerRoles.includes("admin");
   const canRecommendReview =
     canReview && childReviewDecisionState === "in_review";
   const canRequestChanges =
@@ -691,51 +697,42 @@ async function projectMilestoneExecutionPresentation(
       },
     ];
   });
-  const completed =
-    input.milestone.status === "complete" ||
-    input.milestone.completionClaim !== undefined ||
-    input.submilestone.status === "complete";
-  const alreadyStarted = input.submilestone.actualStartedAt !== undefined;
-  let allowed = false;
-  let denialReason:
-    | "already_started"
-    | "assignment_required"
-    | "completed"
-    | "permission_denied"
-    | undefined;
-  if (input.viewer.role === "contractor" && ownership.state !== "assigned") {
-    denialReason = "assignment_required";
-  } else if (completed) {
-    denialReason = "completed";
-  } else if (alreadyStarted) {
-    denialReason = "already_started";
-  } else if (input.viewer.role === "contractor") {
-    allowed = viewerIsAssignee;
-    if (!allowed) {
-      denialReason = "permission_denied";
-    }
-  } else if (
-    input.viewer.role === "builder" ||
-    input.viewer.role === "builder-staff"
-  ) {
-    allowed = await canBuilderStartMilestone(ctx, {
+  const [startAuthority, updateAuthority] = await Promise.all([
+    resolveSubmilestoneOperateAuthority(ctx, {
       build: input.build,
-      role: input.viewer.role,
-      workosUserId: input.viewer.workosUserId,
-    });
-    if (!allowed) {
-      denialReason = "permission_denied";
-    }
-  } else {
-    denialReason = "permission_denied";
-  }
-  const viewerIsBuilder =
-    input.viewer.role === "builder" || input.viewer.role === "builder-staff";
-  const viewerIsContractor = input.viewer.role === "contractor";
+      intent: "start",
+      milestoneCompleted:
+        input.milestone.status === "complete" ||
+        input.milestone.completionClaim !== undefined,
+      ownership,
+      submilestone: input.submilestone,
+      viewer: {
+        roles: viewerRoles,
+        workosUserId: input.viewer.workosUserId,
+      },
+    }),
+    resolveSubmilestoneOperateAuthority(ctx, {
+      build: input.build,
+      intent: "update",
+      milestoneCompleted:
+        input.milestone.status === "complete" ||
+        input.milestone.completionClaim !== undefined,
+      ownership,
+      submilestone: input.submilestone,
+      viewer: {
+        roles: viewerRoles,
+        workosUserId: input.viewer.workosUserId,
+      },
+    }),
+  ]);
+  const allowed = startAuthority.allowed;
+  const denialReason = startAuthority.allowed
+    ? undefined
+    : startAuthority.denial;
   const canUpdateExecution =
+    updateAuthority.allowed &&
     input.submilestone.evidenceReviewState !== "in_review" &&
-    input.submilestone.evidenceReviewState !== "approved" &&
-    ((viewerIsContractor && viewerIsAssignee) || (viewerIsBuilder && allowed));
+    input.submilestone.evidenceReviewState !== "approved";
   const canAddEvidence =
     canUpdateExecution &&
     input.submilestone.status === "in_progress" &&
@@ -795,7 +792,7 @@ async function projectMilestoneExecutionPresentation(
       : {}),
     reviewHistory,
     executionOwnership: {
-      ...(input.viewer.role === "contractor"
+      ...(viewerRoles.includes("contractor")
         ? {}
         : ownership.contractor
           ? {

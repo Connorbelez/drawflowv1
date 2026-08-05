@@ -19,6 +19,7 @@ export const getBuildCollaborationViewerBinding = authenticatedQuery
       buildId: v.id("activeBuilds"),
       organizationId: v.string(),
       role: buildCollaborationRoleValidator,
+      roles: v.array(buildCollaborationRoleValidator),
       workosUserId: v.string(),
     })
   )
@@ -31,6 +32,7 @@ export const getBuildCollaborationViewerBinding = authenticatedQuery
       buildId: authorization.build._id,
       organizationId: authorization.organizationId,
       role: authorization.effectiveRole.role,
+      roles: authorization.roles,
       workosUserId: authorization.viewer.subject,
     };
   })

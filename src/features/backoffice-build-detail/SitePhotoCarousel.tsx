@@ -82,7 +82,7 @@ export function SitePhotoCarousel({
   const active = displayPhotos[safeIndex];
   return (
     <article
-      className="flex h-full min-h-[18rem] flex-col gap-2 rounded-xl border border-border bg-card p-3"
+      className="flex h-full min-h-[18rem] min-w-0 flex-col gap-2"
       data-testid="build-detail-site-photos"
     >
       <header className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2">

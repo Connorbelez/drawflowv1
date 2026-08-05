@@ -2,6 +2,7 @@ import type { AuthorizedViewer, RoleSlug } from "./authz";
 import { normalizeRoleSlugs } from "./authz";
 import {
   type BuildCollaborationRole,
+  normalizeBuildCollaborationRole,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
@@ -55,7 +56,34 @@ export async function authorizeActiveBuildAccessForViewer(
     throw new Error("Organization is required.");
   }
 
-  const viewerRoles = normalizeRoleSlugs(viewer.roles);
+  const viewerRolesFromToken = normalizeRoleSlugs(viewer.roles);
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (query) => query.eq("workosUserId", viewer.subject))
+    .take(100);
+  const activeMemberships = memberships.filter(
+    (membership) => membership.status === "active"
+  );
+  const currentOrgMembership = activeMemberships.find(
+    (membership) => membership.workosOrganizationId === organizationId
+  );
+  // Token roles alone miss org membership roleSlugs (and Admin elevation that
+  // lives on another org while the session is scoped to a builder org).
+  const elevatedFromAnyOrg = normalizeRoleSlugs(
+    activeMemberships.flatMap((membership) => [
+      ...(membership.roleSlugs ?? []),
+      membership.roleSlug,
+    ])
+  ).filter((role) => role === "admin" || role === "principle-broker");
+  const currentOrgRoles = normalizeRoleSlugs([
+    ...(currentOrgMembership?.roleSlugs ?? []),
+    currentOrgMembership?.roleSlug,
+  ]);
+  const viewerRoles = normalizeRoleSlugs([
+    ...viewerRolesFromToken,
+    ...currentOrgRoles,
+    ...elevatedFromAnyOrg,
+  ]);
 
   const brokerage = await ctx.db
     .query("brokerages")
@@ -170,11 +198,19 @@ export async function authorizeActiveBuildAccessForViewer(
         left.displayName.localeCompare(right.displayName)
     ),
     proposal,
+    // Preserve every collaboration role the viewer holds (membership + grant +
+    // derived). Effective role alone collapses admin+builder to admin and
+    // hides Builder execution capability on dual-role accounts.
     roles: [
       ...new Set(
-        [effectiveRole.role, viewerGrant?.role, derivedRole].filter(
-          (role): role is BuildCollaborationRole => role !== undefined
-        )
+        [
+          ...viewerRoles
+            .map((role) => normalizeBuildCollaborationRole(role))
+            .filter((role): role is BuildCollaborationRole => role !== null),
+          effectiveRole.role,
+          viewerGrant?.role,
+          derivedRole,
+        ].filter((role): role is BuildCollaborationRole => role !== undefined)
       ),
     ],
     viewer,

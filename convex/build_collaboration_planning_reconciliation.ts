@@ -73,7 +73,6 @@ const PLANNING_REVISION_ENTITY_LIMIT = Object.values(
 
 const PLANNING_REVISION_DIFF_LIMIT = 10_000;
 const PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE = 250;
-const PLANNING_READ_PAGE_SIZE = 100;
 const PLANNING_REVISION_READ_LIMIT = 100;
 const PLANNING_REVISION_CHUNK_LIMIT = 100;
 const PLANNING_MATERIALIZATION_RECOVERY_BATCH_SIZE = 25;
@@ -156,14 +155,10 @@ function encodePlanningPageCursor(offset: number) {
   return encodeURIComponent(JSON.stringify({ offset }));
 }
 
-type PaginatedPlanningQuery<T> = {
-  paginate: (input: { cursor: string | null; numItems: number }) => Promise<{
-    continueCursor: string;
-    isDone: boolean;
-    page: T[];
-  }>;
+type BoundedPlanningQuery<T> = {
+  take: (n: number) => Promise<T[]>;
 };
-type PaginatedPlanningQueryFactory<T> = () => PaginatedPlanningQuery<T>;
+type BoundedPlanningQueryFactory<T> = () => BoundedPlanningQuery<T>;
 
 type PlanningRowsPage<T> = {
   isDone: boolean;
@@ -171,22 +166,17 @@ type PlanningRowsPage<T> = {
 };
 
 async function readPlanningRows<T>(
-  queryFactory: PaginatedPlanningQueryFactory<T>,
+  queryFactory: BoundedPlanningQueryFactory<T>,
   maxRows: number
 ): Promise<PlanningRowsPage<T>> {
-  const rows: T[] = [];
-  let cursor: string | null = null;
-  let isDone = false;
-  while (!isDone && rows.length < maxRows) {
-    const result = await queryFactory().paginate({
-      cursor,
-      numItems: Math.min(PLANNING_READ_PAGE_SIZE, maxRows - rows.length),
-    });
-    rows.push(...result.page);
-    cursor = result.continueCursor;
-    isDone = result.isDone;
-  }
-  return { isDone, rows };
+  // Use `.take()` rather than `.paginate()`. Callers often read several
+  // planning tables in one query/mutation, and Convex allows only a single
+  // paginated query per function.
+  const rows = await queryFactory().take(maxRows);
+  return {
+    isDone: rows.length < maxRows,
+    rows,
+  };
 }
 
 async function nextActiveBuildPlanningRevisionChunk(
@@ -1319,22 +1309,23 @@ export const recoverActiveBuildPlanningRevisionMaterialization = internalMutatio
         },
       );
     } else if (recoveryCursor.phase === "pending") {
-      // Once the indexed pending state is exhausted, make the first bounded
-      // legacy pass in this same mutation. This preserves the historical
-      // recovery contract for chunks that predate the state metadata; any
-      // remaining legacy pages continue through the scheduler.
-      const legacyPage = await ctx.db
+      // Convex allows only one paginated query per function. Finish the first
+      // legacy batch with `.take()`, then schedule a paginated legacy sweep if
+      // the table may still contain more pre-index rows.
+      const legacyCandidates = await ctx.db
         .query("activeBuildPlanningRevisionChunks")
         .order("asc")
-        .paginate({ cursor: null, numItems: PLANNING_MATERIALIZATION_RECOVERY_BATCH_SIZE });
+        .take(PLANNING_MATERIALIZATION_RECOVERY_BATCH_SIZE);
       await processPlanningMaterializationRecoveryPage(
         ctx,
-        legacyPage.page.filter(
+        legacyCandidates.filter(
           (chunk) => chunk.materializationRecoveryState === undefined,
         ),
         asOf,
       );
-      if (!legacyPage.isDone) {
+      if (
+        legacyCandidates.length === PLANNING_MATERIALIZATION_RECOVERY_BATCH_SIZE
+      ) {
         await ctx.scheduler.runAfter(
           0,
           internal.build_collaboration_planning_reconciliation
@@ -1342,7 +1333,7 @@ export const recoverActiveBuildPlanningRevisionMaterialization = internalMutatio
           {
             asOf,
             cursor: encodePlanningMaterializationRecoveryCursor({
-              cursor: legacyPage.continueCursor,
+              cursor: null,
               phase: "legacy",
             }),
           },

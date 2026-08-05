@@ -332,6 +332,7 @@ export const buildCollaborationAssetScanStateValidator = v.union(
 
 export const buildCollaborationAssetStagingContextValidator = v.union(
   v.literal("composer"),
+  v.literal("costDocumentDraft"),
   v.literal("draft"),
   v.literal("post"),
   v.literal("actionItem")

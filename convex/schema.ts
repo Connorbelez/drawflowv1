@@ -441,6 +441,16 @@ const contractorProfileSourceValidator = v.union(
   v.literal("self_service")
 );
 
+const quoteRecipientCapabilityValidator = v.union(
+  v.literal("contractor"),
+  v.literal("supplier")
+);
+
+const quoteRecipientProvisioningStateValidator = v.union(
+  v.literal("provisional"),
+  v.literal("claimed")
+);
+
 const contractorProfileReviewTypeValidator = v.union(
   v.literal("legal_name_change"),
   v.literal("primary_email_change"),
@@ -1787,6 +1797,13 @@ export default defineSchema({
     organizationId: v.string(),
     name: v.string(),
     kind: v.optional(contractorKindValidator),
+    // Live quote-solicitation fields; optional so legacy profiles remain valid.
+    quoteRecipientCapabilities: v.optional(
+      v.array(quoteRecipientCapabilityValidator)
+    ),
+    quoteRecipientProvisioningState: v.optional(
+      quoteRecipientProvisioningStateValidator
+    ),
     city: v.optional(v.string()),
     email: v.optional(v.string()),
     normalizedEmail: v.optional(v.string()),
@@ -2349,6 +2366,7 @@ export default defineSchema({
     name: v.string(),
     order: v.number(),
     budgetCents: v.optional(v.number()),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     createdAt: v.number(),
@@ -2416,11 +2434,17 @@ export default defineSchema({
     itemType: productionCostItemTypeValidator,
     title: v.string(),
     description: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
     budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
     budgetSubmilestoneKey: v.optional(v.string()),
     supplier: v.optional(v.string()),
+    deliveryLocation: v.optional(v.string()),
+    deliveryStartDay: v.optional(v.number()),
+    deliveryEndDay: v.optional(v.number()),
+    deliveryInstructions: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
@@ -2661,6 +2685,10 @@ export default defineSchema({
     newState: v.optional(v.string()),
     reason: v.optional(v.string()),
     reconciliationKey: v.optional(v.string()),
+    drawFlowCorrelationId: v.optional(v.string()),
+    providerCorrelationId: v.optional(v.string()),
+    overrideKind: v.optional(v.string()),
+    breakGlass: v.optional(v.boolean()),
     warnings: v.array(v.string()),
     createdAt: v.number(),
   })
@@ -3500,6 +3528,12 @@ export default defineSchema({
     migrationCompletedAt: v.optional(v.number()),
     activatedAt: v.optional(v.number()),
     activatedByWorkosUserId: v.optional(v.string()),
+    serviceLifecycle: v.optional(
+      v.union(v.literal("active"), v.literal("restricted_archive"))
+    ),
+    serviceLifecycleChangedAt: v.optional(v.number()),
+    serviceLifecycleChangedByWorkosUserId: v.optional(v.string()),
+    serviceLifecycleReason: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organizationId", ["organizationId"]),
@@ -4011,6 +4045,10 @@ export default defineSchema({
     deletedAssetCount: v.number(),
     retainedAuditEventCount: v.number(),
     batchCount: v.optional(v.number()),
+    postsScanned: v.optional(v.boolean()),
+    postCursor: v.optional(v.string()),
+    actionItemsScanned: v.optional(v.boolean()),
+    actionItemCursor: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
@@ -4995,6 +5033,7 @@ export default defineSchema({
     brokerageId: v.id("brokerages"),
     buildId: v.id("activeBuilds"),
     ownerWorkosUserId: v.string(),
+    actorCapacity: v.optional(buildCollaborationRoleValidator),
     contextKind: buildCollaborationAssetStagingContextValidator,
     contextRecordId: v.optional(v.string()),
     expectedFileName: v.optional(v.string()),
@@ -5383,6 +5422,7 @@ export default defineSchema({
     interestStartsOn: v.literal("funds_released"),
     paybackDate: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("closed")),
+    closedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -5533,6 +5573,7 @@ export default defineSchema({
     order: v.number(),
     budgetCents: v.optional(v.number()),
     actualCostCents: v.optional(v.number()),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
@@ -5890,11 +5931,17 @@ export default defineSchema({
     itemType: productionCostItemTypeValidator,
     title: v.string(),
     description: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
     budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
     budgetSubmilestoneKey: v.optional(v.string()),
     supplier: v.optional(v.string()),
+    deliveryLocation: v.optional(v.string()),
+    deliveryStartDay: v.optional(v.number()),
+    deliveryEndDay: v.optional(v.number()),
+    deliveryInstructions: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),

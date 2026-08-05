@@ -743,9 +743,9 @@ describe("contractor workspace scope + redaction", () => {
       submilestoneKey: "forms",
     });
 
-    const lender = withIdentity(base, ["admin"], PRINCIPAL_BROKER);
+    const reviewOnlyLender = withIdentity(base, ["broker-staff"], "user_broker_staff");
     await expect(
-      lender.mutation(
+      reviewOnlyLender.mutation(
         (api as any).production_proposals.startActiveBuildMilestone,
         {
           actualStartedAt: Date.now() - 30 * 60 * 1000,
@@ -757,6 +757,24 @@ describe("contractor workspace scope + redaction", () => {
         },
       ),
     ).rejects.toThrow(/lender roles cannot originate/i);
+
+    const adminOperator = withIdentity(base, ["admin"], PRINCIPAL_BROKER);
+    const adminOperateBuild = await createApprovedBuild(admin, seed);
+    await expect(
+      adminOperator.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.now() - 30 * 60 * 1000,
+          buildId: adminOperateBuild.buildId,
+          idempotencyKey: "eng409-admin-operate-start",
+          milestoneKey: "foundation",
+          source: "milestone_detail",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toMatchObject({
+      milestoneKey: "foundation",
+    });
 
     const builderBuild = await createApprovedBuild(admin, seed);
     const builder = withIdentity(base, ["builder"], "user_builder");

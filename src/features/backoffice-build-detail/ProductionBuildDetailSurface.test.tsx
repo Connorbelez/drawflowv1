@@ -811,7 +811,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("Current Milestones")).toBeTruthy();
     expect(screen.getByText("Next Upcoming Milestone")).toBeTruthy();
     expect(screen.getByTestId("build-overview-layout").className).toContain(
-      "xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]",
+      "xl:grid-cols-[minmax(0,2fr)_auto_minmax(320px,1fr)]",
     );
     expect(
       within(screen.getByTestId("current-milestone-foundation")).getByText(

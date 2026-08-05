@@ -60,6 +60,9 @@ import {
  * Three System Post interface directions, switchable with ?variant=A|B|C on
  * /prototype/system-posts. Mock state only; canonical commands are simulated
  * in memory and every state change remains visible in the selected direction.
+ *
+ * Approved production direction: Variant A (Inline workboard). Production owns
+ * the adapted UI in SystemPostExperience.tsx; this route remains reference-only.
  */
 
 export type SystemPostPrototypeVariant = "A" | "B" | "C";

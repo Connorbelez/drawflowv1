@@ -37,6 +37,8 @@ export const Route = createFileRoute("/prototype/system-posts")({
   }),
 });
 
+/** Throwaway reference. Production System Posts use Variant A via SystemPostExperience. */
+
 function SystemPostsPrototypeRoute() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();

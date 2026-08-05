@@ -326,6 +326,7 @@ export const systemActionItemPresentationValidator = v.object({
           v.literal("already_started"),
           v.literal("assignment_required"),
           v.literal("completed"),
+          v.literal("lender_review_only"),
           v.literal("permission_denied")
         )
       ),

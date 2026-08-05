@@ -101,6 +101,27 @@ export function resolveEffectiveCollaborationRole(
   return role ? { role, tier: ROLE_TIER[role] } : null;
 }
 
+/** Prefer Builder execution identity when dual-role (admin+builder) accounts act. */
+export function preferredBuilderExecutionRole(
+  roles: readonly unknown[]
+): "builder" | "builder-staff" | "contractor" | null {
+  const normalized = new Set(
+    roles
+      .map(normalizeBuildCollaborationRole)
+      .filter((role): role is BuildCollaborationRole => role !== null)
+  );
+  if (normalized.has("builder")) {
+    return "builder";
+  }
+  if (normalized.has("builder-staff")) {
+    return "builder-staff";
+  }
+  if (normalized.has("contractor")) {
+    return "contractor";
+  }
+  return null;
+}
+
 export function canExcludeCollaborationRole(
   authorRoles: readonly unknown[],
   targetRole: BuildCollaborationRole

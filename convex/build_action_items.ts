@@ -520,6 +520,7 @@ export async function projectBuildActionItemList(
           planningCache,
           viewer: {
             role: authorization.effectiveRole.role,
+            roles: authorization.roles,
             workosUserId: authorization.viewer.subject,
           },
         }),

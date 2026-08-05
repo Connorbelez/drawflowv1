@@ -66,7 +66,8 @@ The same domain command and the same confirmation controller serve milestone car
 44. As a lender staff member assigned to the Build, I want an alert when work starts before a declared predecessor is complete, so that I can assess the exception.
 45. As a Lender Admin, I want dependency-exception starts visible in the operations queue, so that material execution deviations receive oversight.
 46. As a lender operations user, I want unassigned dependency exceptions routed to a fallback queue, so that no exception is silently lost.
-47. As a lender staff member, I want to inspect start facts without originating builder declarations, so that reporting authority remains correctly separated.
+47. As a broker or broker-staff member, I want to inspect start facts without originating builder declarations, so that reporting authority remains correctly separated for review-only lender roles.
+47a. As a Lender Admin, I want to originate Sub-milestone starts and other field operate actions when needed, so that dual-role and god-mode Admin accounts are not blocked by builder-link or assignment gates.
 48. As a Lender Admin, I want to correct an erroneous start after completion, so that material records can be repaired under elevated authority.
 49. As an authorized actor, I want a mistaken start retracted rather than deleted, so that the audit history remains complete.
 50. As an auditor, I want each start to record actual start time, report time, actor, role, prior state, new state, source, warnings, and reason when applicable, so that the decision is reconstructable.
@@ -109,7 +110,9 @@ The same domain command and the same confirmation controller serve milestone car
 - Retraction never deletes history. It appends a linked retraction event and updates the current projection to the latest valid lifecycle state.
 - Lender Admin can correct or retract starts after completion. Builder correction authority follows existing milestone-update authorization and lifecycle policy; it must not permit rewriting completed work when current policy reserves that authority for Lender Admin.
 - Builder Lead and Builder Staff with milestone update permission can start parent milestones and builder-controlled submilestones.
+- Admin may originate Sub-milestone and parent starts (and other field operate actions) without a builderAccountLink. Broker and broker-staff remain review-only and cannot originate starts.
 - Assigned contractors can start or update only their assigned submilestones. They cannot transition the parent milestone.
+- Work Allocation assignment is a Contractor permission grant, not a Builder/Admin start prerequisite.
 - When an authorized builder starts the first submilestone while its parent is planned, the compact dialog explicitly states that both records will start. One transaction applies both transitions and emits linked audit facts.
 - When a contractor starts the first submilestone while its parent is planned, only the child transitions. The UI does not imply that the parent was started.
 - Completion of a milestone or submilestone with no start fact uses the same domain logic to record a missing start and completion atomically. The completion confirmation must disclose the actual start value that will be recorded.
@@ -133,7 +136,7 @@ The same domain command and the same confirmation controller serve milestone car
 - Date coverage includes early start, on-time start, late start, backdated start without a reason, timezone normalization, and rejection of a future value.
 - Dependency coverage includes all predecessors complete, one incomplete predecessor, multiple incomplete predecessors, missing reason rejection, whitespace-only reason rejection, successful exception with reason, authoritative server re-evaluation, stored dependency snapshot, lender notification, and fallback queue routing.
 - Non-side-effect coverage asserts that a start does not modify progress, evidence state, planned dates, durations, downstream schedule, Draw Groups, or draw eligibility.
-- Authorization coverage includes Builder Lead, permitted Builder Staff, unpermitted builder user, assigned contractor child start, unassigned contractor denial, contractor parent denial, lender staff origin denial, cross-organization denial, and Lender Admin correction authority.
+- Authorization coverage includes Builder Lead, permitted Builder Staff, unpermitted builder user, Admin operate without builder link, dual-role admin+builder, assigned contractor child start, unassigned contractor denial, contractor parent denial, broker-staff origin denial, cross-organization denial, and Lender Admin correction authority.
 - Parent-child coverage includes builder-confirmed atomic parent and first-submilestone start, child-only contractor start, later child start when parent is already in progress, and transaction rollback when either linked write fails.
 - Completion catch-up coverage includes atomic start and completion, disclosed actual start, dependency reason enforcement when applicable, and no partial start if completion fails.
 - Idempotency coverage asserts that a retry returns the original result without duplicate activity, audit, notification, or webhook records.

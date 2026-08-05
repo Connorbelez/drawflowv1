@@ -4,6 +4,14 @@
 **Research date:** 2026-08-02  
 **Evidence rule:** only official vendor documentation and product/developer material is used. A capability is **verified** only when explicitly described in a cited first-party source. A DrawFlow recommendation is a product inference, not a claim about an existing implementation.
 
+The strongest transferable patterns are:
+Autodesk Construction Cloud: a typed, access-checked reference graph connecting issues/RFIs to files, sheets, photos, forms, assets, schedules, and related work.
+Fieldwire: one field-work object can coordinate quality, inspection, safety, RFI, progress, and evidence—without turning its text body into proof.
+Built and Rabbet: Action Items may surface operational blockers around a draw, but draw approval, policy gates, budget truth, and audit evidence remain owned by their dedicated lending workflows.
+TrustPoint: human collaboration and machine workflow events should share a timeline but remain distinct domain objects.
+Recommended DrawFlow model: retain distinct domain aggregates for Action Items, evidence, Draw Requests, and operational workflows, while converging their cross-entity links on one canonical typed relationship representation. Activity/read state and other surface concerns remain rebuildable projections. That gives us a real foundation for the Action Item UI without creating another generic task or relationship system.
+[COMPLETE] The research baseline is complete, using official Autodesk, Fieldwire, Built, Rabbet, and TrustPoint material only. It gives us a clean source set for the next domain-modeling and interface-inspiration pass.
+
 
 ## Why this scan
 
@@ -27,16 +35,27 @@ This section is the maintained record of product and architecture decisions made
 - Comments, replies, assignments, mentions, dependency-unblocked events, and material workflow events can create actionable unread state. Opening detail marks eligible visible activity as read for that viewer. Reactions and a viewer's own activity do not increase unread count.
 - Tags are global preset taxonomy only for now. Dependencies are Build-local, directed, cycle-safe, editable from either end, and gate Done until unresolved prerequisites are cleared. Blocked is a first-class board state and requires a visible reason; Cancel is non-destructive and restorable.
 
+#### Single Action Item coordination envelope
+
+**Approved 2026-08-03.** Action Item is DrawFlow's default collaborative coordination object for field questions, missing information, inspection follow-up, progress concerns, delays, punch work, and document requests.
+
+- Those use cases may use preset classification, typed references, and entity-specific display labels, but they do not justify separate independently writable Issue, RFI, Punch Item, Document Request, or Field Follow-up collaboration systems.
+- A plan, sheet, location, Milestone, Draw Request, Site Visit, or other related entity is attached as typed `context`. A photo, form, file, or Evidence Asset is attached as a typed `supporting_record`. Neither relationship asserts completion, validity, sufficiency, or policy compliance.
+- When a concern needs operational force, an authorized command in the owning domain creates the domain-owned requirement, exception, inspection finding, schedule change, evidence decision, or other operational record. The Action Item remains linked as immutable `source` provenance; it does not acquire the target domain's authority.
+- A specialized canonical record is introduced only when the concept has a genuinely independent lifecycle, authorization boundary, invariants, audit history, or external integration contract—not merely because a surface wants different vocabulary.
+
 #### Cross-domain navigation and authority
 
 - Collaboration is not the system of record for a milestone, draw, evidence decision, site visit, or schedule change. It may reference those records and launch their authoritative surfaces.
 - A relevant surface anywhere in DrawFlow can open an entity's canonical mutable interface. A link from collaboration is a navigation affordance; the destination sheet performs live authorization and exposes only its domain's real commands.
 - Canonical entity interfaces use URL-addressable side sheets, not blocking modals. The shell is consistent (identity, status, key actions, authorization, activity/references, back/close); the operational body remains entity-specific.
+- Opening a sheet updates the URL so it is shareable. Browser Back returns to the preceding entry context; sheets opened from nested references retain local back/forward history without losing the originating surface.
+- A Sub-milestone sheet surfaces its scope, contractor, materials, description, site-visit requirements, evidence, schedule, and authorized completion controls. A Milestone sheet rolls up and navigates its Sub-milestones. A Draw Request sheet owns the request, inspection/evidence, review state, and policy-gated actions.
 - Current schemas are not treated as protected territory. When a clearer and more extensible canonical model is warranted, DrawFlow may migrate core models rather than preserve pivot-era boundaries through permanent adapters.
 
-### Working architecture proposal — pending explicit approval
+#### Canonical ownership and migration architecture
 
-Do **not** add a universal entity table and do **not** simply place a sheet compatibility layer over every current record. The proposed end state is:
+**Approved 2026-08-02.** DrawFlow will preserve domain truths, not accidental table or surface boundaries. Do **not** add a universal entity table and do **not** simply place a permanent sheet compatibility layer over every current record. The approved end state is:
 
 1. Retain distinct canonical aggregates for genuinely different business concepts: Milestone/Sub-milestone, Planned Draw, Draw Request, Evidence Package, Evidence Asset, Site Visit, Action Item, and Informational Reminder.
 2. Introduce one typed `BuildEntityRef` protocol for cross-surface navigation and one typed relationship-edge model for meaningful links between aggregates.
@@ -44,16 +63,71 @@ Do **not** add a universal entity table and do **not** simply place a sheet comp
 4. Resolve current accidental overlaps before the sheet layer becomes ubiquitous: ambiguous `draw` records, presentation-synthesized Evidence Packages, duplicated schedule history, stringly calendar targets, timeline-owned mutations, and demo timeline tables overlapping production concepts.
 5. Migrate tenant-by-tenant through idempotent shadow backfill, invariant comparison, a single-authority cutover with compatibility projections, and retirement. Do not retain indefinite bidirectional synchronization.
 
-### Entity-sheet registry posture
+The canonical ownership map is:
+
+- Milestones and Sub-milestones own construction execution, dependencies, planned/actual schedule, completion, and approval.
+- Planned Draws own intended grouping, amount, and timing. Draw Requests separately own reimbursement submission, allocation, review, approval, and release.
+- Evidence Packages own verification scope and package readiness/review; Evidence Assets own file provenance, capture, location-verification metadata, and package membership.
+- Site Visits own request, assignment, schedule, report, and override lifecycle.
+- Action Items own collaborative obligations, assignment, due dates, explicit blocking, dependencies, and collaborative completion. They do not perform Milestone, Draw Request, evidence, Site Visit, or schedule commands.
+- Informational Reminders may own reminder content and an active/cancelled lifecycle, but they do not become operational obligations. Notifications and inbox entries are delivery/read projections, not reminder or Action Item authorities.
+- Calendar and Timeline are permission-filtered temporal projections. They launch source-owned commands and never maintain independent copies of operational state.
+- Collaboration references own typed relationship provenance and explicitly historical publication snapshots. They resolve live target state and authorization from the target aggregate rather than copying either.
+- Entity sheets own routing, presentation, and capability discovery only. Their entity-specific bodies call the same canonical queries and commands used by every other authorized surface.
+- Audit continuity, organization/Brokerage/Build tenancy, WorkOS identity, live ACL evaluation, and reimbursement-only Draw policy survive every migration unchanged.
+
+The migration has exactly one authority at every phase. New canonical records may be shadow-backfilled and legacy read contracts may temporarily be served as derived compatibility projections, but there is no indefinite bidirectional synchronization or competing write path. Ambiguous records are quarantined for review rather than guessed into the new model.
+
+#### Relationship authority classes
+
+**Approved 2026-08-02.** Typed relationships have two authority classes:
+
+- An **informational reference** supplies context and navigation only. It never changes target state, satisfies policy, or affects command eligibility.
+- A **domain-owned constraint** may affect a command, but only the authoritative domain may create, modify, evaluate, satisfy, waive, or retire that constraint under its live authorization and audit rules.
+
+An Action Item dependency is therefore an Action Item-owned completion constraint. An Action Item reference to a Draw Request is informational unless the Draw domain creates its own requirement or gate that references the Action Item. Likewise, linking evidence does not declare that evidence valid or sufficient; the Evidence Package and the consuming operational domain retain those decisions.
+
+Collaboration may report a suspected operational blocker, but it cannot manufacture a cross-domain gate through a generic `blocks` edge. Mentions remain collaboration/notification semantics, and accountable assignment remains canonical state on the owning record; neither is represented as a generic relationship edge.
+
+#### Informational reference vocabulary
+
+**Approved 2026-08-02.** Informational references use four closed roles:
+
+- `subject`: the primary entity the content concerns; at most one primary subject per owning record/revision.
+- `context`: an additionally related entity.
+- `source`: immutable provenance identifying the record or event from which the content originated.
+- `supporting_record`: evidence, a document, photo, form, or other material supplied for consideration without claiming validity or sufficiency.
+
+The target entity kind determines the contextual UI label, such as “Draw Request,” “Related Milestone,” “Raised from Site Visit,” or “Supporting Evidence.” V1 does not admit custom relationship verbs such as `affects`, `blocks`, or `proves`; those terms imply authority that an informational reference does not possess.
+
+#### Canonical-model consolidation rule
+
+**Approved 2026-08-02.** New relationship capability must extend an existing canonical model, intentionally replace it, or merge overlapping implementations into one successor. DrawFlow will not add a permanent relationship sidecar while leaving competing reference, dependency, primary-reference, or activity representations independently writable.
+
+Every cutover has one write authority. Legacy records may be backfilled and temporarily exposed through derived compatibility projections, but the migration must retire redundant writes and storage after parity is proven.
+
+#### Canonical relationship-model consolidation
+
+**Approved 2026-08-02.** DrawFlow will converge the current relationship cluster on one canonical typed relationship representation rather than add an adapter or sidecar that leaves overlapping implementations independently writable:
+
+- Migrate informational content/entity references from `buildCollaborationReferences` into the canonical relationship model while preserving publication provenance and explicitly historical label snapshots.
+- Migrate Action Item-to-Action Item dependency edges from `buildActionItemRelations` into the same relationship model as Action Item-owned constraints; the Action Item domain remains the completion-gate evaluator.
+- Derive an Action Item's primary reference from its `subject` relationship rather than separately persisting `primaryReferenceKind` and `primaryReferenceId` as another authority.
+- Keep `buildCollaborationActivityProjections`, Calendar, Timeline, inbox, notifications, and search as rebuildable projections of canonical records and events.
+- Keep domain-specific requirement state in its authoritative domain. When a Draw or Evidence requirement points to another entity, the canonical relationship owns the cross-entity edge while the domain requirement owns policy state, satisfaction, waiver, authorization, and audit.
+
+The eventual model name and physical storage shape remain implementation decisions. The binding product decision is that existing relationship capabilities must extend this successor, be replaced by it, or be merged into it; redundant stores and write paths are retired after migration parity is proven.
+
+### Working proposals
+
+#### Entity-sheet registry posture
 
 The initial registry under consideration is Action Item, Sub-milestone, Milestone, Draw Request, Evidence Package, and Site Visit. Evidence Assets remain preview-first within their owning package; Material/Equipment and Schedule Change stay contextual unless they acquire an independent lifecycle, authorization model, and audit history. This registry is a discussion starting point, not implementation scope.
 
 ### Open questions for the next brainstorm
 
-1. Approve, reject, or adjust the canonicalization-and-migration proposal above.
-2. Define the typed relationship vocabulary and distinguish display-only links from links that affect command eligibility or workflow blocking.
-3. Confirm the first entity-sheet registry after the canonical ownership boundary is approved.
-4. Specify shared-sheet history/URL semantics across nested linked entities and entry contexts.
+1. Define the closed domain-owned constraint types and the exact authorized acceptance commands that promote an informational concern into each operational workflow.
+2. Confirm the first entity-sheet registry against the approved canonical ownership boundary.
 
 ## Executive takeaways
 
@@ -62,7 +136,7 @@ Autodesk Construction Cloud: a typed, access-checked reference graph connecting 
 Fieldwire: one field-work object can coordinate quality, inspection, safety, RFI, progress, and evidence—without turning its text body into proof.
 Built and Rabbet: Action Items may surface operational blockers around a draw, but draw approval, policy gates, budget truth, and audit evidence remain owned by their dedicated lending workflows.
 TrustPoint: human collaboration and machine workflow events should share a timeline but remain distinct domain objects.
-Recommended DrawFlow model: keep BuildActionItem, activity/read state, assets/evidence, Draw Requests, and dependency edges as separate but typed and linked domains. That gives us a real foundation for your Action Item UI instead of a generic task board.
+Recommended DrawFlow model: retain distinct domain aggregates for Action Items, evidence, Draw Requests, and operational workflows, while converging their cross-entity links on one canonical typed relationship representation. Activity/read state and other surface concerns remain rebuildable projections. That gives us a real foundation for the Action Item UI without creating another generic task or relationship system.
 [COMPLETE] The research baseline is complete, using official Autodesk, Fieldwire, Built, Rabbet, and TrustPoint material only. It gives us a clean source set for the next domain-modeling and interface-inspiration pass.
 
 1. **Use one durable work object with typed references.** Autodesk Issues and RFIs can reference files, sheets, photos, forms, assets, other issues/RFIs, schedule data, and related records. That supports a link graph rather than document copies or isolated comments. [Autodesk: About Issues](https://help.autodesk.com/view/BUILD/KOR/?guid=Issues_About&l=ENG) [Autodesk: Create an RFI](https://help.autodesk.com/cloudhelp/ENG/Build-Rfis/files/work-rfis/Create_RFI.html)
@@ -102,7 +176,7 @@ Recommended DrawFlow model: keep BuildActionItem, activity/read state, assets/ev
 
 **Verified.** Rabbet documents budget-to-draw reconciliation, over-draw alerts, interest-reserve monitoring, retainage release, and cost-to-complete monitoring. It also states that it classifies documents into an audit-ready record. [Rabbet: budget monitoring](https://rabbet.com/lenders/solutions/budget-monitoring)
 
-**DrawFlow recommendation.** An Action Item may block a Draw, but it must not itself become the loan-control record. Model the link explicitly, e.g. ``ActionItem -> affects -> DrawRequest`` and ``ActionItem -> evidencedBy -> BuildEvidenceAsset``. A Blocked Action Item can signal an operational dependency; a policy gate on a draw must remain enforced by the draw state machine and append an audit event.
+**DrawFlow recommendation.** An Action Item may report a suspected blocker around a Draw, but it must not itself become the loan-control record. Model the cross-entity links through closed informational roles, for example ``ActionItem -> subject -> DrawRequest`` and ``ActionItem -> supporting_record -> EvidenceAsset``. A Blocked Action Item can enforce an Action Item-owned dependency; a policy gate on a Draw must be created and enforced by the Draw state machine under its own authorization and audit rules.
 
 **UI/workflow pattern to adapt.** When an Action Item is tied to a draw, show a small provenance row: linked draw, current decision state, decisive document/evidence, and latest responsible reviewer. Keep this as a structured projection, not free-form text pasted into the brief.
 

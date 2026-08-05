@@ -4,6 +4,7 @@ import {
   canExcludeCollaborationRole,
   canCreateCustomCollaborationAudience,
   collaborationRoleTier,
+  preferredBuilderExecutionRole,
   resolveCollaborationAudience,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
@@ -38,6 +39,17 @@ describe("Build collaboration role hierarchy", () => {
     );
     expect(canExcludeCollaborationRole(["admin"], "principle-broker")).toBe(
       true,
+    );
+  });
+
+  test("prefers Builder execution role when admin and builder are both present", () => {
+    expect(preferredBuilderExecutionRole(["admin", "builder"])).toBe("builder");
+    expect(preferredBuilderExecutionRole(["admin", "builder-staff"])).toBe(
+      "builder-staff",
+    );
+    expect(preferredBuilderExecutionRole(["admin"])).toBeNull();
+    expect(preferredBuilderExecutionRole(["contractor", "builder"])).toBe(
+      "builder",
     );
   });
 

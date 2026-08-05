@@ -502,7 +502,7 @@ async function authorizeStagingContext(
   ctx: MutationCtx,
   input: {
     authorization: ActiveBuildAuthorization;
-    contextKind: "composer" | "draft" | "post" | "actionItem";
+    contextKind: "composer" | "costDocumentDraft" | "draft" | "post" | "actionItem";
     contextRecordId?: string;
   }
 ) {
@@ -535,6 +535,11 @@ async function authorizeStagingContext(
       throw new Error("The collaboration draft is unavailable.");
     }
     return draft._id;
+  }
+  if (input.contextKind === "costDocumentDraft") {
+    // Live deployment may already store this contextKind from the cost-documents
+    // branch. Reject new/managed staging here until that surface is merged.
+    throw new Error("Cost Document draft asset staging is unavailable.");
   }
   if (input.contextKind === "post") {
     const post = await readablePost(
