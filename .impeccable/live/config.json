@@ -1,7 +1,0 @@
-{
-  "files": ["src/routes/__root.tsx"],
-  "exclude": ["src/components/ui/html/**"],
-  "insertBefore": "</body>",
-  "commentSyntax": "jsx",
-  "cspChecked": true
-}
