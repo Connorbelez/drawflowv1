@@ -20,7 +20,7 @@ import {
 } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import type { ProposalKanbanCard } from "#/features/backoffice-dashboard/mock-data.ts";
-import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityFixtures.ts";
+import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { api } from "../../../../convex/_generated/api";
 
 export const Route = createFileRoute("/backoffice/proposals/unassigned")({

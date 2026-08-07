@@ -96,7 +96,7 @@ export const CONTRACTOR_BUILD_DETAIL_ROLE_SLUGS = [
 export type Workspace = "backoffice" | "builder" | "contractor";
 
 export type WorkspaceAccessDecision =
-  | { reason?: "demo-exception"; status: "allowed" }
+  | { status: "allowed" }
   | { reason: "unauthenticated"; status: "unauthenticated" }
   | {
       reason:
@@ -167,10 +167,6 @@ export function roleLabel(role: RoleSlug): string {
 export function getWorkspaceAccessDecision(
   input: AuthAccessInput
 ): WorkspaceAccessDecision {
-  if (isBuilderDemoPath(input.pathname)) {
-    return { reason: "demo-exception", status: "allowed" };
-  }
-
   if (!input.isAuthenticated) {
     return { reason: "unauthenticated", status: "unauthenticated" };
   }
@@ -381,10 +377,6 @@ function throwAccessRedirect(
       workspace: input.workspace,
     },
   });
-}
-
-export function isBuilderDemoPath(pathname: string): boolean {
-  return pathname === "/builder/demo" || pathname.startsWith("/builder/demo/");
 }
 
 /**

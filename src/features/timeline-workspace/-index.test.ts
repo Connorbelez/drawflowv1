@@ -55,7 +55,7 @@ describe("timeline cash shortfall logic", () => {
 
   test("resolves the durable live build link for approved demo proposals", () => {
     expect(resolveDemoLiveBuildHref({ buildKey: "demo-timeline-abc" })).toBe(
-      "/builder/demo/dashboard/builds/demo-timeline-abc",
+      "/backoffice/builds/demo-timeline-abc",
     );
     expect(
       resolveDemoLiveBuildHref({

@@ -1,9 +1,0 @@
-Done.
-
-Generated PNG:
-`outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/01-licensed-project-review/attempt-1/image.png`
-
-Wrote result JSON:
-`outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/01-licensed-project-review/attempt-1/result.json`
-
-Note: incidental worker log/state files already existed in that output directory and the cleanup command was blocked by policy, so I left them untouched.

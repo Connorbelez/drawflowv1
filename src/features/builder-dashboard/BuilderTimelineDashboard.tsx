@@ -22,7 +22,6 @@ import {
 } from "#/components/ui/table.tsx";
 import { BuildIdentityCell } from "#/features/builds/BuildIdentityCell.tsx";
 import { cn } from "#/lib/utils.ts";
-import { MOCK_BUILDER_PERSONA } from "../../../convex/demo_personas";
 
 export type TimelineBudgetGovernance = {
   activeVersion: number;
@@ -76,11 +75,13 @@ type BuilderDashboardNavigate = (
   params?: Record<string, string>
 ) => void;
 
+const DEFAULT_PERSONA_LABEL = "Builder";
+
 export function BuilderTimelineDashboardSurface({
   chrome = "page",
-  liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
+  liveBuildRoute = "/builder/builds/$buildId",
   onNavigate,
-  personaLabel = MOCK_BUILDER_PERSONA,
+  personaLabel = DEFAULT_PERSONA_LABEL,
   rows,
   showBuilderShellAction = false,
   showStartProposalAction = true,
@@ -180,7 +181,7 @@ export function BuilderTimelineDashboardSurface({
             <TimelinePlanTable
               actionLabel="Open proposal"
               onOpen={(row) =>
-                onNavigate("/builder/demo/dashboard/proposals/$draftId", {
+                onNavigate("/builder/proposals/$draftId", {
                   draftId: row.planId,
                 })
               }
@@ -199,14 +200,16 @@ export function BuilderTimelineDashboardSurface({
 
 export function BuilderProposalListSurface({
   chrome = "embedded",
-  liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
+  liveBuildRoute = "/builder/builds/$buildId",
   onNavigate,
+  personaLabel = DEFAULT_PERSONA_LABEL,
   rows,
   showStartProposalAction = true,
 }: {
   chrome?: "embedded" | "page";
   liveBuildRoute?: string;
   onNavigate: BuilderDashboardNavigate;
+  personaLabel?: string;
   rows: TimelinePlanRow[];
   showStartProposalAction?: boolean;
 }) {
@@ -218,7 +221,7 @@ export function BuilderProposalListSurface({
         <FramePanel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-muted-foreground text-xs uppercase tracking-wide">
-              Builder proposals · {MOCK_BUILDER_PERSONA}
+              Builder proposals · {personaLabel}
             </p>
             <h1 className="mt-1 font-semibold text-2xl tracking-tight">
               Proposals
@@ -257,7 +260,7 @@ export function BuilderProposalListSurface({
                   ? onNavigate(liveBuildRoute, {
                       buildId: resolveBuildKey(row),
                     })
-                  : onNavigate("/builder/demo/dashboard/proposals/$draftId", {
+                  : onNavigate("/builder/proposals/$draftId", {
                       draftId: row.planId,
                     })
               }
@@ -276,14 +279,16 @@ export function BuilderProposalListSurface({
 
 export function BuilderLiveBuildListSurface({
   chrome = "embedded",
-  liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
+  liveBuildRoute = "/builder/builds/$buildId",
   onNavigate,
+  personaLabel = DEFAULT_PERSONA_LABEL,
   rows,
   showStartProposalAction = true,
 }: {
   chrome?: "embedded" | "page";
   liveBuildRoute?: string;
   onNavigate: BuilderDashboardNavigate;
+  personaLabel?: string;
   rows: TimelinePlanRow[];
   showStartProposalAction?: boolean;
 }) {
@@ -301,7 +306,7 @@ export function BuilderLiveBuildListSurface({
         <FramePanel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-muted-foreground text-xs uppercase tracking-wide">
-              Builder live builds · {MOCK_BUILDER_PERSONA}
+              Builder live builds · {personaLabel}
             </p>
             <h1 className="mt-1 font-semibold text-2xl tracking-tight">
               Live builds
@@ -388,7 +393,7 @@ function BuilderDashboardActions({
       {showBuilderShellAction ? (
         <Button
           data-ixc-ref="UI-DASHBOARD-OPEN-BUILDER-SHELL"
-          onClick={() => onNavigate("/builder/demo/dashboard")}
+          onClick={() => onNavigate("/builder")}
           size="sm"
           variant="outline"
         >
@@ -409,7 +414,7 @@ function BuilderDashboardActions({
       {showStartProposalAction ? (
         <Button
           data-ixc-ref="UI-DASHBOARD-START-PLAN"
-          onClick={() => onNavigate("/demo/timeline")}
+          onClick={() => onNavigate("/builder/proposals/new")}
           size="sm"
         >
           <Plus />

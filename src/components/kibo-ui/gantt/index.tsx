@@ -2139,8 +2139,8 @@ export const GanttProvider: FC<GanttProviderProps> = ({
   }, []);
 
   // Fix the useCallback to include all dependencies
-  const handleScroll = useCallback(
-    throttle(() => {
+  const throttledScroll = useMemo(
+    () => throttle(() => {
       const scrollElement = scrollRef.current;
       if (!scrollElement) {
         return;
@@ -2204,8 +2204,11 @@ export const GanttProvider: FC<GanttProviderProps> = ({
         setScrollX(scrollElement.scrollLeft);
       }
     }, 100),
-    [],
+    [timelineData],
   );
+  const handleScroll = useCallback(() => {
+    throttledScroll();
+  }, [throttledScroll]);
 
   useEffect(() => {
     const scrollElement = scrollRef.current;

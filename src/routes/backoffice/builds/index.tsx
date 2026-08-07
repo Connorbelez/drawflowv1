@@ -1,8 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
+import { useDeferredValue, useState } from "react";
 
 import { BuildRosterSurface } from "#/features/backoffice-builds/BuildRosterSurface.tsx";
-import type { BackofficeBuildRosterResult } from "#/features/backoffice-builds/build-roster-types.ts";
+import type {
+  BackofficeBuildRosterSortState,
+  BuildRosterPhase,
+} from "#/features/backoffice-builds/build-roster-types.ts";
 
 import { api } from "../../../../convex/_generated/api";
 
@@ -19,9 +23,47 @@ export const Route = createFileRoute("/backoffice/builds/")({
 function BuildsIndexRoute() {
   const context = Route.useRouteContext();
   const workosOrganizationId = context.organizationId as string;
-  const roster = useQuery(api.production_proposals.listBackofficeBuildRoster, {
-    workosOrganizationId,
-  }) as BackofficeBuildRosterResult | undefined;
+  const [search, setSearch] = useState("");
+  const [phase, setPhase] = useState<"all" | BuildRosterPhase>("all");
+  const [sort, setSort] = useState<BackofficeBuildRosterSortState>({
+    desc: true,
+    id: "updatedAt",
+  });
+  const deferredSearch = useDeferredValue(search);
+  const roster = usePaginatedQuery(
+    api.production_proposals.listBackofficeBuildRosterPage,
+    {
+      phase: phase === "all" ? undefined : phase,
+      search: deferredSearch.trim() || undefined,
+      sortBy: sort.id,
+      sortDirection: sort.desc ? "desc" : "asc",
+      workosOrganizationId,
+    },
+    { initialNumItems: 15 }
+  );
+  const summary = useQuery(
+    api.production_proposals.getBackofficeBuildRosterSummary,
+    roster.status === "LoadingFirstPage" ? "skip" : { workosOrganizationId }
+  );
 
-  return <BuildRosterSurface pending={roster === undefined} roster={roster} />;
+  return (
+    <BuildRosterSurface
+      canLoadMore={
+        roster.status === "CanLoadMore" || roster.status === "LoadingMore"
+      }
+      loadingMore={roster.status === "LoadingMore"}
+      onLoadMore={roster.loadMore}
+      onPhaseChange={setPhase}
+      onSearchChange={setSearch}
+      onSortChange={setSort}
+      pending={
+        roster.status === "LoadingFirstPage" || search !== deferredSearch
+      }
+      phase={phase}
+      rows={roster.results}
+      search={search}
+      sort={sort}
+      summary={summary}
+    />
+  );
 }

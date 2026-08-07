@@ -1,7 +1,0 @@
-{
-  "id": "06-capital-confidence-meter",
-  "status": "failed",
-  "image_path": null,
-  "error": "Native image generation completed but did not provide a local PNG artifact that could be saved to the requested path.",
-  "caveats": ""
-}

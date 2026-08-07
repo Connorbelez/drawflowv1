@@ -1,5 +1,0 @@
-Generated with `image_gen.imagegen`, but the tool did not expose a filesystem artifact path I could save as `image.png`.
-
-Wrote the required failed worker result JSON at:
-
-`outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/retry-03-07/workers/06-capital-confidence-meter/attempt-1/result.json`

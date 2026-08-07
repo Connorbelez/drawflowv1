@@ -1,5 +1,0 @@
-Done.
-
-Image: `outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/05-two-door-priority-builder/attempt-1/image.png`
-
-Result JSON: `outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/05-two-door-priority-builder/attempt-1/result.json`

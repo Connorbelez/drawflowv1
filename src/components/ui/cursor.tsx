@@ -101,6 +101,7 @@ export function Cursor({
   style,
   ...props
 }: CursorProps) {
+  "use no memo"; // framing.motion useMotionValue value.mutating is intentionally outside compiler control
   const { containerRef, cursorPos, cursorRef, isActive } = useCursor();
   React.useImperativeHandle(ref, () => cursorRef.current as HTMLDivElement);
 
@@ -111,6 +112,9 @@ export function Cursor({
     const parentElement = containerRef.current?.parentElement;
 
     if (parentElement && isActive) {
+      // React Compiler conservatively flags DOM style mutation on a value
+      // derived from a ref; this is an intentional imperative side effect.
+      // eslint-disable-next-line react-compiler/react-compiler
       parentElement.style.cursor = "none";
     }
 

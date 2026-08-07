@@ -5,6 +5,8 @@ import { useState } from "react";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { formatDate } from "./format";
 
+const MAX_DISPLAY_SITE_PHOTOS = 24;
+
 interface SitePhoto {
   caption: string;
   takenAt: string;
@@ -46,7 +48,7 @@ function buildSatellitePhotos({
           ]
         : [];
 
-  return sourcePhotos.map((photo, index) => ({
+  return sourcePhotos.slice(0, MAX_DISPLAY_SITE_PHOTOS).map((photo, index) => ({
     ...photo,
     satelliteUrl: address
       ? createGoogleSatelliteMapUrl({
@@ -100,6 +102,7 @@ export function SitePhotoCarousel({
           <img
             alt={`${active.caption} satellite view`}
             className="h-full min-h-[200px] w-full rounded-lg border border-border object-cover sm:min-h-[220px]"
+            decoding="async"
             height={360}
             src={active.satelliteUrl}
             width={640}
@@ -175,7 +178,9 @@ export function SitePhotoCarousel({
                   <img
                     alt=""
                     className="h-full w-full object-cover"
+                    decoding="async"
                     height={96}
+                    loading="lazy"
                     src={photo.satelliteUrl}
                     width={160}
                   />

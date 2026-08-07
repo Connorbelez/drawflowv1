@@ -60,7 +60,7 @@ describe("BuilderTimelineDashboardSurface", () => {
       }),
     );
     expect(onNavigate).toHaveBeenCalledWith(
-      "/builder/demo/dashboard/proposals/$draftId",
+      "/builder/proposals/$draftId",
       { draftId: "proposal_unassigned" },
     );
   });
@@ -175,7 +175,7 @@ describe("BuilderTimelineDashboardSurface", () => {
       }),
     );
     expect(onNavigate).toHaveBeenCalledWith(
-      "/builder/demo/dashboard/proposals/$draftId",
+      "/builder/proposals/$draftId",
       { draftId: "proposal_1" },
     );
 
@@ -185,7 +185,7 @@ describe("BuilderTimelineDashboardSurface", () => {
       }),
     );
     expect(onNavigate).toHaveBeenCalledWith(
-      "/builder/demo/dashboard/builds/$buildId",
+      "/builder/builds/$buildId",
       { buildId: "build_1" },
     );
   });
@@ -218,7 +218,7 @@ describe("BuilderProposalListSurface", () => {
     );
 
     expect(onNavigate).toHaveBeenCalledWith(
-      "/builder/demo/dashboard/proposals/$draftId",
+      "/builder/proposals/$draftId",
       { draftId: "proposal_approved" },
     );
   });

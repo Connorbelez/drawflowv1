@@ -1,5 +1,0 @@
-Native image generation ran, but no savable PNG file path was exposed to the workspace, so I could not write the required `image.png` without creating fake placeholder art.
-
-I wrote the required failed result JSON at:
-
-[outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/03-progress-draw-control-plane/attempt-1/result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/03-progress-draw-control-plane/attempt-1/result.json)

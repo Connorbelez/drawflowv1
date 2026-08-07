@@ -3,12 +3,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
   type ColumnDef,
-  type FilterFn,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -23,7 +19,7 @@ import {
   MapPin,
   Search,
 } from "lucide-react";
-import { type ReactElement, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -61,7 +57,9 @@ import { BuildIdentityCell } from "#/features/builds/BuildIdentityCell.tsx";
 import { cn } from "#/lib/utils.ts";
 
 import {
-  type BackofficeBuildRosterResult,
+  type BackofficeBuildRosterSort,
+  type BackofficeBuildRosterSortState,
+  type BackofficeBuildRosterSummary,
   BUILD_PHASE_META,
   BUILD_PHASE_ORDER,
   type BuildRosterPhase,
@@ -72,62 +70,54 @@ import {
 } from "./build-roster-types";
 
 type PhaseFilter = "all" | BuildRosterPhase;
-
-const phaseFilterFn: FilterFn<BuildRosterRow> = (row, _columnId, value) => {
-  const phases = value as BuildRosterPhase[];
-  if (!phases?.length) {
-    return true;
-  }
-  return phases.includes(row.original.phase);
-};
-
-const globalFilterFn: FilterFn<BuildRosterRow> = (row, _columnId, value) => {
-  const query = String(value).trim().toLowerCase();
-  if (!query) {
-    return true;
-  }
-  const build = row.original;
-  const haystack = [
-    build.displayId,
-    build.buildName,
-    build.builderName,
-    build.location,
-    build.activeMilestoneName,
-    build.buildStatusLabel,
-    BUILD_PHASE_META[build.phase].label,
-  ]
-    .join(" ")
-    .toLowerCase();
-  return haystack.includes(query);
-};
+const PAGE_SIZE = 15;
 
 export function BuildRosterSurface({
+  canLoadMore,
+  loadingMore,
+  onLoadMore,
+  onPhaseChange,
+  onSearchChange,
+  onSortChange,
   pending,
-  roster,
+  phase,
+  rows,
+  search,
+  sort,
+  summary,
 }: {
+  canLoadMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: (numItems: number) => void;
+  onPhaseChange: (phase: PhaseFilter) => void;
+  onSearchChange: (search: string) => void;
+  onSortChange: (sort: BackofficeBuildRosterSortState) => void;
   pending: boolean;
-  roster: BackofficeBuildRosterResult | undefined;
+  phase: PhaseFilter;
+  rows: BuildRosterRow[];
+  search: string;
+  sort: BackofficeBuildRosterSortState;
+  summary: BackofficeBuildRosterSummary | undefined;
 }): ReactElement {
   const navigate = useNavigate();
-  const rows = useMemo(() => roster?.builds ?? [], [roster?.builds]);
-  const summary = roster?.summary;
-  const [sorting, setSorting] = useState<SortingState>([
-    { desc: true, id: "updatedAt" },
-  ]);
-  const [globalFilter, setGlobalFilter] = useState("");
-  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
-  const [phaseFacet, setPhaseFacet] = useState<BuildRosterPhase[]>([]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pendingPageIndex, setPendingPageIndex] = useState<number | null>(null);
+  const sorting = useMemo<SortingState>(() => [sort], [sort]);
 
-  const filteredByFacets = useMemo(
-    () =>
-      rows.filter((row) => {
-        if (phaseFilter !== "all" && row.phase !== phaseFilter) {
-          return false;
-        }
-        return true;
-      }),
-    [rows, phaseFilter]
+  const pageRows = useMemo(
+    () => rows.slice(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE),
+    [pageIndex, rows]
   );
+
+  useEffect(() => {
+    if (
+      pendingPageIndex !== null &&
+      rows.length >= (pendingPageIndex + 1) * PAGE_SIZE
+    ) {
+      setPageIndex(pendingPageIndex);
+      setPendingPageIndex(null);
+    }
+  }, [pendingPageIndex, rows.length]);
 
   const columns = useMemo<ColumnDef<BuildRosterRow>[]>(
     () => buildColumns(),
@@ -136,42 +126,57 @@ export function BuildRosterSurface({
 
   const table = useReactTable({
     columns,
-    data: filteredByFacets,
-    filterFns: { phase: phaseFilterFn },
+    data: pageRows,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getRowId: (row) => row.buildId,
-    getSortedRowModel: getSortedRowModel(),
-    globalFilterFn,
-    initialState: { pagination: { pageSize: 15 } },
-    onGlobalFilterChange: setGlobalFilter,
-    onSortingChange: setSorting,
+    manualSorting: true,
+    onSortingChange: (updater) => {
+      const nextSorting =
+        typeof updater === "function" ? updater(sorting) : updater;
+      const nextSort = nextSorting[0];
+      if (!(nextSort && isBackofficeBuildRosterSort(nextSort.id))) {
+        return;
+      }
+      setPageIndex(0);
+      setPendingPageIndex(null);
+      onSortChange({ desc: Boolean(nextSort.desc), id: nextSort.id });
+    },
     state: {
-      columnFilters: phaseFacet.length
-        ? [{ id: "phase", value: phaseFacet }]
-        : [],
-      globalFilter,
       sorting,
     },
   });
 
-  const phaseColumn = table.getColumn("phase");
-  const applyPhaseFacet = (next: BuildRosterPhase[]) => {
-    setPhaseFacet(next);
-    phaseColumn?.setFilterValue(next.length ? next : undefined);
-  };
-
-  const totalFiltered = table.getFilteredRowModel().rows.length;
-  const hasAnyFilter =
-    Boolean(globalFilter.trim()) ||
-    phaseFilter !== "all" ||
-    phaseFacet.length > 0;
+  const hasAnyFilter = Boolean(search.trim()) || phase !== "all";
 
   const resetFilters = () => {
-    setGlobalFilter("");
-    setPhaseFilter("all");
-    applyPhaseFacet([]);
+    setPageIndex(0);
+    setPendingPageIndex(null);
+    onSearchChange("");
+    onPhaseChange("all");
+  };
+  const changeSearch = (nextSearch: string) => {
+    setPageIndex(0);
+    setPendingPageIndex(null);
+    onSearchChange(nextSearch);
+  };
+  const changePhase = (nextPhase: PhaseFilter) => {
+    setPageIndex(0);
+    setPendingPageIndex(null);
+    onPhaseChange(nextPhase);
+  };
+
+  const canGoPrevious = pageIndex > 0;
+  const canGoNext = rows.length > (pageIndex + 1) * PAGE_SIZE || canLoadMore;
+  const goNext = () => {
+    const nextPageIndex = pageIndex + 1;
+    if (rows.length >= (nextPageIndex + 1) * PAGE_SIZE) {
+      setPageIndex(nextPageIndex);
+      return;
+    }
+    if (canLoadMore && !loadingMore) {
+      setPendingPageIndex(nextPageIndex);
+      onLoadMore(PAGE_SIZE);
+    }
   };
 
   return (
@@ -186,14 +191,11 @@ export function BuildRosterSurface({
           </p>
         </div>
         <p className="text-muted-foreground text-xs tabular-nums">
-          {pending ? (
-            "Loading roster…"
-          ) : (
-            <>
-              {totalFiltered} of {rows.length} builds
-              {hasAnyFilter ? " (filtered)" : ""}
-            </>
-          )}
+          {pending
+            ? "Loading roster…"
+            : hasAnyFilter
+              ? `Showing ${rows.length}${canLoadMore ? "+" : ""} matching builds`
+              : `${summary?.total ?? rows.length} builds`}
         </p>
       </header>
 
@@ -201,83 +203,16 @@ export function BuildRosterSurface({
 
       <Frame>
         <FramePanel className="flex flex-col gap-4 p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <ToggleGroup
-              className="flex flex-wrap justify-start"
-              onValueChange={(value) => {
-                const next = (value[0] ?? "all") as PhaseFilter;
-                setPhaseFilter(next);
-                applyPhaseFacet(next === "all" ? [] : [next]);
-              }}
-              value={[phaseFilter]}
-            >
-              <ToggleGroupItem aria-label="All phases" value="all">
-                All
-                {!pending && summary ? (
-                  <span className="text-muted-foreground tabular-nums">
-                    {summary.total}
-                  </span>
-                ) : null}
-              </ToggleGroupItem>
-              {BUILD_PHASE_ORDER.map((phase) => (
-                <ToggleGroupItem
-                  aria-label={BUILD_PHASE_META[phase].label}
-                  key={phase}
-                  value={phase}
-                >
-                  {BUILD_PHASE_META[phase].label}
-                  {!pending && summary ? (
-                    <span className="text-muted-foreground tabular-nums">
-                      {summary[phase]}
-                    </span>
-                  ) : null}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-
-            <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_11rem_auto] lg:w-[36rem]">
-              <span className="relative block">
-                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  className="*:data-[slot=input]:ps-8"
-                  nativeInput
-                  onChange={(event) =>
-                    setGlobalFilter(event.currentTarget.value)
-                  }
-                  placeholder="Search build, builder, location, milestone"
-                  value={globalFilter}
-                />
-              </span>
-              <Select
-                onValueChange={(value) => {
-                  const next = (value ?? "all") as PhaseFilter;
-                  setPhaseFilter(next);
-                  applyPhaseFacet(next === "all" ? [] : [next]);
-                }}
-                value={phaseFilter}
-              >
-                <SelectTrigger aria-label="Filter by phase">
-                  <SelectValue placeholder="Phase" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All phases</SelectItem>
-                  {BUILD_PHASE_ORDER.map((phase) => (
-                    <SelectItem key={phase} value={phase}>
-                      {BUILD_PHASE_META[phase].label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                disabled={!hasAnyFilter}
-                onClick={resetFilters}
-                type="button"
-                variant="outline"
-              >
-                Reset
-              </Button>
-            </div>
-          </div>
+          <RosterFilters
+            hasAnyFilter={hasAnyFilter}
+            onPhaseChange={changePhase}
+            onReset={resetFilters}
+            onSearchChange={changeSearch}
+            pending={pending}
+            phase={phase}
+            search={search}
+            summary={summary}
+          />
 
           <div className="overflow-x-auto">
             <Table
@@ -317,7 +252,9 @@ export function BuildRosterSurface({
               </TableHeader>
               <TableBody>
                 {pending ? (
-                  <LoadingRows columnCount={columns.length} />
+                  <LoadingRows
+                    columnIds={columns.map((column) => column.id ?? "")}
+                  />
                 ) : table.getRowModel().rows.length === 0 ? (
                   <TableRow className="hover:bg-transparent">
                     <TableCell colSpan={columns.length}>
@@ -337,10 +274,10 @@ export function BuildRosterSurface({
                 ) : (
                   table.getRowModel().rows.map((row) => (
                     <TableRow
-                      className="group cursor-pointer"
+                      className="group cursor-pointer [contain-intrinsic-size:0_4.5rem] [content-visibility:auto]"
                       key={row.id}
                       onClick={() => {
-                        void navigate({ to: row.original.href });
+                        navigate({ to: row.original.href });
                       }}
                     >
                       {row.getVisibleCells().map((cell) => (
@@ -368,43 +305,177 @@ export function BuildRosterSurface({
             </Table>
           </div>
 
-          {!pending && table.getPageCount() > 1 ? (
-            <Pagination className="justify-end">
-              <PaginationContent>
-                <PaginationItem>
-                  <Button
-                    disabled={!table.getCanPreviousPage()}
-                    onClick={() => table.previousPage()}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    Previous
-                  </Button>
-                </PaginationItem>
-                <PaginationItem>
-                  <span className="px-2 text-muted-foreground text-xs tabular-nums">
-                    Page {table.getState().pagination.pageIndex + 1} of{" "}
-                    {table.getPageCount()}
-                  </span>
-                </PaginationItem>
-                <PaginationItem>
-                  <Button
-                    disabled={!table.getCanNextPage()}
-                    onClick={() => table.nextPage()}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    Next
-                  </Button>
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          ) : null}
+          <RosterPagination
+            canGoNext={canGoNext}
+            canGoPrevious={canGoPrevious}
+            canLoadMore={canLoadMore}
+            goNext={goNext}
+            loadingMore={loadingMore}
+            onPrevious={() => setPageIndex((index) => index - 1)}
+            pageIndex={pageIndex}
+            rowCount={rows.length}
+            visible={!pending}
+          />
         </FramePanel>
       </Frame>
     </div>
+  );
+}
+
+function RosterFilters({
+  hasAnyFilter,
+  onPhaseChange,
+  onReset,
+  onSearchChange,
+  pending,
+  phase,
+  search,
+  summary,
+}: {
+  hasAnyFilter: boolean;
+  onPhaseChange: (phase: PhaseFilter) => void;
+  onReset: () => void;
+  onSearchChange: (search: string) => void;
+  pending: boolean;
+  phase: PhaseFilter;
+  search: string;
+  summary: BackofficeBuildRosterSummary | undefined;
+}): ReactElement {
+  return (
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <ToggleGroup
+        className="flex flex-wrap justify-start"
+        onValueChange={(value) =>
+          onPhaseChange((value[0] ?? "all") as PhaseFilter)
+        }
+        value={[phase]}
+      >
+        <ToggleGroupItem aria-label="All phases" value="all">
+          All
+          {!pending && summary ? (
+            <span className="text-muted-foreground tabular-nums">
+              {summary.total}
+            </span>
+          ) : null}
+        </ToggleGroupItem>
+        {BUILD_PHASE_ORDER.map((phaseOption) => (
+          <ToggleGroupItem
+            aria-label={BUILD_PHASE_META[phaseOption].label}
+            key={phaseOption}
+            value={phaseOption}
+          >
+            {BUILD_PHASE_META[phaseOption].label}
+            {!pending && summary ? (
+              <span className="text-muted-foreground tabular-nums">
+                {summary[phaseOption]}
+              </span>
+            ) : null}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+
+      <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_11rem_auto] lg:w-[36rem]">
+        <span className="relative block">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="*:data-[slot=input]:ps-8"
+            nativeInput
+            onChange={(event) => onSearchChange(event.currentTarget.value)}
+            placeholder="Search build, builder, location, milestone"
+            value={search}
+          />
+        </span>
+        <Select
+          onValueChange={(value) =>
+            onPhaseChange((value ?? "all") as PhaseFilter)
+          }
+          value={phase}
+        >
+          <SelectTrigger aria-label="Filter by phase">
+            <SelectValue placeholder="Phase" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All phases</SelectItem>
+            {BUILD_PHASE_ORDER.map((phaseOption) => (
+              <SelectItem key={phaseOption} value={phaseOption}>
+                {BUILD_PHASE_META[phaseOption].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          disabled={!hasAnyFilter}
+          onClick={onReset}
+          type="button"
+          variant="outline"
+        >
+          Reset
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RosterPagination({
+  canGoNext,
+  canGoPrevious,
+  canLoadMore,
+  goNext,
+  loadingMore,
+  onPrevious,
+  pageIndex,
+  rowCount,
+  visible,
+}: {
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  canLoadMore: boolean;
+  goNext: () => void;
+  loadingMore: boolean;
+  onPrevious: () => void;
+  pageIndex: number;
+  rowCount: number;
+  visible: boolean;
+}): ReactElement | null {
+  if (!(visible && (canGoPrevious || canGoNext))) {
+    return null;
+  }
+
+  return (
+    <Pagination className="justify-end">
+      <PaginationContent>
+        <PaginationItem>
+          <Button
+            disabled={!canGoPrevious}
+            onClick={onPrevious}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Previous
+          </Button>
+        </PaginationItem>
+        <PaginationItem>
+          <span className="px-2 text-muted-foreground text-xs tabular-nums">
+            Page {pageIndex + 1}
+            {canLoadMore
+              ? ""
+              : ` of ${Math.max(1, Math.ceil(rowCount / PAGE_SIZE))}`}
+          </span>
+        </PaginationItem>
+        <PaginationItem>
+          <Button
+            disabled={!canGoNext || loadingMore}
+            onClick={goNext}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {loadingMore ? "Loading…" : "Next"}
+          </Button>
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   );
 }
 
@@ -413,8 +484,9 @@ function StatStrip({
   summary,
 }: {
   pending: boolean;
-  summary: BackofficeBuildRosterResult["summary"] | undefined;
+  summary: BackofficeBuildRosterSummary | undefined;
 }): ReactElement {
+  const summaryPending = pending || !summary;
   const items = [
     { label: "Total builds", value: summary?.total },
     {
@@ -433,7 +505,7 @@ function StatStrip({
         <Frame key={item.label}>
           <FramePanel className="px-4 py-3">
             <p className="text-muted-foreground text-xs">{item.label}</p>
-            {pending ? (
+            {summaryPending ? (
               <Skeleton className="mt-2 h-7 w-12" />
             ) : (
               <p
@@ -496,6 +568,7 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
       cell: ({ row }) => (
         <span className="text-sm">{row.original.builderName}</span>
       ),
+      enableSorting: false,
       header: ({ column }) => <SortHeader column={column} label="Builder" />,
       id: "builder",
       size: 160,
@@ -518,7 +591,7 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
         const meta = BUILD_PHASE_META[row.original.phase];
         return <Badge variant={meta.tone}>{meta.label}</Badge>;
       },
-      filterFn: phaseFilterFn,
+      enableSorting: false,
       header: ({ column }) => <SortHeader column={column} label="Phase" />,
       id: "phase",
       size: 130,
@@ -541,6 +614,7 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
           ) : null}
         </div>
       ),
+      enableSorting: false,
       header: ({ column }) => (
         <SortHeader column={column} label="Milestone focus" />
       ),
@@ -673,13 +747,15 @@ function SignalsCell({ build }: { build: BuildRosterRow }): ReactElement {
   );
 }
 
-function LoadingRows({ columnCount }: { columnCount: number }): ReactElement {
+const LOADING_ROW_KEYS = ["one", "two", "three", "four", "five", "six"];
+
+function LoadingRows({ columnIds }: { columnIds: string[] }): ReactElement {
   return (
     <>
-      {Array.from({ length: 6 }, (_, index) => (
-        <TableRow className="hover:bg-transparent" key={`loading-${index}`}>
-          {Array.from({ length: columnCount }, (__, cellIndex) => (
-            <TableCell key={`loading-cell-${cellIndex}`}>
+      {LOADING_ROW_KEYS.map((rowKey) => (
+        <TableRow className="hover:bg-transparent" key={`loading-${rowKey}`}>
+          {columnIds.map((columnId) => (
+            <TableCell key={`loading-cell-${columnId}`}>
               <Skeleton className="h-5 w-full max-w-[12rem]" />
             </TableCell>
           ))}
@@ -709,6 +785,7 @@ function SortHeader({
       </span>
     );
   }
+
   const sorted = column.getIsSorted();
   return (
     <button
@@ -731,5 +808,17 @@ function SortHeader({
         <ChevronsUpDown className="size-3.5 opacity-50" />
       )}
     </button>
+  );
+}
+
+function isBackofficeBuildRosterSort(
+  id: string
+): id is BackofficeBuildRosterSort {
+  return (
+    id === "build" ||
+    id === "budget" ||
+    id === "location" ||
+    id === "timeline" ||
+    id === "updatedAt"
   );
 }

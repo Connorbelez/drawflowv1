@@ -6,10 +6,8 @@ import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { ContractorDetailSurface } from "#/features/contractors/ContractorDetailSurface.tsx";
 import type { ContractorProfileDraft } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
-import {
-  getVisualContractorDetail,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/contractors/contractorVisualFixtures.ts";
+import { getVisualContractorDetail } from "#/features/contractors/contractorVisualFixtures.ts";
+import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import {
   buildWorkosUserOptions,
   VISUAL_WORKOS_USER_OPTIONS,

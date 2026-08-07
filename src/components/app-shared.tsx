@@ -1,13 +1,11 @@
 import {
   Agreement03Icon,
   BankIcon,
-  BookOpen01Icon,
   Building06Icon,
   ClipboardIcon,
   ConstructionIcon,
   DashboardSquare01Icon,
   HelpCircleIcon,
-  PresentationOnlineIcon,
   Settings01Icon,
   UserAdd01Icon,
   UserMultipleIcon,
@@ -117,29 +115,6 @@ export const navGroups: SidebarNavGroup[] = [
       },
     ],
   },
-  {
-    label: "Demos",
-    items: [
-      {
-        title: "DrawFlow",
-        to: "/demo/drawflow",
-        icon: icon(PresentationOnlineIcon),
-        matchPrefix: true,
-      },
-      {
-        title: "Timeline",
-        to: "/demo/timeline",
-        icon: icon(PresentationOnlineIcon),
-        matchPrefix: true,
-      },
-      {
-        title: "Evil Charts",
-        to: "/demo/evil-charts",
-        icon: icon(PresentationOnlineIcon),
-        matchPrefix: true,
-      },
-    ],
-  },
 ];
 
 const builderRoute = (to: string) => to as SidebarNavTo;
@@ -169,17 +144,6 @@ export const builderNavGroups: SidebarNavGroup[] = [
         title: "Quote templates",
         to: builderRoute("/builder/quote-templates"),
         icon: icon(Agreement03Icon),
-        matchPrefix: true,
-      },
-    ],
-  },
-  {
-    label: "Demos",
-    items: [
-      {
-        title: "Timeline Setup",
-        to: "/demo/timeline",
-        icon: icon(PresentationOnlineIcon),
         matchPrefix: true,
       },
     ],
@@ -219,7 +183,6 @@ export const builderStaffNavGroups: SidebarNavGroup[] = [
 
 export const footerNavLinks: SidebarNavItem[] = [
   { title: "About", to: "/about", icon: icon(HelpCircleIcon) },
-  { title: "Docs", to: "/demo", icon: icon(BookOpen01Icon), matchPrefix: true },
 ];
 
 /** Does `pathname` represent the given nav item? */

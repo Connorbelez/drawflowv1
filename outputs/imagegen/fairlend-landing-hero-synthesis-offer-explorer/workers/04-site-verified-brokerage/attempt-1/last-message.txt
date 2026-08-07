@@ -1,5 +1,0 @@
-Generated exactly one native image, but the tool did not expose a savable PNG file or binary handle, so I could not place `image.png` at the requested path.
-
-I wrote the required failure JSON to:
-
-[outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/04-site-verified-brokerage/attempt-1/result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/04-site-verified-brokerage/attempt-1/result.json)

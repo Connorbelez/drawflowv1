@@ -1,5 +1,0 @@
-Generated the image with `image_gen.imagegen`, but the tool did not expose a local PNG handle or binary payload I could save.
-
-Wrote the required failure JSON to:
-
-`outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/05-two-door-priority-builder/attempt-2/result.json`

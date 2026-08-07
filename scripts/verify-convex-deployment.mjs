@@ -21,135 +21,87 @@ if (!deploymentUrl) {
   process.exit(1);
 }
 
-const probes = [
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-      paginationOpts: { cursor: null, numItems: 1 },
-    },
-    name: "build_collaboration:listBuildCollaborationFeed",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_references:listBuildCollaborationTagOptions",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_notifications:getMyBuildCollaborationNotificationPreferences",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_drafts:listMyBuildCollaborationDrafts",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_rollout:getBuildCollaborationRolloutState",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_search:getBuildCollaborationSearchReadiness",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_lifecycle:getBuildCollaborationLifecycleState",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_retention:getBuildCollaborationRetentionState",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      entityId: "__deployment_parity_probe__",
-      entityKind: "post",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_moderation:getBuildCollaborationModerationContext",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-    },
-    name: "build_collaboration_webhooks:listBuildCollaborationWebhookEndpoints",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-      paginationOpts: { cursor: null, numItems: 1 },
-      phase: "builds",
-    },
-    name: "build_collaboration_legacy_note_plan:previewBuildCollaborationLegacyNoteMigrationPage",
-  },
-  {
-    args: {
-      buildId: "__deployment_parity_probe__",
-      evidenceId: "__deployment_parity_probe__",
-      organizationId: "__deployment_parity_probe__",
-      paginationOpts: { cursor: null, numItems: 1 },
-    },
-    name: "build_collaboration_legacy_note_parity:getBuildCollaborationLegacyNoteMigrationParityReport",
-  },
+const expectedFunctionNames = [
+  "build_collaboration:listBuildCollaborationFeed",
+  "build_collaboration_references:listBuildCollaborationTagOptions",
+  "build_collaboration_notifications:getMyBuildCollaborationNotificationPreferences",
+  "build_collaboration_drafts:listMyBuildCollaborationDrafts",
+  "build_collaboration_rollout:getBuildCollaborationRolloutState",
+  "build_collaboration_search:getBuildCollaborationSearchReadiness",
+  "build_collaboration_lifecycle:getBuildCollaborationLifecycleState",
+  "build_collaboration_retention:getBuildCollaborationRetentionState",
+  "build_collaboration_moderation:getBuildCollaborationModerationContext",
+  "build_collaboration_webhooks:listBuildCollaborationWebhookEndpoints",
+  "build_collaboration_legacy_note_plan:previewBuildCollaborationLegacyNoteMigrationPage",
+  "build_collaboration_legacy_note_parity:getBuildCollaborationLegacyNoteMigrationParityReport",
 ];
 
-const client = new ConvexHttpClient(deploymentUrl);
-const missingFunctions = [];
-const verificationFailures = [];
+const adminKey = process.env.CONVEX_DEPLOY_KEY;
+if (!adminKey) {
+  console.error(
+    "Convex function-registration check failed: CONVEX_DEPLOY_KEY is required on Vercel to inspect deployed function metadata."
+  );
+  process.exit(1);
+}
 
-await Promise.all(
-  probes.map(async ({ args, name }) => {
-    try {
-      await client.query(makeFunctionReference(name), args);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("Could not find public function")) {
-        missingFunctions.push(name);
-        return;
-      }
-      if (message.includes("ArgumentValidationError")) {
-        return;
-      }
-      verificationFailures.push(`${name}: ${message.split("\n")[0]}`);
-    }
-  })
+const client = new ConvexHttpClient(deploymentUrl, { logger: false });
+client.setAdminAuth(adminKey);
+
+let deployedFunctions;
+try {
+  deployedFunctions = await client.query(
+    makeFunctionReference("_system/cli/modules:apiSpec"),
+    {}
+  );
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(
+    `Convex function-registration check failed for ${deploymentUrl}: ${message.split("\n")[0]}`
+  );
+  process.exit(1);
+}
+
+if (!Array.isArray(deployedFunctions)) {
+  console.error(
+    "Convex function-registration check failed: deployment metadata was not an array."
+  );
+  process.exit(1);
+}
+
+const functionMetadata = new Map(
+  deployedFunctions
+    .filter(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        typeof entry.identifier === "string"
+    )
+    .map((entry) => [entry.identifier.replace(/\.js:/g, ":"), entry])
 );
+const missingPublicFunctions = expectedFunctionNames.filter((name) => {
+  const metadata = functionMetadata.get(name);
+  return !metadata || metadata.visibility?.kind !== "public";
+});
+const nonQueryFunctions = expectedFunctionNames.filter((name) => {
+  const metadata = functionMetadata.get(name);
+  return (
+    metadata?.visibility?.kind === "public" && metadata.functionType !== "Query"
+  );
+});
 
-if (missingFunctions.length > 0 || verificationFailures.length > 0) {
+if (missingPublicFunctions.length > 0 || nonQueryFunctions.length > 0) {
   console.error(
     `Convex function-registration check failed for ${deploymentUrl}.`
   );
-  for (const functionName of missingFunctions) {
+  for (const functionName of missingPublicFunctions) {
     console.error(`- Missing public function: ${functionName}`);
   }
-  for (const failure of verificationFailures) {
-    console.error(`- Could not verify ${failure}`);
+  for (const functionName of nonQueryFunctions) {
+    console.error(`- Expected a public query: ${functionName}`);
   }
   process.exit(1);
 }
 
 console.log(
-  `Convex function-registration check passed (${probes.length} collaboration queries).`
+  `Convex function-registration check passed (${expectedFunctionNames.length} collaboration queries).`
 );

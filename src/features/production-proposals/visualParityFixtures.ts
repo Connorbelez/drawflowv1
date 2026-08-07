@@ -10,22 +10,24 @@ import type {
   ProductionProposalSettings,
 } from "./ProductionProposalSurfaces.tsx";
 import type { ProductionProposalTemplateProjection } from "./timelineSetupAdapter.ts";
+import {
+  VISUAL_PARITY_ACTIVE_BUILD_ID,
+  VISUAL_PARITY_CLOSED_PROPOSAL_ID,
+  VISUAL_PARITY_ORGANIZATION_ID,
+  VISUAL_PARITY_PROPOSAL_ID,
+} from "./visualParityConstants.ts";
 
-export const VISUAL_PARITY_ORGANIZATION_ID = "org_visual_parity_workos";
-export const VISUAL_PARITY_PROPOSAL_ID = "proposal_visual_parity";
-export const VISUAL_PARITY_SUBMITTED_PROPOSAL_ID = "proposal_visual_submitted";
-export const VISUAL_PARITY_APPROVED_PROPOSAL_ID = "proposal_visual_approved";
-export const VISUAL_PARITY_CLOSED_PROPOSAL_ID = "proposal_visual_closed";
-export const VISUAL_PARITY_ACTIVE_BUILD_ID = "build_visual_hamilton";
+export {
+  VISUAL_PARITY_ACTIVE_BUILD_ID,
+  VISUAL_PARITY_APPROVED_PROPOSAL_ID,
+  VISUAL_PARITY_CLOSED_PROPOSAL_ID,
+  VISUAL_PARITY_ORGANIZATION_ID,
+  VISUAL_PARITY_PROPOSAL_ID,
+  VISUAL_PARITY_SUBMITTED_PROPOSAL_ID,
+  isProductionVisualParityFixtureEnabled,
+} from "./visualParityConstants.ts";
 
 type VisualParityProposalStatus = "approved" | "closed" | "draft" | "submitted";
-
-export function isProductionVisualParityFixtureEnabled(): boolean {
-  return (
-    !import.meta.env.PROD &&
-    import.meta.env.VITE_DRAWFLOW_VISUAL_PARITY_FIXTURE === "1"
-  );
-}
 
 export function getVisualParityCreateContext() {
   return {

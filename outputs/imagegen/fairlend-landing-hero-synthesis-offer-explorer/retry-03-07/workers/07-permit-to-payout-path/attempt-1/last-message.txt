@@ -1,5 +1,0 @@
-Generated exactly one image with `image_gen.imagegen`, but the tool did not expose a saved PNG artifact for placement at the requested path.
-
-Wrote the required failed worker JSON to:
-
-[outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/retry-03-07/workers/07-permit-to-payout-path/attempt-1/result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/retry-03-07/workers/07-permit-to-payout-path/attempt-1/result.json)

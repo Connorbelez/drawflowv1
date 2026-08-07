@@ -105,3 +105,15 @@ NEVER create a component from scratch if theres something existing that can be a
 
 - Wrapping or structural card-like containers MUST use `src/components/ui/frame.tsx` (`Frame`, `FramePanel`, and related frame primitives). Do not self-roll wrapper cards with ad hoc `rounded-* border bg-* p-* shadow-*` markup.
 - Actual content cards or card-like interactive surfaces MUST use `src/components/ui/card.tsx` (`Card` and related card primitives). For clickable cards, render the card as the correct interactive element via the component API instead of styling a custom div/label/button from scratch.
+
+## Learned User Preferences
+
+- Prefer `src/components/ui/separator.tsx` to delineate sections instead of redundant wrapping cards or surfaces; keep enough padding for breathing room after wrappers are removed.
+- When a polished prototype exists (especially the iterated dark-mode variant), treat it as the visual source of truth and bring production UI to parity rather than shipping a divergent implementation.
+- Collaboration and operate actions must be route- and role-aware: on Builder routes, favor Builder-facing actions even when the user also has Admin; use roles for permission caps and the active route for which actions are exposed.
+- React Compiler is planned; do not spend effort on memoization campaigns the compiler will subsume—scope those fixes out of performance work.
+
+## Learned Workspace Facts
+
+- Application performance profiling reports live under `reports/PROFILING-*` and should guide CWV / backoffice optimization work.
+- Local/dev Convex data is treated as disposable test data; schema drift can be resolved with migrations iterated until `convex dev` validates cleanly.

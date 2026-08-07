@@ -9030,6 +9030,77 @@ describe("production proposal foundation", () => {
     ).toBe(roster.summary.total);
   });
 
+  test("paginates and filters the backoffice build roster without returning the full set", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const summary = await t.query(
+      (api as any).production_proposals.getBackofficeBuildRosterSummary,
+      { workosOrganizationId: ORG },
+    );
+    const legacyRoster = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRoster,
+      { workosOrganizationId: ORG },
+    );
+    const firstPage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        paginationOpts: { cursor: null, numItems: 1 },
+        workosOrganizationId: ORG,
+      },
+    );
+
+    expect(firstPage.page).toHaveLength(1);
+    expect(firstPage.page[0]).toMatchObject({
+      buildName: expect.any(String),
+      imageUrl: null,
+      phase: expect.stringMatching(/scheduled|active|attention|completed/),
+    });
+    expect(firstPage.page.length).toBeLessThanOrEqual(1);
+    expect(summary.total).toBeGreaterThanOrEqual(firstPage.page.length);
+    expect(summary).toEqual(legacyRoster.summary);
+
+    const searched = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        paginationOpts: { cursor: null, numItems: 15 },
+        search: firstPage.page[0].buildName,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(searched.page.map((build: any) => build.buildId)).toContain(
+      firstPage.page[0].buildId,
+    );
+
+    const filtered = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        paginationOpts: { cursor: null, numItems: 15 },
+        phase: firstPage.page[0].phase,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(
+      filtered.page.every((build: any) => build.phase === firstPage.page[0].phase),
+    ).toBe(true);
+
+    const sortedByBudget = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        paginationOpts: { cursor: null, numItems: 15 },
+        sortBy: "budget",
+        sortDirection: "asc",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(sortedByBudget.page.length).toBeGreaterThan(0);
+    expect(sortedByBudget.page.length).toBeLessThanOrEqual(15);
+  });
+
   test("admin sees every brokerage build regardless of their own builder assignment", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const secondBuilderProfileId = await t.run(async (ctx: any) => {

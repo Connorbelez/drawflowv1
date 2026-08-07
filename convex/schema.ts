@@ -4825,6 +4825,14 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_brokerage", ["brokerageId"])
+    .index("by_brokerage_and_buildName", ["brokerageId", "buildName"])
+    .index("by_brokerage_and_location", ["brokerageId", "location"])
+    .index("by_brokerage_and_startDate", ["brokerageId", "startDate"])
+    .index("by_brokerage_and_totalBudgetCents", [
+      "brokerageId",
+      "totalBudgetCents",
+    ])
+    .index("by_brokerage_and_updatedAt", ["brokerageId", "updatedAt"])
     .index("by_organizationId", ["organizationId"])
     .index("by_status_and_timezone", ["status", "timezone"]),
   buildParticipants: defineTable({
@@ -7048,6 +7056,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
+    .index("by_brokerage", ["brokerageId"])
     .index("by_proposal", ["proposalId"]),
   buildCapitalPlans: defineTable({
     brokerageId: v.id("brokerages"),
@@ -7181,6 +7190,7 @@ export default defineSchema({
   })
     .index("by_build", ["buildId"])
     .index("by_build_key", ["buildId", "key"])
+    .index("by_brokerage", ["brokerageId"])
     .index("by_build_order", ["buildId", "order"]),
   buildSubmilestones: defineTable({
     brokerageId: v.id("brokerages"),
@@ -7945,6 +7955,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
+    .index("by_brokerage", ["brokerageId"])
     .index("by_build_status", ["buildId", "status"])
     .index("by_build_operation", ["buildId", "clientOperationId"])
     .index("by_build_request_key", ["buildId", "requestKey"])

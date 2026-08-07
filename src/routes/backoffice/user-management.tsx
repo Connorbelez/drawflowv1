@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
-import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityFixtures.ts";
+import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
 
 import { api } from "../../../convex/_generated/api";

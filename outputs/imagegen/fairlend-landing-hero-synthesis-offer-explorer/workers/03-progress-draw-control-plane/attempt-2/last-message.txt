@@ -1,5 +1,0 @@
-Generated exactly one image with `image_gen.imagegen`, but the native tool did not expose a writable PNG file path in this environment, so I could not save `image.png`.
-
-Wrote the required failed result JSON at:
-
-`outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/03-progress-draw-control-plane/attempt-2/result.json`

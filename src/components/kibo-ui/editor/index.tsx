@@ -58,7 +58,7 @@ import Suggestion, {
   type SuggestionProps,
 } from "@tiptap/suggestion";
 import Fuse from "fuse.js";
-import { all, createLowlight } from "lowlight";
+import { common, createLowlight } from "lowlight";
 import {
   ArrowDownIcon,
   ArrowLeftIcon,
@@ -292,8 +292,8 @@ const Slash = Extension.create<SlashOptions>({
   },
 });
 
-// Create a lowlight instance with all languages loaded
-const lowlight = createLowlight(all);
+// Create a lowlight instance with common languages loaded
+const lowlight = createLowlight(common);
 
 type EditorSlashMenuProps = Pick<
   SuggestionProps<SuggestionItem, SuggestionItem>,

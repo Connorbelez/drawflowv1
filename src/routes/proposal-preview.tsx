@@ -32,7 +32,7 @@ import {
   LOCAL_TIMELINE_SHARE_PREFIX,
   readLocalTimelineSnapshot,
   TimelineWorkspace,
-} from "#/features/timeline-workspace";
+} from "#/features/timeline-workspace/TimelineWorkspace.tsx";
 import {
   buildTimelinePreviewCsv,
   buildTimelinePreviewCsvFilename,

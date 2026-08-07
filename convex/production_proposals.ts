@@ -2,7 +2,7 @@ import {
   paginationOptsValidator,
   paginationResultValidator,
 } from "convex/server";
-import { ConvexError, v } from "convex/values";
+import { type Infer, ConvexError, v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
 import { copyProposalDocumentsToActiveBuild } from "./active_build_document_lineage";
@@ -216,6 +216,22 @@ const TOTAL_BPS = 10_000;
 const PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const PROPOSAL_TIMELINE_MIN_DAY = -30;
 const BACKOFFICE_DASHBOARD_PROPOSALS_PER_COLUMN = 50;
+const BACKOFFICE_DASHBOARD_ACTIVE_BUILDS_LIMIT = 50;
+/** Dashboard cards only need summary fields; keep nested scans bounded. */
+const BACKOFFICE_DASHBOARD_MILESTONES_PER_BUILD = 80;
+const BACKOFFICE_DASHBOARD_PLANNED_DRAWS_PER_BUILD = 80;
+const BACKOFFICE_DASHBOARD_DRAW_REQUESTS_PER_BUILD = 80;
+/** Only need the first image for card thumbnails — avoid scanning full evidence trees. */
+const BACKOFFICE_DASHBOARD_EVIDENCE_SCAN_PER_BUILD = 16;
+const BACKOFFICE_DASHBOARD_STORAGE_URL_CAP = 50;
+/** Detail/timeline first-paint caps — full trees remain a follow-up split. */
+const ACTIVE_BUILD_AUDIT_EVENTS_LIMIT = 100;
+const ACTIVE_BUILD_DOCUMENT_URL_CAP = 40;
+const ACTIVE_BUILD_EVIDENCE_URL_CAP = 60;
+const ACTIVE_BUILD_SITE_PHOTOS_LIMIT = 24;
+const ACTIVE_BUILD_AVAILABLE_CONTRACTORS_LIMIT = 100;
+const TIMELINE_AUDIT_EVENTS_LIMIT = 50;
+const TIMELINE_EVIDENCE_URL_CAP = 40;
 const BACKOFFICE_BUILDER_OPTIONS_LIMIT = 200;
 const milestoneStartSourceValidator = v.union(
   v.literal("milestone_card"),
@@ -11277,6 +11293,8 @@ export const getBackofficeDashboard = authenticatedQuery
         "proposals:read",
       ));
 
+    // Phase 2B: return shaped card summaries only (see activeBuilds / drawRequests /
+    // milestones below). Nested collections are scanned server-side and never shipped.
     const proposalRows = await visibleBackofficeDashboardProposalRows(
       ctx,
       auth,
@@ -11286,50 +11304,75 @@ export const getBackofficeDashboard = authenticatedQuery
     const activeBuildRows = await ctx.db
       .query("activeBuilds")
       .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
-      .take(50);
+      .take(BACKOFFICE_DASHBOARD_ACTIVE_BUILDS_LIMIT);
     type VisibleActiveBuild = {
       build: Doc<"activeBuilds">;
       builder: Doc<"builderProfiles"> | null;
       drawRequests: Doc<"activeBuildDrawRequests">[];
-      evidence: Doc<"buildEvidenceAssets">[];
+      firstImageStorageId: Id<"_storage"> | null;
       plannedDraws: Doc<"plannedDrawScheduleRows">[];
       milestones: Doc<"buildMilestones">[];
       proposal: Doc<"buildProposals">;
     };
+
+    // Batch proposal + builder lookups once (avoids N+1 per active build).
+    const uniqueProposalIds = [
+      ...new Set(activeBuildRows.map((build) => build.proposalId)),
+    ];
+    const uniqueBuilderIds = [
+      ...new Set(activeBuildRows.map((build) => build.builderProfileId)),
+    ];
+    const [proposalDocs, builderDocs] = await Promise.all([
+      Promise.all(uniqueProposalIds.map((id) => ctx.db.get(id))),
+      Promise.all(uniqueBuilderIds.map((id) => ctx.db.get(id))),
+    ]);
+    const proposalById = new Map(
+      proposalDocs.flatMap((proposal) =>
+        proposal ? [[proposal._id, proposal] as const] : [],
+      ),
+    );
+    const builderById = new Map(
+      builderDocs.flatMap((builder) =>
+        builder ? [[builder._id, builder] as const] : [],
+      ),
+    );
+
     const projectedActiveBuilds = await Promise.all(
       activeBuildRows.map(async (build): Promise<VisibleActiveBuild | null> => {
-        const proposal = await ctx.db.get(build.proposalId);
+        const proposal = proposalById.get(build.proposalId);
         if (!proposal) {
           return null;
         }
         if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
           return null;
         }
-        const [builder, milestones, plannedDraws, drawRequests, evidence] =
+        const [milestones, plannedDraws, drawRequests, evidence] =
           await Promise.all([
-            ctx.db.get(build.builderProfileId),
             ctx.db
               .query("buildMilestones")
               .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_MILESTONES_PER_BUILD),
             ctx.db
               .query("plannedDrawScheduleRows")
               .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_PLANNED_DRAWS_PER_BUILD),
             ctx.db
               .query("activeBuildDrawRequests")
               .withIndex("by_build", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_DRAW_REQUESTS_PER_BUILD),
             ctx.db
               .query("buildEvidenceAssets")
               .withIndex("by_build", (q) => q.eq("buildId", build._id))
-              .take(100),
+              .take(BACKOFFICE_DASHBOARD_EVIDENCE_SCAN_PER_BUILD),
           ]);
+        const firstImage = evidence.find(
+          (asset) => asset.storageId && asset.mimeType.startsWith("image/"),
+        );
         return {
           build,
-          builder,
+          builder: builderById.get(build.builderProfileId) ?? null,
           drawRequests,
-          evidence,
+          firstImageStorageId: firstImage?.storageId ?? null,
           milestones,
           plannedDraws,
           proposal: withBorrowerStartingCash(proposal),
@@ -11340,13 +11383,18 @@ export const getBackofficeDashboard = authenticatedQuery
       (row): row is VisibleActiveBuild => row !== null,
     );
 
+    const resolveStorageUrl = createStorageUrlResolver(
+      ctx,
+      BACKOFFICE_DASHBOARD_STORAGE_URL_CAP,
+    );
+
     const activeBuilds = await Promise.all(
       visibleActiveBuilds.map(
         async ({
           build,
           builder,
           drawRequests,
-          evidence,
+          firstImageStorageId,
           milestones,
           plannedDraws,
         }) => {
@@ -11354,9 +11402,6 @@ export const getBackofficeDashboard = authenticatedQuery
           const milestonesBehindSchedule = milestones.filter((milestone) =>
             productionMilestoneIsBehindSchedule(milestone, currentDay),
           ).length;
-          const firstImage = evidence.find(
-            (asset) => asset.storageId && asset.mimeType.startsWith("image/"),
-          );
           const activeMilestone =
             milestones.find((milestone) => milestone.status !== "complete") ??
             milestones[0];
@@ -11371,9 +11416,7 @@ export const getBackofficeDashboard = authenticatedQuery
             drawCount: plannedDraws.length,
             href: `/backoffice/builds/${build._id}`,
             id: productionBuildDisplayId(build),
-            imageUrl: firstImage?.storageId
-              ? await ctx.storage.getUrl(firstImage.storageId)
-              : null,
+            imageUrl: await resolveStorageUrl(firstImageStorageId),
             locationLatitude: build.locationLatitude,
             locationLongitude: build.locationLongitude,
             milestoneCount: milestones.length,
@@ -12502,6 +12545,700 @@ const buildRosterPhaseValidator = v.union(
   v.literal("completed"),
 );
 
+const backofficeBuildRosterSortValidator = v.union(
+  v.literal("build"),
+  v.literal("location"),
+  v.literal("budget"),
+  v.literal("timeline"),
+  v.literal("updatedAt"),
+);
+
+const backofficeBuildRosterSortDirectionValidator = v.union(
+  v.literal("asc"),
+  v.literal("desc"),
+);
+
+const backofficeBuildRosterRowValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  buildName: v.string(),
+  buildStatus: v.union(v.literal("active"), v.literal("future_start")),
+  buildStatusLabel: v.string(),
+  builderName: v.string(),
+  closedAt: v.optional(v.number()),
+  daysActive: v.number(),
+  displayId: v.string(),
+  drawCount: v.number(),
+  drawRequestsPending: v.number(),
+  href: v.string(),
+  imageUrl: v.union(v.string(), v.null()),
+  loanStatus: v.optional(v.union(v.literal("active"), v.literal("closed"))),
+  location: v.string(),
+  locationLatitude: v.optional(v.number()),
+  locationLongitude: v.optional(v.number()),
+  milestonesBehindSchedule: v.number(),
+  milestonesComplete: v.number(),
+  milestonesInReview: v.number(),
+  milestonesTotal: v.number(),
+  activeMilestoneName: v.string(),
+  phase: buildRosterPhaseValidator,
+  proposalStatus: v.union(
+    v.literal("approved"),
+    v.literal("closed"),
+    v.literal("draft"),
+    v.literal("submitted"),
+  ),
+  siteVisitsExpired: v.number(),
+  siteVisitsOpen: v.number(),
+  startDate: v.string(),
+  totalBudgetCents: v.number(),
+  updatedAt: v.number(),
+});
+
+const backofficeBuildRosterSummaryValidator = v.object({
+  active: v.number(),
+  attention: v.number(),
+  completed: v.number(),
+  scheduled: v.number(),
+  total: v.number(),
+});
+
+type BackofficeBuildRosterRow = Infer<
+  typeof backofficeBuildRosterRowValidator
+>;
+
+type BackofficeBuildRosterRowWithStorage = Omit<
+  BackofficeBuildRosterRow,
+  "imageUrl"
+> & {
+  imageStorageId: Id<"_storage"> | null;
+};
+
+type BackofficeBuildRosterAuth = {
+  brokerage: Doc<"brokerages">;
+  roles: RoleSlug[];
+  subject: string;
+};
+
+const BACKOFFICE_BUILD_ROSTER_PAGE_SIZE = 15;
+const BACKOFFICE_BUILD_ROSTER_PAGE_SCAN_LIMIT = 150;
+const BACKOFFICE_BUILD_ROSTER_SUMMARY_BATCH_SIZE = 50;
+const BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE = 100;
+
+type BackofficeBuildRosterSort = Infer<
+  typeof backofficeBuildRosterSortValidator
+>;
+type BackofficeBuildRosterSortDirection = Infer<
+  typeof backofficeBuildRosterSortDirectionValidator
+>;
+
+async function paginateBackofficeBuilds(
+  ctx: QueryCtx,
+  {
+    brokerageId,
+    cursor,
+    numItems,
+    sortBy,
+    sortDirection,
+  }: {
+    brokerageId: Id<"brokerages">;
+    cursor: string | null;
+    numItems: number;
+    sortBy: BackofficeBuildRosterSort;
+    sortDirection: BackofficeBuildRosterSortDirection;
+  },
+) {
+  const paginationOpts = { cursor, numItems };
+  switch (sortBy) {
+    case "build":
+      return await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage_and_buildName", (q) =>
+          q.eq("brokerageId", brokerageId),
+        )
+        .order(sortDirection)
+        .paginate(paginationOpts);
+    case "location":
+      return await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage_and_location", (q) =>
+          q.eq("brokerageId", brokerageId),
+        )
+        .order(sortDirection)
+        .paginate(paginationOpts);
+    case "budget":
+      return await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage_and_totalBudgetCents", (q) =>
+          q.eq("brokerageId", brokerageId),
+        )
+        .order(sortDirection)
+        .paginate(paginationOpts);
+    case "timeline":
+      return await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage_and_startDate", (q) =>
+          q.eq("brokerageId", brokerageId),
+        )
+        .order(sortDirection === "asc" ? "desc" : "asc")
+        .paginate(paginationOpts);
+    case "updatedAt":
+      return await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage_and_updatedAt", (q) =>
+          q.eq("brokerageId", brokerageId),
+        )
+        .order(sortDirection)
+        .paginate(paginationOpts);
+  }
+}
+
+export const listBackofficeBuildRosterPage = authenticatedQuery
+  .use(withQueryTiming("production_proposals.listBackofficeBuildRosterPage"))
+  .input({
+    paginationOpts: paginationOptsValidator,
+    phase: v.optional(buildRosterPhaseValidator),
+    search: v.optional(v.string()),
+    sortBy: v.optional(backofficeBuildRosterSortValidator),
+    sortDirection: v.optional(backofficeBuildRosterSortDirectionValidator),
+    workosOrganizationId: v.string(),
+  })
+  .returns(paginationResultValidator(backofficeBuildRosterRowValidator))
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    if (!isBackoffice(scope.roles)) {
+      throw new Error("Forbidden: backoffice");
+    }
+    if (!scope.brokerage) {
+      throw new Error("Forbidden: brokerage");
+    }
+
+    const auth: BackofficeBuildRosterAuth = {
+      brokerage: scope.brokerage,
+      roles: scope.roles,
+      subject: scope.subject,
+    };
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read",
+      ));
+    const requestedPageSize = Math.min(
+      Math.max(args.paginationOpts.numItems, 1),
+      BACKOFFICE_BUILD_ROSTER_PAGE_SIZE,
+    );
+    const normalizedSearch = args.search?.trim().toLowerCase() ?? "";
+    const sortBy = args.sortBy ?? "updatedAt";
+    const sortDirection = args.sortDirection ?? "desc";
+    const sourcePageSize =
+      args.phase || normalizedSearch ? 1 : requestedPageSize;
+    const rows: BackofficeBuildRosterRowWithStorage[] = [];
+    let cursor = args.paginationOpts.cursor;
+    let isDone = false;
+    let scanned = 0;
+
+    while (
+      rows.length < requestedPageSize &&
+      !isDone &&
+      scanned < BACKOFFICE_BUILD_ROSTER_PAGE_SCAN_LIMIT
+    ) {
+      const sourcePage = await paginateBackofficeBuilds(ctx, {
+        brokerageId: auth.brokerage._id,
+        cursor,
+        numItems: Math.min(
+          sourcePageSize,
+          BACKOFFICE_BUILD_ROSTER_PAGE_SCAN_LIMIT - scanned,
+        ),
+        sortBy,
+        sortDirection,
+      });
+      cursor = sourcePage.continueCursor;
+      isDone = sourcePage.isDone;
+      scanned += sourcePage.page.length;
+
+      const projected = await Promise.all(
+        sourcePage.page
+          .filter((build) => build.organizationId === args.workosOrganizationId)
+          .map((build) =>
+            projectBackofficeBuildRosterRow(ctx, {
+              auth,
+              build,
+              staffCanRead,
+            }),
+          ),
+      );
+
+      for (const row of projected) {
+        if (!row) {
+          continue;
+        }
+        if (args.phase && row.phase !== args.phase) {
+          continue;
+        }
+        if (
+          normalizedSearch &&
+          !backofficeBuildRosterSearchText(row).includes(normalizedSearch)
+        ) {
+          continue;
+        }
+        rows.push(row);
+        if (rows.length === requestedPageSize) {
+          break;
+        }
+      }
+    }
+
+    const resolveStorageUrl = createStorageUrlResolver(ctx, rows.length);
+    const page = await Promise.all(
+      rows.map(async ({ imageStorageId, ...row }) => ({
+        ...row,
+        imageUrl: await resolveStorageUrl(imageStorageId),
+      })),
+    );
+
+    return {
+      continueCursor: cursor ?? "",
+      isDone,
+      page,
+    };
+  })
+  .public();
+
+const backofficeBuildRosterSummaryBuildValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  buildStatus: v.union(v.literal("active"), v.literal("future_start")),
+});
+
+const backofficeBuildRosterSummaryLoanValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  status: v.union(v.literal("active"), v.literal("closed")),
+});
+
+const backofficeBuildRosterSummaryMilestoneValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  milestonesComplete: v.number(),
+  milestonesInReview: v.number(),
+  milestonesTotal: v.number(),
+});
+
+const backofficeBuildRosterSummaryDrawRequestValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  drawRequestsPending: v.number(),
+});
+
+const backofficeBuildRosterSummarySiteVisitValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  expiredSiteVisits: v.number(),
+});
+
+type BackofficeBuildRosterSummaryBuild = Infer<
+  typeof backofficeBuildRosterSummaryBuildValidator
+>;
+type BackofficeBuildRosterSummaryLoan = Infer<
+  typeof backofficeBuildRosterSummaryLoanValidator
+>;
+type BackofficeBuildRosterSummaryMilestone = Infer<
+  typeof backofficeBuildRosterSummaryMilestoneValidator
+>;
+type BackofficeBuildRosterSummaryDrawRequest = Infer<
+  typeof backofficeBuildRosterSummaryDrawRequestValidator
+>;
+type BackofficeBuildRosterSummarySiteVisit = Infer<
+  typeof backofficeBuildRosterSummarySiteVisitValidator
+>;
+
+export const listBackofficeBuildRosterSummaryBuilds = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+  })
+  .returns(v.array(backofficeBuildRosterSummaryBuildValidator))
+  .handler(async (ctx, args) => {
+    const builds: BackofficeBuildRosterSummaryBuild[] = [];
+    let cursor: string | null = null;
+    let isDone = false;
+
+    while (!isDone) {
+      const page = await paginateBackofficeBuilds(ctx, {
+        brokerageId: args.brokerageId,
+        cursor,
+        numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_BATCH_SIZE,
+        sortBy: "updatedAt",
+        sortDirection: "desc",
+      });
+      for (const build of page.page) {
+        if (build.organizationId !== args.organizationId) {
+          continue;
+        }
+        const proposal = await ctx.db.get(build.proposalId);
+        if (!proposal || proposal.organizationId !== args.organizationId) {
+          continue;
+        }
+        builds.push({
+          buildId: build._id,
+          buildStatus: build.status,
+        });
+      }
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+
+    return builds;
+  })
+  .internal();
+
+export const listBackofficeBuildRosterSummaryLoans = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+  })
+  .returns(v.array(backofficeBuildRosterSummaryLoanValidator))
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const loansByBuild = new Map<
+      Id<"activeBuilds">,
+      BackofficeBuildRosterSummaryLoan
+    >();
+    let cursor: string | null = null;
+    let isDone = false;
+
+    while (!isDone) {
+      const page = await ctx.db
+        .query("loanFacilities")
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", args.brokerageId),
+        )
+        .paginate({
+          cursor,
+          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+        });
+      for (const loan of page.page) {
+        if (
+          loan.organizationId !== args.organizationId ||
+          !buildIds.has(loan.buildId)
+        ) {
+          continue;
+        }
+        loansByBuild.set(loan.buildId, {
+          buildId: loan.buildId,
+          status: loan.status,
+        });
+      }
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+
+    return [...loansByBuild.values()];
+  })
+  .internal();
+
+export const listBackofficeBuildRosterSummaryMilestones = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+  })
+  .returns(v.array(backofficeBuildRosterSummaryMilestoneValidator))
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const milestonesByBuild = new Map<
+      Id<"activeBuilds">,
+      BackofficeBuildRosterSummaryMilestone
+    >();
+    let cursor: string | null = null;
+    let isDone = false;
+
+    while (!isDone) {
+      const page = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", args.brokerageId),
+        )
+        .paginate({
+          cursor,
+          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+        });
+      for (const milestone of page.page) {
+        if (
+          milestone.organizationId !== args.organizationId ||
+          !buildIds.has(milestone.buildId)
+        ) {
+          continue;
+        }
+        const state = milestonesByBuild.get(milestone.buildId) ?? {
+          buildId: milestone.buildId,
+          milestonesComplete: 0,
+          milestonesInReview: 0,
+          milestonesTotal: 0,
+        };
+        state.milestonesTotal += 1;
+        if (milestone.status === "complete") {
+          state.milestonesComplete += 1;
+        }
+        if (productionMilestoneNeedsBackofficeReview(milestone)) {
+          state.milestonesInReview += 1;
+        }
+        milestonesByBuild.set(milestone.buildId, state);
+      }
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+
+    return [...milestonesByBuild.values()];
+  })
+  .internal();
+
+export const listBackofficeBuildRosterSummaryDrawRequests = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+  })
+  .returns(v.array(backofficeBuildRosterSummaryDrawRequestValidator))
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const pendingByBuild = new Map<Id<"activeBuilds">, number>();
+    let cursor: string | null = null;
+    let isDone = false;
+
+    while (!isDone) {
+      const page = await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", args.brokerageId),
+        )
+        .paginate({
+          cursor,
+          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+        });
+      for (const drawRequest of page.page) {
+        if (
+          drawRequest.organizationId !== args.organizationId ||
+          drawRequest.status !== "requested" ||
+          !buildIds.has(drawRequest.buildId)
+        ) {
+          continue;
+        }
+        pendingByBuild.set(
+          drawRequest.buildId,
+          (pendingByBuild.get(drawRequest.buildId) ?? 0) + 1,
+        );
+      }
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+
+    return [...pendingByBuild].map(([buildId, drawRequestsPending]) => ({
+      buildId,
+      drawRequestsPending,
+    }));
+  })
+  .internal();
+
+export const listBackofficeBuildRosterSummarySiteVisits = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+  })
+  .returns(v.array(backofficeBuildRosterSummarySiteVisitValidator))
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const expiredByBuild = new Map<Id<"activeBuilds">, number>();
+    const now = Date.now();
+    let cursor: string | null = null;
+    let isDone = false;
+
+    while (!isDone) {
+      const page = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", args.brokerageId),
+        )
+        .paginate({
+          cursor,
+          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+        });
+      for (const visit of page.page) {
+        if (
+          visit.organizationId !== args.organizationId ||
+          !buildIds.has(visit.buildId) ||
+          productionSiteVisitOperationalStatus(visit, now) !== "expired"
+        ) {
+          continue;
+        }
+        expiredByBuild.set(
+          visit.buildId,
+          (expiredByBuild.get(visit.buildId) ?? 0) + 1,
+        );
+      }
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+
+    return [...expiredByBuild].map(([buildId, expiredSiteVisits]) => ({
+      buildId,
+      expiredSiteVisits,
+    }));
+  })
+  .internal();
+
+export const getBackofficeBuildRosterSummary = authenticatedQuery
+  .use(withQueryTiming("production_proposals.getBackofficeBuildRosterSummary"))
+  .input({ workosOrganizationId: v.string() })
+  .returns(backofficeBuildRosterSummaryValidator)
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    if (!isBackoffice(scope.roles)) {
+      throw new Error("Forbidden: backoffice");
+    }
+    if (!scope.brokerage) {
+      throw new Error("Forbidden: brokerage");
+    }
+
+    const auth: BackofficeBuildRosterAuth = {
+      brokerage: scope.brokerage,
+      roles: scope.roles,
+      subject: scope.subject,
+    };
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read",
+      ));
+    const summary = {
+      active: 0,
+      attention: 0,
+      completed: 0,
+      scheduled: 0,
+      total: 0,
+    };
+
+    const canReadEveryBackofficeBuild =
+      staffCanRead ||
+      auth.roles.some(
+        (role) =>
+          role === "admin" ||
+          role === "principle-broker" ||
+          role === "broker",
+      );
+    if (!canReadEveryBackofficeBuild) {
+      return summary;
+    }
+
+    const buildStates: BackofficeBuildRosterSummaryBuild[] = await ctx.runQuery(
+      internal.production_proposals.listBackofficeBuildRosterSummaryBuilds,
+      {
+        brokerageId: auth.brokerage._id,
+        organizationId: args.workosOrganizationId,
+      },
+    );
+    if (buildStates.length === 0) {
+      return summary;
+    }
+
+    const buildIds = buildStates.map((state) => state.buildId);
+    const [
+      loanStates,
+      milestoneStates,
+      drawRequestStates,
+      siteVisitStates,
+    ]: [
+      BackofficeBuildRosterSummaryLoan[],
+      BackofficeBuildRosterSummaryMilestone[],
+      BackofficeBuildRosterSummaryDrawRequest[],
+      BackofficeBuildRosterSummarySiteVisit[],
+    ] = await Promise.all([
+      ctx.runQuery(
+        internal.production_proposals.listBackofficeBuildRosterSummaryLoans,
+        {
+          brokerageId: auth.brokerage._id,
+          buildIds,
+          organizationId: args.workosOrganizationId,
+        },
+      ),
+      ctx.runQuery(
+        internal.production_proposals
+          .listBackofficeBuildRosterSummaryMilestones,
+        {
+          brokerageId: auth.brokerage._id,
+          buildIds,
+          organizationId: args.workosOrganizationId,
+        },
+      ),
+      ctx.runQuery(
+        internal.production_proposals
+          .listBackofficeBuildRosterSummaryDrawRequests,
+        {
+          brokerageId: auth.brokerage._id,
+          buildIds,
+          organizationId: args.workosOrganizationId,
+        },
+      ),
+      ctx.runQuery(
+        internal.production_proposals
+          .listBackofficeBuildRosterSummarySiteVisits,
+        {
+          brokerageId: auth.brokerage._id,
+          buildIds,
+          organizationId: args.workosOrganizationId,
+        },
+      ),
+    ]);
+
+    const loanByBuild = new Map(
+      loanStates.map((state) => [state.buildId, state.status]),
+    );
+    const milestonesByBuild = new Map(
+      milestoneStates.map((state) => [state.buildId, state]),
+    );
+    const drawRequestsByBuild = new Map(
+      drawRequestStates.map((state) => [state.buildId, state.drawRequestsPending]),
+    );
+    const siteVisitsByBuild = new Map(
+      siteVisitStates.map((state) => [state.buildId, state.expiredSiteVisits]),
+    );
+
+    for (const { buildId, buildStatus } of buildStates) {
+      const milestones = milestonesByBuild.get(buildId);
+      const drawRequestsPending = drawRequestsByBuild.get(buildId) ?? 0;
+      const expiredSiteVisits = siteVisitsByBuild.get(buildId) ?? 0;
+      const loanStatus = loanByBuild.get(buildId);
+      const milestonesComplete = milestones?.milestonesComplete ?? 0;
+      const milestonesInReview = milestones?.milestonesInReview ?? 0;
+      const milestonesTotal = milestones?.milestonesTotal ?? 0;
+      let phase: "scheduled" | "active" | "attention" | "completed";
+      if (buildStatus === "future_start") {
+        phase = "scheduled";
+      } else if (
+        loanStatus === "closed" ||
+        (milestonesTotal > 0 && milestonesComplete === milestonesTotal)
+      ) {
+        phase = "completed";
+      } else if (
+        expiredSiteVisits > 0 ||
+        drawRequestsPending > 0 ||
+        milestonesInReview > 0
+      ) {
+        phase = "attention";
+      } else {
+        phase = "active";
+      }
+      summary[phase] += 1;
+      summary.total += 1;
+    }
+
+    return summary;
+  })
+  .public();
+
+/** @deprecated Use listBackofficeBuildRosterPage and getBackofficeBuildRosterSummary. */
 export const listBackofficeBuildRoster = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
   .returns(
@@ -14774,6 +15511,8 @@ export const getActiveBuildDetailByString = authenticatedQuery
         auth.proposal._id,
       ),
     ]);
+    // Phase 4: keep domain collections for workspace UI, but cap audit / URL fan-out.
+    // Follow-up: split evidence/audit/assignment trees into dedicated queries for first paint.
     const [
       documents,
       evidenceAssets,
@@ -14798,13 +15537,14 @@ export const getActiveBuildDetailByString = authenticatedQuery
         .withIndex("by_entity", (q) =>
           q.eq("entityType", "activeBuild").eq("entityId", String(buildId)),
         )
-        .collect(),
+        .order("desc")
+        .take(ACTIVE_BUILD_AUDIT_EVENTS_LIMIT),
       ctx.db
         .query("contractorProfiles")
         .withIndex("by_brokerage", (q) =>
           q.eq("brokerageId", build.brokerageId),
         )
-        .collect(),
+        .take(ACTIVE_BUILD_AVAILABLE_CONTRACTORS_LIMIT),
     ]);
     const buildDocuments = documents as Doc<"buildDocuments">[];
     const buildEvidenceAssets = evidenceAssets as Doc<"buildEvidenceAssets">[];
@@ -14814,6 +15554,31 @@ export const getActiveBuildDetailByString = authenticatedQuery
       milestoneAssignments as Doc<"milestoneContractorAssignments">[]
     ).filter((assignment) => assignment.status !== "removed");
     const buildSiteVisits = siteVisits as Doc<"buildSiteVisits">[];
+    // Ensure contractors attached to this build are present even if outside the
+    // brokerage-wide available-contractor cap.
+    const attachedContractorIdsNeeded = [
+      ...new Set(
+        buildContractorAssignments.map((assignment) => assignment.contractorId),
+      ),
+    ];
+    const missingAttachedContractorIds = attachedContractorIdsNeeded.filter(
+      (contractorId) =>
+        !contractorProfiles.some(
+          (contractor) => contractor._id === contractorId,
+        ),
+    );
+    const missingAttachedContractors =
+      missingAttachedContractorIds.length > 0
+        ? (
+            await Promise.all(
+              missingAttachedContractorIds.map((id) => ctx.db.get(id)),
+            )
+          ).flatMap((contractor) => (contractor ? [contractor] : []))
+        : [];
+    const contractorProfilesForBuild = [
+      ...contractorProfiles,
+      ...missingAttachedContractors,
+    ];
     const proposalGuidanceByMilestoneId = new Map(
       (proposalMilestones as Doc<"proposalMilestones">[]).map((milestone) => [
         String(milestone._id),
@@ -14873,7 +15638,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
       allowLegacyUnattributedRequests: true,
     });
     const contractorById = new Map(
-      contractorProfiles.map((contractor) => [
+      contractorProfilesForBuild.map((contractor) => [
         String(contractor._id),
         contractor,
       ]),
@@ -14995,7 +15760,11 @@ export const getActiveBuildDetailByString = authenticatedQuery
             : appPermissions.role === "staff"
               ? ["builder-staff"]
               : []),
-      documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
+      documents: await withBuildDocumentStorageUrls(
+        ctx,
+        buildDocuments,
+        ACTIVE_BUILD_DOCUMENT_URL_CAP,
+      ),
       drawFunding: {
         approvedMilestoneCents: drawFunding.approvedMilestoneCents,
         attributionShortfallCents: drawFunding.attributionShortfallCents,
@@ -15093,7 +15862,11 @@ export const getActiveBuildDetailByString = authenticatedQuery
             })
         : [],
       evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
-        ? await withBuildEvidenceAssetStorageUrls(ctx, buildEvidenceAssets)
+        ? await withBuildEvidenceAssetStorageUrls(
+            ctx,
+            buildEvidenceAssets,
+            ACTIVE_BUILD_EVIDENCE_URL_CAP,
+          )
         : [],
       budgetRevisionRequests: (
         budgetRevisionRequests as Doc<"activeBuildBudgetRevisionRequests">[]
@@ -15626,6 +16399,8 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
       args.workosOrganizationId,
     );
     const { build, proposal } = auth;
+    // Phase 4: milestones/draws stay for first paint; audit + evidence URLs are capped.
+    // Follow-up: lazy-load evidence previews / audit pages via dedicated queries.
     const [
       milestones,
       submilestones,
@@ -15663,7 +16438,8 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
             .eq("entityType", "activeBuild")
             .eq("entityId", String(args.buildId)),
         )
-        .collect(),
+        .order("desc")
+        .take(TIMELINE_AUDIT_EVENTS_LIMIT),
       build.permitWaiverId ? ctx.db.get(build.permitWaiverId) : null,
       collectByIndex(
         ctx,
@@ -15876,22 +16652,27 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
           ]
         : [],
       evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
-        ? await Promise.all(
-            [...evidenceAssets]
-              .sort((a, b) => a.createdAt - b.createdAt)
-              .map(async (asset) => ({
+        ? await (async () => {
+            const resolveStorageUrl = createStorageUrlResolver(
+              ctx,
+              TIMELINE_EVIDENCE_URL_CAP,
+            );
+            const sortedEvidence = [...evidenceAssets].sort(
+              (a, b) => a.createdAt - b.createdAt,
+            );
+            return await Promise.all(
+              sortedEvidence.map(async (asset) => ({
                 evidenceKey: asset.evidenceKey,
                 fileName: asset.fileName,
                 label: asset.label,
                 milestoneKey: asset.milestoneKey,
                 mimeType: asset.mimeType,
-                previewUrl: asset.storageId
-                  ? await ctx.storage.getUrl(asset.storageId)
-                  : null,
+                previewUrl: await resolveStorageUrl(asset.storageId),
                 sizeBytes: asset.sizeBytes,
                 tag: asset.tag,
               })),
-          )
+            );
+          })()
         : [],
       milestones: canUseAppPermission(appPermissions, "milestone", "view")
         ? sortedMilestones.map((milestone, index) => {
@@ -26924,6 +27705,171 @@ function productionSiteVisitOperationalStatus(
   return "open";
 }
 
+async function projectBackofficeBuildRosterRow(
+  ctx: QueryCtx,
+  {
+    auth,
+    build,
+    staffCanRead,
+  }: {
+    auth: BackofficeBuildRosterAuth;
+    build: Doc<"activeBuilds">;
+    staffCanRead: boolean;
+  },
+): Promise<BackofficeBuildRosterRowWithStorage | null> {
+  const proposal = await ctx.db.get(build.proposalId);
+  if (!proposal || !(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
+    return null;
+  }
+
+  const [
+    builder,
+    milestones,
+    plannedDraws,
+    drawRequests,
+    loan,
+    evidence,
+    visits,
+  ] = await Promise.all([
+      ctx.db.get(build.builderProfileId),
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+        .take(100),
+      ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+        .take(100),
+      ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(100),
+      ctx.db
+        .query("loanFacilities")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .unique(),
+      ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(100),
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(100),
+    ]);
+
+  const resolvedVisitCounts = backofficeBuildRosterVisitCounts(
+    visits,
+    build.organizationId,
+  );
+  const milestonesComplete = milestones.filter(
+    (milestone) => milestone.status === "complete",
+  ).length;
+  const milestonesInReview = milestones.filter(
+    productionMilestoneNeedsBackofficeReview,
+  ).length;
+  const drawRequestsPending = drawRequests.filter(
+    (request) => request.status === "requested",
+  ).length;
+  const milestonesBehindSchedule = milestones.filter((milestone) =>
+    productionMilestoneIsBehindSchedule(
+      milestone,
+      productionDaysActive(build.startDate),
+    ),
+  ).length;
+  const firstImage = evidence.find(
+    (asset) => asset.storageId && asset.mimeType.startsWith("image/"),
+  );
+  const activeMilestone =
+    milestones.find((milestone) => milestone.status !== "complete") ??
+    milestones[0];
+  const phase = productionBuildRosterPhase({
+    build,
+    drawRequestsPending,
+    expiredSiteVisits: resolvedVisitCounts.expired,
+    loan,
+    milestones,
+    milestonesInReview,
+  });
+
+  return {
+    activeMilestoneName:
+      activeMilestone?.name ?? `${milestones.length} milestones`,
+    buildId: build._id,
+    buildName: build.buildName,
+    buildStatus: build.status,
+    buildStatusLabel: productionBuildStatusLabel(build.status),
+    builderName: builder?.displayName ?? "Builder",
+    ...(proposal.closedAt === undefined ? {} : { closedAt: proposal.closedAt }),
+    daysActive: productionDaysActive(build.startDate),
+    displayId: productionBuildDisplayId(build),
+    drawCount: plannedDraws.length,
+    drawRequestsPending,
+    href: `/backoffice/builds/${build._id}`,
+    imageStorageId: firstImage?.storageId ?? null,
+    ...(loan ? { loanStatus: loan.status } : {}),
+    location: build.location,
+    ...(build.locationLatitude === undefined
+      ? {}
+      : { locationLatitude: build.locationLatitude }),
+    ...(build.locationLongitude === undefined
+      ? {}
+      : { locationLongitude: build.locationLongitude }),
+    milestonesBehindSchedule,
+    milestonesComplete,
+    milestonesInReview,
+    milestonesTotal: milestones.length,
+    phase,
+    proposalStatus: proposal.status,
+    siteVisitsExpired: resolvedVisitCounts.expired,
+    siteVisitsOpen: resolvedVisitCounts.open,
+    startDate: build.startDate,
+    totalBudgetCents: build.totalBudgetCents,
+    updatedAt: build.updatedAt,
+  };
+}
+
+function backofficeBuildRosterVisitCounts(
+  visits: Doc<"buildSiteVisits">[],
+  organizationId: string,
+): { expired: number; open: number } {
+  const counts = { expired: 0, open: 0 };
+  const now = Date.now();
+  for (const visit of visits) {
+    if (visit.organizationId !== organizationId) {
+      continue;
+    }
+    const operationalStatus = productionSiteVisitOperationalStatus(visit, now);
+    if (operationalStatus === "expired") {
+      counts.expired += 1;
+    }
+    if (operationalStatus === "open" || operationalStatus === "in_field") {
+      counts.open += 1;
+    }
+  }
+  return counts;
+}
+
+function backofficeBuildRosterSearchText(row: BackofficeBuildRosterRowWithStorage) {
+  const phaseLabel =
+    row.phase === "attention"
+      ? "needs attention"
+      : row.phase === "active"
+        ? "active"
+        : row.phase;
+  return [
+    row.displayId,
+    row.buildName,
+    row.builderName,
+    row.location,
+    row.activeMilestoneName,
+    row.buildStatusLabel,
+    phaseLabel,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
 function productionSiteVisitTokenState(
   visit: Pick<
     Doc<"buildSiteVisits">,
@@ -32950,17 +33896,24 @@ async function getActiveBuildSiteVisitPermit(
 async function withBuildDocumentStorageUrls(
   ctx: QueryCtx,
   documents: Doc<"buildDocuments">[],
+  urlCap: number = ACTIVE_BUILD_DOCUMENT_URL_CAP,
 ) {
+  const resolveStorageUrl = createStorageUrlResolver(ctx, urlCap);
+  // Prefer permit docs for URL resolution so first-paint permit viewers keep working
+  // when the storage URL cap is hit.
   return await Promise.all(
     documents
-      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice()
+      .sort((a, b) => {
+        const aPermit = a.documentType === "permit" ? 0 : 1;
+        const bPermit = b.documentType === "permit" ? 0 : 1;
+        return aPermit - bPermit || a.createdAt - b.createdAt;
+      })
       .map(async (document) => ({
         ...document,
         name: document.fileName,
         kind: document.documentType,
-        storageUrl: document.storageId
-          ? await ctx.storage.getUrl(document.storageId)
-          : null,
+        storageUrl: await resolveStorageUrl(document.storageId),
       })),
   );
 }
@@ -32968,9 +33921,12 @@ async function withBuildDocumentStorageUrls(
 async function withBuildEvidenceAssetStorageUrls(
   ctx: QueryCtx,
   evidenceAssets: Doc<"buildEvidenceAssets">[],
+  urlCap: number = ACTIVE_BUILD_EVIDENCE_URL_CAP,
 ) {
+  const resolveStorageUrl = createStorageUrlResolver(ctx, urlCap);
   return await Promise.all(
     evidenceAssets
+      .slice()
       .sort((a, b) => a.createdAt - b.createdAt)
       .map(async (asset) => ({
         _id: String(asset._id),
@@ -32982,9 +33938,7 @@ async function withBuildEvidenceAssetStorageUrls(
         locationVerified: asset.locationVerified,
         milestoneKey: asset.milestoneKey,
         mimeType: asset.mimeType,
-        previewUrl: asset.storageId
-          ? await ctx.storage.getUrl(asset.storageId)
-          : null,
+        previewUrl: await resolveStorageUrl(asset.storageId),
         sizeBytes: asset.sizeBytes,
         source: asset.source,
         submilestoneKey: asset.submilestoneKey,
@@ -32992,6 +33946,36 @@ async function withBuildEvidenceAssetStorageUrls(
         updatedAt: asset.updatedAt,
       })),
   );
+}
+
+/**
+ * Cap + dedupe `storage.getUrl` work within a single query invocation.
+ * Assets beyond `cap` still return metadata with `null` URLs so counts stay intact.
+ */
+function createStorageUrlResolver(ctx: QueryCtx, cap: number) {
+  const cache = new Map<string, Promise<string | null>>();
+  let resolvedCount = 0;
+  return async (
+    storageId: Id<"_storage"> | null | undefined,
+  ): Promise<string | null> => {
+    if (!storageId) {
+      return null;
+    }
+    const key = String(storageId);
+    const cached = cache.get(key);
+    if (cached) {
+      return cached;
+    }
+    if (resolvedCount >= cap) {
+      const skipped = Promise.resolve(null);
+      cache.set(key, skipped);
+      return skipped;
+    }
+    resolvedCount += 1;
+    const pending = ctx.storage.getUrl(storageId);
+    cache.set(key, pending);
+    return pending;
+  };
 }
 
 async function productionSitePhotosForBuild(
@@ -33005,7 +33989,8 @@ async function productionSitePhotosForBuild(
         asset.mimeType.startsWith("image/") ||
         asset.tag.toLowerCase().includes("photo"),
     )
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(0, ACTIVE_BUILD_SITE_PHOTOS_LIMIT);
   if (imageAssets.length === 0) {
     return [
       {
@@ -33574,28 +34559,31 @@ async function visibleBackofficeDashboardProposalRows(
         .then((cards) => cards.reverse()),
     ),
   );
-  const rows = await Promise.all(
-    cardsByColumn.flat().map(async (card) => {
-      const proposal = await ctx.db.get(card.proposalId);
-      if (
-        !(
-          proposal &&
-          (canReadBackofficeProposal(auth, proposal) || staffCanRead)
-        )
-      ) {
-        return null;
-      }
-      return { card, proposal };
-    }),
+  const cards = cardsByColumn.flat();
+  // Batch proposal loads once (deduped) instead of N+1 per kanban card.
+  const uniqueProposalIds = [
+    ...new Set(cards.map((card) => card.proposalId)),
+  ];
+  const proposalDocs = await Promise.all(
+    uniqueProposalIds.map((proposalId) => ctx.db.get(proposalId)),
   );
-  return rows.filter(
-    (
-      row,
-    ): row is {
-      card: Doc<"proposalKanbanCards">;
-      proposal: Doc<"buildProposals">;
-    } => row !== null,
+  const proposalById = new Map(
+    proposalDocs.flatMap((proposal) =>
+      proposal ? [[proposal._id, proposal] as const] : [],
+    ),
   );
+  return cards.flatMap((card) => {
+    const proposal = proposalById.get(card.proposalId);
+    if (
+      !(
+        proposal &&
+        (canReadBackofficeProposal(auth, proposal) || staffCanRead)
+      )
+    ) {
+      return [];
+    }
+    return [{ card, proposal }];
+  });
 }
 
 async function buildProductionSettingsProjection(

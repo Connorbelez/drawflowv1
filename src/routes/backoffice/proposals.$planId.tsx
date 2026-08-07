@@ -1134,15 +1134,11 @@ function ProductionProposalNotFound({ planId }: { planId: string }) {
             Proposal not found
           </h1>
           <p className="mt-2 text-muted-foreground text-sm">
-            No production proposal exists for {planId}. Demo proposal review is
-            isolated under the demo timeline routes.
+            No production proposal exists for {planId}.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Button render={<a href="/backoffice/proposals" />}>
               Back to proposals
-            </Button>
-            <Button render={<a href="/demo/timeline" />} variant="outline">
-              Open demo timeline
             </Button>
           </div>
         </FramePanel>

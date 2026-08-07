@@ -36,11 +36,13 @@ export function BuildDetailTabBar({
   activeTab,
   labels,
   onChangeTab,
+  onPreloadTab,
   tabs = BUILD_DETAIL_TABS.map((tab) => tab.value),
 }: {
   activeTab: BuildDetailSubTab;
   labels?: Partial<Record<BuildDetailSubTab, string>>;
   onChangeTab: (tab: BuildDetailSubTab) => void;
+  onPreloadTab?: (tab: BuildDetailSubTab) => void;
   tabs?: BuildDetailSubTab[];
 }) {
   const visibleTabs = BUILD_DETAIL_TABS.filter((tab) =>
@@ -67,6 +69,11 @@ export function BuildDetailTabBar({
           onChange={(event) =>
             onChangeTab(event.target.value as BuildDetailSubTab)
           }
+          onFocus={() => {
+            for (const tab of visibleTabs) {
+              onPreloadTab?.(tab.value);
+            }
+          }}
           value={activeTab}
         >
           {visibleTabs.map((tab) => (
@@ -97,6 +104,8 @@ export function BuildDetailTabBar({
             data-testid={`build-detail-tab-${tab.value}`}
             key={tab.value}
             onClick={() => onChangeTab(tab.value)}
+            onFocus={() => onPreloadTab?.(tab.value)}
+            onMouseEnter={() => onPreloadTab?.(tab.value)}
             role="tab"
             type="button"
           >

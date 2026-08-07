@@ -35,7 +35,7 @@ import {
 import {
   isProductionVisualParityFixtureEnabled,
   VISUAL_PARITY_ORGANIZATION_ID,
-} from "#/features/production-proposals/visualParityFixtures.ts";
+} from "#/features/production-proposals/visualParityConstants.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../convex/_generated/api";
 

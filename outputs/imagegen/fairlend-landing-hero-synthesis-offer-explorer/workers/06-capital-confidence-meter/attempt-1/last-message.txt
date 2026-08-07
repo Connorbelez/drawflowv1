@@ -1,3 +1,0 @@
-Native image generation ran, but no local PNG artifact was exposed for saving. I wrote the required failed worker JSON at:
-
-[outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/06-capital-confidence-meter/attempt-1/result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/06-capital-confidence-meter/attempt-1/result.json)
