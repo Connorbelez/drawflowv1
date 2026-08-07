@@ -119,7 +119,7 @@ import {
   BuildDetailTabFallback,
   LazyActiveBuildGanttWorkspace,
   LazyActiveBuildTimelineWorkspace,
-  LazyBuildCollaborationWorkspace,
+  DeferredBuildCollaborationWorkspace,
   LazyCalendarWorkspace,
   LazyMaterialPlanningTab,
   preloadBuildDetailTab,
@@ -1789,8 +1789,9 @@ function ProductionDetailsTab({
         <Suspense
           fallback={<BuildDetailTabFallback label="collaboration" />}
         >
-        <LazyBuildCollaborationWorkspace
+        <DeferredBuildCollaborationWorkspace
           buildId={detail.build._id}
+          eager={Boolean(focusedReference)}
           focusedReference={focusedReference}
           onOpenReference={(reference) => {
             const nextFocus = `${reference.entityKind}:${reference.entityId}`;

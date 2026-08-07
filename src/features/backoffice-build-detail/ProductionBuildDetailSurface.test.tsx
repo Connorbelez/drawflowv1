@@ -572,7 +572,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.queryByRole("region", { name: "Details workspace" })).toBeNull();
   });
 
-  test("renders first-class milestone, contractor, and materials tabs for live builds", () => {
+  test("renders first-class milestone, contractor, and materials tabs for live builds", async () => {
     const { rerender } = render(
       <ProductionBuildDetailSurface
         activeTab="milestones"
@@ -633,7 +633,9 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    expect(screen.getByTestId("material-planning-tab")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId("material-planning-tab")).toBeTruthy(),
+    );
     expect(screen.getByText("Foundation material package")).toBeTruthy();
     expect(screen.getByText("Apex Supply")).toBeTruthy();
   });
@@ -788,7 +790,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
   });
 
-  test("renders the current overview as the default build details card tab", () => {
+  test("renders the current overview as the default build details card tab", async () => {
     render(
       <ProductionBuildDetailSurface
         activeTab="details"
@@ -824,7 +826,9 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.queryByTestId("build-detail-documents")).toBeNull();
     expect(screen.queryByTestId("internal-notes")).toBeNull();
     expect(screen.queryByTestId("public-notes")).toBeNull();
-    expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy(),
+    );
     expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
@@ -850,7 +854,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("-79.383184")).toBeTruthy();
   });
 
-  test("keeps the Build Overview operational when collaboration cannot load", () => {
+  test("keeps the Build Overview operational when collaboration cannot load", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -870,12 +874,16 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
-    expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
-    expect(screen.getByText("Collaboration is temporarily unavailable")).toBeTruthy();
-    expect(consoleError).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
+      expect(
+        screen.getByText("Collaboration is temporarily unavailable"),
+      ).toBeTruthy();
+      expect(consoleError).toHaveBeenCalled();
+    });
   });
 
-  test("keeps Build Overview operational while tenant collaboration is disabled", () => {
+  test("keeps Build Overview operational while tenant collaboration is disabled", async () => {
     convexMocks.collaborationRolloutState = {
       available: false,
       status: "disabled",
@@ -893,11 +901,13 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
-    expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy();
-    expect(screen.getByText("Collaboration is unavailable")).toBeTruthy();
-    expect(
-      screen.getByText(/has not been activated for this lender organization/i),
-    ).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy();
+      expect(screen.getByText("Collaboration is unavailable")).toBeTruthy();
+      expect(
+        screen.getByText(/has not been activated for this lender organization/i),
+      ).toBeTruthy();
+    });
   });
 
   test("delineates behind, current, and next milestones with schedule ownership and budget facts", () => {

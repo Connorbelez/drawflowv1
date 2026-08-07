@@ -228,6 +228,7 @@ const BACKOFFICE_DASHBOARD_STORAGE_URL_CAP = 50;
 const ACTIVE_BUILD_AUDIT_EVENTS_LIMIT = 100;
 const ACTIVE_BUILD_DOCUMENT_URL_CAP = 40;
 const ACTIVE_BUILD_EVIDENCE_URL_CAP = 60;
+const ACTIVE_BUILD_SITE_PHOTOS_LIMIT = 24;
 const ACTIVE_BUILD_AVAILABLE_CONTRACTORS_LIMIT = 100;
 const TIMELINE_AUDIT_EVENTS_LIMIT = 50;
 const TIMELINE_EVIDENCE_URL_CAP = 40;
@@ -33988,7 +33989,8 @@ async function productionSitePhotosForBuild(
         asset.mimeType.startsWith("image/") ||
         asset.tag.toLowerCase().includes("photo"),
     )
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(0, ACTIVE_BUILD_SITE_PHOTOS_LIMIT);
   if (imageAssets.length === 0) {
     return [
       {
