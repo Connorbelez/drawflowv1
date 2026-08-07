@@ -6,8 +6,27 @@ export type BackofficeBuildRosterResult = FunctionReturnType<
   typeof api.production_proposals.listBackofficeBuildRoster
 >;
 
-export type BuildRosterRow = BackofficeBuildRosterResult["builds"][number];
+export type BackofficeBuildRosterPage = FunctionReturnType<
+  typeof api.production_proposals.listBackofficeBuildRosterPage
+>;
+
+export type BackofficeBuildRosterSummary = FunctionReturnType<
+  typeof api.production_proposals.getBackofficeBuildRosterSummary
+>;
+
+export type BuildRosterRow = BackofficeBuildRosterPage["page"][number];
 export type BuildRosterPhase = BuildRosterRow["phase"];
+export type BackofficeBuildRosterSort =
+  | "build"
+  | "budget"
+  | "location"
+  | "timeline"
+  | "updatedAt";
+
+export interface BackofficeBuildRosterSortState {
+  desc: boolean;
+  id: BackofficeBuildRosterSort;
+}
 
 export interface BuildPhaseMeta {
   hint: string;

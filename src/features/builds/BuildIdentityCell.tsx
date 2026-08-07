@@ -50,11 +50,14 @@ export function BuildIdentityCell({
           <Building2 className="size-4 text-muted-foreground" />
         </span>
         {previewUrl ? (
-          <div
-            aria-label={`${buildName} site preview`}
-            className="relative size-full bg-center bg-cover"
-            role="img"
-            style={{ backgroundImage: `url(${JSON.stringify(previewUrl)})` }}
+          <img
+            alt={`${buildName} site preview`}
+            className="relative size-full object-cover"
+            decoding="async"
+            height={44}
+            loading="lazy"
+            src={previewUrl}
+            width={56}
           />
         ) : null}
       </div>

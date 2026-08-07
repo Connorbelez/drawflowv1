@@ -140,6 +140,7 @@ Set Convex environment variables in `.env.local`:
 ```bash
 VITE_CONVEX_URL=...
 CONVEX_DEPLOYMENT=...
+CONVEX_DEPLOY_KEY=...
 ```
 
 Start Convex dev server when backend work requires it:
@@ -157,8 +158,9 @@ bun run verify:convex-deployment
 ```
 
 Vercel production builds run the same deployment-parity probe before compiling
-the frontend. A release fails instead of shipping a client bundle that calls
-missing Build Collaboration queries.
+the frontend. The probe uses `CONVEX_DEPLOY_KEY` to inspect deployed function
+metadata without invoking application queries. A release fails instead of
+shipping a client bundle that calls missing Build Collaboration queries.
 
 Before changing Convex code, read `convex/_generated/ai/guidelines.md`. This repo requires `fluent-convex` for application functions.
 
