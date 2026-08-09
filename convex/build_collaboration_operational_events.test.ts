@@ -528,6 +528,104 @@ async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
   );
 }
 
+async function createCompanionCutoverMilestone(
+  fixture: Awaited<ReturnType<typeof seedOperationalBuild>>,
+  milestoneKey = "companion-cutover",
+) {
+  await fixture.admin.mutation(
+    (api as any).production_proposals.createActiveBuildTimelineMilestone,
+    {
+      buildId: fixture.buildId,
+      milestone: {
+        budgetCents: 9_000_000,
+        dayEnd: 30,
+        dayStart: 21,
+        dependencyKeys: [],
+        durationDays: 9,
+        evidenceState: "",
+        milestoneKey,
+        name: "Companion cutover",
+        order: 2,
+        policyState: "",
+        status: "planned",
+        submilestones: [
+          {
+            budgetCents: 9_000_000,
+            durationDays: 9,
+            key: `${milestoneKey}-child`,
+            name: "Cutover child",
+            order: 1,
+            startDay: 0,
+          },
+        ],
+        x: 21,
+      },
+      workosOrganizationId: ORGANIZATION_ID,
+    },
+  );
+  return await fixture.base.run(async (ctx) => {
+    const milestone = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build_key", (query) =>
+        query.eq("buildId", fixture.buildId).eq("key", milestoneKey),
+      )
+      .unique();
+    if (!milestone) throw new Error("Cutover Milestone fixture is missing.");
+    const submilestone = await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (query) =>
+        query.eq("buildMilestoneId", milestone._id),
+      )
+      .unique();
+    if (!submilestone)
+      throw new Error("Cutover Sub-milestone fixture is missing.");
+    const companion = await ctx.db
+      .query("buildActionItems")
+      .withIndex("by_canonicalBuildSubmilestoneId_and_systemMode", (query) =>
+        query
+          .eq("canonicalBuildSubmilestoneId", submilestone._id)
+          .eq("systemMode", "generated_milestone_submilestone"),
+      )
+      .unique();
+    if (!companion) throw new Error("Cutover companion fixture is missing.");
+    return { companion, milestone, submilestone };
+  });
+}
+
+async function runCompanionCutover(
+  fixture: Awaited<ReturnType<typeof seedOperationalBuild>>,
+  planToken: string,
+) {
+  let run = await fixture.admin.mutation(
+    (api as any).build_submilestone_companion_cutover
+      .startBuildSubmilestoneCompanionCutover,
+    {
+      batchSize: 1,
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      planToken,
+    },
+  );
+  for (
+    let guard = 0;
+    run.status !== "complete" && run.status !== "blocked";
+    guard += 1
+  ) {
+    expect(guard).toBeLessThan(30);
+    run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .advanceBuildSubmilestoneCompanionCutover,
+      {
+        buildId: fixture.buildId,
+        maxItems: 1,
+        organizationId: ORGANIZATION_ID,
+        runId: run.runId,
+      },
+    );
+  }
+  return run;
+}
+
 describe("Build Collaboration operational events", () => {
   test("backfill preview is read-only and validate mode never materializes posts", async () => {
     const fixture = await seedOperationalBuild();
@@ -1253,6 +1351,28 @@ describe("Build Collaboration operational events", () => {
       systemMode: "generated_milestone_submilestone",
     });
     expect(await feedKinds(fixture.builder, fixture.buildId)).toEqual([]);
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationPostContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: latentPost!._id,
+        },
+      ),
+    ).resolves.toEqual({ state: "revoked" });
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_resolution
+          .getBuildCollaborationThreadContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: latentPost!._id,
+        },
+      ),
+    ).rejects.toThrow(/Forbidden: collaboration post/);
 
     const afterCreateSideEffects = await silentBackfillSideEffectSnapshot(
       fixture.base,
@@ -1329,6 +1449,28 @@ describe("Build Collaboration operational events", () => {
       afterStart.actionItems.find((item) => item._id === companion?._id),
     ).toBeDefined();
     expect(await feedKinds(fixture.builder, fixture.buildId)).toEqual(["post"]);
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationPostContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: latentPost!._id,
+        },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ state: "visible" }));
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_resolution
+          .getBuildCollaborationThreadContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: latentPost!._id,
+        },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ threadState: "open" }));
 
     await fixture.builder.mutation(
       (api as any).production_proposals.startActiveBuildMilestone,
@@ -1486,6 +1628,522 @@ describe("Build Collaboration operational events", () => {
         },
       ),
     ).rejects.toThrow(/duplicate collaboration companions/i);
+  });
+
+  test("previews, repairs, certifies, and replays duplicate companions without losing the only human history", async () => {
+    const fixture = await seedOperationalBuild();
+    const source = await createCompanionCutoverMilestone(fixture);
+    const duplicateId = await fixture.base.run(async (ctx) => {
+      const {
+        _creationTime: _ignoredCreationTime,
+        _id: _ignoredId,
+        ...duplicate
+      } = source.companion;
+      const duplicateId = await ctx.db.insert("buildActionItems", {
+        ...duplicate,
+        createdAt: duplicate.createdAt + 1,
+        updatedAt: duplicate.updatedAt + 1,
+      });
+      await ctx.db.insert("buildActionItemComments", {
+        actionItemId: duplicateId,
+        authorDisplayNameSnapshot: "Admin",
+        authorRole: "admin",
+        authorWorkosUserId: "user_admin",
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: Date.now(),
+        organizationId: ORGANIZATION_ID,
+        plainText: "Preserve this cutover discussion.",
+        tiptapJson: JSON.stringify({ type: "doc", content: [] }),
+      });
+      return duplicateId;
+    });
+
+    const firstPreview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    const secondPreview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(secondPreview).toEqual(firstPreview);
+    expect(firstPreview.counts).toMatchObject({ duplicate: 1 });
+    expect(firstPreview.records[0]?.reportId).toMatch(/^[a-f0-9]{64}$/);
+
+    const run = await runCompanionCutover(fixture, firstPreview.planToken);
+    expect(run).toMatchObject({
+      exceptionCount: 0,
+      parityMismatchCount: 0,
+      repairedCount: 1,
+      status: "complete",
+    });
+    expect(run.reportHash).toMatch(/^[a-f0-9]{64}$/);
+    const certificationState = await fixture.admin.query(
+      (api as any).build_collaboration_cutover_certification
+        .getBuildCollaborationCutoverCertificationState,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(certificationState.companionCutover).toMatchObject({
+      parityMismatchCount: 0,
+      planToken: firstPreview.planToken,
+      reportHash: run.reportHash,
+      runId: run.runId,
+      status: "complete",
+    });
+
+    const repaired = await fixture.base.run(async (ctx) => ({
+      comments: await ctx.db
+        .query("buildActionItemComments")
+        .withIndex("by_actionItemId_and_createdAt", (query) =>
+          query.eq("actionItemId", duplicateId),
+        )
+        .collect(),
+      companions: await ctx.db
+        .query("buildActionItems")
+        .withIndex("by_canonicalBuildSubmilestoneId_and_systemMode", (query) =>
+          query
+            .eq("canonicalBuildSubmilestoneId", source.submilestone._id)
+            .eq("systemMode", "generated_milestone_submilestone"),
+        )
+        .collect(),
+      loser: await ctx.db.get(source.companion._id),
+    }));
+    expect(repaired.comments).toHaveLength(1);
+    expect(repaired.companions).toEqual([
+      expect.objectContaining({
+        _id: duplicateId,
+        canonicalCompanionDisposition: "active",
+      }),
+    ]);
+    expect(repaired.loser).toMatchObject({
+      canonicalCompanionDisposition: "historical_duplicate",
+      canonicalCompanionSurvivorId: duplicateId,
+      historicalCanonicalBuildSubmilestoneId: source.submilestone._id,
+    });
+    expect(repaired.loser).not.toHaveProperty("canonicalBuildSubmilestoneId");
+    const historicalDetail = await fixture.admin.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId: source.companion._id,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(historicalDetail.item).toMatchObject({
+      canonicalCompanionDisposition: "historical_duplicate",
+      canonicalCompanionSurvivorId: duplicateId,
+      historicalCanonicalBuildSubmilestoneId: source.submilestone._id,
+    });
+
+    const replay = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .startBuildSubmilestoneCompanionCutover,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        planToken: firstPreview.planToken,
+      },
+    );
+    expect(replay).toEqual(run);
+  });
+
+  test("materializes a missing companion and reports manual Action Items separately", async () => {
+    const fixture = await seedOperationalBuild();
+    const source = await createCompanionCutoverMilestone(
+      fixture,
+      "missing-cutover",
+    );
+    await fixture.base.run(async (ctx) => {
+      const links = await ctx.db
+        .query("buildActionItemPostLinks")
+        .withIndex("by_actionItemId_and_postId", (query) =>
+          query.eq("actionItemId", source.companion._id),
+        )
+        .collect();
+      const references = await ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+          query
+            .eq("ownerKind", "actionItem")
+            .eq("ownerRecordId", String(source.companion._id)),
+        )
+        .collect();
+      for (const link of links) await ctx.db.delete(link._id);
+      for (const reference of references) await ctx.db.delete(reference._id);
+      await ctx.db.delete(source.companion._id);
+      await ctx.db.insert("buildActionItems", {
+        assignmentState: "unassigned",
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: Date.now(),
+        creatorRole: "admin",
+        creatorWorkosUserId: "user_admin",
+        currentRevision: 1,
+        descriptionPlainText: "Manual coordination item",
+        descriptionTiptapJson: JSON.stringify({ type: "doc", content: [] }),
+        originatingPostId: source.companion.originatingPostId,
+        organizationId: ORGANIZATION_ID,
+        priority: "none",
+        requiresAcceptance: false,
+        status: "todo",
+        title: "Manual coordination item",
+        updatedAt: Date.now(),
+      });
+    });
+    const preview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(preview.counts.missing).toBe(1);
+    expect(preview.manualActionItemCount).toBe(1);
+
+    const run = await runCompanionCutover(fixture, preview.planToken);
+    expect(run).toMatchObject({
+      manualActionItemCount: 1,
+      materializedCount: 1,
+      parityMismatchCount: 0,
+      status: "complete",
+    });
+    const dimensions = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .getBuildActionItemMetricDimensions,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(dimensions).toEqual({
+      activeSubmilestoneCompanionCount: 1,
+      historicalSubmilestoneCompanionCount: 0,
+      manualActionItemCount: 1,
+    });
+  });
+
+  test("seeds cutover reports in bounded advances and rejects a concurrent Build run", async () => {
+    const fixture = await seedOperationalBuild();
+    await createCompanionCutoverMilestone(fixture, "bounded-seeding-cutover");
+    const preview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    let run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .startBuildSubmilestoneCompanionCutover,
+      {
+        batchSize: 1,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      }
+    );
+    expect(run).toMatchObject({ nextSeedOrdinal: 0, status: "seeding_reports" });
+    await expect(
+      fixture.admin.query(
+        (api as any).build_submilestone_companion_cutover
+          .getBuildSubmilestoneCompanionCutoverReports,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          runId: run.runId,
+        }
+      )
+    ).resolves.toMatchObject({ reports: [] });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_submilestone_companion_cutover
+          .startBuildSubmilestoneCompanionCutover,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          planToken: "build-submilestone-companion-cutover/v1:other-plan",
+        }
+      )
+    ).rejects.toThrow(/already in progress for this Build/i);
+
+    run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .advanceBuildSubmilestoneCompanionCutover,
+      {
+        buildId: fixture.buildId,
+        maxItems: 1,
+        organizationId: ORGANIZATION_ID,
+        runId: run.runId,
+      }
+    );
+    expect(run).toMatchObject({ nextSeedOrdinal: 1, status: "repairing" });
+    await expect(
+      fixture.admin.query(
+        (api as any).build_submilestone_companion_cutover
+          .getBuildSubmilestoneCompanionCutoverReports,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          runId: run.runId,
+        }
+      )
+    ).resolves.toMatchObject({ reports: [expect.objectContaining({ ordinal: 0 })] });
+  });
+
+  test("blocks when a captured Milestone changes between repair and materialization", async () => {
+    const fixture = await seedOperationalBuild();
+    const source = await createCompanionCutoverMilestone(
+      fixture,
+      "stable-cursor-cutover"
+    );
+    const preview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    let run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .startBuildSubmilestoneCompanionCutover,
+      {
+        batchSize: 1,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      }
+    );
+    for (
+      let guard = 0;
+      run.status === "seeding_reports" || run.status === "repairing";
+      guard += 1
+    ) {
+      expect(guard).toBeLessThan(3);
+      run = await fixture.admin.mutation(
+        (api as any).build_submilestone_companion_cutover
+          .advanceBuildSubmilestoneCompanionCutover,
+        {
+          buildId: fixture.buildId,
+          maxItems: 1,
+          organizationId: ORGANIZATION_ID,
+          runId: run.runId,
+        }
+      );
+    }
+    expect(run.status).toBe("materializing");
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(source.milestone._id, {
+        planningState: "superseded",
+        updatedAt: Date.now(),
+      });
+    });
+    for (let guard = 0; run.status === "materializing"; guard += 1) {
+      expect(guard).toBeLessThan(3);
+      run = await fixture.admin.mutation(
+        (api as any).build_submilestone_companion_cutover
+          .advanceBuildSubmilestoneCompanionCutover,
+        {
+          buildId: fixture.buildId,
+          maxItems: 1,
+          organizationId: ORGANIZATION_ID,
+          runId: run.runId,
+        }
+      );
+    }
+    expect(run).toMatchObject({ status: "blocked" });
+    expect(run.lastError).toMatch(/changed after the run started/i);
+  });
+
+  test("persists the final parity mismatch before blocking certification", async () => {
+    const fixture = await seedOperationalBuild();
+    const source = await createCompanionCutoverMilestone(
+      fixture,
+      "parity-mismatch-cutover"
+    );
+    const preview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    let run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .startBuildSubmilestoneCompanionCutover,
+      {
+        batchSize: 25,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      }
+    );
+    for (
+      let guard = 0;
+      run.status === "seeding_reports" ||
+      run.status === "repairing" ||
+      run.status === "materializing";
+      guard += 1
+    ) {
+      expect(guard).toBeLessThan(10);
+      run = await fixture.admin.mutation(
+        (api as any).build_submilestone_companion_cutover
+          .advanceBuildSubmilestoneCompanionCutover,
+        {
+          buildId: fixture.buildId,
+          maxItems: 25,
+          organizationId: ORGANIZATION_ID,
+          runId: run.runId,
+        }
+      );
+    }
+    expect(run.status).toBe("checking_parity");
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(source.companion._id, {
+        canonicalCompanionDisposition: "quarantined",
+        canonicalPlanningState: "superseded",
+        updatedAt: Date.now(),
+      });
+    });
+    run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .advanceBuildSubmilestoneCompanionCutover,
+      {
+        buildId: fixture.buildId,
+        maxItems: 25,
+        organizationId: ORGANIZATION_ID,
+        runId: run.runId,
+      }
+    );
+    expect(run).toMatchObject({
+      lastParityRecordKey: expect.any(String),
+      parityCheckedCount: 1,
+      parityMismatchCount: 1,
+      status: "blocked",
+    });
+  });
+
+  test("keyset parity blocks when an already checked canonical record disappears", async () => {
+    const fixture = await seedOperationalBuild();
+    await createCompanionCutoverMilestone(fixture, "parity-keyset-a");
+    await createCompanionCutoverMilestone(fixture, "parity-keyset-b");
+    const preview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    let run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .startBuildSubmilestoneCompanionCutover,
+      {
+        batchSize: 25,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      }
+    );
+    for (let guard = 0; run.status !== "checking_parity"; guard += 1) {
+      expect(guard).toBeLessThan(10);
+      run = await fixture.admin.mutation(
+        (api as any).build_submilestone_companion_cutover
+          .advanceBuildSubmilestoneCompanionCutover,
+        {
+          buildId: fixture.buildId,
+          maxItems: 25,
+          organizationId: ORGANIZATION_ID,
+          runId: run.runId,
+        }
+      );
+    }
+    run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .advanceBuildSubmilestoneCompanionCutover,
+      {
+        buildId: fixture.buildId,
+        maxItems: 1,
+        organizationId: ORGANIZATION_ID,
+        runId: run.runId,
+      }
+    );
+    expect(run).toMatchObject({
+      lastParityRecordKey: expect.stringMatching(/^submilestone:/),
+      parityCheckedCount: 1,
+      status: "checking_parity",
+    });
+    await fixture.base.run(async (ctx) => {
+      const rawId = run.lastParityRecordKey.replace("submilestone:", "");
+      const submilestoneId = ctx.db.normalizeId("buildSubmilestones", rawId);
+      if (!submilestoneId) {
+        throw new Error("Expected a canonical keyset cursor Sub-milestone ID.");
+      }
+      await ctx.db.delete(submilestoneId);
+    });
+    run = await fixture.admin.mutation(
+      (api as any).build_submilestone_companion_cutover
+        .advanceBuildSubmilestoneCompanionCutover,
+      {
+        buildId: fixture.buildId,
+        maxItems: 1,
+        organizationId: ORGANIZATION_ID,
+        runId: run.runId,
+      }
+    );
+    expect(run).toMatchObject({
+      parityCheckedCount: 2,
+      parityMismatchCount: 1,
+      status: "blocked",
+    });
+    expect(run.lastError).toMatch(/parity found 1 unresolved binding mismatch/i);
+  });
+
+  test("blocks duplicate repair when more than one candidate owns human history", async () => {
+    const fixture = await seedOperationalBuild();
+    const source = await createCompanionCutoverMilestone(
+      fixture,
+      "conflict-cutover",
+    );
+    await fixture.base.run(async (ctx) => {
+      const {
+        _creationTime: _ignoredCreationTime,
+        _id: _ignoredId,
+        ...duplicate
+      } = source.companion;
+      const duplicateId = await ctx.db.insert("buildActionItems", duplicate);
+      for (const [actionItemId, plainText] of [
+        [source.companion._id, "First history"],
+        [duplicateId, "Second history"],
+      ] as const) {
+        await ctx.db.insert("buildActionItemComments", {
+          actionItemId,
+          authorDisplayNameSnapshot: "Admin",
+          authorRole: "admin",
+          authorWorkosUserId: "user_admin",
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: Date.now(),
+          organizationId: ORGANIZATION_ID,
+          plainText,
+          tiptapJson: JSON.stringify({ type: "doc", content: [] }),
+        });
+      }
+    });
+    const preview = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .previewBuildSubmilestoneCompanionCutover,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    const run = await runCompanionCutover(fixture, preview.planToken);
+    expect(run).toMatchObject({
+      exceptionCount: 1,
+      status: "blocked",
+    });
+    expect(run.lastError).toMatch(/conflicting_history/);
+    const reports = await fixture.admin.query(
+      (api as any).build_submilestone_companion_cutover
+        .getBuildSubmilestoneCompanionCutoverReports,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        runId: run.runId,
+      },
+    );
+    expect(reports.reports).toEqual([
+      expect.objectContaining({
+        exceptionReason: "conflicting_history",
+        outcome: "exception",
+      }),
+    ]);
   });
 
   test("rejects zero-child active Milestone writes and renders legacy recovery without fabricating cards", async () => {

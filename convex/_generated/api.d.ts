@@ -120,6 +120,7 @@ import type * as build_participant_activation from "../build_participant_activat
 import type * as build_participant_revocation from "../build_participant_revocation.js";
 import type * as build_participant_revocation_notifications from "../build_participant_revocation_notifications.js";
 import type * as build_participants from "../build_participants.js";
+import type * as build_submilestone_companion_cutover from "../build_submilestone_companion_cutover.js";
 import type * as build_submilestone_evidence from "../build_submilestone_evidence.js";
 import type * as build_submilestone_operate_authority from "../build_submilestone_operate_authority.js";
 import type * as build_submilestone_review from "../build_submilestone_review.js";
@@ -293,6 +294,7 @@ declare const fullApi: ApiFromModules<{
   build_participant_revocation: typeof build_participant_revocation;
   build_participant_revocation_notifications: typeof build_participant_revocation_notifications;
   build_participants: typeof build_participants;
+  build_submilestone_companion_cutover: typeof build_submilestone_companion_cutover;
   build_submilestone_evidence: typeof build_submilestone_evidence;
   build_submilestone_operate_authority: typeof build_submilestone_operate_authority;
   build_submilestone_review: typeof build_submilestone_review;

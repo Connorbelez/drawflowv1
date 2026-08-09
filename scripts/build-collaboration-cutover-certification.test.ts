@@ -53,7 +53,11 @@ const snapshot = () => ({
   status: "complete",
 });
 
-function artifact(directory: string, name: string, contents: Record<string, unknown>) {
+function artifact(
+  directory: string,
+  name: string,
+  contents: Record<string, unknown>,
+) {
   const path = join(directory, `${name}.json`);
   const source = JSON.stringify({ ...context, ...contents });
   writeFileSync(path, source);
@@ -63,6 +67,7 @@ function artifact(directory: string, name: string, contents: Record<string, unkn
 function liveState(): BuildCollaborationCutoverLiveState {
   return {
     artifactAttestations: [],
+    companionCutover: null,
     evidence: {
       buildReportCount: 2,
       cutoverEpoch: 4,
@@ -146,10 +151,7 @@ function liveState(): BuildCollaborationCutoverLiveState {
   };
 }
 
-function validManifest(
-  directory: string,
-  live = liveState()
-) {
+function validManifest(directory: string, live = liveState()) {
   const completedAt = "2026-08-01T12:00:00.000Z";
   const commands = Object.fromEntries(
     REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS.map((commandName) => [
@@ -157,15 +159,40 @@ function validManifest(
       artifact(
         directory,
         `command-${commandName}`,
-        commandEvidence(commandName, completedAt, directory)
+        commandEvidence(commandName, completedAt, directory),
       ),
-    ])
+    ]),
   );
   const migration = {
-    applicationArtifact: artifact(directory, "migration-application", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "application", status: "passed" }),
-    parityArtifact: artifact(directory, "migration-parity", { ...live.evidence, completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "parity", status: "passed" }),
-    previewArtifact: artifact(directory, "migration-preview", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "preview", status: "passed" }),
-    replayArtifact: artifact(directory, "migration-replay", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "replay", status: "passed" }),
+    applicationArtifact: artifact(directory, "migration-application", {
+      ...companionArtifactFields(live, "application"),
+      completedAt,
+      schemaVersion: "build-collaboration-migration-artifact/v1",
+      stage: "application",
+      status: "passed",
+    }),
+    parityArtifact: artifact(directory, "migration-parity", {
+      ...live.evidence,
+      ...companionArtifactFields(live, "parity"),
+      completedAt,
+      schemaVersion: "build-collaboration-migration-artifact/v1",
+      stage: "parity",
+      status: "passed",
+    }),
+    previewArtifact: artifact(directory, "migration-preview", {
+      ...companionArtifactFields(live, "preview"),
+      completedAt,
+      schemaVersion: "build-collaboration-migration-artifact/v1",
+      stage: "preview",
+      status: "passed",
+    }),
+    replayArtifact: artifact(directory, "migration-replay", {
+      ...companionArtifactFields(live, "replay"),
+      completedAt,
+      schemaVersion: "build-collaboration-migration-artifact/v1",
+      stage: "replay",
+      status: "passed",
+    }),
   };
   const manifest = {
     activation: artifact(directory, "activation", {
@@ -192,7 +219,12 @@ function validManifest(
       visualReviewSha256: commands.visualReview.sha256,
     }),
     migration,
-    monitoring: Object.fromEntries(REQUIRED_BUILD_COLLABORATION_MONITORS.map((name) => [name, `https://monitor.example.com/${name}`])),
+    monitoring: Object.fromEntries(
+      REQUIRED_BUILD_COLLABORATION_MONITORS.map((name) => [
+        name,
+        `https://monitor.example.com/${name}`,
+      ]),
+    ),
     organizationId: context.organizationId,
     release: {
       applicationUrl: context.applicationUrl,
@@ -231,7 +263,7 @@ function validManifest(
             stdoutSha256: stdout.sha256,
           }),
         ];
-      })
+      }),
     ),
   };
   live.artifactAttestations = [
@@ -245,9 +277,29 @@ function validManifest(
   return manifest;
 }
 
+function companionArtifactFields(
+  live: BuildCollaborationCutoverLiveState,
+  stage: "preview" | "application" | "replay" | "parity",
+) {
+  const cutover = live.companionCutover;
+  if (!cutover) return {};
+  return {
+    activeSubmilestoneCount: cutover.activeSubmilestoneCount,
+    companionParityPassed: stage === "parity" ? true : undefined,
+    companionPlanToken: cutover.planToken,
+    companionReportCount: cutover.reportCount,
+    companionReportHash: stage === "preview" ? undefined : cutover.reportHash,
+    companionReplayed: stage === "replay" ? true : undefined,
+    companionRunId: cutover.runId,
+    companionWriteCount: stage === "replay" ? 0 : undefined,
+    generatedCompanionCount: cutover.generatedCompanionCount,
+    manualActionItemCount: cutover.manualActionItemCount,
+  };
+}
+
 function attestation(
   kind: BuildCollaborationCutoverLiveState["artifactAttestations"][number]["kind"],
-  artifactSha256: string
+  artifactSha256: string,
 ) {
   return {
     artifactSha256,
@@ -263,7 +315,7 @@ function attestation(
 function commandEvidence(
   commandName: BuildCollaborationCutoverGate,
   completedAt: string,
-  directory: string
+  directory: string,
 ) {
   const common = {
     commandName,
@@ -279,10 +331,12 @@ function commandEvidence(
     writeFileSync(evidencePath, evidenceBytes);
     return {
       ...common,
-      evidence: [{
-        path: evidencePath,
-        sha256: createHash("sha256").update(evidenceBytes).digest("hex"),
-      }],
+      evidence: [
+        {
+          path: evidencePath,
+          sha256: createHash("sha256").update(evidenceBytes).digest("hex"),
+        },
+      ],
       mode: "human_review",
       producer: BUILD_COLLABORATION_MANUAL_REVIEW_RUNNER,
       reviewerWorkosUserId: "user_admin",
@@ -293,9 +347,7 @@ function commandEvidence(
   const stderr = outputEvidence(directory, `${commandName}-stderr`, "stderr");
   return {
     ...common,
-    ...(commandName === "playwrightRoleJourneys"
-      ? e2eEvidence(directory)
-      : {}),
+    ...(commandName === "playwrightRoleJourneys" ? e2eEvidence(directory) : {}),
     command: serializeCommand(argv ?? []),
     mode: "automated",
     producer: BUILD_COLLABORATION_CUTOVER_GATE_RUNNER,
@@ -351,7 +403,161 @@ describe("Build Collaboration cutover evidence certification", () => {
   test("accepts typed evidence cross-checked against authenticated production state", () => {
     const directory = mkdtempSync(join(tmpdir(), "drawflow-cutover-valid-"));
     const live = liveState();
-    expect(validateBuildCollaborationCutoverEvidence(validManifest(directory, live), directory, live)).toEqual([]);
+    expect(
+      validateBuildCollaborationCutoverEvidence(
+        validManifest(directory, live),
+        directory,
+        live,
+      ),
+    ).toEqual([]);
+  });
+
+  test("binds every migration stage to the completed Sub-milestone companion cutover", () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "drawflow-companion-cutover-"),
+    );
+    const live = liveState();
+    live.companionCutover = {
+      activeSubmilestoneCount: 12,
+      exceptionCount: 0,
+      generatedCompanionCount: 12,
+      manualActionItemCount: 7,
+      materializedCount: 2,
+      parityMismatchCount: 0,
+      planToken: "build-submilestone-companion-cutover/v1:token",
+      repairedCount: 1,
+      reportCount: 13,
+      reportHash: "b".repeat(64),
+      runId: "companion_cutover_123",
+      status: "complete",
+    };
+    const manifest = validManifest(directory, live);
+    expect(
+      validateBuildCollaborationCutoverEvidence(manifest, directory, live),
+    ).toEqual([]);
+    live.companionCutover.manualActionItemCount = 8;
+    expect(
+      validateBuildCollaborationCutoverEvidence(manifest, directory, live),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("certified companion dimensions"),
+      ]),
+    );
+  });
+
+  test("rejects companion application, replay, and parity without a report hash", () => {
+    const directory = mkdtempSync(join(tmpdir(), "drawflow-companion-hash-"));
+    const live = liveState();
+    live.companionCutover = {
+      activeSubmilestoneCount: 1,
+      exceptionCount: 0,
+      generatedCompanionCount: 1,
+      manualActionItemCount: 0,
+      materializedCount: 1,
+      parityMismatchCount: 0,
+      planToken: "build-submilestone-companion-cutover/v1:token",
+      repairedCount: 0,
+      reportCount: 1,
+      reportHash: undefined,
+      runId: "companion_cutover_missing_hash",
+      status: "complete",
+    };
+    const manifest = validManifest(directory, live);
+    const errors = validateBuildCollaborationCutoverEvidence(
+      manifest,
+      directory,
+      live
+    );
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("missing a valid report hash"),
+        expect.stringContaining("companionReportHash does not match"),
+      ])
+    );
+  });
+
+  test("rejects malformed or missing authenticated companion cutover state", () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "drawflow-companion-shape-"),
+    );
+    const live = liveState();
+    live.companionCutover = {
+      activeSubmilestoneCount: 1,
+      exceptionCount: 0,
+      generatedCompanionCount: 1,
+      manualActionItemCount: 0,
+      materializedCount: 1,
+      parityMismatchCount: 0,
+      planToken: "",
+      repairedCount: 0,
+      reportCount: -1,
+      reportHash: "b".repeat(64),
+      runId: "",
+      status: "complete",
+    };
+    const manifest = validManifest(directory, live);
+    expect(
+      validateBuildCollaborationCutoverEvidence(manifest, directory, live),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("non-empty run ID or plan token"),
+        expect.stringContaining("reportCount must be a non-negative integer"),
+      ]),
+    );
+
+    live.companionCutover = null;
+    expect(
+      validateBuildCollaborationCutoverEvidence(manifest, directory, live),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "claims a companion cutover, but authenticated companion cutover state is unavailable",
+        ),
+      ]),
+    );
+
+    const replayOnlyManifest = validManifest(directory, live) as any;
+    replayOnlyManifest.migration.replayArtifact = artifact(
+      directory,
+      "migration-replay-only-claim",
+      {
+        companionReplayed: true,
+        companionWriteCount: 0,
+        completedAt: "2026-08-01T12:00:00.000Z",
+        schemaVersion: "build-collaboration-migration-artifact/v1",
+        stage: "replay",
+        status: "passed",
+      },
+    );
+    expect(
+      validateBuildCollaborationCutoverEvidence(
+        replayOnlyManifest,
+        directory,
+        live,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "claims a companion cutover, but authenticated companion cutover state is unavailable",
+        ),
+      ]),
+    );
+
+    const omittedLive = liveState() as any;
+    delete omittedLive.companionCutover;
+    expect(
+      validateBuildCollaborationCutoverEvidence(
+        validManifest(directory, omittedLive),
+        directory,
+        omittedLive,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "companion cutover state must be null or a JSON object",
+        ),
+      ]),
+    );
   });
 
   test("rejects fabricated hash-valid artifacts, stale parity, and missing live state", () => {
@@ -362,19 +568,29 @@ describe("Build Collaboration cutover evidence certification", () => {
       ...commandEvidence(
         "fullTestSuite",
         "2026-08-01T12:00:00.000Z",
-        directory
+        directory,
       ),
       command: "bun run fake-tests",
       producer: "operator-authored-json/v1",
     });
     stale.migration.latestBuildId = "older_build";
-    const errors = validateBuildCollaborationCutoverEvidence(manifest, directory, stale);
-    expect(errors).toEqual(expect.arrayContaining([
-      expect.stringContaining("fullTestSuite command"),
-      expect.stringContaining("fullTestSuite producer"),
-      expect.stringContaining("parity is stale"),
-    ]));
-    expect(validateBuildCollaborationCutoverEvidence(manifest, directory)).toContain("Authenticated production live state is required for certification.");
+    const errors = validateBuildCollaborationCutoverEvidence(
+      manifest,
+      directory,
+      stale,
+    );
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("fullTestSuite command"),
+        expect.stringContaining("fullTestSuite producer"),
+        expect.stringContaining("parity is stale"),
+      ]),
+    );
+    expect(
+      validateBuildCollaborationCutoverEvidence(manifest, directory),
+    ).toContain(
+      "Authenticated production live state is required for certification.",
+    );
   });
 
   test("rejects rollback record replacement and a non-incrementing epoch", () => {
@@ -383,23 +599,31 @@ describe("Build Collaboration cutover evidence certification", () => {
     const manifest = validManifest(directory, invalid);
     invalid.rollbackRehearsal!.disabledCutoverEpoch = 3;
     invalid.rollbackRehearsal!.afterSnapshot.posts = digest("replacement");
-    const errors = validateBuildCollaborationCutoverEvidence(manifest, directory, invalid);
-    expect(errors).toEqual(expect.arrayContaining([
-      expect.stringContaining("cutover epoch"),
-      expect.stringContaining("Tenant-wide stable-ID/content digests"),
-    ]));
+    const errors = validateBuildCollaborationCutoverEvidence(
+      manifest,
+      directory,
+      invalid,
+    );
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("cutover epoch"),
+        expect.stringContaining("Tenant-wide stable-ID/content digests"),
+      ]),
+    );
   });
 
   test("rejects tampered manual evidence and an artifact attestation mismatch", () => {
-    const directory = mkdtempSync(join(tmpdir(), "drawflow-cutover-provenance-"));
+    const directory = mkdtempSync(
+      join(tmpdir(), "drawflow-cutover-provenance-"),
+    );
     const live = liveState();
     const manifest = validManifest(directory, live) as any;
     const visualArtifact = JSON.parse(
-      readFileSync(manifest.commands.visualReview.path, "utf8")
+      readFileSync(manifest.commands.visualReview.path, "utf8"),
     );
     writeFileSync(visualArtifact.evidence[0].path, "tampered-after-review");
     const preview = live.artifactAttestations.find(
-      (candidate) => candidate.kind === "migration_preview"
+      (candidate) => candidate.kind === "migration_preview",
     );
     if (preview) {
       preview.artifactSha256 = "f".repeat(64);
@@ -407,15 +631,15 @@ describe("Build Collaboration cutover evidence certification", () => {
     const errors = validateBuildCollaborationCutoverEvidence(
       manifest,
       directory,
-      live
+      live,
     );
     expect(errors).toEqual(
       expect.arrayContaining([
         expect.stringContaining("visualReview evidence 0 hash does not match"),
         expect.stringContaining(
-          "migration preview artifact hash does not match its server attestation"
+          "migration preview artifact hash does not match its server attestation",
         ),
-      ])
+      ]),
     );
   });
 });

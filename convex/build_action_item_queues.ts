@@ -34,7 +34,6 @@ import {
   resolveCurrentCollaborationNotificationReaderIds,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
-import { canReadDrawCoordination } from "./build_draw_coordination";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { systemActionItemPresentationValidator } from "./build_collaboration_contracts";
 import { claimBuildCollaborationWriteByBuildId } from "./build_collaboration_lifecycle_state";
@@ -69,6 +68,7 @@ import {
   buildActionItemStatusValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -79,10 +79,17 @@ const DEADLINE_BATCH_SIZE = 25;
 const MAX_QUEUE_PAGE_SIZE = 50;
 const DAY_MS = BUILD_ACTION_ITEM_DEADLINE_DAY_MS;
 
-function isSupersededGeneratedActionItem(item: Pick<Doc<"buildActionItems">, "systemMode" | "canonicalPlanningState">) {
+function isSupersededGeneratedActionItem(
+  item: Pick<
+    Doc<"buildActionItems">,
+    "systemMode" | "canonicalPlanningState" | "canonicalCompanionDisposition"
+  >
+) {
   return (
     item.systemMode === "generated_milestone_submilestone" &&
-    item.canonicalPlanningState === "superseded"
+    (item.canonicalPlanningState === "superseded" ||
+      (item.canonicalCompanionDisposition !== undefined &&
+        item.canonicalCompanionDisposition !== "active"))
   );
 }
 
@@ -109,6 +116,19 @@ const queueRowValidator = v.object({
     canonicalPlanningState: v.optional(
       v.union(v.literal("active"), v.literal("superseded"))
     ),
+    historicalCanonicalBuildSubmilestoneId: v.optional(
+      v.id("buildSubmilestones")
+    ),
+    canonicalCompanionDisposition: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("historical"),
+        v.literal("historical_duplicate"),
+        v.literal("quarantined")
+      )
+    ),
+    canonicalCompanionSurvivorId: v.optional(v.id("buildActionItems")),
+    canonicalCompanionSupersededAt: v.optional(v.number()),
     systemPresentation: v.optional(systemActionItemPresentationValidator),
     title: v.string(),
     updatedAt: v.number(),
@@ -147,7 +167,7 @@ export const listBuildActionItemQueue = authenticatedQuery
     const readable = await filterReadableBuildActionItems(
       ctx,
       authorization,
-      filtered.filter((item) => !isSupersededGeneratedActionItem(item)),
+      filtered.filter((item) => !isSupersededGeneratedActionItem(item))
     );
     const asOf = Date.now();
     return {
@@ -187,7 +207,7 @@ export const listMyBuildActionItemQueue = authenticatedQuery
       ? candidatePage.page
       : candidatePage.page.filter((item) => !isClosedActionItem(item));
     const activeCandidates = candidates.filter(
-      (item) => !isSupersededGeneratedActionItem(item),
+      (item) => !isSupersededGeneratedActionItem(item)
     );
     const byBuild = new Map<Id<"activeBuilds">, Doc<"buildActionItems">[]>();
     for (const item of activeCandidates) {
@@ -780,18 +800,19 @@ async function queueRow(
     }
   );
   const deadline = actionItemOverdueState(item, now);
-  const systemOverdueByMs = systemPresentation?.attention === "overdue_completion"
-    ? systemPresentation.plannedCompletionDate && systemPresentation.timezone
-      ? overdueByBuildLocalDate(
-          systemPresentation.plannedCompletionDate,
-          systemPresentation.timezone,
-          now,
-        )
-      : undefined
-    : undefined;
+  const systemOverdueByMs =
+    systemPresentation?.attention === "overdue_completion"
+      ? systemPresentation.plannedCompletionDate && systemPresentation.timezone
+        ? overdueByBuildLocalDate(
+            systemPresentation.plannedCompletionDate,
+            systemPresentation.timezone,
+            now
+          )
+        : undefined
+      : undefined;
   const overdueByMs = Math.max(
     deadline.overdueByMs ?? 0,
-    systemOverdueByMs ?? 0,
+    systemOverdueByMs ?? 0
   );
   return {
     buildId: authorization.build._id,
@@ -807,6 +828,11 @@ async function queueRow(
       canonicalBuildMilestoneId: item.canonicalBuildMilestoneId,
       canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,
       canonicalPlanningState: item.canonicalPlanningState,
+      historicalCanonicalBuildSubmilestoneId:
+        item.historicalCanonicalBuildSubmilestoneId,
+      canonicalCompanionDisposition: item.canonicalCompanionDisposition,
+      canonicalCompanionSurvivorId: item.canonicalCompanionSurvivorId,
+      canonicalCompanionSupersededAt: item.canonicalCompanionSupersededAt,
       systemPresentation,
       title: item.title,
       updatedAt: item.updatedAt,

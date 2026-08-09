@@ -133,7 +133,13 @@ type SystemDrawFacts = {
 function deriveSystemMilestonePlanningSummary(input: {
   actionItems: Array<{
     dependencyCount: number;
-    status: "todo" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
+    status:
+      | "todo"
+      | "in_progress"
+      | "in_review"
+      | "blocked"
+      | "done"
+      | "cancelled";
     systemPresentation?: {
       column:
         | "backlog"
@@ -216,8 +222,11 @@ function deriveSystemMilestonePlanningSummary(input: {
 }
 
 function visibleSystemPostLifecycle(
-  post: Doc<"buildCollaborationPosts">,
+  post: Doc<"buildCollaborationPosts">
 ): "open" | "resolved" | "reopened" {
+  if (post.systemLifecycle === "latent") {
+    throw new Error("Latent System Posts are not visible.");
+  }
   if (
     post.systemLifecycle === "resolved" ||
     post.systemLifecycle === "reopened"
@@ -233,18 +242,22 @@ async function projectSystemDrawFacts(
     authorization: ActiveBuildAuthorization;
     post: Doc<"buildCollaborationPosts">;
     generatedActionItems?: number;
-  },
+  }
 ): Promise<SystemDrawFacts | undefined> {
   const { authorization, post } = input;
   if (post.systemPostKind !== "draw" || !post.systemOccurrenceKey) {
     return undefined;
   }
   const canViewLenderDrawNotes = backofficeRoleSlugs.includes(
-    authorization.effectiveRole.role as (typeof backofficeRoleSlugs)[number],
+    authorization.effectiveRole.role as (typeof backofficeRoleSlugs)[number]
   );
-  const primaryPlannedId = post.primaryReferenceKind === "draw"
-    ? ctx.db.normalizeId("plannedDrawScheduleRows", post.primaryReferenceId ?? "")
-    : null;
+  const primaryPlannedId =
+    post.primaryReferenceKind === "draw"
+      ? ctx.db.normalizeId(
+          "plannedDrawScheduleRows",
+          post.primaryReferenceId ?? ""
+        )
+      : null;
   const primaryPlanned = primaryPlannedId
     ? await ctx.db.get(primaryPlannedId)
     : null;
@@ -253,7 +266,7 @@ async function projectSystemDrawFacts(
       ? primaryPlanned
       : undefined;
   const proposalRowId = post.canonicalBuildDrawOccurrenceKey?.match(
-    PROPOSAL_ROW_OCCURRENCE_PATTERN,
+    PROPOSAL_ROW_OCCURRENCE_PATTERN
   )?.[1];
   const normalizedProposalRowId = proposalRowId
     ? ctx.db.normalizeId("proposalDrawScheduleRows", proposalRowId)
@@ -264,12 +277,12 @@ async function projectSystemDrawFacts(
         .withIndex("by_build_proposal_draw_schedule_row", (query) =>
           query
             .eq("buildId", authorization.build._id)
-            .eq("proposalDrawScheduleRowId", normalizedProposalRowId),
+            .eq("proposalDrawScheduleRowId", normalizedProposalRowId)
         )
         .first()
     : null;
   const legacyDrawKey = post.canonicalBuildDrawOccurrenceKey?.match(
-    LEGACY_DRAW_KEY_OCCURRENCE_PATTERN,
+    LEGACY_DRAW_KEY_OCCURRENCE_PATTERN
   )?.[1];
   const legacyPlanned = legacyDrawKey
     ? await ctx.db
@@ -277,14 +290,18 @@ async function projectSystemDrawFacts(
         .withIndex("by_build_draw_key", (query) =>
           query
             .eq("buildId", authorization.build._id)
-            .eq("drawKey", legacyDrawKey),
+            .eq("drawKey", legacyDrawKey)
         )
         .first()
     : null;
   const planned = scopedPrimaryPlanned ?? occurrencePlanned ?? legacyPlanned;
-  const primaryRequestId = post.primaryReferenceKind === "draw"
-    ? ctx.db.normalizeId("activeBuildDrawRequests", post.primaryReferenceId ?? "")
-    : null;
+  const primaryRequestId =
+    post.primaryReferenceKind === "draw"
+      ? ctx.db.normalizeId(
+          "activeBuildDrawRequests",
+          post.primaryReferenceId ?? ""
+        )
+      : null;
   const primaryRequest = primaryRequestId
     ? await ctx.db.get(primaryRequestId)
     : null;
@@ -298,19 +315,22 @@ async function projectSystemDrawFacts(
         .withIndex("by_build_planned_draw_key", (query) =>
           query
             .eq("buildId", authorization.build._id)
-            .eq("plannedDrawKey", planned.drawKey),
+            .eq("plannedDrawKey", planned.drawKey)
         )
         .take(500)
     : [];
   const request =
     scopedPrimaryRequest ??
-    requestCandidates
-      .sort((left, right) => right.createdAt - left.createdAt)[0];
+    requestCandidates.sort(
+      (left, right) => right.createdAt - left.createdAt
+    )[0];
 
   const allocations = request
     ? await ctx.db
         .query("activeBuildDrawRequestAllocations")
-        .withIndex("by_request", (query) => query.eq("drawRequestId", request._id))
+        .withIndex("by_request", (query) =>
+          query.eq("drawRequestId", request._id)
+        )
         .take(500)
     : [];
   const milestoneKeys = [
@@ -319,91 +339,103 @@ async function projectSystemDrawFacts(
       ...(planned?.milestoneKey ? [planned.milestoneKey] : []),
     ]),
   ];
-  const [evidenceAssets, siteVisits, milestones, evidenceRequirements] = await Promise.all([
-    Promise.all(
-      milestoneKeys.map((milestoneKey) =>
-        ctx.db
-          .query("buildEvidenceAssets")
-          .withIndex("by_build_milestone", (query) =>
-            query.eq("buildId", authorization.build._id).eq("milestoneKey", milestoneKey),
-          )
-          .take(500),
+  const [evidenceAssets, siteVisits, milestones, evidenceRequirements] =
+    await Promise.all([
+      Promise.all(
+        milestoneKeys.map((milestoneKey) =>
+          ctx.db
+            .query("buildEvidenceAssets")
+            .withIndex("by_build_milestone", (query) =>
+              query
+                .eq("buildId", authorization.build._id)
+                .eq("milestoneKey", milestoneKey)
+            )
+            .take(500)
+        )
+      ).then((groups) => groups.flat()),
+      Promise.all(
+        milestoneKeys.map((milestoneKey) =>
+          ctx.db
+            .query("buildSiteVisits")
+            .withIndex("by_build_milestone", (query) =>
+              query
+                .eq("buildId", authorization.build._id)
+                .eq("milestoneKey", milestoneKey)
+            )
+            .take(100)
+        )
+      ).then((groups) => groups.flat()),
+      Promise.all(
+        milestoneKeys.map((milestoneKey) =>
+          ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_key", (query) =>
+              query
+                .eq("buildId", authorization.build._id)
+                .eq("key", milestoneKey)
+            )
+            .first()
+        )
+      ).then((rows) =>
+        rows.filter((row): row is Doc<"buildMilestones"> => row !== null)
       ),
-    ).then((groups) => groups.flat()),
-    Promise.all(
-      milestoneKeys.map((milestoneKey) =>
-        ctx.db
-          .query("buildSiteVisits")
-          .withIndex("by_build_milestone", (query) =>
-            query.eq("buildId", authorization.build._id).eq("milestoneKey", milestoneKey),
-          )
-          .take(100),
-      ),
-    ).then((groups) => groups.flat()),
-    Promise.all(
-      milestoneKeys.map((milestoneKey) =>
-        ctx.db
-          .query("buildMilestones")
-          .withIndex("by_build_key", (query) =>
-            query.eq("buildId", authorization.build._id).eq("key", milestoneKey),
-          )
-          .first(),
-      ),
-    ).then((rows) => rows.filter((row): row is Doc<"buildMilestones"> => row !== null)),
-    Promise.all(
-      milestoneKeys.map((milestoneKey) =>
-        ctx.db
-          .query("buildSubmilestoneEvidenceRequirements")
-          .withIndex("by_build_milestone", (query) =>
-            query
-              .eq("buildId", authorization.build._id)
-              .eq("milestoneKey", milestoneKey),
-          )
-          .take(500),
-      ),
-    ).then((groups) => groups.flat()),
-  ]);
+      Promise.all(
+        milestoneKeys.map((milestoneKey) =>
+          ctx.db
+            .query("buildSubmilestoneEvidenceRequirements")
+            .withIndex("by_build_milestone", (query) =>
+              query
+                .eq("buildId", authorization.build._id)
+                .eq("milestoneKey", milestoneKey)
+            )
+            .take(500)
+        )
+      ).then((groups) => groups.flat()),
+    ]);
   const locationRequiredKeys = new Set(
     evidenceRequirements
       .filter(
         (requirement) =>
           requirement.active &&
           requirement.locationRequired &&
-          milestoneKeys.includes(requirement.milestoneKey),
+          milestoneKeys.includes(requirement.milestoneKey)
       )
       .map((requirement) =>
         requirement.submilestoneKey
           ? `${requirement.milestoneKey}:${requirement.submilestoneKey}`
-          : requirement.milestoneKey,
-      ),
+          : requirement.milestoneKey
+      )
   );
   const locationUnverifiedCount = evidenceAssets.filter(
     (asset) =>
       !asset.locationVerified &&
       (locationRequiredKeys.has(
-        `${asset.milestoneKey}:${asset.submilestoneKey}`,
+        `${asset.milestoneKey}:${asset.submilestoneKey}`
       ) ||
-        (!asset.submilestoneKey && locationRequiredKeys.has(asset.milestoneKey))),
+        (!asset.submilestoneKey &&
+          locationRequiredKeys.has(asset.milestoneKey)))
   ).length;
   const evidenceApproved =
     evidenceAssets.length > 0 &&
     milestones.length > 0 &&
-    milestones.every((milestone) => milestone.completionReview?.status === "approved");
-  const evidenceState =
-    evidenceApproved
-      ? ("approved" as const)
-      : locationUnverifiedCount > 0
-        ? ("location_unverified" as const)
-        : evidenceAssets.length > 0
-          ? ("submitted" as const)
-          : ("not_started" as const);
+    milestones.every(
+      (milestone) => milestone.completionReview?.status === "approved"
+    );
+  const evidenceState = evidenceApproved
+    ? ("approved" as const)
+    : locationUnverifiedCount > 0
+      ? ("location_unverified" as const)
+      : evidenceAssets.length > 0
+        ? ("submitted" as const)
+        : ("not_started" as const);
   const reviewState = !request
     ? ("not_started" as const)
     : request.status === "in_review"
       ? ("in_review" as const)
       : request.status === "ready_for_admin"
         ? ("ready_for_admin" as const)
-        : request.status === "approved_for_release" || request.status === "approved"
+        : request.status === "approved_for_release" ||
+            request.status === "approved"
           ? ("approved" as const)
           : request.status === "rejected"
             ? ("final_decline" as const)
@@ -431,7 +463,8 @@ async function projectSystemDrawFacts(
     ? ("not_started" as const)
     : request.status === "released"
       ? ("released" as const)
-      : request.status === "approved_for_release" || request.status === "approved"
+      : request.status === "approved_for_release" ||
+          request.status === "approved"
         ? ("approved_for_release" as const)
         : request.status === "rejected"
           ? ("final_decline" as const)
@@ -450,9 +483,17 @@ async function projectSystemDrawFacts(
             : {}),
         }
       : request.status === "withdrawn"
-        ? { at: request.withdrawnAt, kind: "withdrawal" as const, note: request.withdrawalNote }
+        ? {
+            at: request.withdrawnAt,
+            kind: "withdrawal" as const,
+            note: request.withdrawalNote,
+          }
         : request.status === "cancelled"
-          ? { at: request.cancelledAt, kind: "cancellation" as const, note: request.cancellationNote }
+          ? {
+              at: request.cancelledAt,
+              kind: "cancellation" as const,
+              note: request.cancellationNote,
+            }
           : request.status === "rejected"
             ? {
                 at: request.reviewedAt,
@@ -468,7 +509,7 @@ async function projectSystemDrawFacts(
     try {
       scheduledDate = addBuildLocalDays(
         authorization.build.startDate,
-        planned.timingDay,
+        planned.timingDay
       );
     } catch {
       scheduledDate = undefined;
@@ -497,7 +538,9 @@ async function projectSystemDrawFacts(
             amountCents: planned.amountCents,
             drawKey: planned.drawKey,
             label: planned.label,
-            ...(planned.milestoneKey ? { milestoneKey: planned.milestoneKey } : {}),
+            ...(planned.milestoneKey
+              ? { milestoneKey: planned.milestoneKey }
+              : {}),
             ...(scheduledDate ? { scheduledDate } : {}),
             status: planned.status,
             timingDay: planned.timingDay,
@@ -543,10 +586,13 @@ async function projectSystemDrawFacts(
         : {}),
     },
     siteVisit: {
-      cancelled: siteVisits.filter((visit) => visit.status === "cancelled").length,
-      complete: siteVisits.filter((visit) => visit.status === "complete").length,
+      cancelled: siteVisits.filter((visit) => visit.status === "cancelled")
+        .length,
+      complete: siteVisits.filter((visit) => visit.status === "complete")
+        .length,
       count: siteVisits.length,
-      requested: siteVisits.filter((visit) => visit.status === "requested").length,
+      requested: siteVisits.filter((visit) => visit.status === "requested")
+        .length,
     },
   };
 }
@@ -754,8 +800,8 @@ export async function projectReadableBuildCollaborationPost(
       projectActionItemSummary(ctx, authorization, item, asOf)
     )
   );
-    const planningSummary =
-      post.systemPostKind === "milestone"
+  const planningSummary =
+    post.systemPostKind === "milestone"
       ? deriveSystemMilestonePlanningSummary({
           actionItems: projectedActionItems,
           lifecycle: visibleSystemPostLifecycle(post),
@@ -787,15 +833,15 @@ export async function projectReadableBuildCollaborationPost(
     acknowledgement: drawCoordinationRedacted
       ? { acknowledged: false, required: false }
       : acknowledgementTarget
-      ? {
-          acknowledged: acknowledgements.some(
-            (acknowledgement) =>
-              acknowledgement.acknowledgedRevision >= post.revision
-          ),
-          dueAt: acknowledgementTarget.dueAt,
-          required: true,
-        }
-      : { acknowledged: false, required: false },
+        ? {
+            acknowledged: acknowledgements.some(
+              (acknowledgement) =>
+                acknowledgement.acknowledgedRevision >= post.revision
+            ),
+            dueAt: acknowledgementTarget.dueAt,
+            required: true,
+          }
+        : { acknowledged: false, required: false },
     actionItems: projectedActionItems,
     attachments: projectedAttachments,
     following:
@@ -829,7 +875,8 @@ export async function projectReadableBuildCollaborationPost(
     }),
     reactions: (post.systemPostKind === "draw" && !drawCoordinationReadable
       ? []
-      : reactions)
+      : reactions
+    )
       .filter(
         (reaction) =>
           reaction.commentId === undefined &&
@@ -846,7 +893,8 @@ export async function projectReadableBuildCollaborationPost(
       })),
     receipts: (post.systemPostKind === "draw" && !drawCoordinationReadable
       ? []
-      : receipts)
+      : receipts
+    )
       .filter((receipt) => canSeeCollaborationReceipt(authorization, receipt))
       .map((receipt) => ({
         _creationTime: receipt._creationTime,
@@ -1046,8 +1094,7 @@ function collaborationPostSummary(input: {
     authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
     authorRole: post.authorRole,
     authorWorkosUserId: post.authorWorkosUserId,
-    commentCount:
-      redacted ? 0 : (commentCountOverride ?? post.commentCount),
+    commentCount: redacted ? 0 : (commentCountOverride ?? post.commentCount),
     contentState: post.contentState,
     createdAt: post.createdAt,
     openActionItemCount:
@@ -1055,9 +1102,10 @@ function collaborationPostSummary(input: {
     decisionOutcome:
       redacted || coordinationRedacted ? undefined : post.decisionOutcome,
     decisionOwnerDisplayName,
-    decisionOwnerWorkosUserId: redacted || coordinationRedacted
-      ? undefined
-      : post.decisionOwnerWorkosUserId,
+    decisionOwnerWorkosUserId:
+      redacted || coordinationRedacted
+        ? undefined
+        : post.decisionOwnerWorkosUserId,
     postType: post.postType,
     readRevision: post.readRevision ?? post.revision,
     resolutionSummary:
@@ -1088,9 +1136,10 @@ function collaborationPostSummary(input: {
             occurrenceKey: post.systemOccurrenceKey,
             materializedAt: post.materializedAt,
             historicalBackfill: post.historicalBackfill,
-            recoveryState: !coordinationRedacted && systemRecoveryRequired
-              ? ("recovery_required" as const)
-              : undefined,
+            recoveryState:
+              !coordinationRedacted && systemRecoveryRequired
+                ? ("recovery_required" as const)
+                : undefined,
             triggeredAt: post.triggeredAt,
             triggeredByRole: post.triggeredByRole,
             triggeredByWorkosUserId: post.triggeredByWorkosUserId,

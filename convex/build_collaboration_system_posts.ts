@@ -9,17 +9,17 @@ import {
   type BuildCollaborationRole,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
+import { ensureActiveBuildPlanningActivationRevision } from "./build_collaboration_planning_reconciliation";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
-import { resolveSubmilestoneOperateAuthority } from "./build_submilestone_operate_authority";
+import type { SystemPostHistoricalBackfill } from "./build_collaboration_system_events";
 import {
   activateLatentBuildCollaborationSystemEvent,
   publishCanonicalBuildCollaborationSystemEvent,
   resolveSystemEventScope,
 } from "./build_collaboration_system_events";
-import type { SystemPostHistoricalBackfill } from "./build_collaboration_system_events";
-import { ensureActiveBuildPlanningActivationRevision } from "./build_collaboration_planning_reconciliation";
 import { resolveActiveSubmilestoneEvidencePackageReadiness } from "./build_submilestone_evidence";
+import { resolveSubmilestoneOperateAuthority } from "./build_submilestone_operate_authority";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const SYSTEM_AUTHOR = "system";
@@ -40,9 +40,7 @@ export type DrawSystemActivationReason =
 
 /** Only explicit human/domain activations create recipient notifications. */
 export function shouldNotifySystemPost(
-  activationReason:
-    | MilestoneSystemActivationReason
-    | DrawSystemActivationReason,
+  activationReason: MilestoneSystemActivationReason | DrawSystemActivationReason
 ) {
   return (
     activationReason === "explicit_start" || activationReason === "draw_request"
@@ -60,7 +58,7 @@ export function drawSystemOccurrenceKey(
   draw: Pick<
     Doc<"plannedDrawScheduleRows">,
     "drawKey" | "proposalDrawScheduleRowId"
-  >,
+  >
 ) {
   const stablePart = draw.proposalDrawScheduleRowId
     ? `proposal-row:${String(draw.proposalDrawScheduleRowId)}`
@@ -189,11 +187,11 @@ export function validateBuildTimezone(value: string) {
   }
   try {
     new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
-      new Date(0),
+      new Date(0)
     );
   } catch {
     throw new Error(
-      `Build timezone ${timezone} is not a valid IANA timezone string.`,
+      `Build timezone ${timezone} is not a valid IANA timezone string.`
     );
   }
   return timezone;
@@ -209,7 +207,7 @@ export function buildLocalDateAt(epochMs: number, timezone: string) {
   const parts = Object.fromEntries(
     formatter
       .formatToParts(new Date(epochMs))
-      .map((part) => [part.type, part.value]),
+      .map((part) => [part.type, part.value])
   );
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
@@ -257,7 +255,7 @@ function timeZoneOffsetMs(epochMs: number, timezone: string) {
       year: "numeric",
     })
       .formatToParts(new Date(epochMs))
-      .map((part) => [part.type, part.value]),
+      .map((part) => [part.type, part.value])
   );
   const asUtc = Date.UTC(
     Number(parts.year),
@@ -265,7 +263,7 @@ function timeZoneOffsetMs(epochMs: number, timezone: string) {
     Number(parts.day),
     Number(parts.hour),
     Number(parts.minute),
-    Number(parts.second),
+    Number(parts.second)
   );
   return asUtc - Math.floor(epochMs / 1000) * 1000;
 }
@@ -296,7 +294,7 @@ export function buildLocalMidnightUtc(date: string, timezone: string) {
     }
   }
   throw new Error(
-    `Unable to resolve Build-local midnight for ${date} in timezone ${normalizedTimezone}.`,
+    `Unable to resolve Build-local midnight for ${date} in timezone ${normalizedTimezone}.`
   );
 }
 
@@ -309,7 +307,7 @@ function unknownSystemActionItemPresentation(reason: string) {
 }
 
 function evidenceReviewColumn(
-  state: SystemActionItemPresentation["evidenceReviewState"],
+  state: SystemActionItemPresentation["evidenceReviewState"]
 ): SystemActionItemPresentationColumn | undefined {
   if (state === "approved") {
     return "approved";
@@ -317,11 +315,11 @@ function evidenceReviewColumn(
   if (state === "in_review") {
     return "in_review";
   }
-  return undefined;
+  return;
 }
 
 function derivedSubmilestoneReviewDecisionState(
-  submilestone: Doc<"buildSubmilestones">,
+  submilestone: Doc<"buildSubmilestones">
 ): SystemActionItemPresentation["reviewDecisionState"] {
   if (submilestone.reviewDecisionState) {
     return submilestone.reviewDecisionState;
@@ -335,11 +333,11 @@ function derivedSubmilestoneReviewDecisionState(
   if (submilestone.evidenceReviewState === "in_review") {
     return "in_review";
   }
-  return undefined;
+  return;
 }
 
 function derivedMilestoneReviewDecisionState(
-  milestone: Doc<"buildMilestones">,
+  milestone: Doc<"buildMilestones">
 ): NonNullable<SystemActionItemPresentation["milestoneReviewDecisionState"]> {
   if (milestone.reviewDecisionState) {
     return milestone.reviewDecisionState;
@@ -361,7 +359,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
       roles?: readonly BuildCollaborationRole[];
       workosUserId: string;
     };
-  },
+  }
 ): Promise<SystemActionItemPresentation | undefined> {
   if (input.actionItem.systemMode !== "generated_milestone_submilestone") {
     return;
@@ -373,7 +371,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
     )
   ) {
     return unknownSystemActionItemPresentation(
-      "Generated System Action Item is missing its canonical Milestone binding.",
+      "Generated System Action Item is missing its canonical Milestone binding."
     );
   }
   const [milestone, submilestone] = await Promise.all([
@@ -391,7 +389,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
     submilestone.buildMilestoneId !== milestone._id
   ) {
     return unknownSystemActionItemPresentation(
-      "Canonical Milestone or Sub-milestone binding is unavailable.",
+      "Canonical Milestone or Sub-milestone binding is unavailable."
     );
   }
   let plannedStartDate: string;
@@ -399,15 +397,15 @@ export async function deriveMilestoneSystemActionItemPresentation(
   try {
     plannedStartDate = addBuildLocalDays(
       input.build.startDate,
-      submilestone.startDay ?? milestone.dayStart,
+      submilestone.startDay ?? milestone.dayStart
     );
     plannedCompletionDate = addBuildLocalDays(
       plannedStartDate,
-      Math.max(0, (submilestone.durationDays ?? 1) - 1),
+      Math.max(0, (submilestone.durationDays ?? 1) - 1)
     );
   } catch {
     return unknownSystemActionItemPresentation(
-      "Build start date is invalid; schedule state requires a valid Build-local calendar date.",
+      "Build start date is invalid; schedule state requires a valid Build-local calendar date."
     );
   }
   const execution = input.viewer
@@ -423,7 +421,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
   if (!input.build.timezone) {
     return {
       ...unknownSystemActionItemPresentation(
-        "Build timezone is unavailable; schedule state requires an explicit IANA timezone.",
+        "Build timezone is unavailable; schedule state requires an explicit IANA timezone."
       ),
       ...execution,
     };
@@ -434,7 +432,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
   } catch {
     return {
       ...unknownSystemActionItemPresentation(
-        "Build timezone is invalid; schedule state requires an explicit IANA timezone.",
+        "Build timezone is invalid; schedule state requires an explicit IANA timezone."
       ),
       ...execution,
     };
@@ -512,7 +510,7 @@ async function projectMilestoneExecutionPresentation(
       roles?: readonly BuildCollaborationRole[];
       workosUserId: string;
     };
-  },
+  }
 ): Promise<
   Pick<
     SystemActionItemPresentation,
@@ -569,14 +567,14 @@ async function projectMilestoneExecutionPresentation(
       .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
       .take(500));
   const milestonesByKey = new Map(
-    milestones.map((milestone) => [milestone.key, milestone]),
+    milestones.map((milestone) => [milestone.key, milestone])
   );
   const reviewRound = input.submilestone.evidenceReviewRound ?? 0;
   const childReviewDecisionState = derivedSubmilestoneReviewDecisionState(
-    input.submilestone,
+    input.submilestone
   );
   const milestoneReviewDecisionState = derivedMilestoneReviewDecisionState(
-    input.milestone,
+    input.milestone
   );
   const [
     milestoneSubmilestones,
@@ -586,12 +584,12 @@ async function projectMilestoneExecutionPresentation(
     milestoneDecisions,
   ] = await Promise.all([
     input.planningCache?.submilestonesByMilestone.get(
-      String(input.milestone._id),
+      String(input.milestone._id)
     ) ??
       ctx.db
         .query("buildSubmilestones")
         .withIndex("by_milestone", (query) =>
-          query.eq("buildMilestoneId", input.milestone._id),
+          query.eq("buildMilestoneId", input.milestone._id)
         )
         .take(500),
     input.submilestone.siteVisitRequirementId
@@ -603,34 +601,34 @@ async function projectMilestoneExecutionPresentation(
           .withIndex("by_submilestone_round", (query) =>
             query
               .eq("buildSubmilestoneId", input.submilestone._id)
-              .eq("reviewRound", reviewRound),
+              .eq("reviewRound", reviewRound)
           )
           .unique()
       : Promise.resolve(null),
     ctx.db
       .query("buildSubmilestoneReviewDecisions")
       .withIndex("by_submilestone_createdAt", (query) =>
-        query.eq("buildSubmilestoneId", input.submilestone._id),
+        query.eq("buildSubmilestoneId", input.submilestone._id)
       )
       .order("desc")
       .take(100),
     ctx.db
       .query("buildMilestoneReviewDecisions")
       .withIndex("by_milestone_revision", (query) =>
-        query.eq("buildMilestoneId", input.milestone._id),
+        query.eq("buildMilestoneId", input.milestone._id)
       )
       .order("desc")
       .take(100),
   ]);
   const siteVisitRequirement = requirementById ?? requirementByRound;
   const activeMilestoneSubmilestones = milestoneSubmilestones.filter(
-    (candidate) => candidate.planningState !== "superseded",
+    (candidate) => candidate.planningState !== "superseded"
   );
   const parentReadyForApproval =
     activeMilestoneSubmilestones.length > 0 &&
     activeMilestoneSubmilestones.every(
       (candidate) =>
-        derivedSubmilestoneReviewDecisionState(candidate) === "approved",
+        derivedSubmilestoneReviewDecisionState(candidate) === "approved"
     );
   const reviewHistory = [
     ...childDecisions.map((decision) => ({
@@ -844,7 +842,7 @@ export async function ensureMilestoneSystemPost(
     activationReason: MilestoneSystemActivationReason;
     historicalBackfill?: SystemPostHistoricalBackfill;
     now?: number;
-  },
+  }
 ) {
   const activationRevision = input.historicalBackfill
     ? null
@@ -898,7 +896,7 @@ export async function ensureMilestoneSystemPost(
       postType: "update",
       systemLabel: SYSTEM_LABEL,
     },
-    `${occurrenceKey}:scope`,
+    `${occurrenceKey}:scope`
   );
   if (scope.status !== "ready") {
     return null;
@@ -917,8 +915,7 @@ export async function ensureMilestoneSystemPost(
   const isPreactivation = input.activationReason === "plan_activated";
   let activatedLatent = false;
   if (
-    !isPreactivation &&
-    !input.historicalBackfill &&
+    !(isPreactivation || input.historicalBackfill) &&
     post.systemLifecycle === "latent"
   ) {
     activatedLatent = await activateLatentBuildCollaborationSystemEvent(ctx, {
@@ -947,22 +944,21 @@ export async function ensureMilestoneSystemPost(
     await ctx.db
       .query("buildSubmilestones")
       .withIndex("by_milestone", (query) =>
-        query.eq("buildMilestoneId", input.milestone._id),
+        query.eq("buildMilestoneId", input.milestone._id)
       )
       .take(500)
   ).filter(
     (submilestone) =>
       submilestone.buildId === input.build._id &&
-      submilestone.organizationId === input.build.organizationId,
+      submilestone.organizationId === input.build.organizationId
   );
 
   const postPatch = {
     activationPlanningRevisionId:
       post.activationPlanningRevisionId ?? activationRevision?._id,
-    activationReason:
-      activatedLatent
-        ? input.activationReason
-        : (post.activationReason ?? input.activationReason),
+    activationReason: activatedLatent
+      ? input.activationReason
+      : (post.activationReason ?? input.activationReason),
     authorDisplayNameSnapshot: SYSTEM_LABEL,
     authorRolesSnapshot: ["system"],
     authorWorkosUserId: SYSTEM_AUTHOR,
@@ -980,9 +976,9 @@ export async function ensureMilestoneSystemPost(
     ...(input.historicalBackfill || isPreactivation
       ? {}
       : { triggeredAt: post.triggeredAt ?? now }),
-    ...(!isPreactivation
-      ? { triggeredByRole: post.triggeredByRole ?? triggeredByRole }
-      : {}),
+    ...(isPreactivation
+      ? {}
+      : { triggeredByRole: post.triggeredByRole ?? triggeredByRole }),
     ...(input.historicalBackfill || isPreactivation
       ? {}
       : {
@@ -1031,6 +1027,9 @@ export async function ensureMilestoneSystemPost(
   const generatedActionItemIds: Id<"buildActionItems">[] = [];
   let actionItemsChanged = false;
   for (const submilestone of submilestones) {
+    if (submilestone.planningState === "superseded") {
+      continue;
+    }
     const ensured = await ensureGeneratedSubmilestoneActionItem(ctx, {
       authorization: scope.authorization,
       milestone: input.milestone,
@@ -1079,7 +1078,7 @@ export async function ensureDrawSystemPost(
     activationReason: DrawSystemActivationReason;
     historicalBackfill?: SystemPostHistoricalBackfill;
     now?: number;
-  },
+  }
 ) {
   const plannedDrawKey = input.drawRequest?.plannedDrawKey;
   const plannedDraw =
@@ -1088,7 +1087,7 @@ export async function ensureDrawSystemPost(
       ? await ctx.db
           .query("plannedDrawScheduleRows")
           .withIndex("by_build_draw_key", (query) =>
-            query.eq("buildId", input.build._id).eq("drawKey", plannedDrawKey),
+            query.eq("buildId", input.build._id).eq("drawKey", plannedDrawKey)
           )
           .first()
       : undefined);
@@ -1116,7 +1115,7 @@ export async function ensureDrawSystemPost(
       ? `${label} is scheduled for Draw coordination today. Canonical Draw Request, evidence, review, approval, and release state remain authoritative; no request was created.`
       : `${label}${drawDisplay} is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.`;
   const primaryReferenceId = String(
-    plannedDraw?._id ?? input.drawRequest?._id ?? "",
+    plannedDraw?._id ?? input.drawRequest?._id ?? ""
   );
   if (!primaryReferenceId) {
     return null;
@@ -1153,7 +1152,7 @@ export async function ensureDrawSystemPost(
       systemLabel: SYSTEM_LABEL,
       systemPostKind: "draw",
     },
-    `${occurrenceKey}:scope`,
+    `${occurrenceKey}:scope`
   );
   if (scope.status !== "ready") {
     return null;
@@ -1189,7 +1188,7 @@ export async function ensureDrawSystemPost(
     ...(input.drawRequest
       ? (() => {
           const disposition = drawSystemDispositionForStatus(
-            input.drawRequest.status,
+            input.drawRequest.status
           );
           return disposition ? { systemDisposition: disposition } : {};
         })()
@@ -1262,7 +1261,7 @@ export async function ensureDrawSystemPost(
 function drawSystemLifecycleForStatus(
   status:
     | Doc<"plannedDrawScheduleRows">["status"]
-    | Doc<"activeBuildDrawRequests">["status"],
+    | Doc<"activeBuildDrawRequests">["status"]
 ): "open" | "resolved" {
   return status === "released" ||
     status === "withdrawn" ||
@@ -1273,13 +1272,21 @@ function drawSystemLifecycleForStatus(
 }
 
 function drawSystemDispositionForStatus(
-  status: Doc<"activeBuildDrawRequests">["status"],
+  status: Doc<"activeBuildDrawRequests">["status"]
 ) {
-  if (status === "released") return "released" as const;
-  if (status === "withdrawn") return "withdrawal" as const;
-  if (status === "cancelled") return "cancellation" as const;
-  if (status === "rejected") return "final_decline" as const;
-  return undefined;
+  if (status === "released") {
+    return "released" as const;
+  }
+  if (status === "withdrawn") {
+    return "withdrawal" as const;
+  }
+  if (status === "cancelled") {
+    return "cancellation" as const;
+  }
+  if (status === "rejected") {
+    return "final_decline" as const;
+  }
+  return;
 }
 
 /**
@@ -1296,7 +1303,7 @@ export async function projectHistoricalSystemPostLifecycle(
     organizationId: string;
     postId: Id<"buildCollaborationPosts">;
     historicalBackfill: SystemPostHistoricalBackfill;
-  },
+  }
 ) {
   const post = await ctx.db.get(input.postId);
   if (
@@ -1337,7 +1344,9 @@ export async function projectHistoricalSystemPostLifecycle(
     post.materializedAt === input.materializedAt &&
     JSON.stringify(post.historicalBackfill) ===
       JSON.stringify(nextHistoricalBackfill);
-  if (unchanged) return post._id;
+  if (unchanged) {
+    return post._id;
+  }
   await ctx.db.patch(post._id, {
     historicalBackfill: nextHistoricalBackfill,
     lastMeaningfulActivityAt: nextActivityAt,
@@ -1373,7 +1382,7 @@ export async function synchronizeDrawSystemPostLifecycle(
     organizationId: string;
     postId?: Id<"buildCollaborationPosts">;
     reason?: string;
-  },
+  }
 ) {
   const post =
     (input.postId ? await ctx.db.get(input.postId) : null) ??
@@ -1386,7 +1395,7 @@ export async function synchronizeDrawSystemPostLifecycle(
               query
                 .eq("buildId", input.buildId)
                 .eq("systemPostKind", "draw")
-                .eq("canonicalBuildDrawOccurrenceKey", input.occurrenceKey!),
+                .eq("canonicalBuildDrawOccurrenceKey", input.occurrenceKey!)
           )
           .first()
       : null);
@@ -1514,7 +1523,7 @@ export async function synchronizeDrawSystemPostForCanonicalDraw(
     activationReason: DrawSystemActivationReason;
     reason?: string;
     now?: number;
-  },
+  }
 ) {
   const ensured = await ensureDrawSystemPost(ctx, input);
   if (!ensured) {
@@ -1548,7 +1557,7 @@ export async function ensureApprovedBuildSubmilestoneCompanions(
   input: {
     actor: { roles: string[]; workosUserId: string };
     build: Doc<"activeBuilds">;
-  },
+  }
 ) {
   const milestones = await ctx.db
     .query("buildMilestones")
@@ -1556,18 +1565,22 @@ export async function ensureApprovedBuildSubmilestoneCompanions(
     .take(501);
   if (milestones.length > 500) {
     throw new Error(
-      "Approved Build plan exceeds the 500 Milestone companion safety limit.",
+      "Approved Build plan exceeds the 500 Milestone companion safety limit."
     );
   }
   const postIds: Id<"buildCollaborationPosts">[] = [];
   for (const milestone of milestones) {
-    if (milestone.planningState === "superseded") continue;
+    if (milestone.planningState === "superseded") {
+      continue;
+    }
     const postId = await synchronizeMilestoneSystemPostPlanning(ctx, {
       actor: input.actor,
       build: input.build,
       milestone,
     });
-    if (postId) postIds.push(postId);
+    if (postId) {
+      postIds.push(postId);
+    }
   }
   return postIds;
 }
@@ -1583,7 +1596,7 @@ export async function synchronizeMilestoneSystemPostPlanning(
     actor: { roles: string[]; workosUserId: string };
     build: Doc<"activeBuilds">;
     milestone: Doc<"buildMilestones">;
-  },
+  }
 ) {
   const posts = await ctx.db
     .query("buildCollaborationPosts")
@@ -1593,12 +1606,12 @@ export async function synchronizeMilestoneSystemPostPlanning(
         query
           .eq("buildId", input.build._id)
           .eq("systemPostKind", "milestone")
-          .eq("canonicalBuildMilestoneId", input.milestone._id),
+          .eq("canonicalBuildMilestoneId", input.milestone._id)
     )
     .take(2);
   if (posts.length > 1) {
     throw new Error(
-      "Canonical Milestone has duplicate collaboration System Posts.",
+      "Canonical Milestone has duplicate collaboration System Posts."
     );
   }
   const post = posts[0];
@@ -1624,13 +1637,15 @@ export async function synchronizeMilestoneSystemPostPlanning(
       postType: "update",
       systemLabel: SYSTEM_LABEL,
     },
-    `${post.systemOccurrenceKey ?? post._id}:scope`,
+    `${post.systemOccurrenceKey ?? post._id}:scope`
   );
-  if (scope.status !== "ready") return null;
+  if (scope.status !== "ready") {
+    return null;
+  }
   const revision = await ctx.db
     .query("activeBuildPlanningRevisions")
     .withIndex("by_build_revision", (query) =>
-      query.eq("buildId", input.build._id),
+      query.eq("buildId", input.build._id)
     )
     .order("desc")
     .take(1)
@@ -1638,7 +1653,7 @@ export async function synchronizeMilestoneSystemPostPlanning(
   const submilestones = await ctx.db
     .query("buildSubmilestones")
     .withIndex("by_milestone", (query) =>
-      query.eq("buildMilestoneId", input.milestone._id),
+      query.eq("buildMilestoneId", input.milestone._id)
     )
     .take(500);
   const actionItemIds: Id<"buildActionItems">[] = [];
@@ -1684,7 +1699,7 @@ export async function synchronizeMilestoneSystemPostLifecycle(
     organizationId: string;
     postId: Id<"buildCollaborationPosts">;
     reason?: string;
-  },
+  }
 ) {
   const post = await ctx.db.get(input.postId);
   if (
@@ -1782,7 +1797,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     postId: Id<"buildCollaborationPosts">;
     submilestone: Doc<"buildSubmilestones">;
     silentOperationalEffects?: boolean;
-  },
+  }
 ): Promise<{ actionItemId: Id<"buildActionItems">; changed: boolean }> {
   const title = input.submilestone.name.trim() || "Unnamed Sub-milestone";
   const matches = await ctx.db
@@ -1790,12 +1805,12 @@ async function ensureGeneratedSubmilestoneActionItem(
     .withIndex("by_canonicalBuildSubmilestoneId_and_systemMode", (query) =>
       query
         .eq("canonicalBuildSubmilestoneId", input.submilestone._id)
-        .eq("systemMode", "generated_milestone_submilestone"),
+        .eq("systemMode", "generated_milestone_submilestone")
     )
     .take(2);
   if (matches.length > 1) {
     throw new Error(
-      "Canonical Sub-milestone has duplicate collaboration companions.",
+      "Canonical Sub-milestone has duplicate collaboration companions."
     );
   }
   const existing = matches[0];
@@ -1807,19 +1822,23 @@ async function ensureGeneratedSubmilestoneActionItem(
       existing.originatingPostId !== input.postId
     ) {
       throw new Error(
-        "Canonical Sub-milestone companion binding has invalid tenant or parent scope.",
+        "Canonical Sub-milestone companion binding has invalid tenant or parent scope."
       );
     }
     const canonicalPlanningState = input.submilestone.planningState ?? "active";
     const nextCanonicalBindingRevision =
       input.milestone.collaborationEventRevision ?? 1;
     const changed =
+      existing.canonicalCompanionDisposition !== "active" ||
       existing.canonicalBuildMilestoneId !== input.milestone._id ||
       existing.canonicalBindingRevision !== nextCanonicalBindingRevision ||
       existing.canonicalPlanningState !== canonicalPlanningState ||
       existing.title !== title;
     if (changed) {
       await ctx.db.patch(existing._id, {
+        canonicalCompanionDisposition: "active",
+        canonicalCompanionSupersededAt: undefined,
+        canonicalCompanionSurvivorId: undefined,
         canonicalBuildMilestoneId: input.milestone._id,
         canonicalBindingRevision: nextCanonicalBindingRevision,
         canonicalPlanningState,
@@ -1879,6 +1898,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     canonicalBindingRevision: input.milestone.collaborationEventRevision ?? 1,
     canonicalBuildMilestoneId: input.milestone._id,
     canonicalBuildSubmilestoneId: input.submilestone._id,
+    canonicalCompanionDisposition: "active",
     canonicalPlanningState: input.submilestone.planningState ?? "active",
     createdAt: input.now,
     creatorRole: "admin",
@@ -2038,7 +2058,7 @@ async function ensureGeneratedSubmilestoneActionItem(
 async function syncPostCounts(
   ctx: MutationCtx,
   actionItemIds: Id<"buildActionItems">[],
-  now: number,
+  now: number
 ) {
   for (const actionItemId of actionItemIds) {
     await syncLinkedActionItemPostCounts(ctx, {
@@ -2052,23 +2072,25 @@ async function syncPostCounts(
 /** Update the canonical open-item count without creating activity records. */
 async function syncPostCountsSilently(
   ctx: MutationCtx,
-  postId: Id<"buildCollaborationPosts">,
+  postId: Id<"buildCollaborationPosts">
 ) {
   const post = await ctx.db.get(postId);
-  if (!post) return;
+  if (!post) {
+    return;
+  }
   const linkedItems = await ctx.db
     .query("buildActionItems")
     .withIndex("by_originatingPostId_and_createdAt", (query) =>
-      query.eq("originatingPostId", postId),
+      query.eq("originatingPostId", postId)
     )
     .take(1001);
   if (linkedItems.length > 1000) {
     throw new Error(
-      "System Post Action Item count exceeds the supported safety limit.",
+      "System Post Action Item count exceeds the supported safety limit."
     );
   }
   const openActionItemCount = linkedItems.filter(
-    (item) => item.status !== "done" && item.status !== "cancelled",
+    (item) => item.status !== "done" && item.status !== "cancelled"
   ).length;
   await ctx.db.patch(postId, { openActionItemCount });
 }
@@ -2086,7 +2108,7 @@ function plainTextDocument(value: string) {
 }
 
 export function milestoneSystemTriggerRole(
-  roles: readonly string[],
+  roles: readonly string[]
 ): BuildCollaborationRole | undefined {
   return resolveEffectiveCollaborationRole(roles)?.role;
 }

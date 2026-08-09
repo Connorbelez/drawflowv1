@@ -8,10 +8,6 @@ import {
   buildActionItemSystemModeValidator,
   buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
-  buildPlanningDiffCategoryValidator,
-  buildPlanningDiffChangeTypeValidator,
-  buildPlanningRevisionKindValidator,
-  buildPlanningStateValidator,
   buildCollaborationActorKindValidator,
   buildCollaborationApprovalStateValidator,
   buildCollaborationAssetScanStateValidator,
@@ -35,6 +31,10 @@ import {
   buildCollaborationTenantStatusValidator,
   buildCollaborationThreadStateValidator,
   buildParticipantStatusValidator,
+  buildPlanningDiffCategoryValidator,
+  buildPlanningDiffChangeTypeValidator,
+  buildPlanningRevisionKindValidator,
+  buildPlanningStateValidator,
   costDocumentBatchStateValidator,
   costDocumentDraftLifecycleValidator,
   costDocumentDraftPageStateValidator,
@@ -410,7 +410,7 @@ const systemPostBackfillUnknownFactValidator = v.union(
   v.literal("evidence"),
   v.literal("review"),
   v.literal("approval"),
-  v.literal("disposition"),
+  v.literal("disposition")
 );
 
 const systemPostHistoricalBackfillValidator = v.object({
@@ -3835,8 +3835,8 @@ export default defineSchema({
           entityId: v.string(),
           entityType: v.string(),
           revision: v.optional(v.number()),
-        }),
-      ),
+        })
+      )
     ),
     priorState: v.optional(v.string()),
     newState: v.optional(v.string()),
@@ -4089,6 +4089,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_collaborationBuildId", ["collaborationBuildId"])
+    .index("by_collaborationBuildId_and_collaborationActionItemId", [
+      "collaborationBuildId",
+      "collaborationActionItemId",
+    ])
     .index("by_recipient", [
       "organizationId",
       "recipientWorkosUserId",
@@ -4666,7 +4670,7 @@ export default defineSchema({
     materializationRecoveryAttemptCount: v.optional(v.number()),
     materializationRecoveryExhaustedAt: v.optional(v.number()),
     materializationRecoveryState: v.optional(
-      v.union(v.literal("pending"), v.literal("exhausted")),
+      v.union(v.literal("pending"), v.literal("exhausted"))
     ),
     materializationLastScheduledAt: v.optional(v.number()),
   })
@@ -5055,9 +5059,92 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_buildId_and_planToken", ["buildId", "planToken"])
-    .index("by_organizationId_and_updatedAt", [
-      "organizationId",
-      "updatedAt",
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildSubmilestoneCompanionCutoverRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    planToken: v.string(),
+    planVersion: v.string(),
+    status: v.union(
+      v.literal("seeding_reports"),
+      v.literal("repairing"),
+      v.literal("materializing"),
+      v.literal("checking_parity"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    batchSize: v.number(),
+    milestoneIds: v.array(v.id("buildMilestones")),
+    lastParityRecordKey: v.optional(v.string()),
+    nextReportOrdinal: v.number(),
+    nextMilestoneOrdinal: v.number(),
+    nextSeedOrdinal: v.number(),
+    reportCount: v.number(),
+    activeSubmilestoneCount: v.number(),
+    healthyCount: v.number(),
+    missingCount: v.number(),
+    duplicateCount: v.number(),
+    malformedCount: v.number(),
+    crossScopeCount: v.number(),
+    historicalCount: v.number(),
+    repairedCount: v.number(),
+    materializedCount: v.number(),
+    exceptionCount: v.number(),
+    parityCheckedCount: v.number(),
+    parityMismatchCount: v.number(),
+    manualActionItemCount: v.number(),
+    generatedCompanionCount: v.number(),
+    reportHash: v.optional(v.string()),
+    lastError: v.optional(v.string()),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_planToken", ["buildId", "planToken"])
+    .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_buildId_and_updatedAt", ["buildId", "updatedAt"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildSubmilestoneCompanionCutoverReports: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    runId: v.id("buildSubmilestoneCompanionCutoverRuns"),
+    ordinal: v.number(),
+    reportId: v.string(),
+    recordKey: v.string(),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    candidateActionItemIds: v.array(v.id("buildActionItems")),
+    classification: v.union(
+      v.literal("healthy"),
+      v.literal("missing"),
+      v.literal("duplicate"),
+      v.literal("malformed"),
+      v.literal("cross_scope"),
+      v.literal("incorrectly_superseded"),
+      v.literal("historical")
+    ),
+    snapshotHash: v.string(),
+    outcome: v.union(
+      v.literal("pending"),
+      v.literal("unchanged"),
+      v.literal("repaired"),
+      v.literal("materialized"),
+      v.literal("historical"),
+      v.literal("exception")
+    ),
+    survivorActionItemId: v.optional(v.id("buildActionItems")),
+    historyCountsJson: v.optional(v.string()),
+    exceptionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_runId_and_ordinal", ["runId", "ordinal"])
+    .index("by_runId_and_recordKey", ["runId", "recordKey"])
+    .index("by_buildSubmilestoneId_and_createdAt", [
+      "buildSubmilestoneId",
+      "createdAt",
     ]),
   buildCollaborationLegacyNoteMigrationRuns: defineTable({
     organizationId: v.string(),
@@ -5727,7 +5814,7 @@ export default defineSchema({
     // fields identify the immutable activation revision without making the
     // collaboration post a second source of truth.
     activationPlanningRevisionId: v.optional(
-      v.id("activeBuildPlanningRevisions"),
+      v.id("activeBuildPlanningRevisions")
     ),
     currentPlanningRevision: v.optional(v.number()),
     systemLifecycle: v.optional(
@@ -5735,16 +5822,16 @@ export default defineSchema({
         v.literal("latent"),
         v.literal("open"),
         v.literal("resolved"),
-        v.literal("reopened"),
-      ),
+        v.literal("reopened")
+      )
     ),
     systemDisposition: v.optional(
       v.union(
         v.literal("withdrawal"),
         v.literal("cancellation"),
         v.literal("final_decline"),
-        v.literal("released"),
-      ),
+        v.literal("released")
+      )
     ),
     // Historical System Posts retain only proven source chronology/actor
     // facts.  `materializedAt` is migration metadata and must never be used
@@ -6371,6 +6458,19 @@ export default defineSchema({
     systemMode: v.optional(buildActionItemSystemModeValidator),
     canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
     canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    historicalCanonicalBuildSubmilestoneId: v.optional(
+      v.id("buildSubmilestones")
+    ),
+    canonicalCompanionDisposition: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("historical"),
+        v.literal("historical_duplicate"),
+        v.literal("quarantined")
+      )
+    ),
+    canonicalCompanionSurvivorId: v.optional(v.id("buildActionItems")),
+    canonicalCompanionSupersededAt: v.optional(v.number()),
     canonicalBindingRevision: v.optional(v.number()),
     canonicalPlanningState: v.optional(buildPlanningStateValidator),
   })
@@ -6552,6 +6652,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_buildId_and_projectionKey", ["buildId", "projectionKey"])
+    .index("by_buildId_and_actionItemId", ["buildId", "actionItemId"])
     .index("by_buildId_and_targetKind_and_targetId_and_createdAt", [
       "buildId",
       "targetKind",
@@ -6834,6 +6935,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_buildId", ["buildId"])
+    .index("by_buildId_and_collaborationActionItemId", [
+      "buildId",
+      "collaborationActionItemId",
+    ])
     .index("by_status_and_scheduledFor", ["status", "scheduledFor"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_providerOutboxId", ["providerOutboxId"])
@@ -7166,8 +7271,8 @@ export default defineSchema({
         v.literal("in_review"),
         v.literal("ready_for_approval"),
         v.literal("approved"),
-        v.literal("reopened"),
-      ),
+        v.literal("reopened")
+      )
     ),
     reviewDecisionId: v.optional(v.id("buildMilestoneReviewDecisions")),
     reviewRevision: v.optional(v.number()),
@@ -7238,12 +7343,12 @@ export default defineSchema({
         v.literal("in_review"),
         v.literal("changes_requested"),
         v.literal("approved"),
-        v.literal("reopened"),
-      ),
+        v.literal("reopened")
+      )
     ),
     reviewDecisionId: v.optional(v.id("buildSubmilestoneReviewDecisions")),
     siteVisitRequirementId: v.optional(
-      v.id("buildSubmilestoneSiteVisitRequirements"),
+      v.id("buildSubmilestoneSiteVisitRequirements")
     ),
     reviewRevision: v.optional(v.number()),
     completionSubmissionId: v.optional(
@@ -7310,7 +7415,7 @@ export default defineSchema({
       v.literal("not_required"),
       v.literal("required"),
       v.literal("satisfied"),
-      v.literal("waived"),
+      v.literal("waived")
     ),
     siteVisitId: v.optional(v.id("buildSiteVisits")),
     waivedByWorkosUserId: v.optional(v.string()),
@@ -7338,13 +7443,11 @@ export default defineSchema({
       v.literal("changes_requested"),
       v.literal("approved"),
       v.literal("site_visit_waived"),
-      v.literal("retracted"),
+      v.literal("retracted")
     ),
     siteVisitRequired: v.optional(v.boolean()),
     siteVisitId: v.optional(v.id("buildSiteVisits")),
-    requirementId: v.optional(
-      v.id("buildSubmilestoneSiteVisitRequirements"),
-    ),
+    requirementId: v.optional(v.id("buildSubmilestoneSiteVisitRequirements")),
     remediation: v.optional(v.array(v.string())),
     note: v.optional(v.string()),
     priorState: v.string(),
@@ -7361,10 +7464,7 @@ export default defineSchema({
       "buildSubmilestoneId",
       "idempotencyKey",
     ])
-    .index("by_submilestone_createdAt", [
-      "buildSubmilestoneId",
-      "createdAt",
-    ]),
+    .index("by_submilestone_createdAt", ["buildSubmilestoneId", "createdAt"]),
   buildSubmilestoneEvidenceRequirements: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -7527,7 +7627,8 @@ export default defineSchema({
   }).index("by_submilestone_idempotency", [
     "buildSubmilestoneId",
     "idempotencyKey",
-  ]),  milestoneStartEvents: defineTable({
+  ]),
+  milestoneStartEvents: defineTable({
     actualStartedAt: v.optional(v.number()),
     actorRoles: v.array(v.string()),
     actorWorkosUserId: v.string(),
@@ -8047,10 +8148,7 @@ export default defineSchema({
     idempotencyKey: v.string(),
   })
     .index("by_milestone_revision", ["buildMilestoneId", "reviewRevision"])
-    .index("by_milestone_idempotency", [
-      "buildMilestoneId",
-      "idempotencyKey",
-    ]),
+    .index("by_milestone_idempotency", ["buildMilestoneId", "idempotencyKey"]),
   siteVisitLinkRecoveryRequests: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
     buildId: v.string(),
