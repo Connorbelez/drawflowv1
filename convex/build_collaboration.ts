@@ -463,10 +463,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
         .order("desc")
         .paginate({ cursor, numItems: args.paginationOpts.numItems });
       for (const [index, post] of result.page.entries()) {
-        if (
-          args.filter === "active_operations" &&
-          !isActiveBuildCollaborationOperation(post)
-        ) {
+        if (shouldSkipBuildCollaborationFeedPost(post, args.filter)) {
           continue;
         }
         const placeholderKey = stableContentHash(
@@ -500,6 +497,19 @@ export const listBuildCollaborationFeed = authenticatedQuery
     return { continueCursor: cursor ?? "", isDone, page };
   })
   .public();
+
+function shouldSkipBuildCollaborationFeedPost(
+  post: Doc<"buildCollaborationPosts">,
+  filter: "all" | "active_operations" | undefined,
+) {
+  // Approved-plan companions are identity records, not activity. They become
+  // feed-visible only when the canonical Milestone activates.
+  return (
+    post.systemLifecycle === "latent" ||
+    (filter === "active_operations" &&
+      !isActiveBuildCollaborationOperation(post))
+  );
+}
 
 function isActiveBuildCollaborationOperation(
   post: Doc<"buildCollaborationPosts">,

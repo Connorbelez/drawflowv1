@@ -5731,7 +5731,12 @@ export default defineSchema({
     ),
     currentPlanningRevision: v.optional(v.number()),
     systemLifecycle: v.optional(
-      v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened")),
+      v.union(
+        v.literal("latent"),
+        v.literal("open"),
+        v.literal("resolved"),
+        v.literal("reopened"),
+      ),
     ),
     systemDisposition: v.optional(
       v.union(
@@ -6369,6 +6374,10 @@ export default defineSchema({
     canonicalBindingRevision: v.optional(v.number()),
     canonicalPlanningState: v.optional(buildPlanningStateValidator),
   })
+    .index("by_canonicalBuildSubmilestoneId_and_systemMode", [
+      "canonicalBuildSubmilestoneId",
+      "systemMode",
+    ])
     .index("by_originatingPostId_and_createdAt", [
       "originatingPostId",
       "createdAt",

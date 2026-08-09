@@ -215,6 +215,7 @@ export const getFocusedBuildCollaborationPostContext = authenticatedQuery
       !post ||
       post.buildId !== authorization.build._id ||
       post.organizationId !== authorization.organizationId ||
+      post.systemLifecycle === "latent" ||
       !(await canReadCollaborationPost(ctx, authorization, post)) ||
       (isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))

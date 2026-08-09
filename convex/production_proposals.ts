@@ -63,6 +63,7 @@ import {
 } from "./build_submilestone_evidence";
 import { scheduleCurrentMilestoneSystemPostActivations } from "./build_collaboration_scheduling";
 import {
+  ensureApprovedBuildSubmilestoneCompanions,
   synchronizeDrawSystemPostForCanonicalDraw,
   synchronizeMilestoneSystemPostPlanning,
   validateBuildTimezone,
@@ -5778,6 +5779,10 @@ export const recordOfflineClosing = authenticatedMutation
         },
         build,
         now,
+      });
+      await ensureApprovedBuildSubmilestoneCompanions(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        build,
       });
       await scheduleCurrentMilestoneSystemPostActivations(ctx, { build, now });
       await writeActiveBuildEvent(ctx, {
@@ -32973,15 +32978,11 @@ async function replaceActiveBuildSubmilestones(
   const supersededIds: Id<"buildSubmilestones">[] = [];
   const existingByKey = new Map<string, Doc<"buildSubmilestones">>();
   for (const row of existing) {
+    // Reintroducing a removed planning row creates a new canonical occurrence.
+    // The superseded row and its collaboration companion remain historical.
+    if (row.planningState === "superseded") continue;
     const current = existingByKey.get(row.key);
-    if (
-      !current ||
-      (current.planningState === "superseded" &&
-        row.planningState !== "superseded") ||
-      (current.planningState === "superseded" &&
-        row.planningState === "superseded" &&
-        row.createdAt > current.createdAt)
-    ) {
+    if (!current || row.createdAt > current.createdAt) {
       existingByKey.set(row.key, row);
     }
   }
@@ -33000,34 +33001,6 @@ async function replaceActiveBuildSubmilestones(
     const normalizedName = row.name.trim() || "Submilestone";
     const existingRow = existingByKey.get(row.key);
     if (existingRow) {
-      const resetReactivatedState =
-        existingRow.planningState === "superseded"
-          ? {
-              actualStartedAt: undefined,
-              actualCostCents: undefined,
-              completionForecastDate: undefined,
-              completedAt: undefined,
-              completedByWorkosUserId: undefined,
-              evidencePackageRevisionId: undefined,
-              evidenceReviewRound: undefined,
-              evidenceReviewState: undefined,
-              fieldNote: undefined,
-              progressPercent: 0,
-              reviewDecisionId: undefined,
-              reviewDecisionState: undefined,
-              reviewRevision: undefined,
-              startEventId: undefined,
-              startReportedAt: undefined,
-              startedByWorkosUserId: undefined,
-              startSource: undefined,
-              status: "planned" as const,
-              workflowRevision: undefined,
-              activationPlanningRevision: undefined,
-              scheduledActivationJobId: undefined,
-              siteVisitRequirementId: undefined,
-              completionSubmissionId: undefined,
-            }
-          : {};
       await ctx.db.patch(existingRow._id, {
         budgetCents: row.budgetCents,
         durationDays: row.durationDays,
@@ -33043,7 +33016,6 @@ async function replaceActiveBuildSubmilestones(
         supersededAt: undefined,
         supersededByPlanningRevision: undefined,
         updatedAt: now,
-        ...resetReactivatedState,
       });
       const proposalRow = await ctx.db.get(existingRow.proposalSubmilestoneId);
       if (proposalRow) {

@@ -375,10 +375,7 @@ function planningSnapshotFromRows(buildId: string, rows: any[]) {
   return snapshot;
 }
 
-async function planningReconciliation(
-  viewer: any,
-  buildId: string,
-) {
+async function planningReconciliation(viewer: any, buildId: string) {
   const args = { buildId, organizationId: ORGANIZATION_ID };
   const planning = await viewer.query(
     (api as any).build_collaboration_planning_reconciliation
@@ -387,9 +384,21 @@ async function planningReconciliation(
   );
   const module = (api as any).build_collaboration_planning_reconciliation;
   const [activation, current, diffs] = await Promise.all([
-    readPlanningPages(viewer, module.getActiveBuildPlanningActivationSnapshot, args),
-    readPlanningPages(viewer, module.getActiveBuildPlanningReconciliationSnapshot, args),
-    readPlanningPages(viewer, module.listActiveBuildPlanningReconciliationDiffs, args),
+    readPlanningPages(
+      viewer,
+      module.getActiveBuildPlanningActivationSnapshot,
+      args,
+    ),
+    readPlanningPages(
+      viewer,
+      module.getActiveBuildPlanningReconciliationSnapshot,
+      args,
+    ),
+    readPlanningPages(
+      viewer,
+      module.listActiveBuildPlanningReconciliationDiffs,
+      args,
+    ),
   ]);
   return {
     ...planning,
@@ -419,9 +428,9 @@ async function silentBackfillSideEffectSnapshot(
   buildId: string,
 ) {
   return await base.run(async (ctx) => {
-    const actionItems = (await ctx.db.query("buildActionItems").collect()).filter(
-      (row) => String(row.buildId) === buildId,
-    );
+    const actionItems = (
+      await ctx.db.query("buildActionItems").collect()
+    ).filter((row) => String(row.buildId) === buildId);
     return {
       activityProjectionIds: (
         await ctx.db.query("buildCollaborationActivityProjections").collect()
@@ -440,7 +449,9 @@ async function silentBackfillSideEffectSnapshot(
       )
         .filter((row) => String(row.buildId) === buildId)
         .map((row) => String(row._id)),
-      actionItemEventIds: (await ctx.db.query("buildActionItemEvents").collect())
+      actionItemEventIds: (
+        await ctx.db.query("buildActionItemEvents").collect()
+      )
         .filter((row) => String(row.buildId) === buildId)
         .map((row) => String(row._id)),
       actionItemRevisionIds: (
@@ -512,13 +523,18 @@ async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
       );
     }
   }
-  throw new Error("Draw search maintenance did not drain within the test bound.");
+  throw new Error(
+    "Draw search maintenance did not drain within the test bound.",
+  );
 }
 
 describe("Build Collaboration operational events", () => {
   test("backfill preview is read-only and validate mode never materializes posts", async () => {
     const fixture = await seedOperationalBuild();
-    const before = await collaborationSnapshot(fixture.base, String(fixture.buildId));
+    const before = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
     const preview = await fixture.admin.query(
       (api as any).build_collaboration_system_post_backfill
         .previewBuildCollaborationSystemPostBackfill,
@@ -558,9 +574,9 @@ describe("Build Collaboration operational events", () => {
       materializedPostCount: 0,
       status: "complete",
     });
-    expect(await collaborationSnapshot(fixture.base, String(fixture.buildId))).toEqual(
-      before,
-    );
+    expect(
+      await collaborationSnapshot(fixture.base, String(fixture.buildId)),
+    ).toEqual(before);
     const materializeRun = await fixture.admin.mutation(
       (api as any).build_collaboration_system_post_backfill
         .startBuildCollaborationSystemPostBackfill,
@@ -729,7 +745,11 @@ describe("Build Collaboration operational events", () => {
         expect.objectContaining({
           historicalBackfill: expect.objectContaining({
             source: "existing_records",
-            unknownFacts: expect.arrayContaining(["start", "actor", "evidence"]),
+            unknownFacts: expect.arrayContaining([
+              "start",
+              "actor",
+              "evidence",
+            ]),
           }),
           materializedAt: expect.any(Number),
           systemPostKind: "milestone",
@@ -758,10 +778,12 @@ describe("Build Collaboration operational events", () => {
         }),
       ]),
     );
-    expect(await silentBackfillSideEffectSnapshot(
-      fixture.base,
-      String(fixture.buildId),
-    )).toEqual(sideEffectsBefore);
+    expect(
+      await silentBackfillSideEffectSnapshot(
+        fixture.base,
+        String(fixture.buildId),
+      ),
+    ).toEqual(sideEffectsBefore);
     const rerun = await fixture.admin.mutation(
       (api as any).build_collaboration_system_post_backfill
         .startBuildCollaborationSystemPostBackfill,
@@ -780,7 +802,7 @@ describe("Build Collaboration operational events", () => {
             (post) => String(post.buildId) === String(fixture.buildId),
           ).length,
       ),
-      ).toBe(3);
+    ).toBe(3);
     const activeOperations = await fixture.admin.query(
       (api as any).build_collaboration.listBuildCollaborationFeed,
       {
@@ -795,7 +817,9 @@ describe("Build Collaboration operational events", () => {
     );
     expect(activeOperationPosts).toHaveLength(2);
     expect(
-      activeOperationPosts.map((entry: any) => entry.post.systemPost?.lifecycle),
+      activeOperationPosts.map(
+        (entry: any) => entry.post.systemPost?.lifecycle,
+      ),
     ).toEqual(expect.arrayContaining(["open"]));
     expect(
       activeOperationPosts.every(
@@ -849,12 +873,13 @@ describe("Build Collaboration operational events", () => {
         {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).resolves.toEqual({
       buildId: fixture.buildId,
       organizationId: ORGANIZATION_ID,
       role: "admin",
+      roles: ["admin", "principle-broker"],
       workosUserId: "user_admin",
     });
   });
@@ -924,7 +949,11 @@ describe("Build Collaboration operational events", () => {
           updatedAt: now + index,
         });
       }
-      return { build, milestone, submilestone: await ctx.db.get(submilestoneId) };
+      return {
+        build,
+        milestone,
+        submilestone: await ctx.db.get(submilestoneId),
+      };
     });
     if (!scope.submilestone) {
       throw new Error("Overloaded submilestone fixture is unavailable.");
@@ -1036,9 +1065,9 @@ describe("Build Collaboration operational events", () => {
       triggeredByWorkosUserId: "user_builder",
     });
     expect(systemCards).toHaveLength(submilestoneIds.length);
-    expect(systemCards.map((item) => item.canonicalBuildSubmilestoneId)).toEqual(
-      expect.arrayContaining(submilestoneIds),
-    );
+    expect(
+      systemCards.map((item) => item.canonicalBuildSubmilestoneId),
+    ).toEqual(expect.arrayContaining(submilestoneIds));
     await fixture.base.run(async (ctx) => {
       await ctx.db.patch(fixture.buildId, { timezone: "America/Toronto" });
     });
@@ -1089,7 +1118,8 @@ describe("Build Collaboration operational events", () => {
     ).rejects.toThrow(/cannot be edited or transitioned directly/i);
     await expect(
       fixture.admin.mutation(
-        (api as any).build_collaboration_editing.tombstoneBuildCollaborationPost,
+        (api as any).build_collaboration_editing
+          .tombstoneBuildCollaborationPost,
         {
           buildId: fixture.buildId,
           expectedRevision: systemPosts[0]!.revision,
@@ -1137,16 +1167,16 @@ describe("Build Collaboration operational events", () => {
       ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (query) =>
-          query.eq("entityType", "buildCollaborationPost").eq(
-            "entityId",
-            String(systemPosts[0]!._id),
-          ),
+          query
+            .eq("entityType", "buildCollaborationPost")
+            .eq("entityId", String(systemPosts[0]!._id)),
         )
         .collect(),
     );
     expect(
       auditEvents.filter(
-        (event) => event.eventType === "build.collaboration.system_event.published",
+        (event) =>
+          event.eventType === "build.collaboration.system_event.published",
       ),
     ).toHaveLength(1);
     expect(
@@ -1156,6 +1186,306 @@ describe("Build Collaboration operational events", () => {
     expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
       "restricted",
     ]);
+  });
+
+  test("pre-materializes a silent latent Sub-milestone companion and activates it in place", async () => {
+    const fixture = await seedOperationalBuild();
+    const beforeSideEffects = await silentBackfillSideEffectSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    const milestone = {
+      budgetCents: 10_000_000,
+      dayEnd: 30,
+      dayStart: 21,
+      durationDays: 9,
+      evidenceState: "",
+      dependencyKeys: [],
+      milestoneKey: "framing",
+      name: "Framing",
+      order: 2,
+      policyState: "",
+      status: "planned" as const,
+      submilestones: [
+        {
+          budgetCents: 10_000_000,
+          durationDays: 9,
+          key: "frame-walls",
+          name: "Frame walls",
+          order: 1,
+          startDay: 0,
+        },
+      ],
+      x: 21,
+    };
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.createActiveBuildTimelineMilestone,
+      {
+        buildId: fixture.buildId,
+        milestone,
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+
+    const afterCreate = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    const latentPost = afterCreate.posts.find(
+      (post) =>
+        post.canonicalBuildMilestoneId && post.systemPostKind === "milestone",
+    );
+    const companion = afterCreate.actionItems.find(
+      (item) => item.systemMode === "generated_milestone_submilestone",
+    );
+    expect(latentPost).toMatchObject({
+      activationReason: "plan_activated",
+      systemLifecycle: "latent",
+    });
+    expect(latentPost).not.toHaveProperty("triggeredAt");
+    expect(latentPost).not.toHaveProperty("triggeredByRole");
+    expect(latentPost).not.toHaveProperty("triggeredByWorkosUserId");
+    expect(companion).toMatchObject({
+      canonicalBuildMilestoneId: latentPost?.canonicalBuildMilestoneId,
+      canonicalPlanningState: "active",
+      status: "todo",
+      systemMode: "generated_milestone_submilestone",
+    });
+    expect(await feedKinds(fixture.builder, fixture.buildId)).toEqual([]);
+
+    const afterCreateSideEffects = await silentBackfillSideEffectSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(afterCreateSideEffects.activityProjectionIds).toEqual(
+      beforeSideEffects.activityProjectionIds,
+    );
+    expect(afterCreateSideEffects.actionItemCreationRequestIds).toEqual(
+      beforeSideEffects.actionItemCreationRequestIds,
+    );
+    expect(afterCreateSideEffects.actionItemEventIds).toEqual(
+      beforeSideEffects.actionItemEventIds,
+    );
+    expect(afterCreateSideEffects.actionItemRevisionIds).toEqual(
+      beforeSideEffects.actionItemRevisionIds,
+    );
+    expect(afterCreateSideEffects.deliveryIds).toEqual(
+      beforeSideEffects.deliveryIds,
+    );
+    expect(afterCreateSideEffects.mentionDeliveryIds).toEqual(
+      beforeSideEffects.mentionDeliveryIds,
+    );
+    expect(afterCreateSideEffects.receiptIds).toEqual(
+      beforeSideEffects.receiptIds,
+    );
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "framing",
+        name: "Framing",
+        submilestones: milestone.submilestones,
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const afterReplay = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(afterReplay.posts).toHaveLength(afterCreate.posts.length);
+    expect(afterReplay.actionItems).toHaveLength(
+      afterCreate.actionItems.length,
+    );
+    expect(afterReplay.references).toHaveLength(afterCreate.references.length);
+
+    await fixture.builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-08-03T14:00:00.000Z"),
+        buildId: fixture.buildId,
+        idempotencyKey: "eng-423-framing-start-001",
+        milestoneKey: "framing",
+        source: "milestone_detail",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const afterStart = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    const activePost = afterStart.posts.find(
+      (post) => post._id === latentPost?._id,
+    );
+    expect(activePost).toMatchObject({
+      activationReason: "explicit_start",
+      systemLifecycle: "open",
+      triggeredAt: expect.any(Number),
+      triggeredByRole: "builder",
+      triggeredByWorkosUserId: "user_builder",
+    });
+    expect(
+      afterStart.actionItems.find((item) => item._id === companion?._id),
+    ).toBeDefined();
+    expect(await feedKinds(fixture.builder, fixture.buildId)).toEqual(["post"]);
+
+    await fixture.builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-08-03T14:00:00.000Z"),
+        buildId: fixture.buildId,
+        idempotencyKey: "eng-423-framing-start-001",
+        milestoneKey: "framing",
+        source: "milestone_detail",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const afterStartReplay = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(
+      afterStartReplay.posts.find((post) => post._id === latentPost?._id),
+    ).toMatchObject({
+      revision: activePost?.revision,
+      systemLifecycle: "open",
+    });
+    expect(afterStartReplay.deliveries).toHaveLength(
+      afterStart.deliveries.length,
+    );
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "framing",
+        submilestones: [
+          {
+            budgetCents: 10_000_000,
+            durationDays: 9,
+            key: "roof-frame",
+            name: "Frame roof",
+            order: 1,
+            startDay: 0,
+          },
+        ],
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "framing",
+        submilestones: milestone.submilestones,
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const reintroduced = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    const frameCompanions = reintroduced.actionItems.filter(
+      (item) => item.title === "Frame walls",
+    );
+    expect(frameCompanions).toHaveLength(2);
+    expect(frameCompanions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: companion?._id,
+          canonicalPlanningState: "superseded",
+        }),
+        expect.objectContaining({ canonicalPlanningState: "active" }),
+      ]),
+    );
+    expect(
+      frameCompanions.find((item) => item.canonicalPlanningState === "active")
+        ?._id,
+    ).not.toBe(companion?._id);
+  });
+
+  test("fails closed for malformed and duplicate canonical companion bindings", async () => {
+    const fixture = await seedOperationalBuild();
+    await fixture.admin.mutation(
+      (api as any).production_proposals.createActiveBuildTimelineMilestone,
+      {
+        buildId: fixture.buildId,
+        milestone: {
+          budgetCents: 8_000_000,
+          dayEnd: 28,
+          dayStart: 21,
+          durationDays: 7,
+          evidenceState: "",
+          dependencyKeys: [],
+          milestoneKey: "rough-in",
+          name: "Rough-in",
+          order: 2,
+          policyState: "",
+          status: "planned",
+          submilestones: [
+            {
+              budgetCents: 8_000_000,
+              durationDays: 7,
+              key: "electrical-rough-in",
+              name: "Electrical rough-in",
+              order: 1,
+              startDay: 0,
+            },
+          ],
+          x: 21,
+        },
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const companion = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildActionItems")
+        .withIndex("by_buildId_and_systemMode", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("systemMode", "generated_milestone_submilestone"),
+        )
+        .unique(),
+    );
+    expect(companion).toBeDefined();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(companion!._id, { organizationId: "org_other" });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+        {
+          buildId: fixture.buildId,
+          milestoneKey: "rough-in",
+          name: "Rough-in updated",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/invalid tenant or parent scope/i);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(companion!._id, { organizationId: ORGANIZATION_ID });
+      const {
+        _creationTime: _ignoredCreationTime,
+        _id: _ignoredId,
+        ...row
+      } = companion!;
+      await ctx.db.insert("buildActionItems", row);
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.parse("2026-08-03T15:00:00.000Z"),
+          buildId: fixture.buildId,
+          idempotencyKey: "eng-423-duplicate-binding-start-001",
+          milestoneKey: "rough-in",
+          source: "milestone_detail",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/duplicate collaboration companions/i);
   });
 
   test("rejects zero-child active Milestone writes and renders legacy recovery without fabricating cards", async () => {
@@ -2394,9 +2724,9 @@ describe("Build Collaboration operational events", () => {
       String(fixture.buildId),
     );
     expect(snapshot.posts).toHaveLength(2);
-    expect(snapshot.posts.every((post: any) => post.systemPostKind === "draw")).toBe(
-      true,
-    );
+    expect(
+      snapshot.posts.every((post: any) => post.systemPostKind === "draw"),
+    ).toBe(true);
     expect(snapshot.actionItems).toHaveLength(0);
     expect(snapshot.references).toHaveLength(2);
     expect(
@@ -2478,8 +2808,7 @@ describe("Build Collaboration operational events", () => {
         await ctx.db.query("buildCollaborationExternalDeliveries").collect()
       ).filter(
         (delivery) =>
-          delivery.recipientWorkosUserId ===
-          "user_builder_staff_draw_view",
+          delivery.recipientWorkosUserId === "user_builder_staff_draw_view",
       ),
       outboxes: await Promise.all(
         permittedOutboxIds.map((outboxId) => ctx.db.get(outboxId)),
@@ -2499,12 +2828,11 @@ describe("Build Collaboration operational events", () => {
       ]),
     );
     expect(
-      revokedDeliveryState.deliveries
-        .every(
-          (delivery) =>
-            delivery.status === "cancelled" &&
-            delivery.cancellationReason === "access_revoked",
-        ),
+      revokedDeliveryState.deliveries.every(
+        (delivery) =>
+          delivery.status === "cancelled" &&
+          delivery.cancellationReason === "access_revoked",
+      ),
     ).toBe(true);
     for (const outbox of revokedDeliveryState.outboxes) {
       expect(outbox).toEqual(
@@ -2577,7 +2905,9 @@ describe("Build Collaboration operational events", () => {
         .collect(),
       plannedDraws: await ctx.db
         .query("plannedDrawScheduleRows")
-        .withIndex("by_build_order", (query) => query.eq("buildId", fixture.buildId))
+        .withIndex("by_build_order", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
         .collect(),
       siteVisits: await ctx.db
         .query("buildSiteVisits")
@@ -2623,7 +2953,9 @@ describe("Build Collaboration operational events", () => {
         .collect(),
       plannedDraws: await ctx.db
         .query("plannedDrawScheduleRows")
-        .withIndex("by_build_order", (query) => query.eq("buildId", fixture.buildId))
+        .withIndex("by_build_order", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
         .collect(),
       siteVisits: await ctx.db
         .query("buildSiteVisits")
@@ -3069,7 +3401,9 @@ describe("Build Collaboration operational events", () => {
       fixture.base,
       String(fixture.buildId),
     );
-    expect(afterRollback.posts).toHaveLength(afterSilentRemediation.posts.length);
+    expect(afterRollback.posts).toHaveLength(
+      afterSilentRemediation.posts.length,
+    );
     expect(afterRollback.references).toHaveLength(
       afterSilentRemediation.references.length,
     );
@@ -3151,35 +3485,36 @@ describe("Build Collaboration operational events", () => {
           mimeType: "application/pdf",
           sizeBytes: 1024,
           workosOrganizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow(/temporarily frozen for a rollback rehearsal snapshot/i);
 
     const state = await fixture.base.run(async (ctx) => ({
       auditCount: (await ctx.db.query("auditEvents").collect()).filter(
         (event) =>
           event.organizationId === ORGANIZATION_ID &&
-          event.command === "addActiveBuildDocument"
+          event.command === "addActiveBuildDocument",
       ).length,
       documentCount: (
         await ctx.db
           .query("buildDocuments")
           .withIndex("by_build", (query) =>
-            query.eq("buildId", fixture.buildId)
+            query.eq("buildId", fixture.buildId),
           )
           .collect()
       ).length,
     }));
     expect(state).toEqual({ auditCount: 0, documentCount: 0 });
     expect(
-      (await collaborationSnapshot(fixture.base, String(fixture.buildId))).posts
+      (await collaborationSnapshot(fixture.base, String(fixture.buildId)))
+        .posts,
     ).toHaveLength(0);
 
     await fixture.base.run(async (ctx) => {
       const setting = await ctx.db
         .query("buildCollaborationTenantSettings")
         .withIndex("by_organizationId", (query) =>
-          query.eq("organizationId", ORGANIZATION_ID)
+          query.eq("organizationId", ORGANIZATION_ID),
         )
         .unique();
       await ctx.db.patch(setting!._id, {
@@ -3202,20 +3537,21 @@ describe("Build Collaboration operational events", () => {
           mimeType: "application/pdf",
           sizeBytes: 1024,
           workosOrganizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow(/temporarily frozen for a rollback rehearsal snapshot/i);
     expect(
-      await fixture.base.run(async (ctx) =>
-        (
-          await ctx.db
-            .query("buildDocuments")
-            .withIndex("by_build", (query) =>
-              query.eq("buildId", fixture.buildId)
-            )
-            .collect()
-        ).length
-      )
+      await fixture.base.run(
+        async (ctx) =>
+          (
+            await ctx.db
+              .query("buildDocuments")
+              .withIndex("by_build", (query) =>
+                query.eq("buildId", fixture.buildId),
+              )
+              .collect()
+          ).length,
+      ),
     ).toBe(0);
 
     await fixture.base.run(async (ctx) => {
@@ -3235,20 +3571,21 @@ describe("Build Collaboration operational events", () => {
           mimeType: "application/pdf",
           sizeBytes: 1024,
           workosOrganizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow(/temporarily frozen for a rollback rehearsal snapshot/i);
     expect(
-      await fixture.base.run(async (ctx) =>
-        (
-          await ctx.db
-            .query("buildDocuments")
-            .withIndex("by_build", (query) =>
-              query.eq("buildId", fixture.buildId)
-            )
-            .collect()
-        ).length
-      )
+      await fixture.base.run(
+        async (ctx) =>
+          (
+            await ctx.db
+              .query("buildDocuments")
+              .withIndex("by_build", (query) =>
+                query.eq("buildId", fixture.buildId),
+              )
+              .collect()
+          ).length,
+      ),
     ).toBe(0);
   });
 
@@ -3321,14 +3658,15 @@ describe("Build Collaboration operational events", () => {
         workosOrganizationId: ORGANIZATION_ID,
       },
     );
-    const before = await collaborationSnapshot(fixture.base, String(fixture.buildId));
+    const before = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
     const beforeCards = before.actionItems.filter(
       (item) => item.systemMode === "generated_milestone_submilestone",
     );
     expect(beforeCards).toHaveLength(2);
-    const firstCard = beforeCards.find(
-      (item) => item.title === "Excavate",
-    );
+    const firstCard = beforeCards.find((item) => item.title === "Excavate");
     const secondCard = beforeCards.find(
       (item) => item.title === "Pour footings",
     );
@@ -3355,7 +3693,9 @@ describe("Build Collaboration operational events", () => {
       {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
-        postId: before.posts.find((post) => post.systemPostKind === "milestone")!._id,
+        postId: before.posts.find(
+          (post) => post.systemPostKind === "milestone",
+        )!._id,
       },
     );
     expect(ordinaryDependencyFocused.entry.post.planningSummary).toMatchObject({
@@ -3381,7 +3721,10 @@ describe("Build Collaboration operational events", () => {
         workosOrganizationId: ORGANIZATION_ID,
       },
     );
-    const afterPlan = await collaborationSnapshot(fixture.base, String(fixture.buildId));
+    const afterPlan = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
     const afterCards = afterPlan.actionItems.filter(
       (item) => item.systemMode === "generated_milestone_submilestone",
     );
@@ -3410,10 +3753,7 @@ describe("Build Collaboration operational events", () => {
     );
     expect(
       reconciliation.diffs.filter(
-        (diff: {
-          entityKey: string;
-          field: string;
-        }) =>
+        (diff: { entityKey: string; field: string }) =>
           diff.entityKey === "foundation:foundation-1" &&
           diff.field === "planningState",
       ),
@@ -3457,7 +3797,9 @@ describe("Build Collaboration operational events", () => {
       {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
-        postId: afterPlan.posts.find((post) => post.systemPostKind === "milestone")!._id,
+        postId: afterPlan.posts.find(
+          (post) => post.systemPostKind === "milestone",
+        )!._id,
       },
     );
     expect(focused.state).toBe("visible");
@@ -3471,17 +3813,23 @@ describe("Build Collaboration operational events", () => {
       fixture.contractor,
       String(fixture.buildId),
     );
-    expect(contractorReconciliation.activation.snapshot.allocations).toEqual([]);
+    expect(contractorReconciliation.activation.snapshot.allocations).toEqual(
+      [],
+    );
     expect(contractorReconciliation.activation.snapshot.draws).toEqual([]);
-    expect(contractorReconciliation.activation.snapshot.evidenceRequirements).toEqual([]);
-    expect(contractorReconciliation.diffs.every((diff: { entityType: string }) =>
-      diff.entityType === "milestone" || diff.entityType === "submilestone",
-    )).toBe(true);
+    expect(
+      contractorReconciliation.activation.snapshot.evidenceRequirements,
+    ).toEqual([]);
+    expect(
+      contractorReconciliation.diffs.every(
+        (diff: { entityType: string }) =>
+          diff.entityType === "milestone" || diff.entityType === "submilestone",
+      ),
+    ).toBe(true);
     expect(
       contractorReconciliation.revisions.every(
         (revision: Record<string, unknown>) =>
-          Object.keys(revision).sort().join(",") ===
-          "approvedAt,kind,revision",
+          Object.keys(revision).sort().join(",") === "approvedAt,kind,revision",
       ),
     ).toBe(true);
     expect(contractorReconciliation.activation).not.toHaveProperty(
@@ -3651,8 +3999,7 @@ describe("Build Collaboration operational events", () => {
         if (!post) return null;
         return {
           activationReason: post.activationReason,
-          canonicalBuildDrawOccurrenceKey:
-            post.canonicalBuildDrawOccurrenceKey,
+          canonicalBuildDrawOccurrenceKey: post.canonicalBuildDrawOccurrenceKey,
           canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
           currentPlanningRevision: post.currentPlanningRevision,
           primaryReferenceId: post.primaryReferenceId,
@@ -3680,9 +4027,7 @@ describe("Build Collaboration operational events", () => {
         workKind: "ordinary",
       },
     );
-    const ordinary = await fixture.base.run(async (ctx) =>
-      ctx.db.get(itemId),
-    );
+    const ordinary = await fixture.base.run(async (ctx) => ctx.db.get(itemId));
     expect((ordinary as any)?.systemMode).toBeUndefined();
     const assigned = await fixture.broker.mutation(
       (api as any).build_action_item_workflow.assignBuildActionItem,
@@ -3743,9 +4088,7 @@ describe("Build Collaboration operational events", () => {
         postId: drawPostId,
       },
     );
-    const left = await fixture.base.run(async (ctx) =>
-      ctx.db.get(joined!._id),
-    );
+    const left = await fixture.base.run(async (ctx) => ctx.db.get(joined!._id));
     expect(left?.active).toBe(true);
     expect(left?.coordinationActive).toBe(false);
     const external = withIdentity(
@@ -3773,7 +4116,9 @@ describe("Build Collaboration operational events", () => {
     expect(externalFeed.page[0]?.reactions).toEqual([]);
     expect(externalFeed.page[0]?.receipts).toEqual([]);
     expect(externalFeed.page[0]?.post.commentCount).toBe(0);
-    expect(externalFeed.page[0]?.post.systemPost.drawCoordination).toBeUndefined();
+    expect(
+      externalFeed.page[0]?.post.systemPost.drawCoordination,
+    ).toBeUndefined();
     await expect(
       external.mutation(
         (api as any).build_draw_coordination.joinDrawCoordination,
@@ -3973,7 +4318,9 @@ describe("Build Collaboration operational events", () => {
     await fixture.base.run(async (ctx) => {
       const existingState = await ctx.db
         .query("buildCollaborationBuildStates")
-        .withIndex("by_buildId", (query) => query.eq("buildId", fixture.buildId))
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
         .order("desc")
         .first();
       if (existingState) {
@@ -4130,7 +4477,9 @@ describe("Build Collaboration operational events", () => {
           paginationOpts: { cursor: null, numItems: 100 },
         },
       ),
-    ).rejects.toThrow(/planning snapshot exceeds the 1000 Milestones safety limit/i);
+    ).rejects.toThrow(
+      /planning snapshot exceeds the 1000 Milestones safety limit/i,
+    );
   });
 
   test("paginates an activation snapshot across planning entity pages", async () => {
@@ -4278,7 +4627,7 @@ describe("Build Collaboration operational events", () => {
       { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     expect(first).toMatchObject({
-      repairedMilestoneCount: 1,
+      repairedMilestoneCount: 0,
       synchronizedMilestoneCount: 1,
     });
     const second = await fixture.admin.mutation(
@@ -4392,8 +4741,9 @@ describe("Build Collaboration operational events", () => {
     );
     expect(pending.materializationPending).toBe(true);
     expect(
-      pending.activation.snapshot.milestones.filter((milestone: { entityKey: string }) =>
-        milestone.entityKey.startsWith("synthetic-"),
+      pending.activation.snapshot.milestones.filter(
+        (milestone: { entityKey: string }) =>
+          milestone.entityKey.startsWith("synthetic-"),
       ),
     ).toHaveLength(251);
     expect(pending.diffs).toHaveLength(251);
@@ -4416,14 +4766,16 @@ describe("Build Collaboration operational events", () => {
     );
     expect(completed.materializationPending).toBe(false);
     expect(
-      completed.activation.snapshot.milestones.filter((milestone: { entityKey: string }) =>
-        milestone.entityKey.startsWith("synthetic-"),
+      completed.activation.snapshot.milestones.filter(
+        (milestone: { entityKey: string }) =>
+          milestone.entityKey.startsWith("synthetic-"),
       ),
     ).toHaveLength(251);
     expect(completed.diffs).toHaveLength(251);
     expect(
-      completed.revisions.find((revision: { revision: number }) => revision.revision === 2)
-        ?.diffCount,
+      completed.revisions.find(
+        (revision: { revision: number }) => revision.revision === 2,
+      )?.diffCount,
     ).toBe(251);
 
     await fixture.base.mutation(
@@ -4432,8 +4784,9 @@ describe("Build Collaboration operational events", () => {
       { revisionId: activationRevisionId },
     );
     const persistedCounts = await fixture.base.run(async (ctx) => ({
-      chunks: (await ctx.db.query("activeBuildPlanningRevisionChunks").collect())
-        .length,
+      chunks: (
+        await ctx.db.query("activeBuildPlanningRevisionChunks").collect()
+      ).length,
       diffs: (
         await ctx.db
           .query("activeBuildPlanningRevisionDiffs")
@@ -4518,7 +4871,9 @@ describe("Build Collaboration operational events", () => {
       (await ctx.db.get(revisionId))
         ? await ctx.db
             .query("activeBuildPlanningRevisionChunks")
-            .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+            .withIndex("by_revision", (query) =>
+              query.eq("revisionId", revisionId),
+            )
             .take(1)
         : [],
     );
@@ -4535,11 +4890,16 @@ describe("Build Collaboration operational events", () => {
         .recoverActiveBuildPlanningRevisionMaterialization,
       { asOf: now + 1 },
     );
-    const stillOneAttempt = await fixture.base.run(async (ctx) =>
-      (await ctx.db
-        .query("activeBuildPlanningRevisionChunks")
-        .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
-        .take(1))[0]?.materializationRecoveryAttemptCount,
+    const stillOneAttempt = await fixture.base.run(
+      async (ctx) =>
+        (
+          await ctx.db
+            .query("activeBuildPlanningRevisionChunks")
+            .withIndex("by_revision", (query) =>
+              query.eq("revisionId", revisionId),
+            )
+            .take(1)
+        )[0]?.materializationRecoveryAttemptCount,
     );
     expect(stillOneAttempt).toBe(1);
 
@@ -4615,7 +4975,9 @@ describe("Build Collaboration operational events", () => {
       chunk: (
         await ctx.db
           .query("activeBuildPlanningRevisionChunks")
-          .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+          .withIndex("by_revision", (query) =>
+            query.eq("revisionId", revisionId),
+          )
           .take(1)
       )[0],
       outbox: await ctx.db

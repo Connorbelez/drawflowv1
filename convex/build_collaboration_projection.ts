@@ -215,6 +215,18 @@ function deriveSystemMilestonePlanningSummary(input: {
   };
 }
 
+function visibleSystemPostLifecycle(
+  post: Doc<"buildCollaborationPosts">,
+): "open" | "resolved" | "reopened" {
+  if (
+    post.systemLifecycle === "resolved" ||
+    post.systemLifecycle === "reopened"
+  ) {
+    return post.systemLifecycle;
+  }
+  return post.threadState === "resolved" ? "resolved" : "open";
+}
+
 async function projectSystemDrawFacts(
   ctx: QueryCtx,
   input: {
@@ -746,9 +758,7 @@ export async function projectReadableBuildCollaborationPost(
       post.systemPostKind === "milestone"
       ? deriveSystemMilestonePlanningSummary({
           actionItems: projectedActionItems,
-          lifecycle:
-            post.systemLifecycle ??
-            (post.threadState === "resolved" ? "resolved" : "open"),
+          lifecycle: visibleSystemPostLifecycle(post),
         })
       : undefined;
   const drawFacts =
@@ -1074,8 +1084,7 @@ function collaborationPostSummary(input: {
             milestoneKey,
             lifecycle: coordinationRedacted
               ? "open"
-              : post.systemLifecycle ??
-                (post.threadState === "resolved" ? "resolved" : "open"),
+              : visibleSystemPostLifecycle(post),
             occurrenceKey: post.systemOccurrenceKey,
             materializedAt: post.materializedAt,
             historicalBackfill: post.historicalBackfill,
