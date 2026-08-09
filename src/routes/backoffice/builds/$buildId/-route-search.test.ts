@@ -5,6 +5,23 @@ import { validateBuildDetailSearch } from "./-route-search.ts";
 const COST_DOCUMENT_ID = "ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r";
 
 describe("Backoffice Build Cost route search", () => {
+  test("keeps only stable Sub-milestone detail tabs route-addressable", () => {
+    expect(
+      validateBuildDetailSearch({
+        detailTab: "review",
+        focus: "submilestone:submilestone-01",
+        tab: "details",
+      }),
+    ).toEqual({
+      detailTab: "review",
+      focus: "submilestone:submilestone-01",
+      tab: "details",
+    });
+    expect(
+      validateBuildDetailSearch({ detailTab: "notes", tab: "details" }),
+    ).toEqual({ tab: "details" });
+  });
+
   test("keeps the canonical Costs tab and submitted detail route-addressable", () => {
     expect(validateBuildDetailSearch({ tab: "costs" })).toEqual({
       tab: "costs",

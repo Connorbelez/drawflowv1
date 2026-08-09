@@ -2091,7 +2091,11 @@ function BuildCollaborationFeedContent({
             onValueChange={(value) => setFilter(value as FeedFilter)}
             value={filter}
           >
-            <TabsList aria-label="Feed filters" variant="underline">
+            <TabsList
+              aria-label="Feed filters"
+              className="max-w-full justify-start overflow-x-auto"
+              variant="underline"
+            >
               <TabsTab value="all">All</TabsTab>
               <TabsTab value="active_operations">Active operations</TabsTab>
               <TabsTab value="actionable">Actionable</TabsTab>
@@ -3553,7 +3557,7 @@ function CollaborationPostCard({
               tagOptions={tagOptions}
             />
           ) : tab === "actions" && entry.post.systemPost?.kind !== "draw" ? (
-            <CardPanel className="space-y-3 p-4">
+            <CardPanel className="min-w-0 space-y-3 overflow-x-hidden p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-muted-foreground text-xs">
                   Work stays anchored to this post.

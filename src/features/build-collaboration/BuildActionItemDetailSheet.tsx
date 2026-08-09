@@ -4,8 +4,6 @@ import type { JSONContent } from "@tiptap/react";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
-  ArrowLeft,
-  ArrowRight,
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
@@ -19,9 +17,8 @@ import {
   Send,
   ShieldCheck,
   UserRound,
-  X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -67,6 +64,7 @@ import {
   MilestoneStartDialog,
   type MilestoneStartDialogRequest,
 } from "../backoffice-build-detail/MilestoneStartDialog.tsx";
+import { BuildDetailTargetHeader as DetailSheetHeader } from "../build-detail-targets/BuildDetailTargetHeader.tsx";
 import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
@@ -166,6 +164,22 @@ export function BuildActionItemDetailSheet({
       <SheetPopup
         backdropClassName="hidden"
         className="pointer-events-auto h-svh max-h-svh w-full max-w-none shadow-2xl sm:w-[min(34vw,32rem)] sm:min-w-[24rem]"
+        onKeyDown={(event) => {
+          const historyShortcut =
+            event.altKey &&
+            !(event.ctrlKey || event.metaKey || event.shiftKey) &&
+            (event.key === "ArrowLeft" || event.key === "ArrowRight");
+          if (!historyShortcut) {
+            return;
+          }
+          event.preventDefault();
+          if (event.key === "ArrowLeft" && canGoBack) {
+            onGoBack();
+          }
+          if (event.key === "ArrowRight" && canGoForward) {
+            onGoForward();
+          }
+        }}
         showCloseButton={false}
         side="right"
         viewportClassName="pointer-events-none"
@@ -198,58 +212,6 @@ export function BuildActionItemDetailSheet({
         )}
       </SheetPopup>
     </Sheet>
-  );
-}
-
-function DetailSheetHeader({
-  canGoBack,
-  canGoForward,
-  children,
-  onClose,
-  onGoBack,
-  onGoForward,
-}: {
-  canGoBack: boolean;
-  canGoForward: boolean;
-  children: ReactNode;
-  onClose: () => void;
-  onGoBack: () => void;
-  onGoForward: () => void;
-}) {
-  return (
-    <SheetHeader className="sticky top-0 z-20 border-b bg-background/96 backdrop-blur-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1">
-          <Button
-            aria-label="Previous linked Action Item"
-            disabled={!canGoBack}
-            onClick={onGoBack}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <ArrowLeft aria-hidden="true" className="size-4" />
-          </Button>
-          <Button
-            aria-label="Next linked Action Item"
-            disabled={!canGoForward}
-            onClick={onGoForward}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </Button>
-        </div>
-        <Button
-          aria-label="Close Action Item detail"
-          onClick={onClose}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <X aria-hidden="true" className="size-4" />
-        </Button>
-      </div>
-      {children}
-    </SheetHeader>
   );
 }
 

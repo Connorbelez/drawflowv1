@@ -89,11 +89,33 @@ export function reconcileBuildDetailHistory(
   } satisfies BuildDetailHistoryState;
 }
 
+export function updateBuildDetailHistoryContext(
+  state: BuildDetailHistoryState,
+  context: BuildDetailTargetContext,
+) {
+  const current = state.frames[state.index];
+  if (!current) {
+    return state;
+  }
+  if (
+    current.focusSelector === context.focusSelector &&
+    current.scrollY === context.scrollY &&
+    current.selectedTab === context.selectedTab
+  ) {
+    return state;
+  }
+  const frames = [...state.frames];
+  frames[state.index] = { ...current, ...context };
+  return { ...state, frames } satisfies BuildDetailHistoryState;
+}
+
 export function useBuildDetailTargetController({
+  detailTab,
   focus,
   resolutionState,
   target,
 }: {
+  detailTab?: string;
   focus?: string;
   resolutionState: "integrity_error" | "loading" | "revoked" | "visible";
   target?: BuildDetailTarget;
@@ -110,12 +132,17 @@ export function useBuildDetailTargetController({
   }, [history]);
 
   const changeFocus = useCallback(
-    (nextFocus: string | undefined, replace: boolean) =>
+    (
+      nextFocus: string | undefined,
+      replace: boolean,
+      selectedTab?: string,
+    ) =>
       navigate({
         replace,
         resetScroll: false,
         search: ((previous: Record<string, unknown>) => ({
           ...previous,
+          detailTab: selectedTab,
           focus: nextFocus,
         })) as never,
         to: "." as never,
@@ -146,13 +173,17 @@ export function useBuildDetailTargetController({
         pendingInteractiveFocus.current = null;
         pendingInteractiveContext.current = {};
       }
-      setHistory((current) =>
-        isPendingInteractiveTarget && target
+      setHistory((current) => {
+        const reconciled = isPendingInteractiveTarget && target
           ? pushBuildDetailHistory(current, target, pendingContext)
-          : reconcileBuildDetailHistory(current, focus, target),
-      );
+          : reconcileBuildDetailHistory(current, focus, target);
+        return updateBuildDetailHistoryContext(reconciled, {
+          ...reconciled.frames[reconciled.index],
+          selectedTab: detailTab,
+        });
+      });
     }
-  }, [changeFocus, focus, resolutionState, target]);
+  }, [changeFocus, detailTab, focus, resolutionState, target]);
 
   const openTarget = useCallback(
     (nextTarget: BuildDetailTarget, context: BuildDetailTargetContext = {}) => {
@@ -166,7 +197,11 @@ export function useBuildDetailTargetController({
       }
       historyRef.current = next;
       setHistory(next);
-      void changeFocus(focusForBuildDetailTarget(nextTarget), false);
+      void changeFocus(
+        focusForBuildDetailTarget(nextTarget),
+        false,
+        context.selectedTab,
+      );
     },
     [changeFocus],
   );
@@ -187,7 +222,7 @@ export function useBuildDetailTargetController({
       pendingInteractiveFocus.current = nextFocus;
       pendingInteractiveContext.current = options.context ?? {};
       if (options.navigate !== false) {
-        void changeFocus(nextFocus, false);
+        void changeFocus(nextFocus, false, options.context?.selectedTab);
       }
     },
     [changeFocus],
@@ -227,6 +262,27 @@ export function useBuildDetailTargetController({
     }
   }, [router.history]);
 
+  const selectTab = useCallback(
+    (selectedTab: string | undefined) => {
+      const next = updateBuildDetailHistoryContext(historyRef.current, {
+        ...historyRef.current.frames[historyRef.current.index],
+        selectedTab,
+      });
+      historyRef.current = next;
+      setHistory(next);
+      void navigate({
+        replace: true,
+        resetScroll: false,
+        search: ((previous: Record<string, unknown>) => ({
+          ...previous,
+          detailTab: selectedTab,
+        })) as never,
+        to: "." as never,
+      } as never);
+    },
+    [navigate],
+  );
+
   const currentFrame = history.frames[history.index];
   useEffect(() => {
     if (resolutionState !== "visible" || !currentFrame) {
@@ -260,5 +316,6 @@ export function useBuildDetailTargetController({
     history,
     openFocus,
     openTarget,
+    selectTab,
   };
 }

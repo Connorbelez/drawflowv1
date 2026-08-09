@@ -38,6 +38,10 @@ import {
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
+import {
+  type BuildSubmilestoneDetailTab,
+  normalizeBuildSubmilestoneDetailTab,
+} from "#/features/build-detail-targets/buildDetailTab.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
@@ -45,6 +49,7 @@ export interface BuilderBuildSearch {
   costBatch?: string;
   costDocument?: string;
   costDocumentDraft?: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   milestone?: string;
   rail?: "open" | "closed";
@@ -158,6 +163,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
     const focus = normalizeBuildCollaborationFocus(search.focus);
+    const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
     const variant =
       search.variant === "ledger" ||
       search.variant === "console" ||
@@ -181,6 +187,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         : undefined;
     return {
       ...costDocumentSearch,
+      ...(detailTab ? { detailTab } : {}),
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
@@ -923,6 +930,7 @@ export function BuilderBuildWorkspaceRoute({
           )
         }
         detail={detail}
+        detailTab={search.detailTab}
         focusedReference={search.focus}
         fundingWorkspaceEnabled
         milestoneKey={

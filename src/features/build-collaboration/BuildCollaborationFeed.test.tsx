@@ -3020,6 +3020,30 @@ describe("BuildCollaborationFeed", () => {
     expect(await screen.findByText("Structured work")).toBeTruthy();
   });
 
+  test("contains the wide Action Item board inside its own horizontal scroller", () => {
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    const count = screen.getByText("1 item anchored to this post");
+    const boardSection = count.closest("section");
+    const scroller = boardSection?.querySelector(":scope > div.max-w-full");
+    const board = scroller?.firstElementChild;
+
+    expect(boardSection?.className).toContain("min-w-0");
+    expect(scroller?.className).toContain("overflow-x-auto");
+    expect(board?.className).toContain("min-w-[68rem]");
+    expect(board?.className).not.toContain("overflow-x-auto");
+  });
+
+  test("contains feed filters in their own mobile horizontal scroller", () => {
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    const filters = screen.getByRole("tablist", { name: "Feed filters" });
+    expect(filters.className).toContain("max-w-full");
+    expect(filters.className).toContain("overflow-x-auto");
+    expect(filters.className).toContain("justify-start");
+  });
+
   test("restores the last browser-only Action Item view preference", () => {
     window.localStorage.setItem(
       "drawflow:build-collaboration:action-item-view",
@@ -3780,6 +3804,41 @@ describe("BuildCollaborationFeed", () => {
         screen.queryByRole("heading", { name: "Upload engineer seal" }),
       ).toBeNull(),
     );
+  });
+
+  test("navigates host-managed Action Item history with documented shortcuts", async () => {
+    const onDetailGoBack = vi.fn();
+    const onDetailGoForward = vi.fn();
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailCanGoBack
+        detailCanGoForward
+        detailResolutionState="visible"
+        focusedReference="actionItem:action-1"
+        onDetailGoBack={onDetailGoBack}
+        onDetailGoForward={onDetailGoForward}
+        organizationId="org-1"
+        resolvedDetailTarget={{
+          actionItemId: "action-1" as Id<"buildActionItems">,
+          kind: "actionItem",
+        }}
+      />,
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.keyDown(dialog, { altKey: true, key: "ArrowLeft" });
+    fireEvent.keyDown(dialog, { altKey: true, key: "ArrowRight" });
+
+    expect(onDetailGoBack).toHaveBeenCalledTimes(1);
+    expect(onDetailGoForward).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(dialog, {
+      altKey: true,
+      key: "ArrowLeft",
+      shiftKey: true,
+    });
+    expect(onDetailGoBack).toHaveBeenCalledTimes(1);
   });
 
   test("removes the generic sheet when a generated focus resolves canonically", async () => {

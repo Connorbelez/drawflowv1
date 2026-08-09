@@ -60,6 +60,7 @@ export interface BuildDetailSheetHostState {
 export function BuildDetailSheetHost({
   buildId,
   children,
+  detailTab,
   focus,
   onTargetResolved,
   organizationId,
@@ -67,6 +68,7 @@ export function BuildDetailSheetHost({
 }: {
   buildId: Id<"activeBuilds">;
   children: (state: BuildDetailSheetHostState) => ReactNode;
+  detailTab?: string;
   focus?: string;
   onTargetResolved?: (target: BuildDetailTarget | undefined) => void;
   organizationId: string;
@@ -102,6 +104,7 @@ export function BuildDetailSheetHost({
       ? "loading"
       : resolution.state;
   const controller = useBuildDetailTargetController({
+    detailTab,
     focus,
     resolutionState: resolutionState === "idle" ? "visible" : resolutionState,
     target,

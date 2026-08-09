@@ -903,6 +903,7 @@ function RouteComponent() {
           </Suspense>
         }
         detail={detail}
+        detailTab={search.detailTab}
         focusedReference={search.focus}
         fundingWorkspaceEnabled
         milestoneKey={search.milestone}

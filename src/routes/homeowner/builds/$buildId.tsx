@@ -7,6 +7,10 @@ import {
 } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import {
+  type BuildSubmilestoneDetailTab,
+  normalizeBuildSubmilestoneDetailTab,
+} from "#/features/build-detail-targets/buildDetailTab.ts";
 import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
 import {
   type CostDocumentRouteSearch,
@@ -19,6 +23,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 interface HomeownerBuildSearch extends CostDocumentRouteSearch {
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   roundId?: string;
   tab?: "costs" | "quotes";
@@ -38,6 +43,7 @@ export const Route = createFileRoute("/homeowner/builds/$buildId")({
   },
   validateSearch: (search: Record<string, unknown>): HomeownerBuildSearch => {
     const focus = normalizeBuildCollaborationFocus(search.focus);
+    const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
     const costDocumentSearch = normalizeCostDocumentSearch(search);
     const roundId = normalizeRoundId(search.roundId);
     const tab =
@@ -51,6 +57,7 @@ export const Route = createFileRoute("/homeowner/builds/$buildId")({
           : undefined;
     return {
       ...costDocumentSearch,
+      ...(detailTab ? { detailTab } : {}),
       ...(focus ? { focus } : {}),
       ...(roundId ? { roundId } : {}),
       ...(tab ? { tab } : {}),
@@ -244,6 +251,7 @@ function HomeownerBuildCollaboration() {
         ) : (
           <BuildCollaborationWorkspace
             buildId={buildId}
+            detailTab={search.detailTab}
             focusedReference={search.focus}
             organizationId={scope.organizationId}
             viewerCapacity="homeowner"

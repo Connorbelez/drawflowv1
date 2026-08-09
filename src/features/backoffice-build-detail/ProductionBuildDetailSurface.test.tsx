@@ -3286,6 +3286,24 @@ describe("ProductionBuildDetailSurface", () => {
     expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
   });
 
+  test("does not stack a parent Milestone sheet behind a typed detail target", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        focusedReference="actionItem:action-item-01"
+        milestoneKey="foundation"
+        onChangeMilestone={vi.fn()}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        viewerRole="builder"
+      />,
+    );
+
+    expect(screen.queryByTestId("milestone-detail-sheet")).toBeNull();
+  });
+
   test("writes clicked milestone cards back to the production route search state", () => {
     const onChangeMilestone = vi.fn();
 

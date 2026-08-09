@@ -1,0 +1,926 @@
+"use client";
+
+import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
+import { CalendarDays, RotateCcw, ShieldAlert, UserRound } from "lucide-react";
+import { type ComponentProps, useEffect, useState } from "react";
+
+import { Badge } from "#/components/ui/badge.tsx";
+import { Button } from "#/components/ui/button.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import {
+  Sheet,
+  SheetDescription,
+  SheetFooter,
+  SheetPanel,
+  SheetPopup,
+  SheetTitle,
+} from "#/components/ui/sheet.tsx";
+import { Skeleton } from "#/components/ui/skeleton.tsx";
+import { Separator } from "#/components/ui/separator.tsx";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
+import {
+  BUILD_SUBMILESTONE_DETAIL_TABS,
+  type BuildSubmilestoneDetailTab,
+  normalizeBuildSubmilestoneDetailTab,
+} from "../build-detail-targets/buildDetailTab.ts";
+import { BuildDetailTargetHeader } from "../build-detail-targets/BuildDetailTargetHeader.tsx";
+
+type WorkspaceBootstrap = FunctionReturnType<
+  typeof api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceBootstrap
+>;
+type VisibleWorkspaceBootstrap = Extract<
+  WorkspaceBootstrap,
+  { submilestone: unknown }
+>;
+type WorkspaceCollectionResult = FunctionReturnType<
+  typeof api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceCollection
+>;
+type VisibleWorkspaceCollection = Extract<
+  WorkspaceCollectionResult,
+  { page: unknown[] }
+>;
+type WorkspaceCollectionRow = VisibleWorkspaceCollection["page"][number];
+
+type WorkspaceCollection =
+  | "evidence_assets"
+  | "people_assignments"
+  | "materials"
+  | "collaboration_comments"
+  | "review_decisions";
+
+interface CollectionPaginationState {
+  accumulatedRows: WorkspaceCollectionRow[];
+  cursor?: string;
+  previousPage?: VisibleWorkspaceCollection;
+}
+
+interface CollectionPaginationStore {
+  byCollection: Partial<Record<WorkspaceCollection, CollectionPaginationState>>;
+  targetKey: string;
+}
+
+type SheetFocusTarget =
+  | ComponentProps<typeof SheetPopup>["initialFocus"]
+  | undefined;
+
+const TAB_LABELS: Record<BuildSubmilestoneDetailTab, string> = {
+  collaboration: "Collaboration",
+  evidence: "Evidence",
+  materials: "Materials",
+  overview: "Overview",
+  people: "People",
+  review: "Review",
+};
+
+const COLLECTION_FOR_TAB: Partial<
+  Record<BuildSubmilestoneDetailTab, WorkspaceCollection>
+> = {
+  collaboration: "collaboration_comments",
+  evidence: "evidence_assets",
+  materials: "materials",
+  people: "people_assignments",
+  review: "review_decisions",
+};
+
+const ACTIVE_REVIEW_STATES = new Set([
+  "changes_requested",
+  "in_review",
+  "reopened",
+]);
+
+const LENDER_REVIEW_ROLES = new Set<BuildCollaborationRole>([
+  "admin",
+  "broker",
+  "broker-staff",
+  "principle-broker",
+]);
+
+export interface SubmilestoneDetailSheetProps {
+  buildId: Id<"activeBuilds">;
+  buildSubmilestoneId: Id<"buildSubmilestones">;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  companionActionItemId?: Id<"buildActionItems">;
+  finalFocus?: SheetFocusTarget;
+  initialFocus?: SheetFocusTarget;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
+  onOpenChange: (open: boolean) => void;
+  onRetry?: () => void;
+  onSelectedTabChange?: (tab: BuildSubmilestoneDetailTab) => void;
+  open: boolean;
+  organizationId: string;
+  readOnly?: boolean;
+  selectedTab?: BuildSubmilestoneDetailTab;
+  viewerCapacity?: BuildCollaborationRole;
+}
+
+/**
+ * One route-independent Sub-milestone detail surface for every Build
+ * persona. The shell owns read hydration and tab collection reads only;
+ * canonical commands remain in the domain surfaces that will be added by the
+ * follow-on ENG-428–430 work.
+ */
+export function SubmilestoneDetailSheet({
+  buildId,
+  buildSubmilestoneId,
+  canGoBack = false,
+  canGoForward = false,
+  companionActionItemId,
+  finalFocus,
+  initialFocus,
+  onGoBack = () => undefined,
+  onGoForward = () => undefined,
+  onOpenChange,
+  onRetry,
+  onSelectedTabChange,
+  open,
+  organizationId,
+  readOnly = false,
+  selectedTab,
+  viewerCapacity,
+}: SubmilestoneDetailSheetProps) {
+  const [uncontrolledTab, setUncontrolledTab] = useState<
+    BuildSubmilestoneDetailTab | undefined
+  >();
+  const paginationTargetKey = `${buildId}:${buildSubmilestoneId}:${companionActionItemId ?? "canonical"}:${open ? "open" : "closed"}`;
+  const [paginationStore, setPaginationStore] =
+    useState<CollectionPaginationStore>({
+      byCollection: {},
+      targetKey: paginationTargetKey,
+    });
+  const paginationByCollection =
+    paginationStore.targetKey === paginationTargetKey
+      ? paginationStore.byCollection
+      : {};
+  useEffect(() => {
+    if (!open) {
+      setPaginationStore({
+        byCollection: {},
+        targetKey: paginationTargetKey,
+      });
+    }
+  }, [open, paginationTargetKey]);
+  const bootstrap = useQuery(
+    api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceBootstrap,
+    open
+      ? {
+          buildId,
+          buildSubmilestoneId,
+          companionActionItemId,
+          organizationId,
+          viewerCapacity,
+        }
+      : "skip"
+  ) as WorkspaceBootstrap | undefined;
+
+  const normalizedSelectedTab =
+    normalizeBuildSubmilestoneDetailTab(selectedTab);
+  const inferredTab = defaultTabForWorkspace(bootstrap, viewerCapacity);
+  const isControlled = selectedTab !== undefined;
+  const activeTab = isControlled
+    ? (normalizedSelectedTab ?? inferredTab)
+    : (uncontrolledTab ?? inferredTab);
+  const workspaceReady = isVisibleWorkspaceBootstrap(bootstrap);
+  const selectedCollection = workspaceReady
+    ? COLLECTION_FOR_TAB[activeTab]
+    : undefined;
+  const pagination = selectedCollection
+    ? paginationByCollection[selectedCollection]
+    : undefined;
+  const collection = useQuery(
+    api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceCollection,
+    open && workspaceReady && selectedCollection
+      ? {
+          buildId,
+          buildSubmilestoneId,
+          collection: selectedCollection,
+          companionActionItemId:
+            companionActionItemId ?? bootstrap.companion.actionItemId,
+          cursor: pagination?.cursor,
+          limit: 25,
+          organizationId,
+          viewerCapacity,
+        }
+      : "skip"
+  ) as WorkspaceCollectionResult | undefined;
+  const visibleCollection = isVisibleWorkspaceCollection(collection)
+    ? collection
+    : undefined;
+  const displayedCollection = visibleCollection
+    ? {
+        ...visibleCollection,
+        page: mergeCollectionRows(
+          pagination?.accumulatedRows ?? [],
+          visibleCollection.page
+        ),
+      }
+    : collection === undefined && pagination?.previousPage
+      ? {
+          ...pagination.previousPage,
+          page: pagination.accumulatedRows,
+        }
+      : collection;
+  const loadingMore = Boolean(pagination?.cursor && collection === undefined);
+
+  const loadMore = () => {
+    if (!(selectedCollection && visibleCollection?.hasMore)) {
+      return;
+    }
+    const nextCursor = visibleCollection.nextCursor;
+    if (!nextCursor) {
+      return;
+    }
+    setPaginationStore((currentStore) => {
+      const current =
+        currentStore.targetKey === paginationTargetKey
+          ? currentStore.byCollection
+          : {};
+      return {
+        byCollection: {
+          ...current,
+          [selectedCollection]: {
+            accumulatedRows: mergeCollectionRows(
+              current[selectedCollection]?.accumulatedRows ?? [],
+              visibleCollection.page
+            ),
+            cursor: nextCursor,
+            previousPage: visibleCollection,
+          },
+        },
+        targetKey: paginationTargetKey,
+      };
+    });
+  };
+
+  const handleTabChange = (nextTab: BuildSubmilestoneDetailTab) => {
+    if (!isControlled) {
+      setUncontrolledTab(nextTab);
+    }
+    onSelectedTabChange?.(nextTab);
+  };
+
+  return (
+    <Sheet modal onOpenChange={onOpenChange} open={open}>
+      <SheetPopup
+        aria-modal="true"
+        className="min-w-0 overflow-x-hidden motion-reduce:transform-none motion-reduce:transition-none max-sm:h-svh max-sm:max-h-svh max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:pb-[env(safe-area-inset-bottom)] sm:h-[calc(100svh-2rem)] sm:max-h-[calc(100svh-2rem)] sm:w-[min(52rem,calc(100vw-2rem))] sm:max-w-[52rem]"
+        finalFocus={finalFocus}
+        initialFocus={initialFocus}
+        onKeyDown={(event) => {
+          const historyShortcut =
+            event.altKey &&
+            !(event.ctrlKey || event.metaKey || event.shiftKey) &&
+            (event.key === "ArrowLeft" || event.key === "ArrowRight");
+          if (!historyShortcut) {
+            return;
+          }
+          event.preventDefault();
+          if (event.key === "ArrowLeft" && canGoBack) {
+            onGoBack();
+          }
+          if (event.key === "ArrowRight" && canGoForward) {
+            onGoForward();
+          }
+        }}
+        showCloseButton={false}
+        side="right"
+        variant="inset"
+      >
+        {bootstrap === undefined ? (
+          <LoadingState
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onClose={() => onOpenChange(false)}
+            onGoBack={onGoBack}
+            onGoForward={onGoForward}
+          />
+        ) : bootstrap.state === "revoked" ? (
+          <UnavailableState
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onClose={() => onOpenChange(false)}
+            onGoBack={onGoBack}
+            onGoForward={onGoForward}
+          />
+        ) : bootstrap.state === "integrity_error" ? (
+          <IntegrityState
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            error={bootstrap}
+            onClose={() => onOpenChange(false)}
+            onGoBack={onGoBack}
+            onGoForward={onGoForward}
+            onRetry={onRetry}
+          />
+        ) : (
+          <VisibleState
+            activeTab={activeTab}
+            bootstrap={bootstrap}
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            collection={displayedCollection}
+            loadingMore={loadingMore}
+            onClose={() => onOpenChange(false)}
+            onGoBack={onGoBack}
+            onGoForward={onGoForward}
+            onLoadMore={loadMore}
+            onTabChange={handleTabChange}
+            readOnly={readOnly}
+          />
+        )}
+      </SheetPopup>
+    </Sheet>
+  );
+}
+
+function LoadingState({
+  canGoBack,
+  canGoForward,
+  onClose,
+  onGoBack,
+  onGoForward,
+}: NavigationProps) {
+  return (
+    <>
+      <BuildDetailTargetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={onClose}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+        targetLabel="Sub-milestone"
+      >
+        <SheetTitle>Sub-milestone</SheetTitle>
+        <SheetDescription>Loading canonical work context…</SheetDescription>
+      </BuildDetailTargetHeader>
+      <SheetPanel className="space-y-5 pb-[env(safe-area-inset-bottom)]">
+        <Frame
+          aria-live="polite"
+          data-testid="submilestone-detail-loading"
+          role="status"
+        >
+          <FramePanel className="space-y-4">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+            <Separator />
+            <Skeleton className="h-24 w-full" />
+          </FramePanel>
+        </Frame>
+      </SheetPanel>
+    </>
+  );
+}
+
+function UnavailableState({
+  canGoBack,
+  canGoForward,
+  onClose,
+  onGoBack,
+  onGoForward,
+}: NavigationProps) {
+  return (
+    <>
+      <BuildDetailTargetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={onClose}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+        targetLabel="Sub-milestone"
+      >
+        <SheetTitle>Sub-milestone unavailable</SheetTitle>
+        <SheetDescription>
+          This work item was removed or your Build access was revoked.
+        </SheetDescription>
+      </BuildDetailTargetHeader>
+      <SheetPanel className="space-y-5 pb-[env(safe-area-inset-bottom)]">
+        <Frame>
+          <FramePanel
+            aria-live="polite"
+            className="flex flex-col items-start gap-3 text-muted-foreground text-sm"
+            data-testid="submilestone-detail-revoked"
+            role="status"
+          >
+            <ShieldAlert aria-hidden="true" className="size-5 text-warning" />
+            <p>
+              This Sub-milestone is unavailable. No canonical details are
+              disclosed.
+            </p>
+          </FramePanel>
+        </Frame>
+      </SheetPanel>
+      <SheetFooter className="pb-[env(safe-area-inset-bottom)]">
+        <Button onClick={onClose} variant="outline">
+          Close
+        </Button>
+      </SheetFooter>
+    </>
+  );
+}
+
+function IntegrityState({
+  canGoBack,
+  canGoForward,
+  error,
+  onClose,
+  onGoBack,
+  onGoForward,
+  onRetry,
+}: NavigationProps & {
+  error: Extract<WorkspaceBootstrap, { state: "integrity_error" }>;
+  onRetry?: () => void;
+}) {
+  return (
+    <>
+      <BuildDetailTargetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={onClose}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+        targetLabel="Sub-milestone"
+      >
+        <SheetTitle>Sub-milestone link needs attention</SheetTitle>
+        <SheetDescription>
+          The canonical work item could not be safely reconciled with its
+          collaboration companion.
+        </SheetDescription>
+      </BuildDetailTargetHeader>
+      <SheetPanel className="space-y-5 pb-[env(safe-area-inset-bottom)]">
+        <Frame>
+          <FramePanel
+            aria-live="assertive"
+            className="space-y-3"
+            data-testid="submilestone-detail-integrity-error"
+            role="alert"
+          >
+            <div className="flex items-center gap-2 text-destructive-text">
+              <ShieldAlert aria-hidden="true" className="size-4" />
+              <p className="font-medium">Integrity check failed</p>
+            </div>
+            <p className="text-sm">{error.message}</p>
+            <p className="break-all font-mono text-muted-foreground text-xs">
+              Reference: {error.code}
+            </p>
+          </FramePanel>
+        </Frame>
+      </SheetPanel>
+      <SheetFooter className="pb-[env(safe-area-inset-bottom)]">
+        <Button onClick={onClose} variant="outline">
+          Close
+        </Button>
+        {onRetry ? (
+          <Button aria-label="Retry Sub-milestone workspace" onClick={onRetry}>
+            <RotateCcw aria-hidden="true" />
+            Retry
+          </Button>
+        ) : null}
+      </SheetFooter>
+    </>
+  );
+}
+
+function VisibleState({
+  activeTab,
+  bootstrap,
+  canGoBack,
+  canGoForward,
+  collection,
+  loadingMore,
+  onClose,
+  onGoBack,
+  onGoForward,
+  onLoadMore,
+  onTabChange,
+  readOnly,
+}: NavigationProps & {
+  activeTab: BuildSubmilestoneDetailTab;
+  bootstrap: VisibleWorkspaceBootstrap;
+  collection: WorkspaceCollectionResult | undefined;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  onTabChange: (tab: BuildSubmilestoneDetailTab) => void;
+  readOnly: boolean;
+}) {
+  const superseded = bootstrap.state === "superseded";
+  return (
+    <>
+      <BuildDetailTargetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={onClose}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+        targetLabel="Sub-milestone"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">
+            Milestone · {bootstrap.milestone.name}
+          </Badge>
+          <Badge variant={statusBadgeVariant(bootstrap.submilestone.status)}>
+            {statusLabel(bootstrap.submilestone.status)}
+          </Badge>
+          <Badge variant="secondary">
+            Planning · {statusLabel(bootstrap.submilestone.planningState)}
+          </Badge>
+          {readOnly && !superseded ? (
+            <Badge variant="outline">Read-only</Badge>
+          ) : null}
+        </div>
+        <SheetTitle className="min-w-0 break-words pr-8">
+          {bootstrap.submilestone.name}
+        </SheetTitle>
+        <SheetDescription>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="inline-flex items-center gap-1">
+              <UserRound aria-hidden="true" className="size-3.5" />
+              <span title={bootstrap.ownership.reason}>
+                {statusLabel(bootstrap.ownership.state)} ·{" "}
+                {bootstrap.ownership.reason}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <CalendarDays aria-hidden="true" className="size-3.5" />
+              {scheduleLabel(bootstrap)}
+            </span>
+          </span>
+        </SheetDescription>
+        {superseded ? (
+          <Frame
+            aria-live="polite"
+            data-testid="submilestone-detail-superseded"
+            role="note"
+          >
+            <FramePanel className="border-warning/35 bg-warning/8 p-3 text-sm">
+              <p className="font-medium">Superseded — read-only history</p>
+              <p className="mt-1 text-muted-foreground text-xs">
+                This Sub-milestone was replaced by an approved planning
+                revision. Canonical execution and collaboration commands are
+                disabled.
+              </p>
+            </FramePanel>
+          </Frame>
+        ) : null}
+      </BuildDetailTargetHeader>
+      <Tabs
+        className="min-h-0 flex-1 gap-0"
+        onValueChange={(value) => {
+          const nextTab = normalizeBuildSubmilestoneDetailTab(value);
+          if (nextTab) {
+            onTabChange(nextTab);
+          }
+        }}
+        value={activeTab}
+      >
+        <div className="shrink-0 border-b px-4 pt-1 sm:px-6">
+          <TabsList
+            aria-label="Sub-milestone detail sections"
+            className="motion-reduce:[&_[data-slot=tab-indicator]]:transition-none w-full max-w-full justify-start overflow-x-auto"
+            variant="underline"
+          >
+            {BUILD_SUBMILESTONE_DETAIL_TABS.map((tab) => (
+              <TabsTab key={tab} value={tab}>
+                {TAB_LABELS[tab]}
+              </TabsTab>
+            ))}
+          </TabsList>
+        </div>
+        <SheetPanel className="min-h-0 space-y-5 pb-[env(safe-area-inset-bottom)]">
+          {BUILD_SUBMILESTONE_DETAIL_TABS.map((tab) => (
+            <TabsPanel className="space-y-4 pt-4" key={tab} value={tab}>
+              {activeTab === tab ? (
+                tab === "overview" ? (
+                  <OverviewPanel bootstrap={bootstrap} />
+                ) : (
+                  <CollectionPanel
+                    collection={collection}
+                    loadingMore={loadingMore}
+                    onLoadMore={onLoadMore}
+                    tab={tab}
+                  />
+                )
+              ) : null}
+            </TabsPanel>
+          ))}
+        </SheetPanel>
+      </Tabs>
+    </>
+  );
+}
+
+function OverviewPanel({
+  bootstrap,
+}: {
+  bootstrap: VisibleWorkspaceBootstrap;
+}) {
+  return (
+    <div className="space-y-4" data-testid="submilestone-detail-overview">
+      {bootstrap.submilestone.scopeOfWorkTiptapJson ? (
+        <Frame>
+          <FramePanel className="space-y-2">
+            <p className="font-medium text-sm">Scope of work</p>
+            <p className="text-muted-foreground text-sm">
+              Canonical scope is available in the linked work record.
+            </p>
+          </FramePanel>
+        </Frame>
+      ) : (
+        <EmptyPanel label="scope of work" />
+      )}
+      <Frame>
+        <FramePanel>
+          <dl className="grid gap-4 sm:grid-cols-3">
+            <Metric
+              label="Progress"
+              value={`${Math.round(bootstrap.execution.progressPercent)}%`}
+            />
+            <Metric
+              label="Actual cost"
+              value={
+                bootstrap.execution.actualCostCents === undefined
+                  ? "Not recorded"
+                  : formatCents(bootstrap.execution.actualCostCents)
+              }
+            />
+            <Metric
+              label="Evidence"
+              value={`${bootstrap.evidence.itemCount} item${bootstrap.evidence.itemCount === 1 ? "" : "s"}`}
+            />
+          </dl>
+        </FramePanel>
+      </Frame>
+      <Frame>
+        <FramePanel className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-medium text-sm">Parent Milestone readiness</p>
+            <Badge
+              variant={
+                bootstrap.parentReadiness.readyForApproval
+                  ? "success"
+                  : "outline"
+              }
+            >
+              {bootstrap.parentReadiness.readyForApproval
+                ? "Ready"
+                : "In progress"}
+            </Badge>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            {bootstrap.parentReadiness.approvedChildCount} of{" "}
+            {bootstrap.parentReadiness.childCount} child Sub-milestones are
+            approved.
+          </p>
+          {bootstrap.parentReadiness.partial ? (
+            <p className="text-muted-foreground text-xs">
+              This readiness count is bounded to the first 100 canonical child
+              records.
+            </p>
+          ) : null}
+        </FramePanel>
+      </Frame>
+    </div>
+  );
+}
+
+function CollectionPanel({
+  collection,
+  loadingMore,
+  onLoadMore,
+  tab,
+}: {
+  collection: WorkspaceCollectionResult | undefined;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  tab: Exclude<BuildSubmilestoneDetailTab, "overview">;
+}) {
+  if (collection === undefined) {
+    return (
+      <Frame
+        aria-live="polite"
+        data-testid={`submilestone-${tab}-loading`}
+        role="status"
+      >
+        <FramePanel className="space-y-3">
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-5/6" />
+        </FramePanel>
+      </Frame>
+    );
+  }
+  if (collection.state === "revoked") {
+    return <UnavailableCollectionPanel />;
+  }
+  if (collection.state === "integrity_error") {
+    return (
+      <Frame data-testid={`submilestone-${tab}-integrity-error`}>
+        <FramePanel
+          aria-live="assertive"
+          className="space-y-2 text-sm"
+          role="alert"
+        >
+          <p className="font-medium text-destructive-text">
+            {TAB_LABELS[tab]} unavailable
+          </p>
+          <p className="text-muted-foreground">{collection.message}</p>
+          <p className="font-mono text-muted-foreground text-xs">
+            Reference: {collection.code}
+          </p>
+        </FramePanel>
+      </Frame>
+    );
+  }
+  const rows = collection.page;
+  return (
+    <div className="space-y-3" data-testid={`submilestone-${tab}-collection`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs">
+        <span>
+          {rows.length === 0
+            ? `No ${TAB_LABELS[tab].toLowerCase()} recorded yet.`
+            : `${rows.length} ${TAB_LABELS[tab].toLowerCase()} shown`}
+        </span>
+        <span>
+          {collection.partial ? "Partial projection" : "Bounded page"}
+          {collection.hasMore ? " · More available" : ""}
+        </span>
+      </div>
+      {rows.length === 0 ? (
+        <EmptyPanel label={TAB_LABELS[tab].toLowerCase()} />
+      ) : (
+        <Frame>
+          {rows.map((row) => (
+            <FramePanel
+              className="space-y-1 p-4"
+              data-row-id={row.id}
+              key={row.id}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-medium text-sm">{row.title}</p>
+                {row.status ? (
+                  <Badge size="sm" variant="outline">
+                    {statusLabel(row.status)}
+                  </Badge>
+                ) : null}
+              </div>
+              {row.detail ? (
+                <p className="text-muted-foreground text-sm">{row.detail}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs">
+                {row.kind ? <span>{statusLabel(row.kind)}</span> : null}
+                {row.amountCents === undefined ? null : (
+                  <span>{formatCents(row.amountCents)}</span>
+                )}
+                {row.locationVerified === false ? (
+                  <span>Location unverified</span>
+                ) : null}
+                {row.required ? <span>Required</span> : null}
+              </div>
+            </FramePanel>
+          ))}
+        </Frame>
+      )}
+      {collection.hasMore ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p
+            className="text-muted-foreground text-xs"
+            data-next-cursor={collection.nextCursor}
+          >
+            More records are available.
+          </p>
+          <Button
+            disabled={loadingMore}
+            onClick={onLoadMore}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {loadingMore ? "Loading…" : `Load more ${TAB_LABELS[tab]}`}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function UnavailableCollectionPanel() {
+  return (
+    <Frame>
+      <FramePanel className="text-muted-foreground text-sm">
+        This collection is unavailable for the current Build access.
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function EmptyPanel({ label }: { label: string }) {
+  return (
+    <Frame>
+      <FramePanel className="flex min-h-28 items-center justify-center p-4 text-center text-muted-foreground text-sm">
+        No {label} recorded yet.
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1">
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd className="font-medium text-sm">{value}</dd>
+    </div>
+  );
+}
+
+function isVisibleWorkspaceCollection(
+  collection: WorkspaceCollectionResult | undefined
+): collection is VisibleWorkspaceCollection {
+  return Boolean(collection && "page" in collection);
+}
+
+function mergeCollectionRows(
+  accumulated: WorkspaceCollectionRow[],
+  page: WorkspaceCollectionRow[]
+) {
+  const rowsById = new Map(accumulated.map((row) => [row.id, row] as const));
+  for (const row of page) {
+    rowsById.set(row.id, row);
+  }
+  return [...rowsById.values()];
+}
+
+interface NavigationProps {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onClose: () => void;
+  onGoBack: () => void;
+  onGoForward: () => void;
+}
+
+function isVisibleWorkspaceBootstrap(
+  value: WorkspaceBootstrap | undefined
+): value is VisibleWorkspaceBootstrap {
+  return Boolean(value && "submilestone" in value);
+}
+
+function defaultTabForWorkspace(
+  value: WorkspaceBootstrap | undefined,
+  viewerCapacity: BuildCollaborationRole | undefined
+): BuildSubmilestoneDetailTab {
+  if (!isVisibleWorkspaceBootstrap(value)) {
+    return "overview";
+  }
+  const role = viewerCapacity ?? value.persona;
+  const activeReview =
+    value.review.reviewRound > 0 &&
+    (ACTIVE_REVIEW_STATES.has(value.review.reviewDecisionState) ||
+      ACTIVE_REVIEW_STATES.has(value.review.evidenceReviewState));
+  return LENDER_REVIEW_ROLES.has(role) && activeReview ? "review" : "overview";
+}
+
+function statusLabel(value: string) {
+  const normalized = value.replaceAll("_", " ").trim();
+  return normalized
+    ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
+    : "Unknown";
+}
+
+function statusBadgeVariant(
+  value: string
+): ComponentProps<typeof Badge>["variant"] {
+  const normalized = value.toLowerCase();
+  if (normalized === "complete" || normalized === "approved") {
+    return "success";
+  }
+  if (
+    normalized === "blocked" ||
+    normalized === "changes_requested" ||
+    normalized === "reopened"
+  ) {
+    return "warning";
+  }
+  return "outline";
+}
+
+function scheduleLabel(bootstrap: VisibleWorkspaceBootstrap) {
+  const { durationDays, parentDayEnd, parentDayStart, startDay } =
+    bootstrap.schedule;
+  const childWindow =
+    startDay === undefined
+      ? "Start not set"
+      : `Day ${startDay}${durationDays === undefined ? "" : ` · ${durationDays} day${durationDays === 1 ? "" : "s"}`}`;
+  return `${childWindow} · Parent ${parentDayStart}–${parentDayEnd}`;
+}
+
+function formatCents(value: number) {
+  return new Intl.NumberFormat("en-CA", {
+    currency: "CAD",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(value / 100);
+}

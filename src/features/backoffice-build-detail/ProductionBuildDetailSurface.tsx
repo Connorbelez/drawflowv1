@@ -101,6 +101,7 @@ import type {
   MaterialPlanningActions,
   MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import type { BuildSubmilestoneDetailTab } from "#/features/build-detail-targets/buildDetailTab.ts";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
   convertHeicEvidenceBlobToJpeg,
@@ -837,6 +838,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref = "/backoffice/builds",
   breadcrumbSectionLabel = "Builds",
   detail,
+  detailTab,
   focusedReference,
   fundingWorkspaceEnabled = false,
   milestoneKey,
@@ -862,6 +864,7 @@ export function ProductionBuildDetailSurface({
   contractorDetailHrefFor?: (contractorId: string) => string;
   costs?: React.ReactNode;
   detail: ProductionBuildDetail;
+  detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   fundingWorkspaceEnabled?: boolean;
   breadcrumbRootHref?: string;
@@ -921,19 +924,21 @@ export function ProductionBuildDetailSurface({
   const [localFocusedReference, setLocalFocusedReference] = useState<
     string | undefined
   >(focusedReference);
-  const [resolvedFocusedSubmilestoneId, setResolvedFocusedSubmilestoneId] =
-    useState<string | undefined>();
   const effectiveFocusedReference = localFocusedReference ?? focusedReference;
   useEffect(() => {
     setLocalFocusedReference(focusedReference);
-    setResolvedFocusedSubmilestoneId(undefined);
   }, [focusedReference]);
   const focusedSubmilestoneId = effectiveFocusedReference?.startsWith(
     "submilestone:",
   )
     ? effectiveFocusedReference.slice("submilestone:".length)
-    : resolvedFocusedSubmilestoneId;
-  const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
+    : undefined;
+  const detailTargetReplacesParentSheet =
+    effectiveFocusedReference?.startsWith("submilestone:") ||
+    effectiveFocusedReference?.startsWith("actionItem:");
+  const activeMilestoneKey = detailTargetReplacesParentSheet
+    ? null
+    : (milestoneKey ?? localActiveMilestoneKey);
   const activeMilestone = activeMilestoneKey
     ? (projection.milestones.find(
         (milestone) => milestone.key === activeMilestoneKey,
@@ -952,15 +957,13 @@ export function ProductionBuildDetailSurface({
       );
       return;
     }
-    if (focusedReference?.startsWith("submilestone:")) {
-      const entityId = focusedReference.slice("submilestone:".length);
-      setLocalActiveMilestoneKey(
-        detail.submilestones.find(
-          (submilestone) => submilestone._id === entityId,
-        )?.milestoneKey ?? null,
-      );
+    if (
+      focusedReference?.startsWith("submilestone:") ||
+      focusedReference?.startsWith("actionItem:")
+    ) {
+      setLocalActiveMilestoneKey(null);
     }
-  }, [detail.milestones, detail.submilestones, focusedReference]);
+  }, [detail.milestones, focusedReference]);
   const sheetData = useMemo(() => {
     const data = activeMilestoneKey
       ? buildMilestoneSheetData(
@@ -1232,26 +1235,12 @@ export function ProductionBuildDetailSurface({
               actions={actions}
               currentDay={currentDay}
               detail={detail}
+              detailTab={detailTab}
               focusedReference={effectiveFocusedReference}
               fundingWorkspaceEnabled={fundingWorkspaceEnabled}
               onChangeTab={onChangeTab}
               onFocusReference={setLocalFocusedReference}
               onOpenMilestone={setActiveMilestoneKey}
-              onResolvedSubmilestone={(submilestoneId) => {
-                if (!submilestoneId && resolvedFocusedSubmilestoneId) {
-                  setLocalActiveMilestoneKey(null);
-                }
-                setResolvedFocusedSubmilestoneId(submilestoneId);
-                if (!submilestoneId) {
-                  return;
-                }
-                const submilestone = detail.submilestones.find(
-                  (candidate) => candidate._id === submilestoneId,
-                );
-                if (submilestone) {
-                  setLocalActiveMilestoneKey(submilestone.milestoneKey);
-                }
-              }}
               projection={projection}
               viewerCapacity={viewerCapacity}
               viewerRole={viewerRole}
@@ -1723,12 +1712,12 @@ function ProductionDetailsTab({
   actions,
   currentDay,
   detail,
+  detailTab,
   focusedReference,
   fundingWorkspaceEnabled,
   onChangeTab,
   onFocusReference,
   onOpenMilestone,
-  onResolvedSubmilestone,
   projection,
   viewerCapacity,
   viewerRole,
@@ -1737,12 +1726,12 @@ function ProductionDetailsTab({
   actions?: ProductionBuildDetailActions;
   currentDay: number;
   detail: ProductionBuildDetail;
+  detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   fundingWorkspaceEnabled: boolean;
   onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
   onFocusReference: (focus?: string) => void;
   onOpenMilestone: (milestoneKey: string) => void;
-  onResolvedSubmilestone: (submilestoneId?: string) => void;
   projection: ProductionBuildProjection;
   viewerCapacity?:
     | "admin"
@@ -1822,6 +1811,7 @@ function ProductionDetailsTab({
         <Suspense fallback={<BuildDetailTabFallback label="collaboration" />}>
           <DeferredBuildCollaborationWorkspace
             buildId={detail.build._id}
+            detailTab={detailTab}
             eager={Boolean(focusedReference)}
             focusedReference={focusedReference}
             onOpenReference={(reference) => {
@@ -1839,13 +1829,7 @@ function ProductionDetailsTab({
               }
               if (reference.entityKind === "submilestone") {
                 onChangeTab("details", nextFocus);
-                const submilestone = detail.submilestones.find(
-                  (candidate) => candidate._id === reference.entityId,
-                );
-                if (submilestone) {
-                  onOpenMilestone(submilestone.milestoneKey);
-                  return;
-                }
+                return;
               }
               if (reference.entityKind === "draw") {
                 setActiveOverviewSection("draws");
@@ -1870,13 +1854,6 @@ function ProductionDetailsTab({
                 onChangeTab(tab, nextFocus);
               }
             }}
-            onResolvedDetailTarget={(target) =>
-              onResolvedSubmilestone(
-                target?.kind === "submilestone"
-                  ? target.submilestoneId
-                  : undefined,
-              )
-            }
             organizationId={workosOrganizationId}
             viewerCapacity={viewerCapacity}
           />

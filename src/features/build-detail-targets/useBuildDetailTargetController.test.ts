@@ -5,6 +5,7 @@ import {
   pushBuildDetailHistory,
   reconcileBuildDetailHistory,
   resolveBuildDetailCloseNavigation,
+  updateBuildDetailHistoryContext,
 } from "./useBuildDetailTargetController.ts";
 
 const milestone = {
@@ -107,5 +108,25 @@ describe("Build detail target history", () => {
         undefined,
       ),
     ).toEqual({ frames: [], index: -1, interactive: false });
+  });
+
+  test("updates the selected tab on only the active history frame", () => {
+    const history = pushBuildDetailHistory(
+      pushBuildDetailHistory(
+        { frames: [], index: -1, interactive: false },
+        milestone,
+        { selectedTab: "overview" },
+      ),
+      submilestone,
+      { selectedTab: "evidence" },
+    );
+    const updated = updateBuildDetailHistoryContext(history, {
+      selectedTab: "review",
+    });
+    expect(updated.frames[0]?.selectedTab).toBe("overview");
+    expect(updated.frames[1]?.selectedTab).toBe("review");
+    expect(
+      updateBuildDetailHistoryContext(updated, { selectedTab: "review" }),
+    ).toBe(updated);
   });
 });

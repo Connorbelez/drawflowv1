@@ -17,6 +17,10 @@ import {
   CostDocumentDetailSheet,
 } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
 import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
+import {
+  type BuildSubmilestoneDetailTab,
+  normalizeBuildSubmilestoneDetailTab,
+} from "#/features/build-detail-targets/buildDetailTab.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -26,6 +30,7 @@ interface ContractorBuildSearch {
   costBatch?: string;
   costDocument?: string;
   costDocumentDraft?: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
 }
 
@@ -38,9 +43,11 @@ export const Route = createFileRoute("/contractor/builds/$buildId")({
       typeof search.assignmentId === "string" ? search.assignmentId : undefined;
     const costDocumentSearch = normalizeCostDocumentSearch(search);
     const focus = normalizeBuildCollaborationFocus(search.focus);
+    const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
     return {
       ...(assignmentId ? { assignmentId } : {}),
       ...costDocumentSearch,
+      ...(detailTab ? { detailTab } : {}),
       ...(focus ? { focus } : {}),
     };
   },
@@ -79,8 +86,14 @@ interface ContractorPermitDocument {
  */
 function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
-  const { assignmentId, costBatch, costDocument, costDocumentDraft, focus } =
-    Route.useSearch();
+  const {
+    assignmentId,
+    costBatch,
+    costDocument,
+    costDocumentDraft,
+    detailTab,
+    focus,
+  } = Route.useSearch();
   const navigate = useNavigate();
   const routeContext = Route.useRouteContext();
   const participationScope = useQuery(
@@ -157,6 +170,7 @@ function ContractorBuildDetail() {
       <ContractorCollaborationSurface
         buildId={buildId}
         buildName={participationScope.buildName}
+        detailTab={detailTab}
         focus={focus}
         organizationId={participationScope.organizationId}
       />
@@ -201,6 +215,7 @@ function ContractorBuildDetail() {
           </Frame>
           <BuildCollaborationSection
             buildId={buildId}
+            detailTab={detailTab}
             focus={focus}
             organizationId={participationScope.organizationId}
           />
@@ -569,6 +584,7 @@ function ContractorBuildDetail() {
         />
         <BuildCollaborationSection
           buildId={buildId}
+          detailTab={detailTab}
           focus={focus}
           organizationId={participationScope.organizationId}
         />
@@ -836,11 +852,13 @@ function ContractorSubmittedCostDocumentHistory({
 function ContractorCollaborationSurface({
   buildId,
   buildName,
+  detailTab,
   focus,
   organizationId,
 }: {
   buildId: string;
   buildName: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   organizationId: string;
 }) {
@@ -855,6 +873,7 @@ function ContractorCollaborationSurface({
         </header>
         <BuildCollaborationSection
           buildId={buildId}
+          detailTab={detailTab}
           focus={focus}
           organizationId={organizationId}
         />
@@ -865,10 +884,12 @@ function ContractorCollaborationSurface({
 
 function BuildCollaborationSection({
   buildId,
+  detailTab,
   focus,
   organizationId,
 }: {
   buildId: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   organizationId: string;
 }) {
@@ -882,6 +903,7 @@ function BuildCollaborationSection({
       </h2>
       <BuildCollaborationWorkspace
         buildId={buildId}
+        detailTab={detailTab}
         focusedReference={focus}
         organizationId={organizationId}
         viewerCapacity="contractor"

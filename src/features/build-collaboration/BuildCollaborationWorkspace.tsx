@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { SubmilestoneDetailSheet } from "../build-submilestone-detail/SubmilestoneDetailSheet.tsx";
 import {
   BuildDetailIntegritySheet,
   BuildDetailSheetHost,
@@ -13,10 +14,12 @@ import {
   type BuildDetailTarget,
   parseBuildDetailFocus,
 } from "../build-detail-targets/buildDetailTarget.ts";
+import type { BuildSubmilestoneDetailTab } from "../build-detail-targets/buildDetailTab.ts";
 import { BuildCollaborationFeed } from "./BuildCollaborationFeed.tsx";
 
 export function BuildCollaborationWorkspace({
   buildId,
+  detailTab,
   focusedReference,
   organizationId,
   onOpenReference,
@@ -24,6 +27,7 @@ export function BuildCollaborationWorkspace({
   viewerCapacity,
 }: {
   buildId: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   organizationId?: string;
   onOpenReference?: (reference: {
@@ -44,6 +48,7 @@ export function BuildCollaborationWorkspace({
 }) {
   const [localFocusedReference, setLocalFocusedReference] =
     useState(focusedReference);
+  const [detailRetryVersion, setDetailRetryVersion] = useState(0);
   useEffect(() => {
     setLocalFocusedReference(focusedReference);
   }, [focusedReference]);
@@ -86,6 +91,7 @@ export function BuildCollaborationWorkspace({
   return (
     <BuildDetailSheetHost
       buildId={buildId as Id<"activeBuilds">}
+      detailTab={detailTab}
       focus={localFocusedReference}
       onTargetResolved={onResolvedDetailTarget}
       organizationId={organizationId}
@@ -109,8 +115,9 @@ export function BuildCollaborationWorkspace({
                     : undefined,
                 scrollY: window.scrollY,
                 selectedTab:
-                  new URL(window.location.href).searchParams.get("tab") ??
-                  undefined,
+                  new URL(window.location.href).searchParams.get(
+                    "detailTab",
+                  ) ?? undefined,
               },
               navigate: !onOpenReference,
             });
@@ -140,6 +147,30 @@ export function BuildCollaborationWorkspace({
               <BuildDetailIntegritySheet
                 error={host.integrityError}
                 onClose={closeDetailTarget}
+              />
+            ) : null}
+            {host.target?.kind === "submilestone" ? (
+              <SubmilestoneDetailSheet
+                buildId={buildId as Id<"activeBuilds">}
+                buildSubmilestoneId={host.target.submilestoneId}
+                canGoBack={host.controller.canGoBack}
+                canGoForward={host.controller.canGoForward}
+                companionActionItemId={host.target.companionId}
+                key={`${host.target.submilestoneId}:${detailRetryVersion}`}
+                onGoBack={host.controller.back}
+                onGoForward={host.controller.forward}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closeDetailTarget();
+                  }
+                }}
+                onRetry={() => setDetailRetryVersion((version) => version + 1)}
+                onSelectedTabChange={host.controller.selectTab}
+                open
+                organizationId={organizationId}
+                readOnly={host.readOnly}
+                selectedTab={detailTab}
+                viewerCapacity={viewerCapacity}
               />
             ) : null}
           </>
