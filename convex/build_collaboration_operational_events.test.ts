@@ -1350,6 +1350,426 @@ describe("Build Collaboration operational events", () => {
       status: "todo",
       systemMode: "generated_milestone_submilestone",
     });
+    const submilestoneId = companion?.canonicalBuildSubmilestoneId;
+    if (!(submilestoneId && companion && latentPost)) {
+      throw new Error(
+        "Expected the generated companion canonical Sub-milestone ID.",
+      );
+    }
+    const {
+      commentIds,
+      historicalCompanionId,
+      matchingMaterialId,
+      unrelatedActionItemId,
+    } = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const assignment = (
+        await ctx.db.query("milestoneContractorAssignments").collect()
+      ).find((candidate) => candidate.buildId === fixture.buildId);
+      if (!assignment) {
+        throw new Error("Expected the assigned Contractor fixture.");
+      }
+      await Promise.all([
+        ctx.db.patch(assignment._id, {
+          buildMilestoneId: latentPost.canonicalBuildMilestoneId,
+          buildSubmilestoneId: submilestoneId,
+          milestoneKey: "framing",
+          submilestoneKey: "frame-walls",
+          updatedAt: now,
+        }),
+        ctx.db.patch(submilestoneId, {
+          reviewRevision: 11,
+          workflowRevision: 7,
+        }),
+        ctx.db.patch(latentPost.canonicalBuildMilestoneId!, {
+          reviewRevision: 13,
+        }),
+        ctx.db.patch(companion._id, { currentRevision: 17 }),
+      ]);
+      const commentIds = [];
+      for (let index = 0; index < 55; index += 1) {
+        commentIds.push(
+          await ctx.db.insert("buildActionItemComments", {
+            actionItemId: companion._id,
+            authorDisplayNameSnapshot: "Builder",
+            authorRole: "builder",
+            authorWorkosUserId: "user_builder",
+            brokerageId: fixture.brokerageId,
+            buildId: fixture.buildId,
+            createdAt: now + index,
+            organizationId: ORGANIZATION_ID,
+            plainText: `Workspace comment ${index + 1}`,
+            tiptapJson: JSON.stringify({ content: [], type: "doc" }),
+          }),
+        );
+      }
+      const unrelatedActionItemId = await ctx.db.insert("buildActionItems", {
+        assignmentState: "unassigned",
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        creatorRole: "builder",
+        creatorWorkosUserId: "user_builder",
+        currentRevision: 1,
+        descriptionPlainText: "Unrelated Action Item",
+        descriptionTiptapJson: JSON.stringify({
+          content: [],
+          type: "doc",
+        }),
+        organizationId: ORGANIZATION_ID,
+        originatingPostId: latentPost._id,
+        priority: "none",
+        requiresAcceptance: false,
+        status: "todo",
+        title: "Unrelated Action Item",
+        updatedAt: now,
+      });
+      const historicalCompanionId = await ctx.db.insert("buildActionItems", {
+        assignmentState: "unassigned",
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        canonicalBindingRevision: 16,
+        canonicalBuildMilestoneId: latentPost.canonicalBuildMilestoneId,
+        canonicalCompanionDisposition: "historical_duplicate",
+        canonicalCompanionSurvivorId: companion._id,
+        canonicalPlanningState: "active",
+        createdAt: now,
+        creatorRole: "builder",
+        creatorWorkosUserId: "user_builder",
+        currentRevision: 16,
+        descriptionPlainText: "Historical duplicate companion",
+        descriptionTiptapJson: JSON.stringify({
+          content: [],
+          type: "doc",
+        }),
+        historicalCanonicalBuildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+        originatingPostId: latentPost._id,
+        priority: "none",
+        requiresAcceptance: false,
+        status: "cancelled",
+        systemMode: "generated_milestone_submilestone",
+        title: "Frame walls historical duplicate",
+        updatedAt: now,
+      });
+      await ctx.db.insert("buildCostItems", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        buildMilestoneId: latentPost.canonicalBuildMilestoneId,
+        costCents: 1_000,
+        createdAt: now,
+        createdByWorkosUserId: "user_builder",
+        itemKey: "other-submilestone-material",
+        itemType: "material",
+        milestoneKey: "framing",
+        organizationId: ORGANIZATION_ID,
+        proposalId: fixture.proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["other-submilestone"],
+        title: "Other Sub-milestone material",
+        updatedAt: now,
+        updatedByWorkosUserId: "user_builder",
+      });
+      const matchingMaterialId = await ctx.db.insert("buildCostItems", {
+        brokerageId: fixture.brokerageId,
+        budgetSubmilestoneKey: "frame-walls",
+        buildId: fixture.buildId,
+        buildMilestoneId: latentPost.canonicalBuildMilestoneId,
+        costCents: 2_000,
+        createdAt: now + 1,
+        createdByWorkosUserId: "user_builder",
+        itemKey: "frame-walls-material",
+        itemType: "material",
+        milestoneKey: "framing",
+        organizationId: ORGANIZATION_ID,
+        proposalId: fixture.proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["frame-walls"],
+        title: "Frame walls material",
+        updatedAt: now + 1,
+        updatedByWorkosUserId: "user_builder",
+      });
+      return {
+        commentIds,
+        historicalCompanionId,
+        matchingMaterialId,
+        unrelatedActionItemId,
+      };
+    });
+    const builderBootstrap = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        companionActionItemId: companion!._id,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(builderBootstrap).toMatchObject({
+      companion: {
+        actionItemId: companion._id,
+        currentRevision: 17,
+      },
+      persona: "builder",
+      revisions: {
+        canonicalWorkflowRevision: 7,
+        companionRevision: 17,
+        parentReviewRevision: 13,
+        reviewRevision: 11,
+      },
+      state: "visible",
+      submilestone: { buildSubmilestoneId: submilestoneId },
+    });
+    expect(builderBootstrap).toMatchObject({
+      capabilities: {
+        canonical: {
+          start: { allowed: true },
+          updateExecution: { allowed: true },
+        },
+        collaboration: {
+          comment: { allowed: true },
+        },
+      },
+    });
+    expect(
+      new Set([
+        builderBootstrap.revisions.canonicalWorkflowRevision,
+        builderBootstrap.revisions.companionRevision,
+        builderBootstrap.revisions.parentReviewRevision,
+        builderBootstrap.revisions.reviewRevision,
+      ]).size,
+    ).toBe(4);
+    expect(builderBootstrap).not.toHaveProperty("comments");
+    expect(builderBootstrap).not.toHaveProperty("activity");
+    expect(builderBootstrap).not.toHaveProperty("revisionHistory");
+    expect(builderBootstrap).not.toHaveProperty("evidenceRequirements");
+    expect(builderBootstrap).not.toHaveProperty("materials");
+    const materialGapPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "materials",
+        limit: 1,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(materialGapPage).toMatchObject({
+      collection: "materials",
+      hasMore: true,
+      nextCursor: expect.any(String),
+      page: [],
+      state: "visible",
+    });
+    if (materialGapPage.state !== "visible") {
+      throw new Error("Expected the first Materials collection page.");
+    }
+    const materialMatchPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "materials",
+        cursor: materialGapPage.nextCursor,
+        limit: 1,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(materialMatchPage).toMatchObject({
+      hasMore: false,
+      page: [
+        expect.objectContaining({
+          id: matchingMaterialId,
+          kind: "material",
+          title: "Frame walls material",
+        }),
+      ],
+      state: "visible",
+    });
+    const commentsPageOne = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "collaboration_comments",
+        limit: 100,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(commentsPageOne).toMatchObject({
+      canonicalWorkflowRevision: 7,
+      collection: "collaboration_comments",
+      companionRevision: 17,
+      hasMore: true,
+      nextCursor: expect.any(String),
+      partial: false,
+      state: "visible",
+    });
+    if (commentsPageOne.state !== "visible") {
+      throw new Error("Expected the first collaboration collection page.");
+    }
+    expect(commentsPageOne.page).toHaveLength(50);
+    expect(commentsPageOne.page[0]).toMatchObject({
+      id: commentIds.at(-1),
+      kind: "comment",
+      title: "Builder",
+    });
+    const commentsPageTwo = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "collaboration_comments",
+        cursor: commentsPageOne.nextCursor,
+        limit: 100,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(commentsPageTwo).toMatchObject({
+      hasMore: false,
+      page: expect.arrayContaining([
+        expect.objectContaining({ id: commentIds[0] }),
+      ]),
+      partial: false,
+      state: "visible",
+    });
+    expect(commentsPageTwo).not.toHaveProperty("nextCursor");
+    if (commentsPageTwo.state === "visible") {
+      expect(commentsPageTwo.page).toHaveLength(5);
+    }
+    await expect(
+      fixture.admin.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toMatchObject({
+      capabilities: {
+        canonical: { approveChild: { allowed: true } },
+      },
+      persona: "admin",
+      state: "visible",
+    });
+    await expect(
+      fixture.broker.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toMatchObject({
+      capabilities: {
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+      persona: "broker",
+      state: "visible",
+    });
+    await expect(
+      fixture.assignedContractor.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toMatchObject({
+      capabilities: {
+        canonical: { updateExecution: { allowed: true } },
+        collaboration: {
+          comment: { allowed: true },
+          toggleChecklist: {
+            allowed: false,
+            reason:
+              "Companion structure editing is not enabled for generated Sub-milestones.",
+          },
+        },
+      },
+      persona: "contractor",
+      state: "visible",
+    });
+    await expect(
+      fixture.builder.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          companionActionItemId: unrelatedActionItemId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: "COMPANION_ID_MISMATCH",
+      state: "integrity_error",
+    });
+    await expect(
+      fixture.builder.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          companionActionItemId: historicalCompanionId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toMatchObject({
+      companion: {
+        actionItemId: companion._id,
+        requestedActionItemId: historicalCompanionId,
+      },
+      state: "visible",
+    });
+    await expect(
+      fixture.contractor.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toEqual({ state: "revoked" });
+    await expect(
+      fixture.homeowner.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toEqual({ state: "revoked" });
+    await expect(
+      fixture.builder.query(
+        (api as any).build_submilestone_workspace
+          .getBuildSubmilestoneWorkspaceBootstrap,
+        {
+          buildId: fixture.buildId,
+          buildSubmilestoneId: submilestoneId,
+          organizationId: "org_other",
+        },
+      ),
+    ).resolves.toEqual({ state: "revoked" });
     expect(await feedKinds(fixture.builder, fixture.buildId)).toEqual([]);
     await expect(
       fixture.builder.query(
@@ -1415,8 +1835,18 @@ describe("Build Collaboration operational events", () => {
       String(fixture.buildId),
     );
     expect(afterReplay.posts).toHaveLength(afterCreate.posts.length);
-    expect(afterReplay.actionItems).toHaveLength(
-      afterCreate.actionItems.length,
+    expect(
+      afterReplay.actionItems.filter(
+        (item) =>
+          item.systemMode === "generated_milestone_submilestone" &&
+          item.canonicalBuildSubmilestoneId,
+      ),
+    ).toHaveLength(
+      afterCreate.actionItems.filter(
+        (item) =>
+          item.systemMode === "generated_milestone_submilestone" &&
+          item.canonicalBuildSubmilestoneId,
+      ).length,
     );
     expect(afterReplay.references).toHaveLength(afterCreate.references.length);
 
@@ -1515,6 +1945,46 @@ describe("Build Collaboration operational events", () => {
         workosOrganizationId: ORGANIZATION_ID,
       },
     );
+    const supersededBootstrap = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(supersededBootstrap).toMatchObject({
+      state: "superseded",
+      submilestone: {
+        buildSubmilestoneId: submilestoneId,
+        planningState: "superseded",
+      },
+    });
+    if (supersededBootstrap.state !== "superseded") {
+      throw new Error("Expected a historical Sub-milestone workspace.");
+    }
+    const supersededCapabilities = supersededBootstrap.capabilities as Record<
+      string,
+      Record<string, { allowed: boolean; reason?: string }>
+    >;
+    expect(
+      Object.values(supersededCapabilities).flatMap((group) =>
+        Object.values(group),
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          allowed: false,
+          reason: "Historical Sub-milestones are read-only.",
+        }),
+      ]),
+    );
+    expect(
+      Object.values(supersededCapabilities).flatMap((group) =>
+        Object.values(group).map((capability) => capability.allowed),
+      ),
+    ).not.toContain(true);
     await fixture.admin.mutation(
       (api as any).production_proposals.updateActiveBuildTimelineMilestone,
       {
@@ -1684,7 +2154,7 @@ describe("Build Collaboration operational events", () => {
     const certificationState = await fixture.admin.query(
       (api as any).build_collaboration_cutover_certification
         .getBuildCollaborationCutoverCertificationState,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     expect(certificationState.companionCutover).toMatchObject({
       parityMismatchCount: 0,
@@ -1730,7 +2200,7 @@ describe("Build Collaboration operational events", () => {
         actionItemId: source.companion._id,
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
-      }
+      },
     );
     expect(historicalDetail.item).toMatchObject({
       canonicalCompanionDisposition: "historical_duplicate",
@@ -1826,7 +2296,7 @@ describe("Build Collaboration operational events", () => {
     const preview = await fixture.admin.query(
       (api as any).build_submilestone_companion_cutover
         .previewBuildSubmilestoneCompanionCutover,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     let run = await fixture.admin.mutation(
       (api as any).build_submilestone_companion_cutover
@@ -1836,9 +2306,12 @@ describe("Build Collaboration operational events", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         planToken: preview.planToken,
-      }
+      },
     );
-    expect(run).toMatchObject({ nextSeedOrdinal: 0, status: "seeding_reports" });
+    expect(run).toMatchObject({
+      nextSeedOrdinal: 0,
+      status: "seeding_reports",
+    });
     await expect(
       fixture.admin.query(
         (api as any).build_submilestone_companion_cutover
@@ -1847,8 +2320,8 @@ describe("Build Collaboration operational events", () => {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           runId: run.runId,
-        }
-      )
+        },
+      ),
     ).resolves.toMatchObject({ reports: [] });
     await expect(
       fixture.admin.mutation(
@@ -1858,8 +2331,8 @@ describe("Build Collaboration operational events", () => {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           planToken: "build-submilestone-companion-cutover/v1:other-plan",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow(/already in progress for this Build/i);
 
     run = await fixture.admin.mutation(
@@ -1870,7 +2343,7 @@ describe("Build Collaboration operational events", () => {
         maxItems: 1,
         organizationId: ORGANIZATION_ID,
         runId: run.runId,
-      }
+      },
     );
     expect(run).toMatchObject({ nextSeedOrdinal: 1, status: "repairing" });
     await expect(
@@ -1881,21 +2354,23 @@ describe("Build Collaboration operational events", () => {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           runId: run.runId,
-        }
-      )
-    ).resolves.toMatchObject({ reports: [expect.objectContaining({ ordinal: 0 })] });
+        },
+      ),
+    ).resolves.toMatchObject({
+      reports: [expect.objectContaining({ ordinal: 0 })],
+    });
   });
 
   test("blocks when a captured Milestone changes between repair and materialization", async () => {
     const fixture = await seedOperationalBuild();
     const source = await createCompanionCutoverMilestone(
       fixture,
-      "stable-cursor-cutover"
+      "stable-cursor-cutover",
     );
     const preview = await fixture.admin.query(
       (api as any).build_submilestone_companion_cutover
         .previewBuildSubmilestoneCompanionCutover,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     let run = await fixture.admin.mutation(
       (api as any).build_submilestone_companion_cutover
@@ -1905,7 +2380,7 @@ describe("Build Collaboration operational events", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         planToken: preview.planToken,
-      }
+      },
     );
     for (
       let guard = 0;
@@ -1921,7 +2396,7 @@ describe("Build Collaboration operational events", () => {
           maxItems: 1,
           organizationId: ORGANIZATION_ID,
           runId: run.runId,
-        }
+        },
       );
     }
     expect(run.status).toBe("materializing");
@@ -1941,7 +2416,7 @@ describe("Build Collaboration operational events", () => {
           maxItems: 1,
           organizationId: ORGANIZATION_ID,
           runId: run.runId,
-        }
+        },
       );
     }
     expect(run).toMatchObject({ status: "blocked" });
@@ -1952,12 +2427,12 @@ describe("Build Collaboration operational events", () => {
     const fixture = await seedOperationalBuild();
     const source = await createCompanionCutoverMilestone(
       fixture,
-      "parity-mismatch-cutover"
+      "parity-mismatch-cutover",
     );
     const preview = await fixture.admin.query(
       (api as any).build_submilestone_companion_cutover
         .previewBuildSubmilestoneCompanionCutover,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     let run = await fixture.admin.mutation(
       (api as any).build_submilestone_companion_cutover
@@ -1967,7 +2442,7 @@ describe("Build Collaboration operational events", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         planToken: preview.planToken,
-      }
+      },
     );
     for (
       let guard = 0;
@@ -1985,7 +2460,7 @@ describe("Build Collaboration operational events", () => {
           maxItems: 25,
           organizationId: ORGANIZATION_ID,
           runId: run.runId,
-        }
+        },
       );
     }
     expect(run.status).toBe("checking_parity");
@@ -2004,7 +2479,7 @@ describe("Build Collaboration operational events", () => {
         maxItems: 25,
         organizationId: ORGANIZATION_ID,
         runId: run.runId,
-      }
+      },
     );
     expect(run).toMatchObject({
       lastParityRecordKey: expect.any(String),
@@ -2021,7 +2496,7 @@ describe("Build Collaboration operational events", () => {
     const preview = await fixture.admin.query(
       (api as any).build_submilestone_companion_cutover
         .previewBuildSubmilestoneCompanionCutover,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     let run = await fixture.admin.mutation(
       (api as any).build_submilestone_companion_cutover
@@ -2031,7 +2506,7 @@ describe("Build Collaboration operational events", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         planToken: preview.planToken,
-      }
+      },
     );
     for (let guard = 0; run.status !== "checking_parity"; guard += 1) {
       expect(guard).toBeLessThan(10);
@@ -2043,7 +2518,7 @@ describe("Build Collaboration operational events", () => {
           maxItems: 25,
           organizationId: ORGANIZATION_ID,
           runId: run.runId,
-        }
+        },
       );
     }
     run = await fixture.admin.mutation(
@@ -2054,7 +2529,7 @@ describe("Build Collaboration operational events", () => {
         maxItems: 1,
         organizationId: ORGANIZATION_ID,
         runId: run.runId,
-      }
+      },
     );
     expect(run).toMatchObject({
       lastParityRecordKey: expect.stringMatching(/^submilestone:/),
@@ -2077,14 +2552,16 @@ describe("Build Collaboration operational events", () => {
         maxItems: 1,
         organizationId: ORGANIZATION_ID,
         runId: run.runId,
-      }
+      },
     );
     expect(run).toMatchObject({
       parityCheckedCount: 2,
       parityMismatchCount: 1,
       status: "blocked",
     });
-    expect(run.lastError).toMatch(/parity found 1 unresolved binding mismatch/i);
+    expect(run.lastError).toMatch(
+      /parity found 1 unresolved binding mismatch/i,
+    );
   });
 
   test("blocks duplicate repair when more than one candidate owns human history", async () => {

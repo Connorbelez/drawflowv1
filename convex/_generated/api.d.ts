@@ -124,6 +124,7 @@ import type * as build_submilestone_companion_cutover from "../build_submileston
 import type * as build_submilestone_evidence from "../build_submilestone_evidence.js";
 import type * as build_submilestone_operate_authority from "../build_submilestone_operate_authority.js";
 import type * as build_submilestone_review from "../build_submilestone_review.js";
+import type * as build_submilestone_workspace from "../build_submilestone_workspace.js";
 import type * as builderRoster from "../builderRoster.js";
 import type * as builderStaffIdentity from "../builderStaffIdentity.js";
 import type * as contractorAuth from "../contractorAuth.js";
@@ -298,6 +299,7 @@ declare const fullApi: ApiFromModules<{
   build_submilestone_evidence: typeof build_submilestone_evidence;
   build_submilestone_operate_authority: typeof build_submilestone_operate_authority;
   build_submilestone_review: typeof build_submilestone_review;
+  build_submilestone_workspace: typeof build_submilestone_workspace;
   builderRoster: typeof builderRoster;
   builderStaffIdentity: typeof builderStaffIdentity;
   contractorAuth: typeof contractorAuth;
