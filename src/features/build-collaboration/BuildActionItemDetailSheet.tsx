@@ -126,11 +126,14 @@ export type BuildActionItemSheetTarget =
 
 export function BuildActionItemDetailSheet({
   buildId,
+  canGoBack = false,
+  canGoForward = false,
   focusedAssetId,
   onCreated,
   onOpenChange,
+  onGoBack = () => undefined,
+  onGoForward = () => undefined,
   onReferenceOpen,
-  onTargetChange,
   open,
   organizationId,
   readOnly = false,
@@ -138,11 +141,14 @@ export function BuildActionItemDetailSheet({
   target,
 }: {
   buildId: Id<"activeBuilds">;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
   focusedAssetId?: Id<"buildCollaborationAssets">;
   onCreated?: (actionItemId: Id<"buildActionItems">) => void;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
-  onTargetChange?: (target: BuildActionItemSheetTarget) => void;
   open: boolean;
   organizationId: string;
   readOnly?: boolean;
@@ -153,42 +159,8 @@ export function BuildActionItemDetailSheet({
     target?.kind === "detail" ? target.actionItemId : undefined;
   const detail = useQuery(
     api.build_action_item_details.getBuildActionItemDetail,
-    open && actionItemId ? { actionItemId, buildId, organizationId } : "skip"
+    open && actionItemId ? { actionItemId, buildId, organizationId } : "skip",
   ) as ActionItemDetail | undefined;
-  const [history, setHistory] = useState<Id<"buildActionItems">[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const navigatingHistory = useRef(false);
-  useEffect(() => {
-    if (!(open && actionItemId)) {
-      if (!open) {
-        setHistory([]);
-        setHistoryIndex(-1);
-      }
-      return;
-    }
-    if (navigatingHistory.current) {
-      navigatingHistory.current = false;
-      return;
-    }
-    setHistory((current) => {
-      if (current[historyIndex] === actionItemId) {
-        return current;
-      }
-      const next = [...current.slice(0, historyIndex + 1), actionItemId];
-      setHistoryIndex(next.length - 1);
-      return next;
-    });
-  }, [actionItemId, historyIndex, open]);
-  const navigateHistory = (offset: -1 | 1) => {
-    const nextIndex = historyIndex + offset;
-    const nextActionItemId = history[nextIndex];
-    if (!nextActionItemId) {
-      return;
-    }
-    navigatingHistory.current = true;
-    setHistoryIndex(nextIndex);
-    onTargetChange?.({ actionItemId: nextActionItemId, kind: "detail" });
-  };
   return (
     <Sheet modal={false} onOpenChange={onOpenChange} open={open}>
       <SheetPopup
@@ -210,14 +182,12 @@ export function BuildActionItemDetailSheet({
         ) : (
           <ActionItemDetailPanel
             buildId={buildId}
-            canGoBack={historyIndex > 0}
-            canGoForward={
-              historyIndex >= 0 && historyIndex < history.length - 1
-            }
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
             detail={detail}
             focusedAssetId={focusedAssetId}
-            onGoBack={() => navigateHistory(-1)}
-            onGoForward={() => navigateHistory(1)}
+            onGoBack={onGoBack}
+            onGoForward={onGoForward}
             onOpenChange={onOpenChange}
             onReferenceOpen={onReferenceOpen}
             open={open}
@@ -305,21 +275,21 @@ function ActionItemCreatePanel({
   tagOptions: CollaborationTagOption[];
 }) {
   const createActionItem = useBuildCollaborationMutation(
-    api.build_action_items.createBuildActionItem
+    api.build_action_items.createBuildActionItem,
   );
   const beginAssetUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
   );
   const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage
+      .registerBuildCollaborationAssetUploadedStorage,
   );
   const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload
+      .finalizeAndScanBuildCollaborationAssetUpload,
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
   );
   const [title, setTitle] = useState("");
   const [document, setDocument] = useState<JSONContent>(emptyDocument());
@@ -334,7 +304,7 @@ function ActionItemCreatePanel({
   const [requestId] = useState(() => newActionItemRequestId());
   const [submitting, setSubmitting] = useState(false);
   const participants = tagOptions.filter(
-    (option) => option.kind === "participant"
+    (option) => option.kind === "participant",
   );
   const effectiveWorkKind = effectiveActionItemWorkKind(workKind, references);
 
@@ -396,7 +366,9 @@ function ActionItemCreatePanel({
         reason: "Action Item creation failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to create Action Item."
+        error instanceof Error
+          ? error.message
+          : "Unable to create Action Item.",
       );
     } finally {
       setSubmitting(false);
@@ -636,81 +608,81 @@ function VisibleActionItemDetail({
   tagOptions: CollaborationTagOption[];
 }) {
   const updateActionItem = useBuildCollaborationMutation(
-    api.build_action_items.updateBuildActionItem
+    api.build_action_items.updateBuildActionItem,
   );
   const addComment = useBuildCollaborationMutation(
-    api.build_action_item_details.addBuildActionItemComment
+    api.build_action_item_details.addBuildActionItemComment,
   );
   const toggleCommentReaction = useBuildCollaborationMutation(
-    api.build_action_item_details.toggleBuildActionItemCommentReaction
+    api.build_action_item_details.toggleBuildActionItemCommentReaction,
   );
   const markActivityRead = useBuildCollaborationReadMutation(
-    api.build_collaboration_inbox.markBuildActionItemActivityRead
+    api.build_collaboration_inbox.markBuildActionItemActivityRead,
   );
   const addReplacementComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.addBuildCollaborationComment
+    api.build_collaboration_threads.addBuildCollaborationComment,
   );
   const beginReplacementUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
   );
   const registerReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage
+      .registerBuildCollaborationAssetUploadedStorage,
   );
   const finalizeAndScanReplacement = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload
+      .finalizeAndScanBuildCollaborationAssetUpload,
   );
   const abandonReplacementAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
   );
   const assignActionItem = useBuildCollaborationMutation(
-    api.build_action_item_workflow.assignBuildActionItem
+    api.build_action_item_workflow.assignBuildActionItem,
   );
   const acceptAssignment = useBuildCollaborationMutation(
-    api.build_action_item_workflow.acceptBuildActionItemAssignment
+    api.build_action_item_workflow.acceptBuildActionItemAssignment,
   );
   const transitionActionItem = useBuildCollaborationMutation(
-    api.build_action_item_workflow.transitionBuildActionItem
+    api.build_action_item_workflow.transitionBuildActionItem,
   );
   const startCanonicalMilestone = useBuildCollaborationMutation(
-    api.production_proposals.startActiveBuildMilestone
+    api.production_proposals.startActiveBuildMilestone,
   );
   const updateCanonicalProgress = useBuildCollaborationMutation(
-    api.production_proposals.updateActiveBuildSubmilestoneProgress
+    api.production_proposals.updateActiveBuildSubmilestoneProgress,
   );
   const generateCanonicalEvidenceUploadUrl = useBuildCollaborationMutation(
-    api.production_proposals.generateActiveBuildEvidenceUploadUrl
+    api.production_proposals.generateActiveBuildEvidenceUploadUrl,
   );
   const addCanonicalEvidence = useBuildCollaborationMutation(
-    api.production_proposals.addActiveBuildSubmilestoneEvidence
+    api.production_proposals.addActiveBuildSubmilestoneEvidence,
   );
   const freezeCanonicalEvidencePackage = useBuildCollaborationMutation(
-    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage
+    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
   );
   const submitCanonicalCompletionForReview = useBuildCollaborationMutation(
-    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview
+    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview,
   );
   const recommendCanonicalReview = useBuildCollaborationMutation(
-    api.build_submilestone_review.recommendActiveBuildSubmilestoneReview
+    api.build_submilestone_review.recommendActiveBuildSubmilestoneReview,
   );
   const requestCanonicalChanges = useBuildCollaborationMutation(
-    api.build_submilestone_review.requestActiveBuildSubmilestoneChanges
+    api.build_submilestone_review.requestActiveBuildSubmilestoneChanges,
   );
   const waiveCanonicalSiteVisit = useBuildCollaborationMutation(
-    api.build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit
+    api.build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
   );
   const approveCanonicalSubmilestone = useBuildCollaborationMutation(
-    api.build_submilestone_review.approveActiveBuildSubmilestone
+    api.build_submilestone_review.approveActiveBuildSubmilestone,
   );
   const retractCanonicalSubmilestoneApproval = useBuildCollaborationMutation(
-    api.build_submilestone_review.retractActiveBuildSubmilestoneApproval
+    api.build_submilestone_review.retractActiveBuildSubmilestoneApproval,
   );
   const approveCanonicalMilestone = useBuildCollaborationMutation(
-    api.build_submilestone_review.approveActiveBuildMilestoneReview
+    api.build_submilestone_review.approveActiveBuildMilestoneReview,
   );
   const retractCanonicalMilestoneApproval = useBuildCollaborationMutation(
-    api.build_submilestone_review.retractActiveBuildMilestoneApproval
+    api.build_submilestone_review.retractActiveBuildMilestoneApproval,
   );
   const workflow = useQuery(
     api.build_action_item_workflow.getBuildActionItemWorkflowContext,
@@ -718,18 +690,18 @@ function VisibleActionItemDetail({
       actionItemId: detail.item.actionItemId,
       buildId,
       organizationId,
-    }
+    },
   ) as WorkflowContext | undefined;
   const [title, setTitle] = useState(detail.item.title);
   const [priority, setPriority] = useState(detail.item.priority);
   const [dueDate, setDueDate] = useState(dateInputValue(detail.item.dueAt));
   const [labels, setLabels] = useState<BuildActionItemTag[]>(
     detail.labels.filter((label): label is BuildActionItemTag =>
-      BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
-    )
+      BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag),
+    ),
   );
   const [briefDocument, setBriefDocument] = useState<JSONContent>(() =>
-    parseDocument(detail.item.descriptionTiptapJson)
+    parseDocument(detail.item.descriptionTiptapJson),
   );
   const [briefReferences, setBriefReferences] = useState<
     CollaborationTagReference[]
@@ -739,10 +711,10 @@ function VisibleActionItemDetail({
         tagOptions.find(
           (option) =>
             option.id === reference.entityId &&
-            option.kind === toEditorReferenceKind(reference.entityKind)
-        )
+            option.kind === toEditorReferenceKind(reference.entityKind),
+        ),
       )
-      .filter((option): option is CollaborationTagOption => Boolean(option))
+      .filter((option): option is CollaborationTagOption => Boolean(option)),
   );
   const [briefDirty, setBriefDirty] = useState(false);
   const [briefSaveState, setBriefSaveState] = useState<
@@ -750,9 +722,8 @@ function VisibleActionItemDetail({
   >("idle");
   const [definitionReason, setDefinitionReason] = useState("");
   const [commentHtml, setCommentHtml] = useState("");
-  const [commentDocument, setCommentDocument] = useState<JSONContent>(
-    emptyDocument()
-  );
+  const [commentDocument, setCommentDocument] =
+    useState<JSONContent>(emptyDocument());
   const [commentReferences, setCommentReferences] = useState<
     CollaborationTagReference[]
   >([]);
@@ -773,8 +744,10 @@ function VisibleActionItemDetail({
   const [canonicalEvidenceBusy, setCanonicalEvidenceBusy] = useState(false);
   const [canonicalReviewNote, setCanonicalReviewNote] = useState("");
   const [canonicalReviewReason, setCanonicalReviewReason] = useState("");
-  const [canonicalReviewSiteVisitRequired, setCanonicalReviewSiteVisitRequired] =
-    useState(false);
+  const [
+    canonicalReviewSiteVisitRequired,
+    setCanonicalReviewSiteVisitRequired,
+  ] = useState(false);
   const [canonicalReviewBusy, setCanonicalReviewBusy] = useState(false);
   const canonicalCommandKeys = useRef(new Map<string, string>());
 
@@ -819,7 +792,7 @@ function VisibleActionItemDetail({
 
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
-    file: File
+    file: File,
   ) => {
     let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
@@ -864,7 +837,7 @@ function VisibleActionItemDetail({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to publish the attachment replacement."
+          : "Unable to publish the attachment replacement.",
       );
     }
   };
@@ -875,8 +848,8 @@ function VisibleActionItemDetail({
     setDueDate(dateInputValue(detail.item.dueAt));
     setLabels(
       detail.labels.filter((label): label is BuildActionItemTag =>
-        BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
-      )
+        BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag),
+      ),
     );
   }, [
     detail.item.dueAt,
@@ -927,7 +900,7 @@ function VisibleActionItemDetail({
       } catch (error) {
         setBriefSaveState("conflict");
         toast.error(
-          error instanceof Error ? error.message : "Unable to save the brief."
+          error instanceof Error ? error.message : "Unable to save the brief.",
         );
       }
     }, 700);
@@ -967,7 +940,9 @@ function VisibleActionItemDetail({
       toast.success("Action Item updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update Action Item."
+        error instanceof Error
+          ? error.message
+          : "Unable to update Action Item.",
       );
     } finally {
       setSaving(false);
@@ -1019,7 +994,7 @@ function VisibleActionItemDetail({
         reason: "Action Item comment failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to add comment."
+        error instanceof Error ? error.message : "Unable to add comment.",
       );
     }
   };
@@ -1036,11 +1011,11 @@ function VisibleActionItemDetail({
       toast.success(
         workosUserId
           ? "Action Item assignment updated."
-          : "Action Item unassigned."
+          : "Action Item unassigned.",
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update assignment."
+        error instanceof Error ? error.message : "Unable to update assignment.",
       );
     } finally {
       setWorkflowBusy(false);
@@ -1058,7 +1033,7 @@ function VisibleActionItemDetail({
       toast.success("Assignment accepted.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to accept assignment."
+        error instanceof Error ? error.message : "Unable to accept assignment.",
       );
     } finally {
       setWorkflowBusy(false);
@@ -1085,7 +1060,7 @@ function VisibleActionItemDetail({
       toast.success("Action Item status updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update status."
+        error instanceof Error ? error.message : "Unable to update status.",
       );
     } finally {
       setWorkflowBusy(false);
@@ -1135,7 +1110,9 @@ function VisibleActionItemDetail({
       return;
     }
     const actualCostInput = canonicalActualCost.trim();
-    const actualCostCents = actualCostInput ? Number(actualCostInput) : undefined;
+    const actualCostCents = actualCostInput
+      ? Number(actualCostInput)
+      : undefined;
     if (
       actualCostInput &&
       (!Number.isInteger(actualCostCents) || (actualCostCents ?? 0) < 0)
@@ -1162,7 +1139,7 @@ function VisibleActionItemDetail({
       toast.success("Canonical progress updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update progress."
+        error instanceof Error ? error.message : "Unable to update progress.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1221,7 +1198,7 @@ function VisibleActionItemDetail({
       toast.success("Evidence added to the canonical package.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add evidence."
+        error instanceof Error ? error.message : "Unable to add evidence.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1253,7 +1230,7 @@ function VisibleActionItemDetail({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to freeze Evidence Package."
+          : "Unable to freeze Evidence Package.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1292,7 +1269,7 @@ function VisibleActionItemDetail({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to submit completion for review."
+          : "Unable to submit completion for review.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1554,7 +1531,9 @@ function VisibleActionItemDetail({
             reviewSiteVisitRequired={canonicalReviewSiteVisitRequired}
             onReviewNoteChange={setCanonicalReviewNote}
             onReviewReasonChange={setCanonicalReviewReason}
-            onReviewSiteVisitRequiredChange={setCanonicalReviewSiteVisitRequired}
+            onReviewSiteVisitRequiredChange={
+              setCanonicalReviewSiteVisitRequired
+            }
             onUpdateExecution={updateCanonicalExecution}
             onUploadEvidence={addCanonicalEvidenceFile}
             progress={canonicalProgress}
@@ -1761,7 +1740,7 @@ function VisibleActionItemDetail({
                     />
                     {detail.comments
                       .filter(
-                        (reply) => reply.parentCommentId === entry.commentId
+                        (reply) => reply.parentCommentId === entry.commentId,
                       )
                       .map((reply) => (
                         <div
@@ -1913,7 +1892,7 @@ function CanonicalMilestoneActionItemFacts({
   onStart?: () => void;
   onSubmitReview: () => void;
   onUploadEvidence: (
-    input: EvidenceUploaderUploadInput
+    input: EvidenceUploaderUploadInput,
   ) => Promise<unknown> | unknown;
   onUpdateExecution: () => void;
   onWaiveSiteVisit: () => void;
@@ -1930,10 +1909,10 @@ function CanonicalMilestoneActionItemFacts({
   onReviewSiteVisitRequiredChange: (value: boolean) => void;
 }) {
   const milestoneReference = detail.references.find(
-    (reference) => reference.entityKind === "milestone"
+    (reference) => reference.entityKind === "milestone",
   );
   const submilestoneReference = detail.references.find(
-    (reference) => reference.entityKind === "submilestone"
+    (reference) => reference.entityKind === "submilestone",
   );
   return (
     <Frame className="border-dashed bg-muted/20" size="sm">
@@ -1948,11 +1927,7 @@ function CanonicalMilestoneActionItemFacts({
                   : "outline"
               }
             >
-              {
-                systemPresentationLabels[
-                  detail.item.systemPresentation.column
-                ]
-              }
+              {systemPresentationLabels[detail.item.systemPresentation.column]}
             </Badge>
           ) : null}
           {detail.item.systemPresentation?.attention ===
@@ -2082,7 +2057,7 @@ function CanonicalFieldExecutionPanel({
               min={0}
               onChange={(event) =>
                 onProgressChange(
-                  Math.min(100, Math.max(0, Number(event.target.value) || 0))
+                  Math.min(100, Math.max(0, Number(event.target.value) || 0)),
                 )
               }
               type="number"
@@ -2146,7 +2121,7 @@ function CanonicalEvidencePackagePanel({
   onFreezePackage: () => void;
   onSubmitReview: () => void;
   onUploadEvidence: (
-    input: EvidenceUploaderUploadInput
+    input: EvidenceUploaderUploadInput,
   ) => Promise<unknown> | unknown;
 }) {
   const presentation = detail.item.systemPresentation;
@@ -2172,7 +2147,7 @@ function CanonicalEvidencePackagePanel({
                 mimeType: "application/octet-stream",
                 sizeBytes: 0,
                 tag: "existing",
-              })
+              }),
             ),
             key: startCommand?.submilestoneKey ?? "",
           }}
@@ -2319,7 +2294,7 @@ function CanonicalReviewLifecyclePanel({
   const requirement = presentation.siteVisitRequirement;
   const reviewHistory = presentation.reviewHistory ?? [];
   const participantOptions = tagOptions.filter(
-    (option) => option.kind === "participant"
+    (option) => option.kind === "participant",
   );
   const siteVisitSignals = requirement
     ? [
@@ -2371,8 +2346,8 @@ function CanonicalReviewLifecyclePanel({
         {presentation.reviewDecisionState === "reopened" ||
         presentation.milestoneReviewDecisionState === "reopened" ? (
           <p className="rounded-md border border-warning/30 bg-warning/8 px-3 py-2 text-warning-foreground text-xs">
-            This review is reopened. Prior evidence, Site Visits, decisions,
-            and rounds remain immutable history.
+            This review is reopened. Prior evidence, Site Visits, decisions, and
+            rounds remain immutable history.
           </p>
         ) : null}
         <div className="space-y-2 rounded-md border bg-muted/20 p-3">
@@ -2406,9 +2381,9 @@ function CanonicalReviewLifecyclePanel({
         {canEditReview ? (
           <div className="space-y-3 rounded-md border p-3">
             <p className="font-medium text-xs">Review command</p>
-            {(presentation.canRecommendReview ||
-              presentation.canApproveSubmilestone ||
-              presentation.canApproveMilestone) ? (
+            {presentation.canRecommendReview ||
+            presentation.canApproveSubmilestone ||
+            presentation.canApproveMilestone ? (
               <Label className="space-y-1 text-xs">
                 <span>Reviewer note</span>
                 <Input
@@ -2419,10 +2394,10 @@ function CanonicalReviewLifecyclePanel({
                 />
               </Label>
             ) : null}
-            {(presentation.canRequestChanges ||
-              presentation.canWaiveSiteVisit ||
-              presentation.canRetractSubmilestoneApproval ||
-              presentation.canRetractMilestoneApproval) ? (
+            {presentation.canRequestChanges ||
+            presentation.canWaiveSiteVisit ||
+            presentation.canRetractSubmilestoneApproval ||
+            presentation.canRetractMilestoneApproval ? (
               <Label className="space-y-1 text-xs">
                 <span>Reason (required for this command)</span>
                 <Input
@@ -2553,8 +2528,9 @@ function CanonicalReviewLifecyclePanel({
                     </span>
                   </div>
                   <p className="text-muted-foreground">
-                    {entry.actorRoles.join(", ")} · {participantOptions.find(
-                      (option) => option.id === entry.actorWorkosUserId
+                    {entry.actorRoles.join(", ")} ·{" "}
+                    {participantOptions.find(
+                      (option) => option.id === entry.actorWorkosUserId,
                     )?.label ?? "Former Build participant"}
                   </p>
                   {entry.reason || entry.note ? (
@@ -2621,7 +2597,7 @@ function ActionItemCommentCard({
         <div className="flex flex-wrap items-center gap-1">
           {ACTION_ITEM_REACTIONS.map((reaction) => {
             const summary = entry.reactions.find(
-              (candidate) => candidate.reaction === reaction
+              (candidate) => candidate.reaction === reaction,
             );
             return (
               <Button
@@ -2674,7 +2650,7 @@ function TagTaxonomyPicker({
                 onChange(
                   selected
                     ? labels.filter((candidate) => candidate !== label)
-                    : [...labels, label]
+                    : [...labels, label],
                 )
               }
               size="xs"
@@ -2731,7 +2707,7 @@ function ActionItemWorkflowPanel({
         ? "Assigned"
         : "Unassigned";
   const statusOptions = Array.from(
-    new Set([detail.item.status, ...visibleWorkflow.availableTransitions])
+    new Set([detail.item.status, ...visibleWorkflow.availableTransitions]),
   );
   const transitionNeedsReason = (nextStatus: ActionStatus) =>
     nextStatus === "blocked" ||
@@ -2741,7 +2717,7 @@ function ActionItemWorkflowPanel({
       return "Unassigned";
     }
     const participant = visibleWorkflow.assignableParticipants.find(
-      (candidate) => candidate.workosUserId === value
+      (candidate) => candidate.workosUserId === value,
     );
     return (
       participant?.displayName ??
@@ -2908,7 +2884,7 @@ function DetailContext({
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   onReplaceAsset?: (
     asset: BuildCollaborationAssetSummary,
-    file: File
+    file: File,
   ) => Promise<void>;
   organizationId: string;
   tagOptions: CollaborationTagOption[];
@@ -2926,7 +2902,7 @@ function DetailContext({
           const option = tagOptions.find(
             (candidate) =>
               candidate.id === reference.entityId &&
-              candidate.kind === toEditorReferenceKind(reference.entityKind)
+              candidate.kind === toEditorReferenceKind(reference.entityKind),
           );
           return option ? (
             <BuildCollaborationReferenceChip
@@ -2978,26 +2954,26 @@ function ActionItemStructurePanel({
       actionItemId: detail.item.actionItemId,
       buildId,
       organizationId,
-    }
+    },
   ) as StructureContext | undefined;
   const addChecklistItem = useBuildCollaborationMutation(
-    api.build_action_item_structure.addBuildActionItemChecklistItem
+    api.build_action_item_structure.addBuildActionItemChecklistItem,
   );
   const toggleChecklistItem = useBuildCollaborationMutation(
-    api.build_action_item_structure.toggleBuildActionItemChecklistItem
+    api.build_action_item_structure.toggleBuildActionItemChecklistItem,
   );
   const linkActionItems = useBuildCollaborationMutation(
-    api.build_action_item_structure.linkBuildActionItems
+    api.build_action_item_structure.linkBuildActionItems,
   );
   const unlinkActionItems = useBuildCollaborationMutation(
-    api.build_action_item_structure.unlinkBuildActionItemRelation
+    api.build_action_item_structure.unlinkBuildActionItemRelation,
   );
   const repairRelation = useBuildCollaborationMutation(
-    api.build_action_item_structure.repairBuildActionItemRelation
+    api.build_action_item_structure.repairBuildActionItemRelation,
   );
   const [checklistLabel, setChecklistLabel] = useState("");
   const [relationKind, setRelationKind] = useState<"duplicate" | "related">(
-    "related"
+    "related",
   );
   const [relatedActionItemId, setRelatedActionItemId] = useState("");
   const [dependsOnActionItemId, setDependsOnActionItemId] = useState("");
@@ -3007,7 +2983,7 @@ function ActionItemStructurePanel({
   const [busy, setBusy] = useState(false);
   const relatedOptions = tagOptions.filter(
     (option) =>
-      option.kind === "action_item" && option.id !== detail.item.actionItemId
+      option.kind === "action_item" && option.id !== detail.item.actionItemId,
   );
 
   useEffect(() => {
@@ -3048,7 +3024,9 @@ function ActionItemStructurePanel({
       toast.success("Checklist step added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add checklist step."
+        error instanceof Error
+          ? error.message
+          : "Unable to add checklist step.",
       );
     } finally {
       setBusy(false);
@@ -3075,7 +3053,7 @@ function ActionItemStructurePanel({
       toast.success("Action Item relationship added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to link Action Items."
+        error instanceof Error ? error.message : "Unable to link Action Items.",
       );
     } finally {
       setBusy(false);
@@ -3113,14 +3091,14 @@ function ActionItemStructurePanel({
       toast.success("Dependency added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add dependency."
+        error instanceof Error ? error.message : "Unable to add dependency.",
       );
     } finally {
       setBusy(false);
     }
   };
   const unlinkDependency = async (
-    relationId: Id<"buildActionItemRelations">
+    relationId: Id<"buildActionItemRelations">,
   ) => {
     setBusy(true);
     try {
@@ -3135,7 +3113,7 @@ function ActionItemStructurePanel({
       toast.success("Dependency removed.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to remove dependency."
+        error instanceof Error ? error.message : "Unable to remove dependency.",
       );
     } finally {
       setBusy(false);
@@ -3143,10 +3121,10 @@ function ActionItemStructurePanel({
   };
   const openRelatedActionItem = (
     actionItemId: Id<"buildActionItems">,
-    title: string
+    title: string,
   ) => {
     const option = relatedOptions.find(
-      (candidate) => candidate.id === actionItemId
+      (candidate) => candidate.id === actionItemId,
     );
     onReferenceOpen(
       option ?? {
@@ -3155,7 +3133,7 @@ function ActionItemStructurePanel({
         kind: "action_item",
         label: title,
         summary: "Linked Action Item",
-      }
+      },
     );
   };
   return (
@@ -3201,7 +3179,7 @@ function ActionItemStructurePanel({
                     const option = tagOptions.find(
                       (candidate) =>
                         candidate.kind === "action_item" &&
-                        candidate.id === child.actionItemId
+                        candidate.id === child.actionItemId,
                     );
                     onReferenceOpen(
                       option ?? {
@@ -3210,7 +3188,7 @@ function ActionItemStructurePanel({
                         kind: "action_item",
                         label: child.title,
                         summary: `${child.status.replaceAll("_", " ")} · ${child.priority}`,
-                      }
+                      },
                     );
                   }}
                   render={<button type="button" />}
@@ -3258,7 +3236,7 @@ function ActionItemStructurePanel({
                     toast.error(
                       error instanceof Error
                         ? error.message
-                        : "Unable to update checklist step."
+                        : "Unable to update checklist step.",
                     );
                   } finally {
                     setBusy(false);
@@ -3298,7 +3276,7 @@ function ActionItemStructurePanel({
           readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
           relations={visibleStructure.relations.filter(
             (relation) =>
-              relation.kind === "blocks" && relation.direction === "incoming"
+              relation.kind === "blocks" && relation.direction === "incoming",
           )}
           selection={dependsOnActionItemId}
         />
@@ -3313,7 +3291,7 @@ function ActionItemStructurePanel({
           readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
           relations={visibleStructure.relations.filter(
             (relation) =>
-              relation.kind === "blocks" && relation.direction === "outgoing"
+              relation.kind === "blocks" && relation.direction === "outgoing",
           )}
           selection={unblocksActionItemId}
         />
@@ -3325,7 +3303,7 @@ function ActionItemStructurePanel({
             Related ·{" "}
             {
               visibleStructure.relations.filter(
-                (relation) => relation.kind !== "blocks"
+                (relation) => relation.kind !== "blocks",
               ).length
             }
           </p>
@@ -3378,7 +3356,7 @@ function ActionItemStructurePanel({
                             toast.error(
                               error instanceof Error
                                 ? error.message
-                                : "Unable to repair relationship."
+                                : "Unable to repair relationship.",
                             );
                           } finally {
                             setBusy(false);
@@ -3532,7 +3510,7 @@ function DependencyDisclosure({
                         onClick={() =>
                           onOpen(
                             relation.otherActionItemId as Id<"buildActionItems">,
-                            relation.otherActionItemTitle ?? "Action Item"
+                            relation.otherActionItemTitle ?? "Action Item",
                           )
                         }
                         size="xs"
@@ -3686,7 +3664,7 @@ function PrioritySelect({
             <SelectItem key={priority} value={priority}>
               {priority}
             </SelectItem>
-          )
+          ),
         )}
       </SelectContent>
     </Select>
@@ -3822,7 +3800,7 @@ function statusLabel(status: ActionStatus) {
 
 function effectiveActionItemWorkKind(
   selectedWorkKind: ActionWorkKind,
-  references: CollaborationTagReference[]
+  references: CollaborationTagReference[],
 ): ActionWorkKind {
   if (selectedWorkKind !== "ordinary") {
     return selectedWorkKind;
@@ -3840,7 +3818,7 @@ function effectiveActionItemWorkKind(
 }
 
 function relationDirectionLabel(
-  relation: VisibleStructureContext["relations"][number]
+  relation: VisibleStructureContext["relations"][number],
 ) {
   if (relation.kind === "blocks") {
     return relation.direction === "outgoing" ? "Blocks" : "Blocked by";
@@ -3850,7 +3828,7 @@ function relationDirectionLabel(
 
 function transitionLabel(
   detail: VisibleActionItemDetail,
-  status: ActionStatus
+  status: ActionStatus,
 ) {
   if (status === "in_review" && detail.item.requiresAcceptance) {
     return "Submit for review";

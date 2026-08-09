@@ -7,6 +7,27 @@ vi.mock("convex/react", () => ({
   useQuery: () => ({ available: true }),
 }));
 
+vi.mock("../build-detail-targets/BuildDetailSheetHost.tsx", () => ({
+  BuildDetailIntegritySheet: () => null,
+  BuildDetailSheetHost: ({
+    children,
+  }: {
+    children: (state: object) => unknown;
+  }) =>
+    children({
+      controller: {
+        close: vi.fn(),
+        openFocus: (focus: string) => {
+          const url = new URL(window.location.href);
+          url.searchParams.set("focus", focus);
+          window.history.pushState(window.history.state, "", url);
+        },
+      },
+      readOnly: false,
+      resolutionState: "idle",
+    }),
+}));
+
 vi.mock("./BuildCollaborationFeed.tsx", () => ({
   BuildCollaborationFeed: ({
     focusedReference,

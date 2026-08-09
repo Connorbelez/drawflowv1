@@ -76,7 +76,7 @@ function HomeownerBuildCollaboration() {
           buildId: buildId as Id<"activeBuilds">,
           organizationId: scope.organizationId,
         } as never)
-      : "skip"
+      : "skip",
   );
 
   if (scope === undefined) {
@@ -246,6 +246,7 @@ function HomeownerBuildCollaboration() {
             buildId={buildId}
             focusedReference={search.focus}
             organizationId={scope.organizationId}
+            viewerCapacity="homeowner"
           />
         )}
       </div>

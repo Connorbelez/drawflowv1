@@ -89,7 +89,7 @@ function ContractorBuildDetail() {
       buildId: buildId as Id<"activeBuilds">,
       organizationId: routeContext.organizationId ?? undefined,
       workspaceRole: "contractor",
-    }
+    },
   );
   const hasLegacyContractorProfile =
     participationScope?.legacyContractorProfileLinked === true;
@@ -99,19 +99,19 @@ function ContractorBuildDetail() {
       ? {
           buildId: buildId as Id<"activeBuilds">,
         }
-      : "skip"
+      : "skip",
   );
   const acknowledge = useMutation(
-    api.contractorEvidence.acknowledgeContractorAssignment
+    api.contractorEvidence.acknowledgeContractorAssignment,
   );
   const requestClarification = useMutation(
-    api.contractorEvidence.requestContractorScopeClarification
+    api.contractorEvidence.requestContractorScopeClarification,
   );
   const disputeScope = useMutation(
-    api.contractorEvidence.flagContractorScopeMismatch
+    api.contractorEvidence.flagContractorScopeMismatch,
   );
   const startAssignedSubmilestone = useMutation(
-    api.contractorWorkspace.startAssignedSubmilestone
+    api.contractorWorkspace.startAssignedSubmilestone,
   );
   const [response, setResponse] = useState<{
     assignmentId: string;
@@ -220,7 +220,7 @@ function ContractorBuildDetail() {
           (scope: ContractorScope) =>
             scope.status === "active" &&
             scope.costDocumentCaptureEligible &&
-            scope.buildSubmilestoneId
+            scope.buildSubmilestoneId,
         )
         .map((scope: ContractorScope) => [
           String(scope.buildSubmilestoneId),
@@ -232,7 +232,7 @@ function ContractorBuildDetail() {
             milestoneKey: scope.milestoneKey,
             milestoneName: scope.milestoneName,
           },
-        ])
+        ]),
     ).values(),
   ];
 
@@ -251,7 +251,7 @@ function ContractorBuildDetail() {
       toast.success("Assignment acknowledged.");
     } catch {
       setErrorMessage(
-        "We could not acknowledge this assignment. Retry or contact the Builder."
+        "We could not acknowledge this assignment. Retry or contact the Builder.",
       );
     } finally {
       setPendingAction(null);
@@ -265,7 +265,7 @@ function ContractorBuildDetail() {
     const summary = responseText.trim();
     if (!summary) {
       setErrorMessage(
-        "Describe the clarification or scope concern before sending."
+        "Describe the clarification or scope concern before sending.",
       );
       return;
     }
@@ -290,13 +290,13 @@ function ContractorBuildDetail() {
       toast.success(
         response.kind === "clarification"
           ? "Clarification requested."
-          : "Scope concern sent."
+          : "Scope concern sent.",
       );
       setResponse(null);
       setResponseText("");
     } catch {
       setErrorMessage(
-        "We could not send this response. Retry or contact the Builder."
+        "We could not send this response. Retry or contact the Builder.",
       );
     } finally {
       setPendingAction(null);
@@ -347,7 +347,7 @@ function ContractorBuildDetail() {
                     <li
                       className={cn(
                         "space-y-3 p-4",
-                        selected && "bg-accent/40 ring-2 ring-ring ring-inset"
+                        selected && "bg-accent/40 ring-2 ring-ring ring-inset",
                       )}
                       id={`assignment-${scope.assignmentId}`}
                       key={scope.assignmentId}
@@ -523,7 +523,7 @@ function ContractorBuildDetail() {
                         <li className="text-sm" key={doc._id}>
                           {doc.fileName}
                         </li>
-                      )
+                      ),
                     )}
                   </ul>
                 )}
@@ -583,7 +583,7 @@ function ContractorBuildDetail() {
               !startRequest.scope.submilestoneKey
             ) {
               throw new Error(
-                "A valid assigned submilestone start is required."
+                "A valid assigned submilestone start is required.",
               );
             }
             await startAssignedSubmilestone({
@@ -738,7 +738,7 @@ function ContractorSubmittedCostDocumentHistory({
   const submittedCostDocuments = usePaginatedQuery(
     api.cost_documents.listCostDocuments,
     { actorCapacity: "contractor", buildId, organizationId } as never,
-    { initialNumItems: 20 }
+    { initialNumItems: 20 },
   );
   const selectedDocument = useQuery(
     api.cost_documents.getCostDocument,
@@ -749,7 +749,7 @@ function ContractorSubmittedCostDocumentHistory({
           costDocumentId,
           organizationId,
         } as never)
-      : "skip"
+      : "skip",
   ) as CostDocumentDetail | null | undefined;
   const ownSubmittedDocuments = submittedCostDocuments.results;
   const submittedDocumentsLoading =
@@ -884,6 +884,7 @@ function BuildCollaborationSection({
         buildId={buildId}
         focusedReference={focus}
         organizationId={organizationId}
+        viewerCapacity="contractor"
       />
     </section>
   );

@@ -62,6 +62,10 @@ import {
 } from "#/components/ui/select.tsx";
 import { Tabs, TabsList, TabsTab } from "#/components/ui/tabs.tsx";
 import { cn } from "#/lib/utils.ts";
+import {
+  type BuildDetailTarget,
+  parseBuildDetailFocus,
+} from "../build-detail-targets/buildDetailTarget.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
@@ -119,9 +123,7 @@ import {
   CollaborationRichTextPreview,
   type CollaborationTagReference,
 } from "./CollaborationRichTextEditor.tsx";
-import {
-  SystemPostExperience,
-} from "./SystemPostExperience.tsx";
+import { SystemPostExperience } from "./SystemPostExperience.tsx";
 import {
   type AudienceMode,
   audienceLabel,
@@ -195,7 +197,7 @@ function buildQueueArgs(buildId: Id<"activeBuilds">, organizationId?: string) {
 
 function buildCollaborationScopeArgs(
   buildId: Id<"activeBuilds">,
-  organizationId?: string
+  organizationId?: string,
 ) {
   return organizationId ? { buildId, organizationId } : ("skip" as const);
 }
@@ -301,12 +303,12 @@ function actionItemQueueState(query: {
 export function buildActionItemQueueHref(
   currentHref: string,
   buildId: string,
-  actionItemId: string
+  actionItemId: string,
 ) {
   const url = new URL(currentHref, "http://localhost");
   const nextPath = url.pathname.replace(
     BUILD_WORKSPACE_PATH_PATTERN,
-    `$1${encodeURIComponent(buildId)}`
+    `$1${encodeURIComponent(buildId)}`,
   );
   if (nextPath === url.pathname) {
     throw new Error("Unable to resolve the current Build workspace route.");
@@ -320,7 +322,7 @@ export function buildActionItemQueueHref(
 
 export function buildActionItemSheetHref(
   currentHref: string,
-  actionItemId?: string
+  actionItemId?: string,
 ) {
   const url = new URL(currentHref, "http://localhost");
   if (actionItemId) {
@@ -385,7 +387,7 @@ function focusedReferenceQueryArgs({
       organizationId &&
       target &&
       DIRECT_REFERENCE_FOCUS_KINDS.has(
-        target.entityKind as RawCollaborationTagOption["entityKind"]
+        target.entityKind as RawCollaborationTagOption["entityKind"],
       )
     )
   ) {
@@ -431,7 +433,7 @@ function focusedAssetQueryArgs({
 
 function visibleContextValue<T, R>(
   context: ({ state: "visible" } & T) | { state: "revoked" } | undefined,
-  select: (visible: { state: "visible" } & T) => R
+  select: (visible: { state: "visible" } & T) => R,
 ) {
   return context?.state === "visible" ? select(context) : undefined;
 }
@@ -493,6 +495,7 @@ interface CollaborationEditTarget {
 }
 
 function useFocusedEntityTarget(input: {
+  detailTargetManaged: boolean;
   directlyFocusedReference?: ReferenceOption;
   focusedActionItemId?: Id<"buildActionItems">;
   focusedEntityReference?: string;
@@ -507,6 +510,9 @@ function useFocusedEntityTarget(input: {
 }) {
   useEffect(() => {
     if (!input.focusedEntityReference) {
+      return;
+    }
+    if (input.detailTargetManaged) {
       return;
     }
     if (input.focusedReferenceState === "revoked") {
@@ -527,7 +533,7 @@ function useFocusedEntityTarget(input: {
           : {
               actionItemId: reference.id as Id<"buildActionItems">,
               kind: "detail",
-            }
+            },
       );
       return;
     }
@@ -535,9 +541,10 @@ function useFocusedEntityTarget(input: {
       current?.entityKind === reference.entityKind &&
       current.id === reference.id
         ? current
-        : reference
+        : reference,
     );
   }, [
+    input.detailTargetManaged,
     input.directlyFocusedReference,
     input.focusedEntityReference,
     input.focusedReferenceState,
@@ -556,7 +563,7 @@ function useFocusedEntityTarget(input: {
         : {
             actionItemId: input.focusedActionItemId as Id<"buildActionItems">,
             kind: "detail",
-          }
+          },
     );
   }, [input.focusedActionItemId, input.setActionItemSheetTarget]);
 }
@@ -568,7 +575,7 @@ function directFocusedReference(
         state: "visible";
       }
     | { state: "revoked" }
-    | undefined
+    | undefined,
 ) {
   if (context?.state !== "visible") {
     return;
@@ -613,13 +620,25 @@ function focusCollaborationReference(input: {
 
 interface BuildCollaborationFeedProps {
   buildId: string;
+  detailCanGoBack?: boolean;
+  detailCanGoForward?: boolean;
+  detailResolutionState?:
+    | "idle"
+    | "integrity_error"
+    | "loading"
+    | "revoked"
+    | "visible";
   focusedReference?: string;
+  onCloseDetailTarget?: () => void;
+  onDetailGoBack?: () => void;
+  onDetailGoForward?: () => void;
   onOpenReference?: (reference: {
     entityId: string;
     entityKind: string;
     href: string;
   }) => void;
   organizationId?: string;
+  resolvedDetailTarget?: BuildDetailTarget;
 }
 
 const ACTION_ITEM_VIEW_STORAGE_KEY =
@@ -639,7 +658,7 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
   const { user } = useAuth();
   const connectionState = useConvexConnectionState();
   const [browserOnline, setBrowserOnline] = useState(
-    () => typeof navigator === "undefined" || navigator.onLine
+    () => typeof navigator === "undefined" || navigator.onLine,
   );
   useEffect(() => {
     const markOnline = () => setBrowserOnline(true);
@@ -659,8 +678,8 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
     api.build_collaboration_lifecycle.getBuildCollaborationLifecycleState,
     buildCollaborationScopeArgs(
       props.buildId as Id<"activeBuilds">,
-      props.organizationId
-    )
+      props.organizationId,
+    ),
   );
   const collaborationWritable = lifecycleState?.state === "open";
   const sharedMutationsAllowed = isOnline && collaborationWritable;
@@ -690,10 +709,17 @@ function BuildCollaborationFeedContent({
   buildId,
   collaborationState,
   connectionOnline,
+  detailCanGoBack,
+  detailCanGoForward,
+  detailResolutionState,
   focusedReference: focusedEntityReference,
   isOnline,
   organizationId,
+  onCloseDetailTarget,
+  onDetailGoBack,
+  onDetailGoForward,
   onOpenReference,
+  resolvedDetailTarget,
   sessionWorkosUserId,
 }: BuildCollaborationFeedProps & {
   collaborationState?: "closed" | "open" | "purged";
@@ -713,34 +739,33 @@ function BuildCollaborationFeedContent({
       ? "skip"
       : {
           ...feedScopeArgs,
-          filter:
-            filter === "active_operations" ? "active_operations" : "all",
+          filter: filter === "active_operations" ? "active_operations" : "all",
         },
-    { initialNumItems: 20 }
+    { initialNumItems: 20 },
   );
   const viewerBinding = useQuery(
     api.build_collaboration_viewer.getBuildCollaborationViewerBinding,
-    buildCollaborationScopeArgs(activeBuildId, organizationId)
+    buildCollaborationScopeArgs(activeBuildId, organizationId),
   );
   const viewerRole = viewerBinding?.role;
   const viewerRoles = viewerBinding?.roles ?? (viewerRole ? [viewerRole] : []);
   const canPublishAnnouncements = Boolean(
     viewerRole &&
-      !["builder-staff", "homeowner", "contractor"].includes(viewerRole)
+    !["builder-staff", "homeowner", "contractor"].includes(viewerRole),
   );
   const canCustomizeAudience = Boolean(
-    viewerRole && !["homeowner", "contractor"].includes(viewerRole)
+    viewerRole && !["homeowner", "contractor"].includes(viewerRole),
   );
   const rawTagOptions = useQuery(
     api.build_collaboration_references.listBuildCollaborationTagOptions,
-    buildCollaborationScopeArgs(activeBuildId, organizationId)
+    buildCollaborationScopeArgs(activeBuildId, organizationId),
   );
   const focusedActionItemId = focusedActionItemIdFromReference(
-    focusedEntityReference
+    focusedEntityReference,
   );
   const focusedAssetId = focusedAssetIdFromReference(focusedEntityReference);
   const focusedCommentTokenId = focusedCommentIdFromReference(
-    focusedEntityReference
+    focusedEntityReference,
   );
   const focusedPostId = focusedPostIdFromReference(focusedEntityReference);
   const focusedActionItemContext = useQuery(
@@ -749,7 +774,7 @@ function BuildCollaborationFeedContent({
       actionItemId: focusedActionItemId,
       buildId: activeBuildId,
       organizationId,
-    })
+    }),
   ) as
     | {
         actionItemId: Id<"buildActionItems">;
@@ -763,7 +788,7 @@ function BuildCollaborationFeedContent({
       buildId: activeBuildId,
       organizationId,
       reference: focusedEntityReference,
-    })
+    }),
   );
   const focusedAssetContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildCollaborationAssetContext,
@@ -771,7 +796,7 @@ function BuildCollaborationFeedContent({
       assetId: focusedAssetId,
       buildId: activeBuildId,
       organizationId,
-    })
+    }),
   ) as
     | {
         actionItemId?: Id<"buildActionItems">;
@@ -784,15 +809,15 @@ function BuildCollaborationFeedContent({
     | undefined;
   const focusedAssetCommentId = visibleContextValue(
     focusedAssetContext,
-    (context) => context.commentId
+    (context) => context.commentId,
   );
   const focusedAssetPostId = visibleContextValue(
     focusedAssetContext,
-    (context) => context.postId
+    (context) => context.postId,
   );
   const focusedAssetActionItemId = visibleContextValue(
     focusedAssetContext,
-    (context) => context.actionItemId
+    (context) => context.actionItemId,
   );
   const focusedCommentId = focusedCommentTokenId ?? focusedAssetCommentId;
   const focusedCommentContext = useQuery(
@@ -801,11 +826,11 @@ function BuildCollaborationFeedContent({
       buildId: activeBuildId,
       commentId: focusedCommentId,
       organizationId,
-    })
+    }),
   );
   const focusedCommentPostId = visibleContextValue(
     focusedCommentContext,
-    (context) => context.postId
+    (context) => context.postId,
   );
   const focusedPostContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildCollaborationPostContext,
@@ -817,62 +842,63 @@ function BuildCollaborationFeedContent({
         focusedAssetPostId ??
         focusedCommentPostId ??
         focusedActionItemContext?.postId,
-    })
+    }),
   ) as
     | { entry: CollaborationFeedPostEntry; state: "visible" }
     | { state: "revoked" }
     | undefined;
   const drafts = useQuery(
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
-    buildCollaborationScopeArgs(activeBuildId, organizationId)
+    buildCollaborationScopeArgs(activeBuildId, organizationId),
   );
   const draftIdentity = useQuery(
     api.build_collaboration_drafts.getMyBuildCollaborationDraftIdentity,
-    buildCollaborationScopeArgs(activeBuildId, organizationId)
+    buildCollaborationScopeArgs(activeBuildId, organizationId),
   );
   const schedulingCapabilities = useQuery(
     api.build_collaboration_scheduling
       .getBuildCollaborationSchedulingCapabilities,
-    buildCollaborationScopeArgs(activeBuildId, organizationId)
+    buildCollaborationScopeArgs(activeBuildId, organizationId),
   );
   const personalActionItems = usePaginatedQuery(
     api.build_action_item_queues.listMyBuildActionItemQueue,
     organizationId ? { organizationId } : "skip",
-    { initialNumItems: 20 }
+    { initialNumItems: 20 },
   );
   const buildActionItems = usePaginatedQuery(
     api.build_action_item_queues.listBuildActionItemQueue,
     buildQueueArgs(activeBuildId, organizationId),
-    { initialNumItems: 20 }
+    { initialNumItems: 20 },
   );
   const saveDraft = useBuildCollaborationMutation(
-    api.build_collaboration_drafts.saveMyBuildCollaborationDraft
+    api.build_collaboration_drafts.saveMyBuildCollaborationDraft,
   );
   const publishHumanPost = useBuildCollaborationMutation(
-    api.build_collaboration.approveAndPublishBuildCollaborationBundle
+    api.build_collaboration.approveAndPublishBuildCollaborationBundle,
   );
   const publishDraft = useBuildCollaborationMutation(
-    api.build_collaboration_drafts.approveAndPublishBuildCollaborationDraft
+    api.build_collaboration_drafts.approveAndPublishBuildCollaborationDraft,
   );
   const discardDraft = useBuildCollaborationMutation(
-    api.build_collaboration_drafts.discardMyBuildCollaborationDraft
+    api.build_collaboration_drafts.discardMyBuildCollaborationDraft,
   );
   const scheduleDraft = useBuildCollaborationMutation(
-    api.build_collaboration_scheduling.approveAndScheduleBuildCollaborationDraft
+    api.build_collaboration_scheduling
+      .approveAndScheduleBuildCollaborationDraft,
   );
   const beginAssetUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
   );
   const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage
+      .registerBuildCollaborationAssetUploadedStorage,
   );
   const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload
+      .finalizeAndScanBuildCollaborationAssetUpload,
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
   );
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerExtrasOpen, setComposerExtrasOpen] = useState(false);
@@ -895,10 +921,10 @@ function BuildCollaborationFeedContent({
           buildId: activeBuildId,
           organizationId,
         }
-      : "skip"
+      : "skip",
   );
   const composerAssetStatusById = new Map(
-    (composerAssetStatuses ?? []).map((asset) => [asset._id, asset])
+    (composerAssetStatuses ?? []).map((asset) => [asset._id, asset]),
   );
   const composerAssets: BuildCollaborationAssetSummary[] =
     attachmentAssetIds.map((assetId) => {
@@ -933,7 +959,7 @@ function BuildCollaborationFeedContent({
   >(null);
   const [scheduledForInput, setScheduledForInput] = useState("");
   const [offlineCapturedAt, setOfflineCapturedAt] = useState<number | null>(
-    null
+    null,
   );
   const [offlineDraft, setOfflineDraft] =
     useState<BuildCollaborationOfflineDraft | null>(null);
@@ -984,43 +1010,42 @@ function BuildCollaborationFeedContent({
     useState<FocusedReference | null>(null);
   const [actionItemSheetTarget, setActionItemSheetTarget] =
     useState<BuildActionItemSheetTarget | null>(null);
-  const openActionItemSheet = (
-    actionItemId: Id<"buildActionItems">,
-    historyMode: "push" | "replace" = "push"
-  ) => {
+  const renderedActionItemSheetTarget =
+    detailResolutionState === undefined ||
+    resolvedDetailTarget?.kind === "actionItem"
+      ? actionItemSheetTarget
+      : null;
+  useEffect(() => {
+    if (detailResolutionState === undefined) {
+      return;
+    }
+    const detailFocus = parseBuildDetailFocus(focusedEntityReference);
+    if (
+      !focusedEntityReference ||
+      (detailFocus &&
+        (detailResolutionState !== "visible" ||
+          resolvedDetailTarget?.kind !== "actionItem"))
+    ) {
+      setActionItemSheetTarget(null);
+    }
+  }, [
+    detailResolutionState,
+    focusedEntityReference,
+    resolvedDetailTarget?.kind,
+  ]);
+  const openActionItemSheet = (actionItemId: Id<"buildActionItems">) => {
     setActionItemSheetTarget({ actionItemId, kind: "detail" });
     const href = buildActionItemSheetHref(window.location.href, actionItemId);
-    window.history[historyMode === "push" ? "pushState" : "replaceState"](
-      window.history.state,
-      "",
-      href
-    );
+    onOpenReference?.({
+      entityId: actionItemId,
+      entityKind: "actionItem",
+      href,
+    });
   };
   const closeActionItemSheet = () => {
     setActionItemSheetTarget(null);
-    window.history.replaceState(
-      window.history.state,
-      "",
-      buildActionItemSheetHref(window.location.href)
-    );
+    onCloseDetailTarget?.();
   };
-  useEffect(() => {
-    const handlePopState = () => {
-      const actionItemId = focusedActionItemIdFromReference(
-        new URL(window.location.href).searchParams.get("focus") ?? undefined
-      );
-      setActionItemSheetTarget(
-        actionItemId
-          ? {
-              actionItemId: actionItemId as Id<"buildActionItems">,
-              kind: "detail",
-            }
-          : null
-      );
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
   const focusedEntityActionItems = usePaginatedQuery(
     api.build_action_item_queues.listBuildActionItemQueue,
     focusedEntityQueueArgs({
@@ -1028,29 +1053,37 @@ function BuildCollaborationFeedContent({
       organizationId,
       reference: focusedReference,
     }),
-    { initialNumItems: 20 }
+    { initialNumItems: 20 },
   );
   const personalQueue = actionItemQueueState(personalActionItems);
   const buildQueue = actionItemQueueState(buildActionItems);
   const entityQueue = actionItemQueueState(focusedEntityActionItems);
   const tagOptions = useMemo<ReferenceOption[]>(
     () => (rawTagOptions ?? []).map(toCollaborationTagOption),
-    [rawTagOptions]
+    [rawTagOptions],
   );
   const referenceByKey = useMemo<Map<string, ReferenceOption>>(
     () =>
       new Map(
-        tagOptions.map((option) => [`${option.kind}:${option.id}`, option])
+        tagOptions.map((option) => [`${option.kind}:${option.id}`, option]),
       ),
-    [tagOptions]
+    [tagOptions],
   );
   const directlyFocusedReference = useMemo(
     () => directFocusedReference(focusedReferenceContext),
-    [focusedReferenceContext]
+    [focusedReferenceContext],
   );
   const focusedDetailActionItemId =
-    focusedActionItemContext?.actionItemId ?? focusedAssetActionItemId;
+    resolvedDetailTarget?.kind === "actionItem"
+      ? resolvedDetailTarget.actionItemId
+      : (focusedAssetActionItemId ??
+        (detailResolutionState === undefined
+          ? focusedActionItemContext?.actionItemId
+          : undefined));
   useFocusedEntityTarget({
+    detailTargetManaged:
+      detailResolutionState !== undefined &&
+      Boolean(parseBuildDetailFocus(focusedEntityReference)),
     directlyFocusedReference,
     focusedActionItemId: focusedDetailActionItemId,
     focusedEntityReference,
@@ -1075,7 +1108,7 @@ function BuildCollaborationFeedContent({
     window.history.replaceState(window.history.state, "", result.href);
   };
   const openActionItemSheetReference = (
-    reference: CollaborationTagReference
+    reference: CollaborationTagReference,
   ) => {
     const option = referenceByKey.get(`${reference.kind}:${reference.id}`);
     if (!option) {
@@ -1085,19 +1118,27 @@ function BuildCollaborationFeedContent({
       openActionItemSheet(option.id as Id<"buildActionItems">);
       return;
     }
+    if (onOpenReference) {
+      onOpenReference({
+        entityId: option.id,
+        entityKind: option.entityKind,
+        href: option.href,
+      });
+      return;
+    }
     closeActionItemSheet();
     focusReference(option);
   };
   const participants = tagOptions.filter(
-    (option) => option.kind === "participant"
+    (option) => option.kind === "participant",
   );
   const feedEntries = useMemo(
     () =>
       mergeFocusedPostEntry(
         feed.results as CollaborationFeedEntry[],
-        focusedPostContext
+        focusedPostContext,
       ),
-    [feed.results, focusedPostContext]
+    [feed.results, focusedPostContext],
   );
   const planningFeed = useBuildPlanningReconciliation({
     buildId: activeBuildId,
@@ -1115,7 +1156,7 @@ function BuildCollaborationFeedContent({
     if (
       !focusedPostId ||
       feedEntries.some(
-        (entry) => entry.kind === "post" && entry.post._id === focusedPostId
+        (entry) => entry.kind === "post" && entry.post._id === focusedPostId,
       ) ||
       feed.status !== "CanLoadMore"
     ) {
@@ -1148,7 +1189,7 @@ function BuildCollaborationFeedContent({
         }
         if (filter === "actionable") {
           return entry.actionItems.some(
-            (item) => item.status !== "done" && item.status !== "cancelled"
+            (item) => item.status !== "done" && item.status !== "cancelled",
           );
         }
         if (filter === "active_operations") {
@@ -1165,7 +1206,7 @@ function BuildCollaborationFeedContent({
         }
         return true;
       }),
-    [feedEntries, filter]
+    [feedEntries, filter],
   );
   const {
     displayedResults: commentFocusedResults,
@@ -1206,7 +1247,7 @@ function BuildCollaborationFeedContent({
   };
 
   const buildComposerBundle = (
-    assets = attachmentAssetIds
+    assets = attachmentAssetIds,
   ): CollaborationDraftBundle | null => {
     const plainText = plainTextFromDocument(document);
     if (!plainText) {
@@ -1250,7 +1291,7 @@ function BuildCollaborationFeedContent({
       draftIdentity.workosUserId !== sessionWorkosUserId
     ) {
       toast.error(
-        "Your authenticated collaboration identity is still being verified."
+        "Your authenticated collaboration identity is still being verified.",
       );
       return false;
     }
@@ -1259,7 +1300,7 @@ function BuildCollaborationFeedContent({
 
   const preserveConflictedComposer = async (
     error: unknown,
-    bundle: CollaborationDraftBundle | null
+    bundle: CollaborationDraftBundle | null,
   ) => {
     const message = error instanceof Error ? error.message : "";
     if (
@@ -1288,7 +1329,7 @@ function BuildCollaborationFeedContent({
       setOfflineDraft(preserved);
     } catch {
       toast.error(
-        "The server rejected the stale revision and the private device copy could not be refreshed. Keep this composer open while resolving the conflict."
+        "The server rejected the stale revision and the private device copy could not be refreshed. Keep this composer open while resolving the conflict.",
       );
     }
   };
@@ -1416,7 +1457,7 @@ function BuildCollaborationFeedContent({
           finalizeAndScan: finalizeAndScanAsset,
           organizationId,
           registerUpload: registerAssetUpload,
-        }
+        },
       );
       const bundle = buildComposerBundle([
         ...new Set([...attachmentAssetIds, ...uploadedAssetIds]),
@@ -1465,13 +1506,13 @@ function BuildCollaborationFeedContent({
   };
 
   const removeComposerAttachment = async (
-    asset: BuildCollaborationAssetSummary
+    asset: BuildCollaborationAssetSummary,
   ) => {
     if (publishing) {
       return;
     }
     const retainedAssetIds = attachmentAssetIds.filter(
-      (assetId) => assetId !== asset.assetId
+      (assetId) => assetId !== asset.assetId,
     );
     setPublishing(true);
     try {
@@ -1479,7 +1520,7 @@ function BuildCollaborationFeedContent({
         const bundle = buildComposerBundle(retainedAssetIds);
         if (!bundle) {
           throw new Error(
-            "The draft content must remain valid while removing an attachment."
+            "The draft content must remain valid while removing an attachment.",
           );
         }
         const saved = await saveDraft({
@@ -1510,7 +1551,7 @@ function BuildCollaborationFeedContent({
   };
 
   const persistComposerDraft = async (
-    input: { scheduledFor?: number } = {}
+    input: { scheduledFor?: number } = {},
   ) => {
     if (!organizationId) {
       throw new Error("The Build organization is unavailable.");
@@ -1542,7 +1583,7 @@ function BuildCollaborationFeedContent({
           finalizeAndScan: finalizeAndScanAsset,
           organizationId,
           registerUpload: registerAssetUpload,
-        }
+        },
       );
       if (uploadedAssetIds.length > 0) {
         const finalBundle = buildComposerBundle([
@@ -1677,7 +1718,7 @@ function BuildCollaborationFeedContent({
     setReferences(
       bundle.references.map((reference) => {
         const option = referenceByKey.get(
-          `${reference.entityKind}:${reference.entityId}`
+          `${reference.entityKind}:${reference.entityId}`,
         );
         return {
           eyebrow: option?.eyebrow ?? "Build reference",
@@ -1686,15 +1727,15 @@ function BuildCollaborationFeedContent({
           label: reference.label,
           summary: reference.summary ?? option?.summary ?? "",
         };
-      })
+      }),
     );
     setRequestedReaderIds(bundle.requestedReaderIds);
     setComposerExtrasOpen(
       Boolean(
         bundle.acknowledgementRequired ||
-          bundle.actionItems.length > 0 ||
-          bundle.attachmentAssetIds.length > 0
-      )
+        bundle.actionItems.length > 0 ||
+        bundle.attachmentAssetIds.length > 0,
+      ),
     );
     setDraftConflictMessage(null);
     setComposerOpen(true);
@@ -1711,7 +1752,7 @@ function BuildCollaborationFeedContent({
     setEditingHumanDraftRevision(draft.revision);
     setOfflineCapturedAt(draft.offlineCapturedAt ?? null);
     setScheduledForInput(
-      draft.scheduledFor ? toLocalDateTimeInput(draft.scheduledFor) : ""
+      draft.scheduledFor ? toLocalDateTimeInput(draft.scheduledFor) : "",
     );
   };
 
@@ -1724,13 +1765,13 @@ function BuildCollaborationFeedContent({
     setOfflineCapturedAt(offlineDraft.capturedAt);
     setEditingHumanDraftId(
       (offlineDraft.draftId as Id<"buildCollaborationDrafts"> | undefined) ??
-        null
+        null,
     );
     setEditingHumanDraftRevision(offlineDraft.expectedRevision ?? null);
     setScheduledForInput(
       offlineDraft.scheduledFor
         ? toLocalDateTimeInput(offlineDraft.scheduledFor)
-        : ""
+        : "",
     );
   };
 
@@ -1776,8 +1817,8 @@ function BuildCollaborationFeedContent({
               buildActionItemQueueHref(
                 window.location.href,
                 row.buildId,
-                row.item._id
-              )
+                row.item._id,
+              ),
             );
           }}
           rows={personalQueue.rows}
@@ -1947,7 +1988,7 @@ function BuildCollaborationFeedContent({
                                   toast.error(
                                     error instanceof Error
                                       ? error.message
-                                      : "Unable to publish draft."
+                                      : "Unable to publish draft.",
                                   );
                                 } finally {
                                   setPublishing(false);
@@ -1971,7 +2012,7 @@ function BuildCollaborationFeedContent({
                                 toast.error(
                                   error instanceof Error
                                     ? error.message
-                                    : "Unable to discard draft."
+                                    : "Unable to discard draft.",
                                 );
                               }
                             }}
@@ -2008,7 +2049,7 @@ function BuildCollaborationFeedContent({
                                     scheduledFor: draft.scheduledFor,
                                   });
                                   toast.success(
-                                    "Exact bundle approved and scheduled under your name."
+                                    "Exact bundle approved and scheduled under your name.",
                                   );
                                 } else {
                                   await publishDraft({
@@ -2017,7 +2058,7 @@ function BuildCollaborationFeedContent({
                                     organizationId,
                                   });
                                   toast.success(
-                                    "Draft approved and published under your name."
+                                    "Draft approved and published under your name.",
                                   );
                                 }
                                 setReviewingDraftId(null);
@@ -2025,7 +2066,7 @@ function BuildCollaborationFeedContent({
                                 toast.error(
                                   error instanceof Error
                                     ? error.message
-                                    : "Unable to publish draft."
+                                    : "Unable to publish draft.",
                                 );
                               } finally {
                                 setPublishing(false);
@@ -2065,335 +2106,345 @@ function BuildCollaborationFeedContent({
             participants={participants}
           />
           {collaborationState === "open" || !connectionOnline ? (
-          <Frame>
-            <FramePanel className="p-0">
-              <button
-                aria-label="What should people involved in this Build know?"
-                className="flex w-full items-center gap-3 px-4 py-4 text-left"
-                onClick={() => setComposerOpen(true)}
-                type="button"
-              >
-                <Avatar className="size-9">
-                  <AvatarFallback>+</AvatarFallback>
-                </Avatar>
-                <span className="min-w-0 flex-1 rounded-full border bg-muted/20 px-4 py-2.5 text-muted-foreground text-sm">
-                  What should people involved in this Build know?
-                </span>
-              </button>
-              {composerOpen ? (
-                <div className="space-y-3 border-t p-4">
-                  {draftConflictMessage ? (
-                    <Card data-testid="build-collaboration-draft-conflict">
-                      <CardHeader>
-                        <div>
-                          <CardTitle>Draft changed elsewhere</CardTitle>
-                          <CardDescription>
-                            Your unsaved composer is preserved. Compare it with
-                            the latest private server revision before retrying.
-                          </CardDescription>
-                        </div>
-                        <Badge variant="destructive">Conflict</Badge>
-                      </CardHeader>
-                      <CardPanel className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <p className="font-medium text-xs uppercase tracking-wide">
-                            Your draft
-                          </p>
-                          <p className="mt-1 text-sm">
-                            {plainTextFromDocument(document) || "No content"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium text-xs uppercase tracking-wide">
-                            Latest server revision{" "}
-                            {latestEditingDraft?.revision}
-                          </p>
-                          <p className="mt-1 text-sm">
-                            {latestEditingDraftBundle?.plainText ??
-                              "Latest content unavailable"}
-                          </p>
-                          {latestEditingDraft ? (
-                            <Button
-                              className="mt-2"
-                              onClick={() =>
-                                loadDraftIntoComposer(latestEditingDraft)
-                              }
-                              size="sm"
-                              type="button"
-                              variant="outline"
-                            >
-                              Use latest revision
-                            </Button>
+            <Frame>
+              <FramePanel className="p-0">
+                <button
+                  aria-label="What should people involved in this Build know?"
+                  className="flex w-full items-center gap-3 px-4 py-4 text-left"
+                  onClick={() => setComposerOpen(true)}
+                  type="button"
+                >
+                  <Avatar className="size-9">
+                    <AvatarFallback>+</AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0 flex-1 rounded-full border bg-muted/20 px-4 py-2.5 text-muted-foreground text-sm">
+                    What should people involved in this Build know?
+                  </span>
+                </button>
+                {composerOpen ? (
+                  <div className="space-y-3 border-t p-4">
+                    {draftConflictMessage ? (
+                      <Card data-testid="build-collaboration-draft-conflict">
+                        <CardHeader>
+                          <div>
+                            <CardTitle>Draft changed elsewhere</CardTitle>
+                            <CardDescription>
+                              Your unsaved composer is preserved. Compare it
+                              with the latest private server revision before
+                              retrying.
+                            </CardDescription>
+                          </div>
+                          <Badge variant="destructive">Conflict</Badge>
+                        </CardHeader>
+                        <CardPanel className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="font-medium text-xs uppercase tracking-wide">
+                              Your draft
+                            </p>
+                            <p className="mt-1 text-sm">
+                              {plainTextFromDocument(document) || "No content"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium text-xs uppercase tracking-wide">
+                              Latest server revision{" "}
+                              {latestEditingDraft?.revision}
+                            </p>
+                            <p className="mt-1 text-sm">
+                              {latestEditingDraftBundle?.plainText ??
+                                "Latest content unavailable"}
+                            </p>
+                            {latestEditingDraft ? (
+                              <Button
+                                className="mt-2"
+                                onClick={() =>
+                                  loadDraftIntoComposer(latestEditingDraft)
+                                }
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                Use latest revision
+                              </Button>
+                            ) : null}
+                          </div>
+                        </CardPanel>
+                        <CardPanel className="border-t text-muted-foreground text-xs">
+                          {draftConflictMessage}
+                        </CardPanel>
+                      </Card>
+                    ) : null}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Select
+                        onValueChange={(value) =>
+                          setPostType(value as PostType)
+                        }
+                        value={postType}
+                      >
+                        <SelectTrigger aria-label="Post type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="update">Update</SelectItem>
+                          <SelectItem value="question">Question</SelectItem>
+                          <SelectItem value="decision">Decision</SelectItem>
+                          <SelectItem value="issue">Issue / blocker</SelectItem>
+                          {canPublishAnnouncements ? (
+                            <SelectItem value="announcement">
+                              Announcement
+                            </SelectItem>
                           ) : null}
-                        </div>
-                      </CardPanel>
-                      <CardPanel className="border-t text-muted-foreground text-xs">
-                        {draftConflictMessage}
-                      </CardPanel>
-                    </Card>
-                  ) : null}
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Select
-                      onValueChange={(value) => setPostType(value as PostType)}
-                      value={postType}
-                    >
-                      <SelectTrigger aria-label="Post type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="update">Update</SelectItem>
-                        <SelectItem value="question">Question</SelectItem>
-                        <SelectItem value="decision">Decision</SelectItem>
-                        <SelectItem value="issue">Issue / blocker</SelectItem>
-                        {canPublishAnnouncements ? (
-                          <SelectItem value="announcement">
-                            Announcement
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        onValueChange={(value) =>
+                          setAudienceMode(value as AudienceMode)
+                        }
+                        value={audienceMode}
+                      >
+                        <SelectTrigger aria-label="Post audience">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="build_wide">
+                            Everyone on this Build
                           </SelectItem>
-                        ) : null}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      onValueChange={(value) =>
-                        setAudienceMode(value as AudienceMode)
-                      }
-                      value={audienceMode}
-                    >
-                      <SelectTrigger aria-label="Post audience">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="build_wide">
-                          Everyone on this Build
-                        </SelectItem>
-                        <SelectItem value="author_tier_and_higher">
-                          My role level and above
-                        </SelectItem>
-                        {canCustomizeAudience ? (
-                          <SelectItem value="custom">
-                            Custom participants
+                          <SelectItem value="author_tier_and_higher">
+                            My role level and above
                           </SelectItem>
-                        ) : null}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {audienceMode === "custom" ? (
-                    <div className="grid gap-2 rounded-lg border bg-muted/15 p-3 sm:grid-cols-2">
-                      {participants.map((participant) => (
-                        <label
-                          className="flex items-center gap-2 text-sm"
-                          key={participant.id}
-                        >
-                          <input
-                            checked={requestedReaderIds.includes(
-                              participant.id
-                            )}
-                            onChange={(event) =>
-                              setRequestedReaderIds((current) =>
-                                event.target.checked
-                                  ? [...new Set([...current, participant.id])]
-                                  : current.filter(
-                                      (id) => id !== participant.id
-                                    )
-                              )
-                            }
-                            type="checkbox"
-                          />
-                          <span>{participant.label}</span>
-                        </label>
-                      ))}
-                      <p className="col-span-full text-muted-foreground text-xs">
-                        Participants at your role level and above remain
-                        mandatory readers. Referenced work may narrow the final
-                        audience.
-                      </p>
+                          {canCustomizeAudience ? (
+                            <SelectItem value="custom">
+                              Custom participants
+                            </SelectItem>
+                          ) : null}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  ) : null}
-                  <CollaborationRichTextEditor
-                    ariaLabel="Build update"
-                    editorMinHeightClass="[&_.ProseMirror]:min-h-36"
-                    onChange={(nextHtml, nextReferences) => {
-                      setHtml(nextHtml);
-                      setReferences(nextReferences);
-                    }}
-                    onDocumentChange={(nextDocument) =>
-                      setDocument(nextDocument)
-                    }
-                    placeholder="Write an update. Type @ to link people, milestones, evidence, site visits, documents, materials, draws, or Action Items."
-                    tagOptions={tagOptions}
-                    value={html}
-                  />
-                  {autosaveStatus === "idle" ? null : (
-                    <p
-                      aria-live="polite"
-                      className={cn(
-                        "text-xs",
-                        autosaveStatus === "error"
-                          ? "text-destructive"
-                          : "text-muted-foreground"
-                      )}
-                      role="status"
-                    >
-                      {autosaveStatus === "saving"
-                        ? "Saving private draft…"
-                        : autosaveStatus === "saved"
-                          ? "Private draft autosaved. Publishing still requires you."
-                          : "Autosave could not finish. Keep this composer open and retry Save draft."}
-                    </p>
-                  )}
-                  <Collapsible
-                    onOpenChange={setComposerExtrasOpen}
-                    open={composerExtrasOpen}
-                  >
-                    <CollapsibleTrigger
-                      render={
-                        <Button
-                          aria-label="Add attachments, scheduling, an Action Item, or acknowledgement"
-                          className="w-full justify-between"
-                          type="button"
-                          variant="outline"
-                        />
-                      }
-                    >
-                      <span className="flex items-center gap-2">
-                        <Paperclip aria-hidden="true" className="size-4" />
-                        Add to update
-                        {composerExtraCount > 0 ? (
-                          <Badge variant="secondary">
-                            {composerExtraCount} selected
-                          </Badge>
-                        ) : null}
-                      </span>
-                      <ChevronDown
-                        aria-hidden="true"
-                        className={cn(
-                          "size-4 transition-transform",
-                          composerExtrasOpen && "rotate-180"
-                        )}
-                      />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-3 pt-3">
-                        {schedulingCapabilities?.canSchedule &&
-                        (postType === "update" ||
-                          postType === "announcement") ? (
+                    {audienceMode === "custom" ? (
+                      <div className="grid gap-2 rounded-lg border bg-muted/15 p-3 sm:grid-cols-2">
+                        {participants.map((participant) => (
                           <label
-                            className="grid gap-1 text-sm sm:max-w-sm"
-                            htmlFor="build-collaboration-scheduled-for"
+                            className="flex items-center gap-2 text-sm"
+                            key={participant.id}
                           >
-                            <span className="font-medium">
-                              Optional publish time
-                            </span>
-                            <Input
-                              aria-label="Scheduled publication time"
-                              id="build-collaboration-scheduled-for"
-                              min={toLocalDateTimeInput(
-                                minimumScheduledPublicationTimestamp(Date.now())
+                            <input
+                              checked={requestedReaderIds.includes(
+                                participant.id,
                               )}
                               onChange={(event) =>
-                                setScheduledForInput(event.target.value)
-                              }
-                              type="datetime-local"
-                              value={scheduledForInput}
-                            />
-                            <span className="text-muted-foreground text-xs">
-                              The exact final bundle still requires your
-                              approval.
-                            </span>
-                          </label>
-                        ) : null}
-                        <ComposerAttachmentInput
-                          assets={composerAssets}
-                          buildId={activeBuildId}
-                          existingCount={attachmentAssetIds.length}
-                          files={composerFiles}
-                          onFilesChange={setComposerFiles}
-                          onRemove={removeComposerAttachment}
-                          organizationId={organizationId}
-                          savingDraft={Boolean(editingHumanDraftId)}
-                        />
-                        <div>
-                          <label
-                            className="sr-only"
-                            htmlFor="build-collaboration-action-title"
-                          >
-                            Optional Action Item title
-                          </label>
-                          <Input
-                            id="build-collaboration-action-title"
-                            onChange={(event) =>
-                              setActionTitle(event.target.value)
-                            }
-                            placeholder="Optional Action Item to publish with this post"
-                            value={actionTitle}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              checked={acknowledgementRequired}
-                              onChange={(event) =>
-                                setAcknowledgementRequired(event.target.checked)
+                                setRequestedReaderIds((current) =>
+                                  event.target.checked
+                                    ? [...new Set([...current, participant.id])]
+                                    : current.filter(
+                                        (id) => id !== participant.id,
+                                      ),
+                                )
                               }
                               type="checkbox"
                             />
-                            Require acknowledgement from eligible participants
-                            at or below my role level
+                            <span>{participant.label}</span>
                           </label>
-                          <p className="pl-6 text-muted-foreground text-xs">
-                            Acknowledgement confirms review; it is not an
-                            approval.
-                          </p>
-                        </div>
+                        ))}
+                        <p className="col-span-full text-muted-foreground text-xs">
+                          Participants at your role level and above remain
+                          mandatory readers. Referenced work may narrow the
+                          final audience.
+                        </p>
                       </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                    <Button
-                      className="w-full sm:w-auto"
-                      onClick={resetComposer}
-                      type="button"
-                      variant="ghost"
+                    ) : null}
+                    <CollaborationRichTextEditor
+                      ariaLabel="Build update"
+                      editorMinHeightClass="[&_.ProseMirror]:min-h-36"
+                      onChange={(nextHtml, nextReferences) => {
+                        setHtml(nextHtml);
+                        setReferences(nextReferences);
+                      }}
+                      onDocumentChange={(nextDocument) =>
+                        setDocument(nextDocument)
+                      }
+                      placeholder="Write an update. Type @ to link people, milestones, evidence, site visits, documents, materials, draws, or Action Items."
+                      tagOptions={tagOptions}
+                      value={html}
+                    />
+                    {autosaveStatus === "idle" ? null : (
+                      <p
+                        aria-live="polite"
+                        className={cn(
+                          "text-xs",
+                          autosaveStatus === "error"
+                            ? "text-destructive"
+                            : "text-muted-foreground",
+                        )}
+                        role="status"
+                      >
+                        {autosaveStatus === "saving"
+                          ? "Saving private draft…"
+                          : autosaveStatus === "saved"
+                            ? "Private draft autosaved. Publishing still requires you."
+                            : "Autosave could not finish. Keep this composer open and retry Save draft."}
+                      </p>
+                    )}
+                    <Collapsible
+                      onOpenChange={setComposerExtrasOpen}
+                      open={composerExtrasOpen}
                     >
-                      Cancel
-                    </Button>
-                    <Button
-                      className="w-full sm:w-auto"
-                      disabled={publishing}
-                      onClick={saveCurrentDraft}
-                      type="button"
-                      variant="outline"
-                    >
-                      {isOnline ? "Save draft" : "Save privately on device"}
-                    </Button>
-                    {scheduledForInput &&
-                    schedulingCapabilities?.canSchedule &&
-                    (postType === "update" || postType === "announcement") ? (
+                      <CollapsibleTrigger
+                        render={
+                          <Button
+                            aria-label="Add attachments, scheduling, an Action Item, or acknowledgement"
+                            className="w-full justify-between"
+                            type="button"
+                            variant="outline"
+                          />
+                        }
+                      >
+                        <span className="flex items-center gap-2">
+                          <Paperclip aria-hidden="true" className="size-4" />
+                          Add to update
+                          {composerExtraCount > 0 ? (
+                            <Badge variant="secondary">
+                              {composerExtraCount} selected
+                            </Badge>
+                          ) : null}
+                        </span>
+                        <ChevronDown
+                          aria-hidden="true"
+                          className={cn(
+                            "size-4 transition-transform",
+                            composerExtrasOpen && "rotate-180",
+                          )}
+                        />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="space-y-3 pt-3">
+                          {schedulingCapabilities?.canSchedule &&
+                          (postType === "update" ||
+                            postType === "announcement") ? (
+                            <label
+                              className="grid gap-1 text-sm sm:max-w-sm"
+                              htmlFor="build-collaboration-scheduled-for"
+                            >
+                              <span className="font-medium">
+                                Optional publish time
+                              </span>
+                              <Input
+                                aria-label="Scheduled publication time"
+                                id="build-collaboration-scheduled-for"
+                                min={toLocalDateTimeInput(
+                                  minimumScheduledPublicationTimestamp(
+                                    Date.now(),
+                                  ),
+                                )}
+                                onChange={(event) =>
+                                  setScheduledForInput(event.target.value)
+                                }
+                                type="datetime-local"
+                                value={scheduledForInput}
+                              />
+                              <span className="text-muted-foreground text-xs">
+                                The exact final bundle still requires your
+                                approval.
+                              </span>
+                            </label>
+                          ) : null}
+                          <ComposerAttachmentInput
+                            assets={composerAssets}
+                            buildId={activeBuildId}
+                            existingCount={attachmentAssetIds.length}
+                            files={composerFiles}
+                            onFilesChange={setComposerFiles}
+                            onRemove={removeComposerAttachment}
+                            organizationId={organizationId}
+                            savingDraft={Boolean(editingHumanDraftId)}
+                          />
+                          <div>
+                            <label
+                              className="sr-only"
+                              htmlFor="build-collaboration-action-title"
+                            >
+                              Optional Action Item title
+                            </label>
+                            <Input
+                              id="build-collaboration-action-title"
+                              onChange={(event) =>
+                                setActionTitle(event.target.value)
+                              }
+                              placeholder="Optional Action Item to publish with this post"
+                              value={actionTitle}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                checked={acknowledgementRequired}
+                                onChange={(event) =>
+                                  setAcknowledgementRequired(
+                                    event.target.checked,
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                              Require acknowledgement from eligible participants
+                              at or below my role level
+                            </label>
+                            <p className="pl-6 text-muted-foreground text-xs">
+                              Acknowledgement confirms review; it is not an
+                              approval.
+                            </p>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                       <Button
-                        className="col-span-2 w-full sm:w-auto"
-                        disabled={publishing || !isOnline}
-                        onClick={prepareScheduledPublication}
+                        className="w-full sm:w-auto"
+                        onClick={resetComposer}
+                        type="button"
+                        variant="ghost"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        className="w-full sm:w-auto"
+                        disabled={publishing}
+                        onClick={saveCurrentDraft}
                         type="button"
                         variant="outline"
                       >
-                        <CalendarClock aria-hidden="true" className="size-4" />
-                        Review & schedule
+                        {isOnline ? "Save draft" : "Save privately on device"}
                       </Button>
-                    ) : null}
-                    <Button
-                      className="col-span-2 w-full sm:w-auto"
-                      disabled={publishing || !isOnline}
-                      onClick={publishComposerPost}
-                      type="button"
-                    >
-                      <Send aria-hidden="true" className="size-4" />
-                      Publish
-                    </Button>
+                      {scheduledForInput &&
+                      schedulingCapabilities?.canSchedule &&
+                      (postType === "update" || postType === "announcement") ? (
+                        <Button
+                          className="col-span-2 w-full sm:w-auto"
+                          disabled={publishing || !isOnline}
+                          onClick={prepareScheduledPublication}
+                          type="button"
+                          variant="outline"
+                        >
+                          <CalendarClock
+                            aria-hidden="true"
+                            className="size-4"
+                          />
+                          Review & schedule
+                        </Button>
+                      ) : null}
+                      <Button
+                        className="col-span-2 w-full sm:w-auto"
+                        disabled={publishing || !isOnline}
+                        onClick={publishComposerPost}
+                        type="button"
+                      >
+                        <Send aria-hidden="true" className="size-4" />
+                        Publish
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ) : null}
-            </FramePanel>
-          </Frame>
-        ) : null}
+                ) : null}
+              </FramePanel>
+            </Frame>
+          ) : null}
         </div>
 
         {feed.status === "LoadingFirstPage" ? (
@@ -2456,7 +2507,7 @@ function BuildCollaborationFeedContent({
               viewerRole={viewerRole}
               viewerRoles={viewerRoles}
             />
-          ) : null
+          ) : null,
         )}
         {feed.status === "CanLoadMore" ? (
           <Button
@@ -2487,8 +2538,8 @@ function BuildCollaborationFeedContent({
           title="Pinned"
           value={String(
             feedEntries.filter(
-              (entry) => entry.kind === "post" && entry.pins.length > 0
-            ).length
+              (entry) => entry.kind === "post" && entry.pins.length > 0,
+            ).length,
           )}
         />
         <BuildCollaborationActionItemQueue
@@ -2515,29 +2566,26 @@ function BuildCollaborationFeedContent({
 
       <BuildActionItemDetailSheet
         buildId={activeBuildId}
+        canGoBack={detailCanGoBack}
+        canGoForward={detailCanGoForward}
         focusedAssetId={actionItemFocusedAssetId({
           actionItemId: focusedAssetActionItemId,
           assetId: focusedAssetId as Id<"buildCollaborationAssets"> | undefined,
-          target: actionItemSheetTarget,
+          target: renderedActionItemSheetTarget,
         })}
+        onGoBack={onDetailGoBack}
+        onGoForward={onDetailGoForward}
         onOpenChange={(open) => {
           if (!open) {
             closeActionItemSheet();
           }
         }}
         onReferenceOpen={openActionItemSheetReference}
-        onTargetChange={(nextTarget) => {
-          if (nextTarget.kind === "detail") {
-            openActionItemSheet(nextTarget.actionItemId);
-          } else {
-            setActionItemSheetTarget(nextTarget);
-          }
-        }}
-        open={Boolean(actionItemSheetTarget)}
+        open={Boolean(renderedActionItemSheetTarget)}
         organizationId={organizationId}
         readOnly={!isOnline}
         tagOptions={tagOptions}
-        target={actionItemSheetTarget}
+        target={renderedActionItemSheetTarget}
       />
       <BuildCollaborationReferenceSheet
         actionItems={entityQueue.rows}
@@ -2620,7 +2668,7 @@ async function ensureComposerDraftId(input: {
       organizationId: string;
       preparedByAgent: boolean;
       scheduledFor?: number;
-    }
+    },
   ) => Promise<{
     bundleJson: string;
     draftId: Id<"buildCollaborationDrafts">;
@@ -2741,13 +2789,13 @@ function CollaborationPostHeader({
   organizationId: string;
 }) {
   const toggleBuildPin = useBuildCollaborationMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationPin
+    api.build_collaboration_threads.toggleBuildCollaborationPin,
   );
   const togglePersonalPin = useBuildCollaborationPersonalMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationPin
+    api.build_collaboration_threads.toggleBuildCollaborationPin,
   );
   const toggleFollow = useBuildCollaborationPersonalMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationFollow
+    api.build_collaboration_threads.toggleBuildCollaborationFollow,
   );
   const savePost = (kind: "build" | "personal") =>
     (kind === "build" ? toggleBuildPin : togglePersonalPin)({
@@ -2761,8 +2809,8 @@ function CollaborationPostHeader({
           ? error.message
           : kind === "build"
             ? "Unable to pin post."
-            : "Unable to save post."
-      )
+            : "Unable to save post.",
+      ),
     );
   const followPost = () =>
     toggleFollow({
@@ -2773,8 +2821,8 @@ function CollaborationPostHeader({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to update follow state."
-      )
+          : "Unable to update follow state.",
+      ),
     );
   const canViewHistory =
     entry.post.viewerIsAuthor ||
@@ -2822,7 +2870,7 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
   const systemLifecycle = entry.post.systemPost?.lifecycle;
   const announcementProminent = useAnnouncementProminence(
     entry.post.announcementExpiresAt,
-    entry.post.announcementProminent
+    entry.post.announcementProminent,
   );
   return (
     <>
@@ -2865,7 +2913,7 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
 
 function useAnnouncementProminence(
   expiresAt: number | undefined,
-  serverProminent: boolean
+  serverProminent: boolean,
 ) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -2875,7 +2923,7 @@ function useAnnouncementProminence(
     }
     const timeout = window.setTimeout(
       () => setNow(Date.now()),
-      Math.min(expiresAt - Date.now() + 1, 2_147_483_647)
+      Math.min(expiresAt - Date.now() + 1, 2_147_483_647),
     );
     return () => window.clearTimeout(timeout);
   }, [expiresAt]);
@@ -2912,11 +2960,7 @@ function CollaborationPostActions({
   const hasHistoryActions = canViewHistory;
   const hasModerationActions = mutationsAllowed && canUseModeration;
   const hasCoordinationActions = coordinationVisible;
-  if (
-    !hasHistoryActions &&
-    !hasModerationActions &&
-    !hasCoordinationActions
-  ) {
+  if (!hasHistoryActions && !hasModerationActions && !hasCoordinationActions) {
     return null;
   }
   return (
@@ -2989,7 +3033,7 @@ function CollaborationPostFooter({
   organizationId: string;
 }) {
   const acknowledge = useBuildCollaborationMutation(
-    api.build_collaboration_acknowledgements.acknowledgeBuildCollaborationPost
+    api.build_collaboration_acknowledgements.acknowledgeBuildCollaborationPost,
   );
   const acknowledgePost = async () => {
     try {
@@ -3003,13 +3047,13 @@ function CollaborationPostFooter({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to acknowledge this post."
+          : "Unable to acknowledge this post.",
       );
     }
   };
   const latestReceipt = entry.receipts.reduce(
     (latest, receipt) => Math.max(latest, receipt.lastViewedAt),
-    0
+    0,
   );
 
   return (
@@ -3133,13 +3177,13 @@ function CollaborationPostCard({
   useFocusedCollaborationPostCard(cardRef, focusedPost);
   const focusPresentation = focusedPostCardPresentation(focusedPost);
   const [tab, setTab] = useState<"actions" | "discussion" | null>(() =>
-    focusedCommentId ? "discussion" : null
+    focusedCommentId ? "discussion" : null,
   );
   const [actionView, setActionView] = useState<"board" | "list">(
-    readActionItemViewPreference
+    readActionItemViewPreference,
   );
   const [editTarget, setEditTarget] = useState<CollaborationEditTarget | null>(
-    null
+    null,
   );
   const [moderationTarget, setModerationTarget] =
     useState<BuildCollaborationModerationEntity | null>(null);
@@ -3149,35 +3193,35 @@ function CollaborationPostCard({
     entry.post.systemPost.drawCoordination?.eligible === true;
   const canEdit = Boolean(
     mutationsAllowed &&
-      drawCoordinationVisible &&
-      entry.post.viewerCanEdit &&
-      entry.post.contentState === "active"
+    drawCoordinationVisible &&
+    entry.post.viewerCanEdit &&
+    entry.post.contentState === "active",
   );
   const participants = tagOptions.filter(
-    (option) => option.kind === "participant"
+    (option) => option.kind === "participant",
   );
   const markViewed = useBuildCollaborationMutation(
-    api.build_collaboration_threads.markBuildCollaborationPostViewed
+    api.build_collaboration_threads.markBuildCollaborationPostViewed,
   );
   const transitionAction = useBuildCollaborationMutation(
-    api.build_action_item_workflow.transitionBuildActionItem
+    api.build_action_item_workflow.transitionBuildActionItem,
   );
   const addReplacementComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.addBuildCollaborationComment
+    api.build_collaboration_threads.addBuildCollaborationComment,
   );
   const beginReplacementUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
   );
   const registerReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage
+      .registerBuildCollaborationAssetUploadedStorage,
   );
   const finalizeAndScanReplacement = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload
+      .finalizeAndScanBuildCollaborationAssetUpload,
   );
   const abandonReplacementAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
   );
 
   useEffect(() => {
@@ -3204,7 +3248,7 @@ function CollaborationPostCard({
     if (
       focusedReference?.startsWith("actionItem:") &&
       entry.actionItems.some(
-        (item) => item._id === focusedReference.slice("actionItem:".length)
+        (item) => item._id === focusedReference.slice("actionItem:".length),
       )
     ) {
       setTab("actions");
@@ -3250,7 +3294,7 @@ function CollaborationPostCard({
     const observer = new IntersectionObserver(
       ([intersection]) => {
         visible = Boolean(
-          intersection?.isIntersecting && intersection.intersectionRatio >= 0.5
+          intersection?.isIntersecting && intersection.intersectionRatio >= 0.5,
         );
         if (visible) {
           scheduleReceipt();
@@ -3258,7 +3302,7 @@ function CollaborationPostCard({
           cancelPendingReceipt();
         }
       },
-      { threshold: [0.5] }
+      { threshold: [0.5] },
     );
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -3285,7 +3329,7 @@ function CollaborationPostCard({
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
     file: File,
-    parentCommentId?: Id<"buildCollaborationComments">
+    parentCommentId?: Id<"buildCollaborationComments">,
   ) => {
     let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
@@ -3331,7 +3375,7 @@ function CollaborationPostCard({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to publish the attachment replacement."
+          : "Unable to publish the attachment replacement.",
       );
     }
   };
@@ -3342,7 +3386,7 @@ function CollaborationPostCard({
       entity: { kind: "post", postId: entry.post._id },
       references: collaborationReferencesForEditor(
         entry.references,
-        referenceByKey
+        referenceByKey,
       ),
       revision: entry.post.revision,
     });
@@ -3413,7 +3457,7 @@ function CollaborationPostCard({
             {entry.references.map((reference) => {
               const kind = toEditorReferenceKind(reference.entityKind);
               const option = referenceByKey.get(
-                `${kind}:${reference.entityId}`
+                `${kind}:${reference.entityId}`,
               );
               return (
                 <BuildCollaborationReferenceChip
@@ -3447,45 +3491,51 @@ function CollaborationPostCard({
       </CardPanel>
       {entry.post.contentState === "active" ? (
         <>
-          {drawCoordinationVisible ? <div
-            className={cn(
-              "grid border-y",
-              entry.post.systemPost?.kind === "draw"
-                ? "grid-cols-1"
-                : "grid-cols-2"
-            )}
-          >
-            <button
-              aria-expanded={tab === "discussion"}
+          {drawCoordinationVisible ? (
+            <div
               className={cn(
-                "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
-                tab === "discussion" && "bg-primary/10 text-foreground"
+                "grid border-y",
+                entry.post.systemPost?.kind === "draw"
+                  ? "grid-cols-1"
+                  : "grid-cols-2",
               )}
-              onClick={() =>
-                setTab((current) =>
-                  current === "discussion" ? null : "discussion"
-                )
-              }
-              type="button"
             >
-              <MessageCircle aria-hidden="true" className="size-4" />
-              Discussion {entry.post.commentCount}
-            </button>
-            {entry.post.systemPost?.kind !== "draw" ? <button
-              aria-expanded={tab === "actions"}
-              className={cn(
-                "flex min-h-11 items-center justify-center gap-2 text-sm",
-                tab === "actions" && "bg-primary/10 text-foreground"
-              )}
-              onClick={() =>
-                setTab((current) => (current === "actions" ? null : "actions"))
-              }
-              type="button"
-            >
-              <Flag aria-hidden="true" className="size-4" />
-              Action Items {entry.actionItems.length}
-            </button> : null}
-          </div> : null}
+              <button
+                aria-expanded={tab === "discussion"}
+                className={cn(
+                  "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
+                  tab === "discussion" && "bg-primary/10 text-foreground",
+                )}
+                onClick={() =>
+                  setTab((current) =>
+                    current === "discussion" ? null : "discussion",
+                  )
+                }
+                type="button"
+              >
+                <MessageCircle aria-hidden="true" className="size-4" />
+                Discussion {entry.post.commentCount}
+              </button>
+              {entry.post.systemPost?.kind !== "draw" ? (
+                <button
+                  aria-expanded={tab === "actions"}
+                  className={cn(
+                    "flex min-h-11 items-center justify-center gap-2 text-sm",
+                    tab === "actions" && "bg-primary/10 text-foreground",
+                  )}
+                  onClick={() =>
+                    setTab((current) =>
+                      current === "actions" ? null : "actions",
+                    )
+                  }
+                  type="button"
+                >
+                  <Flag aria-hidden="true" className="size-4" />
+                  Action Items {entry.actionItems.length}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {drawCoordinationVisible && tab === "discussion" ? (
             <CollaborationDiscussion
               acceptedCommentId={entry.post.acceptedCommentId}
@@ -3540,7 +3590,7 @@ function CollaborationPostCard({
                   actionItemId,
                   status,
                   reason,
-                  expectedRevision
+                  expectedRevision,
                 ) => {
                   try {
                     await transitionAction({
@@ -3555,7 +3605,7 @@ function CollaborationPostCard({
                     toast.error(
                       error instanceof Error
                         ? error.message
-                        : "Unable to move Action Item."
+                        : "Unable to move Action Item.",
                     );
                   }
                 }}
@@ -3681,7 +3731,7 @@ function CollaborationComment({
   onReplaceAsset: (
     asset: BuildCollaborationAssetSummary,
     file: File,
-    parentCommentId?: Id<"buildCollaborationComments">
+    parentCommentId?: Id<"buildCollaborationComments">,
   ) => Promise<void>;
   onReply: (commentId: Id<"buildCollaborationComments">) => void;
   onTreeFocus: (commentId: Id<"buildCollaborationComments">) => void;
@@ -3712,7 +3762,7 @@ function CollaborationComment({
         row.comment.viewerIsAuthor &&
         row.comment.contentState === "active",
       document: parseDocument(
-        row.revision?.tiptapJson ?? JSON.stringify(emptyDocument())
+        row.revision?.tiptapJson ?? JSON.stringify(emptyDocument()),
       ),
       entity: {
         commentId: row.comment._id,
@@ -3720,7 +3770,7 @@ function CollaborationComment({
       },
       references: collaborationReferencesForEditor(
         row.references,
-        referenceByKey
+        referenceByKey,
       ),
       revision: row.comment.revision,
     });
@@ -3733,7 +3783,7 @@ function CollaborationComment({
       aria-level={row.comment.logicalDepth + 1}
       className={cn(
         "flex gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        focused && "ring-2 ring-primary/40"
+        focused && "ring-2 ring-primary/40",
       )}
       data-testid={`collaboration-comment-${row.comment._id}`}
       data-tree-comment-id={row.comment._id}
@@ -3891,7 +3941,7 @@ function CollaborationCommentReactions({
   row: CollaborationCommentRow;
 }) {
   const reactToComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.reactToBuildCollaborationComment
+    api.build_collaboration_threads.reactToBuildCollaborationComment,
   );
   if (!mutationsAllowed || row.comment.contentState !== "active") {
     return null;
@@ -3903,7 +3953,7 @@ function CollaborationCommentReactions({
   for (const reaction of row.reactions ?? []) {
     reactionCounts.set(
       reaction.reaction,
-      (reactionCounts.get(reaction.reaction) ?? 0) + 1
+      (reactionCounts.get(reaction.reaction) ?? 0) + 1,
     );
   }
   return (
@@ -3922,8 +3972,8 @@ function CollaborationCommentReactions({
               toast.error(
                 error instanceof Error
                   ? error.message
-                  : "Unable to react to this reply."
-              )
+                  : "Unable to react to this reply.",
+              ),
             )
           }
           size="xs"
@@ -3954,7 +4004,7 @@ function CollaborationCommentPin({
   row: CollaborationCommentRow;
 }) {
   const togglePin = useBuildCollaborationMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationPin
+    api.build_collaboration_threads.toggleBuildCollaborationPin,
   );
   if (!(mutationsAllowed && row.comment.viewerCanPin)) {
     return null;
@@ -3971,8 +4021,10 @@ function CollaborationCommentPin({
           postId,
         }).catch((error) =>
           toast.error(
-            error instanceof Error ? error.message : "Unable to pin this reply."
-          )
+            error instanceof Error
+              ? error.message
+              : "Unable to pin this reply.",
+          ),
         )
       }
       size="xs"
@@ -4010,7 +4062,7 @@ function CollaborationDiscussion({
   onReplaceAsset: (
     asset: BuildCollaborationAssetSummary,
     file: File,
-    parentCommentId?: Id<"buildCollaborationComments">
+    parentCommentId?: Id<"buildCollaborationComments">,
   ) => Promise<void>;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
@@ -4019,38 +4071,37 @@ function CollaborationDiscussion({
 }) {
   const listComments = useQuery(
     api.build_collaboration_threads.listBuildCollaborationComments,
-    { buildId, organizationId, postId }
+    { buildId, organizationId, postId },
   );
   const focusedContext = useQuery(
     api.build_collaboration_threads.getFocusedBuildCollaborationCommentContext,
     focusedCommentId
       ? { buildId, commentId: focusedCommentId, organizationId }
-      : "skip"
+      : "skip",
   );
   const addComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.addBuildCollaborationComment
+    api.build_collaboration_threads.addBuildCollaborationComment,
   );
   const beginAssetUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
   );
   const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage
+      .registerBuildCollaborationAssetUploadedStorage,
   );
   const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload
+      .finalizeAndScanBuildCollaborationAssetUpload,
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
   );
   const react = useBuildCollaborationMutation(
-    api.build_collaboration_threads.reactToBuildCollaborationPost
+    api.build_collaboration_threads.reactToBuildCollaborationPost,
   );
   const [replyHtml, setReplyHtml] = useState("");
-  const [replyDocument, setReplyDocument] = useState<JSONContent>(
-    emptyDocument()
-  );
+  const [replyDocument, setReplyDocument] =
+    useState<JSONContent>(emptyDocument());
   const [replyReferences, setReplyReferences] = useState<
     CollaborationTagReference[]
   >([]);
@@ -4076,14 +4127,14 @@ function CollaborationDiscussion({
     }
   }, [effectiveFocusCommentId]);
   const replyingToRow = (comments ?? []).find(
-    (row) => row.comment._id === replyingTo
+    (row) => row.comment._id === replyingTo,
   );
   const restoreReplyFocus = (commentId?: Id<"buildCollaborationComments">) => {
     if (!commentId) {
       return;
     }
     requestAnimationFrame(() =>
-      document.getElementById(`reply-to-${commentId}`)?.focus()
+      document.getElementById(`reply-to-${commentId}`)?.focus(),
     );
   };
 
@@ -4139,7 +4190,7 @@ function CollaborationDiscussion({
         reason: "Reply publication failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to publish reply."
+        error instanceof Error ? error.message : "Unable to publish reply.",
       );
     } finally {
       setSubmittingReply(false);
@@ -4152,7 +4203,7 @@ function CollaborationDiscussion({
     }
     const items = Array.from(
       threadRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ??
-        []
+        [],
     );
     if (items.length === 0) {
       return;
@@ -4298,8 +4349,8 @@ function CollaborationDiscussion({
                       toast.error(
                         error instanceof Error
                           ? error.message
-                          : "Unable to react to this post."
-                      )
+                          : "Unable to react to this post.",
+                      ),
                     )
                   }
                   size="xs"
@@ -4308,7 +4359,7 @@ function CollaborationDiscussion({
                 >
                   {reactionLabel(reaction)}
                 </Button>
-              )
+              ),
             )}
           </div>
           {replyComposerOpen ? (
@@ -4433,13 +4484,13 @@ function mergeFocusedPostEntry(
   entries: CollaborationFeedEntry[],
   context?:
     | { entry: CollaborationFeedPostEntry; state: "visible" }
-    | { state: "revoked" }
+    | { state: "revoked" },
 ) {
   if (
     context?.state !== "visible" ||
     entries.some(
       (entry) =>
-        entry.kind === "post" && entry.post._id === context.entry.post._id
+        entry.kind === "post" && entry.post._id === context.entry.post._id,
     )
   ) {
     return entries;
@@ -4461,14 +4512,14 @@ function focusedPostCollaborationResults({
   }
   const focusedPostEntry = feedEntries.find(
     (entry): entry is CollaborationFeedPostEntry =>
-      entry.kind === "post" && entry.post._id === focusedPostId
+      entry.kind === "post" && entry.post._id === focusedPostId,
   );
   if (!focusedPostEntry) {
     return otherwise;
   }
   return otherwise.some(
     (entry) =>
-      entry.kind === "post" && entry.post._id === focusedPostEntry.post._id
+      entry.kind === "post" && entry.post._id === focusedPostEntry.post._id,
   )
     ? otherwise
     : [focusedPostEntry, ...otherwise];
@@ -4476,7 +4527,7 @@ function focusedPostCollaborationResults({
 
 function useFocusedCollaborationPostCard(
   cardRef: React.RefObject<HTMLDivElement | null>,
-  focused: boolean
+  focused: boolean,
 ) {
   useEffect(() => {
     if (!focused) {
@@ -4524,14 +4575,14 @@ function focusedCommentCollaborationResults({
     };
   }
   const focusedPostEntry = feedEntries.find(
-    (entry) => entry.kind === "post" && entry.post._id === context.postId
+    (entry) => entry.kind === "post" && entry.post._id === context.postId,
   );
   return {
     displayedResults:
       focusedPostEntry &&
       !visibleResults.some(
         (entry) =>
-          entry.kind === "post" && entry.post._id === focusedPostEntry.post._id
+          entry.kind === "post" && entry.post._id === focusedPostEntry.post._id,
       )
         ? [focusedPostEntry, ...visibleResults]
         : visibleResults,
@@ -4571,7 +4622,7 @@ function searchResultReference(result: BuildCollaborationSearchResult) {
 
 function collaborationReferencesForEditor(
   references: CollaborationFeedPostEntry["references"],
-  referenceByKey: Map<string, ReferenceOption>
+  referenceByKey: Map<string, ReferenceOption>,
 ) {
   return references.map((reference) => {
     const kind = toEditorReferenceKind(reference.entityKind);

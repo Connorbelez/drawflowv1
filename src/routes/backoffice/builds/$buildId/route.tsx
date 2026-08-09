@@ -57,150 +57,149 @@ function RouteComponent() {
       return;
     }
     let cancelled = false;
-    void import(
-      "#/features/production-proposals/visualParityFixtures.ts"
-    ).then((mod) => {
-      if (cancelled) {
-        return;
-      }
-      setVisualParityDetail(mod.getVisualParityActiveBuildDetail(buildId));
-      setVisualParityTimeline(
-        mod.getVisualParityActiveBuildTimelineWorkspace(buildId)
-      );
-    });
+    void import("#/features/production-proposals/visualParityFixtures.ts").then(
+      (mod) => {
+        if (cancelled) {
+          return;
+        }
+        setVisualParityDetail(mod.getVisualParityActiveBuildDetail(buildId));
+        setVisualParityTimeline(
+          mod.getVisualParityActiveBuildTimelineWorkspace(buildId),
+        );
+      },
+    );
     return () => {
       cancelled = true;
     };
   }, [buildId, visualFixtureEnabled]);
   const documentOperationIntents = useRef(
-    new DocumentOperationIntentRegistry()
+    new DocumentOperationIntentRegistry(),
   );
   const siteVisitScheduleIntents = useRef(
-    new SiteVisitScheduleIntentRegistry()
+    new SiteVisitScheduleIntentRegistry(),
   );
   const addDocument = useMutation(
-    api.production_proposals.addActiveBuildDocument
+    api.production_proposals.addActiveBuildDocument,
   );
   const approveDraw = useMutation(
-    api.production_proposals.approveActiveBuildDraw
+    api.production_proposals.approveActiveBuildDraw,
   );
   const startDrawReview = useMutation(
-    api.production_proposals.startActiveBuildDrawReview
+    api.production_proposals.startActiveBuildDrawReview,
   );
   const submitDrawForAdmin = useMutation(
-    api.production_proposals.submitActiveBuildDrawForAdmin
+    api.production_proposals.submitActiveBuildDrawForAdmin,
   );
   const approveMilestone = useMutation(
-    api.production_proposals.approveActiveBuildMilestone
+    api.production_proposals.approveActiveBuildMilestone,
   );
   const assignSiteVisit = useMutation(
-    api.production_proposals.assignActiveBuildSiteVisit
+    api.production_proposals.assignActiveBuildSiteVisit,
   );
   const generateSiteVisitGuidance = useAction(
-    (api as any).assistant.generateSiteVisitGuidance
+    (api as any).assistant.generateSiteVisitGuidance,
   );
   const assignContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignActiveBuildContractorToMilestone
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone,
   );
   const removeContractorFromMilestone = useMutation(
-    api.production_proposals.removeActiveBuildContractorFromMilestone
+    api.production_proposals.removeActiveBuildContractorFromMilestone,
   );
   const attachAndInviteContractor = useMutation(
-    (api as any).production_proposals.attachAndInviteActiveBuildContractor
+    (api as any).production_proposals.attachAndInviteActiveBuildContractor,
   );
   const attachContractor = useMutation(
-    api.production_proposals.attachActiveBuildContractor
+    api.production_proposals.attachActiveBuildContractor,
   );
   const createContractor = useMutation(
-    api.production_proposals.createContractorProfile
+    api.production_proposals.createContractorProfile,
   );
   const sendContractorInvite = useMutation(
-    (api as any).contractorOnboarding.sendContractorProfileInvite
+    (api as any).contractorOnboarding.sendContractorProfileInvite,
   );
   const rejectDraw = useMutation(
-    api.production_proposals.rejectActiveBuildDraw
+    api.production_proposals.rejectActiveBuildDraw,
   );
   const rejectMilestone = useMutation(
-    api.production_proposals.rejectActiveBuildMilestone
+    api.production_proposals.rejectActiveBuildMilestone,
   );
   const releaseDraw = useMutation(
-    api.production_proposals.releaseActiveBuildDraw
+    api.production_proposals.releaseActiveBuildDraw,
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange
+    (api as any).production_proposals.requestActiveBuildFacilityChange,
   );
   const requestBudgetRevision = useMutation(
-    (api as any).production_proposals.requestActiveBuildBudgetRevision
+    (api as any).production_proposals.requestActiveBuildBudgetRevision,
   );
   const requestMilestoneInfo = useMutation(
-    api.production_proposals.requestActiveBuildMilestoneInfo
+    api.production_proposals.requestActiveBuildMilestoneInfo,
   );
   const reviewEvidence = useMutation(
-    api.production_proposals.reviewActiveBuildEvidence
+    api.production_proposals.reviewActiveBuildEvidence,
   );
   const reviewFacilityChangeRequest = useMutation(
-    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest
+    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
   );
   const reviewBudgetRevision = useMutation(
-    (api as any).production_proposals.reviewActiveBuildBudgetRevision
+    (api as any).production_proposals.reviewActiveBuildBudgetRevision,
   );
   const correctMilestoneStart = useMutation(
-    (api as any).production_proposals.correctActiveBuildMilestoneStart
+    (api as any).production_proposals.correctActiveBuildMilestoneStart,
   );
   const retractMilestoneStart = useMutation(
-    (api as any).production_proposals.retractActiveBuildMilestoneStart
+    (api as any).production_proposals.retractActiveBuildMilestoneStart,
   );
   const createActiveBuildCostItem = useMutation(
-    api.production_proposals.createActiveBuildCostItem
+    api.production_proposals.createActiveBuildCostItem,
   );
   const updateActiveBuildCostItem = useMutation(
-    api.production_proposals.updateActiveBuildCostItem
+    api.production_proposals.updateActiveBuildCostItem,
   );
   const updateActiveBuildNonFinancialDetails = useMutation(
-    (api as any).production_proposals.updateActiveBuildNonFinancialDetails
+    (api as any).production_proposals.updateActiveBuildNonFinancialDetails,
   );
   const deleteActiveBuildCostItem = useMutation(
-    api.production_proposals.deleteActiveBuildCostItem
+    api.production_proposals.deleteActiveBuildCostItem,
   );
   const reviseActiveBuildMilestoneSchedule = useMutation(
-    (api as any).production_proposals.reviseActiveBuildMilestoneSchedule
+    (api as any).production_proposals.reviseActiveBuildMilestoneSchedule,
   );
   const setEvidenceDueDate = useMutation(
-    (api as any).production_proposals.setEvidenceDueDate
+    (api as any).production_proposals.setEvidenceDueDate,
   );
   const setReviewTargetDate = useMutation(
-    (api as any).production_proposals.setReviewTargetDate
+    (api as any).production_proposals.setReviewTargetDate,
   );
   const setAdminDecisionTargetDate = useMutation(
-    (api as any).production_proposals.setAdminDecisionTargetDate
+    (api as any).production_proposals.setAdminDecisionTargetDate,
   );
   const setDrawReleaseTargetDate = useMutation(
-    (api as any).production_proposals.setDrawReleaseTargetDate
+    (api as any).production_proposals.setDrawReleaseTargetDate,
   );
   const scheduleActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.scheduleActiveBuildSiteVisit
+    (api as any).production_proposals.scheduleActiveBuildSiteVisit,
   );
   const rescheduleActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.rescheduleActiveBuildSiteVisit
+    (api as any).production_proposals.rescheduleActiveBuildSiteVisit,
   );
   const cancelActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.cancelActiveBuildSiteVisit
+    (api as any).production_proposals.cancelActiveBuildSiteVisit,
   );
   const requestLoanFacilityDateChange = useMutation(
-    (api as any).production_proposals.requestLoanFacilityDateChange
+    (api as any).production_proposals.requestLoanFacilityDateChange,
   );
   const saveCalendarView = useMutation(
-    (api as any).production_proposals.saveCalendarView
+    (api as any).production_proposals.saveCalendarView,
   );
   const createCalendarSyncSubscription = useMutation(
-    (api as any).production_proposals.createCalendarSyncSubscription
+    (api as any).production_proposals.createCalendarSyncSubscription,
   );
   const recordExternalCalendarSyncChange = useMutation(
-    (api as any).production_proposals.recordExternalCalendarSyncChange
+    (api as any).production_proposals.recordExternalCalendarSyncChange,
   );
   const activeTab = search.tab ?? "details";
-  const tabNeedsTimeline =
-    activeTab === "timeline" || activeTab === "gantt";
+  const tabNeedsTimeline = activeTab === "timeline" || activeTab === "gantt";
   const tabNeedsCalendar = activeTab === "calendar";
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
@@ -209,7 +208,7 @@ function RouteComponent() {
       : {
           buildId,
           workosOrganizationId: context.organizationId as string,
-        }
+        },
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? visualParityDetail
@@ -224,7 +223,7 @@ function RouteComponent() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId: context.organizationId as string,
           }
-        : "skip"
+        : "skip",
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? visualParityTimeline
@@ -238,7 +237,7 @@ function RouteComponent() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId: context.organizationId as string,
           }
-        : "skip"
+        : "skip",
   );
 
   const onChangeTab = (tab: BuildDetailSubTab, focus?: string) =>
@@ -255,7 +254,7 @@ function RouteComponent() {
         roundId: tab === "quotes" ? search.roundId : undefined,
         tab,
       },
-      replace: true,
+      replace: !focus || focus === search.focus,
     });
 
   const onChangeRail = (rail: "open" | "closed") =>
@@ -331,7 +330,7 @@ function RouteComponent() {
                 itemId: item._id as any,
                 workosOrganizationId,
               }).then(() => toast.success("Cost item updated.")),
-          }
+          },
     );
     const actions: ProductionBuildDetailActions = {
       addDocument: canUseAppPermission(appPermissions, "evidence", "create")
@@ -395,7 +394,7 @@ function RouteComponent() {
       generateSiteVisitGuidance: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update"
+        "update",
       )
         ? (input) =>
             generateSiteVisitGuidance({
@@ -406,7 +405,7 @@ function RouteComponent() {
       assignContractorToMilestone: canUseAppPermission(
         appPermissions,
         "contractor",
-        "update"
+        "update",
       )
         ? ({
             assignmentCost,
@@ -428,7 +427,7 @@ function RouteComponent() {
       removeContractorFromMilestone: canUseAppPermission(
         appPermissions,
         "contractor",
-        "update"
+        "update",
       )
         ? ({ contractorId, milestoneKey, reason, submilestoneKey }) =>
             removeContractorFromMilestone({
@@ -454,7 +453,7 @@ function RouteComponent() {
       attachContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "update"
+        "update",
       )
         ? ({ contractorId, role }) =>
             attachContractor({
@@ -467,7 +466,7 @@ function RouteComponent() {
       createAndAttachContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "create"
+        "create",
       )
         ? async ({ contractor, role }) => {
             const contractorId = await createContractor({
@@ -487,7 +486,7 @@ function RouteComponent() {
       createAndAssignContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "create"
+        "create",
       )
         ? async ({ assignmentCost, contractor, milestoneKey, role }) => {
             const contractorId = await createContractor({
@@ -509,7 +508,7 @@ function RouteComponent() {
       inviteContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "create"
+        "create",
       )
         ? (contractorId) =>
             sendContractorInvite({
@@ -572,7 +571,7 @@ function RouteComponent() {
       reviseMilestoneSchedule: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update"
+        "update",
       )
         ? (input) =>
             reviseActiveBuildMilestoneSchedule({
@@ -584,7 +583,7 @@ function RouteComponent() {
       setEvidenceDueDate: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update"
+        "update",
       )
         ? (input) =>
             setEvidenceDueDate({
@@ -596,7 +595,7 @@ function RouteComponent() {
       setReviewTargetDate: canUseAppPermission(
         appPermissions,
         "reminder",
-        "create"
+        "create",
       )
         ? (input) =>
             setReviewTargetDate({
@@ -608,7 +607,7 @@ function RouteComponent() {
       setAdminDecisionTargetDate: canUseAppPermission(
         appPermissions,
         "reminder",
-        "create"
+        "create",
       )
         ? (input) =>
             setAdminDecisionTargetDate({
@@ -620,7 +619,7 @@ function RouteComponent() {
       setDrawReleaseTargetDate: canUseAppPermission(
         appPermissions,
         "reminder",
-        "create"
+        "create",
       )
         ? (input) =>
             setDrawReleaseTargetDate({
@@ -632,7 +631,7 @@ function RouteComponent() {
       scheduleSiteVisit: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update"
+        "update",
       )
         ? async (input) => {
             const idempotencyKey =
@@ -651,7 +650,7 @@ function RouteComponent() {
       rescheduleSiteVisit: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update"
+        "update",
       )
         ? (input) =>
             rescheduleActiveBuildSiteVisit({
@@ -671,7 +670,7 @@ function RouteComponent() {
       requestLoanFacilityDateChange: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "create"
+        "create",
       )
         ? (input) =>
             requestLoanFacilityDateChange({
@@ -703,7 +702,7 @@ function RouteComponent() {
       requestFacilityChange: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "create"
+        "create",
       )
         ? (input) =>
             requestFacilityChange({
@@ -715,7 +714,7 @@ function RouteComponent() {
       requestBudgetRevision: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "create"
+        "create",
       )
         ? (input) =>
             requestBudgetRevision({
@@ -727,7 +726,7 @@ function RouteComponent() {
       reviewFacilityChangeRequest: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "update"
+        "update",
       )
         ? (input) =>
             reviewFacilityChangeRequest({
@@ -739,7 +738,7 @@ function RouteComponent() {
       reviewBudgetRevision: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "update"
+        "update",
       )
         ? (input) =>
             reviewBudgetRevision({
@@ -751,7 +750,7 @@ function RouteComponent() {
       requestMilestoneInfo: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update"
+        "update",
       )
         ? ({ milestoneKey, note }) =>
             requestMilestoneInfo({
@@ -774,7 +773,7 @@ function RouteComponent() {
       correctMilestoneStart: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update"
+        "update",
       )
         ? (input) =>
             correctMilestoneStart({
@@ -786,7 +785,7 @@ function RouteComponent() {
       retractMilestoneStart: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update"
+        "update",
       )
         ? (input) =>
             retractMilestoneStart({
@@ -805,7 +804,7 @@ function RouteComponent() {
     };
     const costDocumentSubmilestones = buildCostDocumentSubmilestoneOptions(
       detail.milestones ?? [],
-      detail.submilestones ?? []
+      detail.submilestones ?? [],
     );
     return (
       <ProductionBuildDetailSurface
