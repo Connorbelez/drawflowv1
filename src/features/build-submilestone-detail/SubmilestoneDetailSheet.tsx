@@ -384,6 +384,7 @@ export function SubmilestoneDetailSheet({
             onGoForward={onGoForward}
             onLoadMore={loadMore}
             onRetry={onRetry}
+            onReferenceOpen={onReferenceOpen}
             onTabChange={handleTabChange}
             organizationId={organizationId}
             readOnly={readOnly}
@@ -560,6 +561,7 @@ function VisibleState({
   onGoForward,
   onLoadMore,
   onRetry,
+  onReferenceOpen,
   onTabChange,
   organizationId,
   readOnly,
@@ -576,6 +578,7 @@ function VisibleState({
   loadingMore: boolean;
   onLoadMore: () => void;
   onRetry?: () => void;
+  onReferenceOpen?: SubmilestoneDetailSheetProps["onReferenceOpen"];
   onTabChange: (tab: BuildSubmilestoneDetailTab) => void;
   organizationId: string;
   readOnly: boolean;

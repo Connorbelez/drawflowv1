@@ -1011,6 +1011,7 @@ function BuildCollaborationFeedContent({
   const [actionItemSheetTarget, setActionItemSheetTarget] =
     useState<BuildActionItemSheetTarget | null>(null);
   const renderedActionItemSheetTarget =
+    actionItemSheetTarget?.kind === "create" ||
     detailResolutionState === undefined ||
     resolvedDetailTarget?.kind === "actionItem"
       ? actionItemSheetTarget
