@@ -250,7 +250,9 @@ function capability(
   };
 }
 
-function superseded(bootstrap: CanonicalWorkspaceBootstrap) {
+export function isCanonicalSubmilestoneSuperseded(
+  bootstrap: CanonicalWorkspaceBootstrap,
+) {
   const submilestone = object(bootstrap.submilestone);
   const companion = object(bootstrap.companion);
   return (
@@ -268,7 +270,8 @@ function canMutate(
   key: string,
 ) {
   return (
-    !(readOnly || superseded(bootstrap)) && capability(bootstrap, key).allowed
+    !(readOnly || isCanonicalSubmilestoneSuperseded(bootstrap)) &&
+      capability(bootstrap, key).allowed
   );
 }
 
@@ -970,10 +973,10 @@ function CanonicalOverviewPanel({
               <Badge variant={statusVariant(details.status)}>
                 {statusLabel(details.status)}
               </Badge>
-              {superseded(bootstrap) ? (
+              {isCanonicalSubmilestoneSuperseded(bootstrap) ? (
                 <Badge variant="warning">Superseded · read-only</Badge>
               ) : null}
-              {readOnly && !superseded(bootstrap) ? (
+              {readOnly && !isCanonicalSubmilestoneSuperseded(bootstrap) ? (
                 <Badge variant="outline">Read-only</Badge>
               ) : null}
             </div>
@@ -1117,7 +1120,7 @@ function CanonicalOverviewPanel({
         </div>
       ) : null}
 
-      {!superseded(bootstrap) ? (
+      {!isCanonicalSubmilestoneSuperseded(bootstrap) ? (
         <Frame>
           <FramePanel className="space-y-3">
             <div className="flex items-center gap-2 font-medium text-sm">
@@ -1208,7 +1211,9 @@ function CanonicalOverviewPanel({
           </FramePanel>
         </Frame>
       ) : null}
-      {!superseded(bootstrap) && !readOnly && !hasRevision ? (
+      {!isCanonicalSubmilestoneSuperseded(bootstrap) &&
+      !readOnly &&
+      !hasRevision ? (
         <Frame aria-live="polite">
           <FramePanel
             className="border-warning/35 bg-warning/8 p-3 text-sm"

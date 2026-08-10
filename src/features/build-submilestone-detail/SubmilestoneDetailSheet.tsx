@@ -24,6 +24,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
   CanonicalSubmilestoneTabPanel,
+  isCanonicalSubmilestoneSuperseded,
   type CanonicalWorkspaceBootstrap,
   type CanonicalWorkspaceCollection,
 } from "./SubmilestoneDetailCanonical.tsx";
@@ -584,7 +585,7 @@ function VisibleState({
   readOnly: boolean;
   viewerCapacity?: BuildCollaborationRole;
 }) {
-  const superseded = bootstrap.state === "superseded";
+  const superseded = isCanonicalSubmilestoneSuperseded(bootstrap);
   return (
     <>
       <BuildDetailTargetHeader
