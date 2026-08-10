@@ -174,6 +174,7 @@ export function BuildCollaborationWorkspace({
                     closeDetailTarget();
                   }
                 }}
+                onReferenceOpen={openReference}
                 onRetry={() => setDetailRetryVersion((version) => version + 1)}
                 onSelectedTabChange={host.controller.selectTab}
                 open

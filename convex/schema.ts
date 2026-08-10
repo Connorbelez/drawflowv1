@@ -7568,6 +7568,14 @@ export default defineSchema({
     sourceUploaderWorkosUserId: v.string(),
     sourceCapturedAt: v.optional(v.number()),
     sourcePublishedAt: v.optional(v.number()),
+    // Explicit promotion identity/provenance. Legacy promotion rows may not
+    // have these fields; new writes persist them so retries and review rounds
+    // remain auditable without relying only on the command receipt projection.
+    idempotencyKey: v.optional(v.string()),
+    fingerprint: v.optional(v.string()),
+    requirementKey: v.optional(v.string()),
+    reviewRound: v.optional(v.number()),
+    workflowRevision: v.optional(v.number()),
     promotedByWorkosUserId: v.string(),
     promotedAt: v.number(),
   })

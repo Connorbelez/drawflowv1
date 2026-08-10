@@ -12,6 +12,7 @@ import { actionItemsLinkedToPost } from "./build_action_item_post_links";
 import { syncBuildActionItemReferenceQueueSortAt } from "./build_action_item_queue_projection";
 import {
   authorizeBuildActionItemOperation,
+  authorizeGeneratedMilestoneCompanionStructureOperation,
   type BuildActionItemAuthorizationDecision,
   type BuildActionItemOperation,
 } from "./build_action_item_rbac";
@@ -76,6 +77,7 @@ export const createBuildActionItem = authenticatedMutation
     workKind: v.optional(buildActionItemWorkKindValidator),
   })
   .returns(v.id("buildActionItems"))
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Creation intentionally keeps idempotency, parent structure, audience, assignment, and durable event writes atomic.
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
@@ -985,6 +987,81 @@ export async function requireReadableActionItem(
   return item;
 }
 
+export interface GeneratedMilestoneCompanionBinding {
+  active: boolean;
+  canonicalBuildMilestoneId: Id<"buildMilestones">;
+  canonicalBuildSubmilestoneId: Id<"buildSubmilestones">;
+}
+
+/**
+ * Resolve and validate the immutable canonical binding of a generated
+ * Milestone/Sub-milestone companion.  Ordinary Action Items return `null`.
+ * A malformed binding fails closed even when the Action Item row and its
+ * originating post are otherwise readable; this prevents a cross-Build or
+ * cross-tenant companion from becoming a structural mutation target.
+ */
+export async function resolveGeneratedMilestoneCompanionBinding(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  item: Doc<"buildActionItems">
+): Promise<GeneratedMilestoneCompanionBinding | null> {
+  if (item.systemMode !== "generated_milestone_submilestone") {
+    return null;
+  }
+  const milestoneId = item.canonicalBuildMilestoneId;
+  const inactiveDisposition =
+    item.canonicalCompanionDisposition !== undefined &&
+    item.canonicalCompanionDisposition !== "active";
+  const submilestoneId =
+    item.canonicalBuildSubmilestoneId ??
+    (inactiveDisposition
+      ? item.historicalCanonicalBuildSubmilestoneId
+      : undefined);
+  if (!(milestoneId && submilestoneId)) {
+    throw new Error("Generated Action Item companion binding is unavailable.");
+  }
+  const [milestone, submilestone, post] = await Promise.all([
+    ctx.db.get(milestoneId),
+    ctx.db.get(submilestoneId),
+    ctx.db.get(item.originatingPostId),
+  ]);
+  if (
+    !(milestone && submilestone) ||
+    !post ||
+    item.parentActionItemId !== undefined ||
+    item.buildId !== authorization.build._id ||
+    item.organizationId !== authorization.organizationId ||
+    item.brokerageId !== authorization.brokerage._id ||
+    milestone.buildId !== authorization.build._id ||
+    milestone.organizationId !== authorization.organizationId ||
+    milestone.brokerageId !== authorization.brokerage._id ||
+    submilestone.buildId !== authorization.build._id ||
+    submilestone.organizationId !== authorization.organizationId ||
+    submilestone.brokerageId !== authorization.brokerage._id ||
+    submilestone.buildMilestoneId !== milestone._id ||
+    submilestone.milestoneKey !== milestone.key ||
+    post.buildId !== authorization.build._id ||
+    post.organizationId !== authorization.organizationId ||
+    post.brokerageId !== authorization.brokerage._id ||
+    post.source !== "system" ||
+    post.systemPostKind !== "milestone" ||
+    post.canonicalBuildMilestoneId !== milestone._id
+  ) {
+    throw new Error("Generated Action Item companion binding is unavailable.");
+  }
+  const active =
+    (item.canonicalCompanionDisposition === undefined ||
+      item.canonicalCompanionDisposition === "active") &&
+    item.canonicalPlanningState !== "superseded" &&
+    submilestone.planningState !== "superseded" &&
+    milestone.planningState !== "superseded";
+  return {
+    active,
+    canonicalBuildMilestoneId: milestone._id,
+    canonicalBuildSubmilestoneId: submilestone._id,
+  };
+}
+
 export function assertCanonicalMilestoneActionItemMutable(
   item: Doc<"buildActionItems">
 ) {
@@ -1187,7 +1264,39 @@ async function resolveParentActionItemForCreation(
       "Action Items support only one level of child Action Items."
     );
   }
-  assertCanonicalMilestoneActionItemMutable(parentActionItem);
+  const generatedCompanion = await resolveGeneratedMilestoneCompanionBinding(
+    ctx,
+    input.authorization,
+    parentActionItem
+  );
+  let parentDecision: BuildActionItemAuthorizationDecision;
+  if (generatedCompanion) {
+    const generatedDecision =
+      authorizeGeneratedMilestoneCompanionStructureOperation({
+        activeCompanion: generatedCompanion.active,
+        actor: {
+          role: input.authorization.effectiveRole.role,
+          workosUserId: input.authorization.viewer.subject,
+        },
+        operation: "create_child",
+      });
+    if (!generatedDecision.allowed) {
+      throw new Error(
+        `Forbidden: ${generatedDecision.reason ?? "generated companion structure authority"}`
+      );
+    }
+    parentDecision = {
+      allowed: true,
+      authority: generatedDecision.authority,
+    };
+  } else {
+    assertCanonicalMilestoneActionItemMutable(parentActionItem);
+    parentDecision = assertActionItemOperation(
+      input.authorization,
+      parentActionItem,
+      "create_child"
+    );
+  }
   const existingChildren = await ctx.db
     .query("buildActionItems")
     .withIndex("by_parentActionItemId_and_status", (query) =>
@@ -1202,11 +1311,7 @@ async function resolveParentActionItemForCreation(
   assertExpectedRevision(parentActionItem, input.expectedParentRevision);
   return {
     parentActionItem,
-    parentDecision: assertActionItemOperation(
-      input.authorization,
-      parentActionItem,
-      "create_child"
-    ),
+    parentDecision,
   };
 }
 

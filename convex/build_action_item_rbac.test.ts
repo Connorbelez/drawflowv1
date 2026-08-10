@@ -4,6 +4,8 @@ import {
   type BuildActionItemRbacActor,
   type BuildActionItemRbacItem,
   authorizeBuildActionItemOperation,
+  authorizeGeneratedMilestoneCompanionStructureOperation,
+  generatedMilestoneCompanionStructureOperations,
 } from "./build_action_item_rbac";
 import {
   type BuildCollaborationRole,
@@ -284,5 +286,62 @@ describe("Build Action Item operation RBAC", () => {
         operation: "edit_fields",
       }).allowed
     ).toBe(true);
+  });
+
+  test("generated companions use a narrow structural overlay while generic workflow operations remain denied", () => {
+    for (const role of ["admin", "builder", "builder-staff"] as const) {
+      for (const operation of generatedMilestoneCompanionStructureOperations) {
+        expect(
+          authorizeGeneratedMilestoneCompanionStructureOperation({
+            activeCompanion: true,
+            actor: actor(role),
+            operation,
+          })
+        ).toMatchObject({ allowed: true, authority: "coordinator" });
+      }
+    }
+
+    for (const role of [
+      "principle-broker",
+      "broker",
+      "broker-staff",
+      "homeowner",
+    ] as const) {
+      expect(
+        authorizeGeneratedMilestoneCompanionStructureOperation({
+          activeCompanion: true,
+          actor: actor(role),
+          operation: "add_checklist",
+        }).allowed
+      ).toBe(false);
+    }
+
+    expect(
+      authorizeGeneratedMilestoneCompanionStructureOperation({
+        activeCompanion: true,
+        actor: actor("contractor"),
+        operation: "toggle_checklist",
+        exactExecutionOwner: false,
+      }).allowed
+    ).toBe(false);
+    expect(
+      authorizeGeneratedMilestoneCompanionStructureOperation({
+        activeCompanion: true,
+        actor: actor("contractor"),
+        operation: "toggle_checklist",
+        exactExecutionOwner: true,
+      })
+    ).toMatchObject({ allowed: true, authority: "assignee" });
+
+    for (const operation of generatedMilestoneCompanionStructureOperations) {
+      expect(
+        authorizeGeneratedMilestoneCompanionStructureOperation({
+          activeCompanion: false,
+          actor: actor("admin"),
+          operation,
+        }).allowed
+      ).toBe(false);
+    }
+
   });
 });

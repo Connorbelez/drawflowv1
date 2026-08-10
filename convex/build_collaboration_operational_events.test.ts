@@ -2008,11 +2008,7 @@ describe("Build Collaboration operational events", () => {
         },
         collaboration: {
           comment: { allowed: true },
-          toggleChecklist: {
-            allowed: false,
-            reason:
-              "Companion structure editing is not enabled for generated Sub-milestones.",
-          },
+          toggleChecklist: { allowed: true },
         },
       },
       persona: "contractor",

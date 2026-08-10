@@ -96,10 +96,15 @@ import {
   toEditorReferenceKind,
 } from "./model.ts";
 
-type ActionItemDetail = FunctionReturnType<
+export type BuildActionItemDetail = FunctionReturnType<
   typeof api.build_action_item_details.getBuildActionItemDetail
 >;
-type VisibleActionItemDetail = Extract<ActionItemDetail, { state: "visible" }>;
+export type VisibleBuildActionItemDetail = Extract<
+  BuildActionItemDetail,
+  { state: "visible" }
+>;
+type ActionItemDetail = BuildActionItemDetail;
+type VisibleActionItemDetail = VisibleBuildActionItemDetail;
 type ActionPriority = VisibleActionItemDetail["item"]["priority"];
 type ActionWorkKind = VisibleActionItemDetail["item"]["workKind"];
 type ActionStatus = VisibleActionItemDetail["item"]["status"];
@@ -121,6 +126,15 @@ export type BuildActionItemSheetTarget =
       kind: "create";
       postId: Id<"buildCollaborationPosts">;
     };
+
+export interface BuildActionItemStructureCapabilities {
+  addChecklist?: boolean;
+  createChild?: boolean;
+  linkRelation?: boolean;
+  repairRelation?: boolean;
+  toggleChecklist?: boolean;
+  unlinkRelation?: boolean;
+}
 
 export function BuildActionItemDetailSheet({
   buildId,
@@ -2658,9 +2672,13 @@ function CanonicalReviewLifecyclePanel({
   );
 }
 
-const ACTION_ITEM_REACTIONS = ["acknowledged", "agree", "question"] as const;
+const ACTION_ITEM_REACTIONS = [
+  "acknowledged",
+  "agree",
+  "question",
+] as const;
 
-function ActionItemCommentCard({
+export function ActionItemCommentCard({
   buildId,
   entry,
   onReact,
@@ -3038,7 +3056,8 @@ function DetailContext({
   );
 }
 
-function ActionItemStructurePanel({
+export function ActionItemStructurePanel({
+  capabilities,
   buildId,
   detail,
   onReferenceOpen,
@@ -3047,6 +3066,7 @@ function ActionItemStructurePanel({
   readOnly,
   tagOptions,
 }: {
+  capabilities?: BuildActionItemStructureCapabilities;
   buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
@@ -3112,6 +3132,18 @@ function ActionItemStructurePanel({
     return null;
   }
   const visibleStructure = structure as VisibleStructureContext;
+  const canAddChecklist =
+    capabilities?.addChecklist ?? visibleStructure.viewerCanAddChecklist;
+  const canCreateChild =
+    capabilities?.createChild ?? visibleStructure.viewerCanCreateChild;
+  const canLinkRelation =
+    capabilities?.linkRelation ?? visibleStructure.viewerCanLinkRelation;
+  const canRepairRelation =
+    capabilities?.repairRelation ?? visibleStructure.viewerCanRepairRelations;
+  const canToggleChecklist =
+    capabilities?.toggleChecklist ?? capabilities === undefined;
+  const canUnlinkRelation =
+    capabilities?.unlinkRelation ?? canLinkRelation;
   const addChecklist = async () => {
     const label = checklistLabel.trim();
     if (!(label && !busy)) {
@@ -3255,7 +3287,7 @@ function ActionItemStructurePanel({
           </p>
         </div>
         {!readOnly &&
-        visibleStructure.viewerCanCreateChild &&
+        canCreateChild &&
         !detail.item.parentActionItemId ? (
           <Button
             onClick={() => setCreatingChild(true)}
@@ -3326,9 +3358,13 @@ function ActionItemStructurePanel({
               <Checkbox
                 aria-label={`Mark ${row.label} ${row.completed ? "incomplete" : "complete"}`}
                 checked={row.completed}
-                disabled={busy || readOnly}
+                disabled={
+                  busy ||
+                  readOnly ||
+                  !canToggleChecklist
+                }
                 onCheckedChange={async () => {
-                  if (readOnly) {
+                  if (readOnly || !canToggleChecklist) {
                     return;
                   }
                   setBusy(true);
@@ -3355,7 +3391,7 @@ function ActionItemStructurePanel({
               </span>
             </div>
           ))}
-          {!readOnly && visibleStructure.viewerCanAddChecklist ? (
+          {!readOnly && canAddChecklist ? (
             <div className="flex gap-2">
               <Input
                 aria-label="New checklist step"
@@ -3374,13 +3410,15 @@ function ActionItemStructurePanel({
       <div className="grid gap-3">
         <DependencyDisclosure
           busy={busy}
+          canAdd={canLinkRelation}
+          canRemove={canUnlinkRelation}
           label="Depends on"
           onAdd={() => linkDependency("depends_on")}
           onOpen={openRelatedActionItem}
           onRemove={unlinkDependency}
           onSelectionChange={setDependsOnActionItemId}
           options={relatedOptions}
-          readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
+          readOnly={readOnly || (!canLinkRelation && !canUnlinkRelation)}
           relations={visibleStructure.relations.filter(
             (relation) =>
               relation.kind === "blocks" && relation.direction === "incoming",
@@ -3389,13 +3427,15 @@ function ActionItemStructurePanel({
         />
         <DependencyDisclosure
           busy={busy}
+          canAdd={canLinkRelation}
+          canRemove={canUnlinkRelation}
           label="Unblocks"
           onAdd={() => linkDependency("unblocks")}
           onOpen={openRelatedActionItem}
           onRemove={unlinkDependency}
           onSelectionChange={setUnblocksActionItemId}
           options={relatedOptions}
-          readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
+          readOnly={readOnly || (!canLinkRelation && !canUnlinkRelation)}
           relations={visibleStructure.relations.filter(
             (relation) =>
               relation.kind === "blocks" && relation.direction === "outgoing",
@@ -3434,7 +3474,7 @@ function ActionItemStructurePanel({
                   {relation.status === "suspended" &&
                   !readOnly &&
                   relation.sourceRevision !== undefined &&
-                  visibleStructure.viewerCanRepairRelations ? (
+                  canRepairRelation ? (
                     <div className="flex gap-2">
                       <Input
                         aria-label="Relationship repair reason"
@@ -3478,7 +3518,7 @@ function ActionItemStructurePanel({
                 </CardPanel>
               </Card>
             ))}
-          {!readOnly && visibleStructure.viewerCanLinkRelation ? (
+          {!readOnly && canLinkRelation ? (
             <div className="grid gap-2 sm:grid-cols-[0.8fr_1.2fr_auto]">
               <Select
                 onValueChange={(value) => {
@@ -3545,6 +3585,8 @@ function ActionItemStructurePanel({
 
 function DependencyDisclosure({
   busy,
+  canAdd,
+  canRemove,
   label,
   onAdd,
   onOpen,
@@ -3556,6 +3598,8 @@ function DependencyDisclosure({
   selection,
 }: {
   busy: boolean;
+  canAdd: boolean;
+  canRemove: boolean;
   label: string;
   onAdd: () => void;
   onOpen: (actionItemId: Id<"buildActionItems">, title: string) => void;
@@ -3627,7 +3671,7 @@ function DependencyDisclosure({
                         <ArrowUpRight aria-hidden="true" className="size-3.5" />
                       </Button>
                     ) : null}
-                    {!readOnly && relation.status === "active" ? (
+                    {!readOnly && canRemove && relation.status === "active" ? (
                       <Button
                         disabled={busy}
                         onClick={() => onRemove(relation.relationId)}
@@ -3641,7 +3685,7 @@ function DependencyDisclosure({
                 ))
               )}
             </div>
-            {readOnly ? null : (
+            {readOnly || !canAdd ? null : (
               <div className="flex gap-2">
                 <Select
                   onValueChange={(value) => onSelectionChange(value ?? "")}
@@ -3670,7 +3714,7 @@ function DependencyDisclosure({
   );
 }
 
-function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
+export function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -3702,7 +3746,7 @@ function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
   );
 }
 
-function ActivityHistory({ detail }: { detail: VisibleActionItemDetail }) {
+export function ActivityHistory({ detail }: { detail: VisibleActionItemDetail }) {
   return (
     <section className="space-y-3">
       <h3 className="font-semibold text-base leading-snug">Activity</h3>

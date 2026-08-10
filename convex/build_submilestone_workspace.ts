@@ -6,6 +6,10 @@ import {
   selectActiveBuildAuthorizationCapacity,
 } from "./activeBuildAccess";
 import { authenticatedQuery, type AuthorizedViewer } from "./authz";
+import {
+  authorizeGeneratedMilestoneCompanionStructureOperation,
+  type GeneratedMilestoneCompanionStructureOperation,
+} from "./build_action_item_rbac";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import {
@@ -47,6 +51,7 @@ const capabilitiesValidator = v.object({
     updateExecution: capabilityValidator,
     waiveSiteVisit: capabilityValidator,
     uploadEvidence: capabilityValidator,
+    promoteEvidence: capabilityValidator,
     addAssignment: capabilityValidator,
     removeAssignment: capabilityValidator,
     readMaterials: capabilityValidator,
@@ -58,6 +63,8 @@ const capabilitiesValidator = v.object({
     comment: capabilityValidator,
     createChild: capabilityValidator,
     linkRelation: capabilityValidator,
+    unlinkRelation: capabilityValidator,
+    repairRelation: capabilityValidator,
     toggleChecklist: capabilityValidator,
   }),
   review: v.object({
@@ -281,6 +288,9 @@ const workspaceCollectionRowValidator = v.object({
   locationRequired: v.optional(v.boolean()),
   locationVerified: v.optional(v.boolean()),
   milestoneKey: v.optional(v.string()),
+  sourceDiscussionAssetId: v.optional(v.id("buildCollaborationAssets")),
+  sourceDiscussionPostId: v.optional(v.id("buildCollaborationPosts")),
+  sourceKind: v.optional(v.string()),
   quantity: v.optional(v.number()),
   relevantSubmilestoneKeys: v.optional(v.array(v.string())),
   required: v.optional(v.boolean()),
@@ -374,6 +384,9 @@ type WorkspaceCollectionRow = {
   locationRequired?: boolean;
   locationVerified?: boolean;
   milestoneKey?: string;
+  sourceDiscussionAssetId?: Id<"buildCollaborationAssets">;
+  sourceDiscussionPostId?: Id<"buildCollaborationPosts">;
+  sourceKind?: string;
   quantity?: number;
   relevantSubmilestoneKeys?: string[];
   required?: boolean;
@@ -568,6 +581,8 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
       startAuthority,
       status: submilestone.status,
       actualStartedAt: submilestone.actualStartedAt,
+      evidencePackageStatus: packageRevision?.status,
+      evidenceReviewState: submilestone.evidenceReviewState ?? "not_ready",
       superseded,
       updateAuthority,
     });
@@ -799,6 +814,8 @@ function buildCapabilities(input: {
   actualStartedAt?: number;
   authorization: ActiveBuildAuthorization;
   collaboration: CollaborationState;
+  evidencePackageStatus?: Doc<"buildSubmilestoneEvidencePackageRevisions">["status"];
+  evidenceReviewState: NonNullable<Doc<"buildSubmilestones">["evidenceReviewState"]>;
   reopenAuthority: Awaited<
     ReturnType<typeof resolveSubmilestoneOperateAuthority>
   >;
@@ -855,6 +872,28 @@ function buildCapabilities(input: {
       assignedContractor ||
       role === "homeowner" ||
       lenderStaff);
+  const structureCapability = (
+    operation: GeneratedMilestoneCompanionStructureOperation,
+  ) => {
+    const decision = authorizeGeneratedMilestoneCompanionStructureOperation({
+      activeCompanion:
+        !input.superseded && input.collaboration.state === "available",
+      actor: {
+        role,
+        workosUserId: input.authorization.viewer.subject,
+      },
+      exactExecutionOwner: assignedContractor,
+      operation,
+    });
+    return allowed(
+      decision.allowed,
+      input.superseded
+        ? disabledReason
+        : input.collaboration.state === "degraded"
+          ? collaborationReason
+          : decision.reason ?? structureReason,
+    );
+  };
   const reason = input.superseded
     ? disabledReason
     : "Not permitted for this persona.";
@@ -867,6 +906,11 @@ function buildCapabilities(input: {
         "Collaboration is temporarily degraded.")
       : reason;
   const canUploadEvidence = canOperate;
+  const canPromoteEvidence =
+    canOperate &&
+    input.collaboration.state === "available" &&
+    input.evidenceReviewState !== "in_review" &&
+    input.evidenceReviewState !== "approved";
   const canAssign = fullStructure || lenderAdmin;
   const plannedLifecycleReason =
     "Start the Sub-milestone before updating execution or evidence.";
@@ -926,6 +970,17 @@ function buildCapabilities(input: {
         !input.superseded && canUploadEvidence,
         input.superseded ? disabledReason : updateLifecycleReason,
       ),
+      promoteEvidence: allowed(
+        !input.superseded && canPromoteEvidence,
+        input.superseded
+          ? disabledReason
+          : input.collaboration.state === "degraded"
+            ? collaborationReason
+            : input.evidenceReviewState === "in_review" ||
+                input.evidenceReviewState === "approved"
+              ? "Evidence is already in review or approved."
+              : updateLifecycleReason,
+      ),
       addAssignment: allowed(!input.superseded && canAssign, reason),
       removeAssignment: allowed(!input.superseded && canAssign, reason),
       readMaterials: allowed(!input.superseded, reason),
@@ -936,14 +991,16 @@ function buildCapabilities(input: {
         input.collaboration.state === "available" && canComment,
         collaborationReason,
       ),
-      addChecklist: allowed(false, structureReason),
+      addChecklist: structureCapability("add_checklist"),
       comment: allowed(
         input.collaboration.state === "available" && canComment,
         collaborationReason,
       ),
-      createChild: allowed(false, structureReason),
-      linkRelation: allowed(false, structureReason),
-      toggleChecklist: allowed(false, structureReason),
+      createChild: structureCapability("create_child"),
+      linkRelation: structureCapability("link_relation"),
+      unlinkRelation: structureCapability("unlink_relation"),
+      repairRelation: structureCapability("repair_relation"),
+      toggleChecklist: structureCapability("toggle_checklist"),
     },
     review: {
       recommend: allowed(!input.superseded && lenderStaff, reason),
@@ -1399,6 +1456,15 @@ async function loadWorkspaceCollectionRows(
       id: record._id,
       kind: record.tag,
       locationVerified: record.locationVerified,
+      ...(record.sourceDiscussionAssetId
+        ? { sourceDiscussionAssetId: record.sourceDiscussionAssetId }
+        : {}),
+      ...(record.sourceDiscussionPostId
+        ? { sourceDiscussionPostId: record.sourceDiscussionPostId }
+        : {}),
+      ...(record.source
+        ? { sourceKind: record.source }
+        : {}),
       title: record.label,
     }));
   } else if (collection === "people_assignments") {

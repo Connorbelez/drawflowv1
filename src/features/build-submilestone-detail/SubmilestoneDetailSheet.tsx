@@ -27,6 +27,7 @@ import {
   type CanonicalWorkspaceBootstrap,
   type CanonicalWorkspaceCollection,
 } from "./SubmilestoneDetailCanonical.tsx";
+import { SubmilestoneCollaborationPanel } from "./SubmilestoneCollaborationPanel.tsx";
 import {
   BUILD_SUBMILESTONE_DETAIL_TABS,
   type BuildSubmilestoneDetailTab,
@@ -117,6 +118,11 @@ export interface SubmilestoneDetailSheetProps {
   onGoBack?: () => void;
   onGoForward?: () => void;
   onOpenChange: (open: boolean) => void;
+  onReferenceOpen?: (reference: {
+    entityId: string;
+    entityKind: string;
+    href: string;
+  }) => void;
   onRetry?: () => void;
   onSelectedTabChange?: (tab: BuildSubmilestoneDetailTab) => void;
   open: boolean;
@@ -143,6 +149,7 @@ export function SubmilestoneDetailSheet({
   onGoBack = () => undefined,
   onGoForward = () => undefined,
   onOpenChange,
+  onReferenceOpen,
   onRetry,
   onSelectedTabChange,
   open,
@@ -696,10 +703,62 @@ function VisibleState({
                     tab={tab}
                     viewerCapacity={viewerCapacity}
                   />
-                ) : tab === "collaboration" &&
-                  bootstrap.collaboration.state === "degraded" ? (
-                  <CollaborationDegradedPanel
+                ) : tab === "collaboration" ? (
+                  <SubmilestoneCollaborationPanel
+                    buildId={buildId}
+                    buildSubmilestoneId={buildSubmilestoneId}
+                    canonicalWorkflowRevision={
+                      bootstrap.revisions.canonicalWorkflowRevision
+                    }
                     collaboration={bootstrap.collaboration}
+                    collaborationCapabilities={{
+                      addAttachment:
+                        bootstrap.capabilities.collaboration.addAttachment
+                          .allowed,
+                      comment:
+                        bootstrap.capabilities.collaboration.comment.allowed,
+                    }}
+                    companionActionItemId={
+                      companionActionItemId ?? bootstrap.companion?.actionItemId
+                    }
+                    evidencePackageRevision={
+                      bootstrap.evidence.evidencePackageRevision
+                    }
+                    evidenceRequirements={bootstrap.evidence.requirements.map(
+                      (requirement) => ({
+                        label: requirement.label,
+                        requirementKey: requirement.requirementKey,
+                      }),
+                    )}
+                    expectedReviewRound={bootstrap.review.reviewRound}
+                    milestoneKey={bootstrap.milestone.key}
+                    organizationId={organizationId}
+                    onReferenceOpen={onReferenceOpen}
+                    promoteEvidenceAllowed={
+                      bootstrap.capabilities.canonical.promoteEvidence.allowed
+                    }
+                    readOnly={readOnly}
+                    structureCapabilities={{
+                      addChecklist:
+                        bootstrap.capabilities.collaboration.addChecklist
+                          .allowed,
+                      createChild:
+                        bootstrap.capabilities.collaboration.createChild.allowed,
+                      linkRelation:
+                        bootstrap.capabilities.collaboration.linkRelation
+                          .allowed,
+                      repairRelation:
+                        bootstrap.capabilities.collaboration.repairRelation
+                          .allowed,
+                      toggleChecklist:
+                        bootstrap.capabilities.collaboration.toggleChecklist
+                          .allowed,
+                      unlinkRelation:
+                        bootstrap.capabilities.collaboration.unlinkRelation
+                          .allowed,
+                    }}
+                    submilestoneKey={bootstrap.submilestone.key}
+                    superseded={superseded}
                   />
                 ) : (
                   <CollectionPanel
@@ -715,46 +774,6 @@ function VisibleState({
         </SheetPanel>
       </Tabs>
     </>
-  );
-}
-
-function CollaborationDegradedPanel({
-  collaboration,
-}: {
-  collaboration: VisibleWorkspaceBootstrap["collaboration"];
-}) {
-  return (
-    <Frame
-      aria-live="polite"
-      data-testid="submilestone-collaboration-degraded"
-      role="status"
-    >
-      <FramePanel className="space-y-3 text-sm">
-        <div className="flex items-start gap-2">
-          <ShieldAlert
-            aria-hidden="true"
-            className="mt-0.5 size-4 text-warning"
-          />
-          <div className="space-y-1">
-            <p className="font-medium">
-              Generated collaboration companion unavailable
-            </p>
-            <p className="text-muted-foreground">
-              Canonical facts remain available in the other tabs.
-            </p>
-          </div>
-        </div>
-        <Separator />
-        <div className="space-y-1">
-          <p>
-            {collaboration.message ?? "Collaboration companion is unavailable."}
-          </p>
-          <p className="break-all font-mono text-muted-foreground text-xs">
-            Code: {collaboration.code ?? "COLLABORATION_DEGRADED"}
-          </p>
-        </div>
-      </FramePanel>
-    </Frame>
   );
 }
 

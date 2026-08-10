@@ -35,7 +35,10 @@ import {
 import { createContractorProfileInviteClaim } from "./contractorOnboarding";
 import { normalizeContractorEmail } from "./contractorWorkspace";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
-import { canReadCollaborationPost } from "./build_collaboration_access";
+import {
+  canReadCollaborationPost,
+  resolveCurrentCollaborationPostReaderIds,
+} from "./build_collaboration_access";
 import {
   publishEvidenceLocationUnverifiedCollaborationEvent,
   publishEvidenceReviewCollaborationEvent,
@@ -18795,12 +18798,15 @@ type ActiveBuildEvidencePromotionArgs = {
   assetId: Id<"buildCollaborationAssets">;
   buildId: Id<"activeBuilds">;
   evidenceKey: string;
-  expectedRevision: number;
-  idempotencyKey?: string;
+  expectedRevision?: number;
+  expectedWorkflowRevision?: number;
+  expectedPackageRevision?: number;
+  expectedReviewRound?: number;
+  idempotencyKey: string;
   label?: string;
   locationAttempt?: SiteVisitLocationAttempt;
   milestoneKey: string;
-  requirementKey?: string;
+  requirementKey: string;
   submilestoneKey: string;
   tag?: string;
   workosOrganizationId: string;
@@ -18808,8 +18814,11 @@ type ActiveBuildEvidencePromotionArgs = {
 
 type ActiveBuildEvidencePromotionResult = {
   assetId: Id<"buildEvidenceAssets">;
-  evidencePackageRevisionId?: Id<"buildSubmilestoneEvidencePackageRevisions">;
-  locationVerified?: boolean;
+  evidencePackageRevisionId: Id<"buildSubmilestoneEvidencePackageRevisions">;
+  locationVerified: boolean;
+  packageRevision: number;
+  reviewRound: number;
+  revision: number;
   replayed: boolean;
 };
 
@@ -18859,6 +18868,106 @@ async function collaborationAttachmentPostId(
   return actionItem?.originatingPostId;
 }
 
+/**
+ * Resolve the one active generated companion for a canonical Sub-milestone.
+ * Discussion evidence promotion is intentionally narrower than generic asset
+ * visibility: the source must be attached to this generated Action Item or
+ * one of its comments, never merely to another post in the Build.
+ */
+async function resolveGeneratedSubmilestoneCompanionForPromotion(
+  ctx: MutationCtx,
+  input: {
+    auth: ActiveBuildAuthorization;
+    milestone: Doc<"buildMilestones">;
+    submilestone: Doc<"buildSubmilestones">;
+  },
+) {
+  const tenant = await ctx.db
+    .query("buildCollaborationTenantSettings")
+    .withIndex("by_organizationId", (query) =>
+      query.eq("organizationId", input.auth.organizationId),
+    )
+    .unique();
+  if (tenant?.status !== "active") {
+    throw new ConvexError({
+      code: "COLLABORATION_DEGRADED",
+      message:
+        "Collaboration is unavailable; discussion attachments cannot be promoted to canonical Evidence.",
+    });
+  }
+  const candidates = await ctx.db
+    .query("buildActionItems")
+    .withIndex("by_canonicalBuildSubmilestoneId_and_systemMode", (query) =>
+      query
+        .eq("canonicalBuildSubmilestoneId", input.submilestone._id)
+        .eq("systemMode", "generated_milestone_submilestone"),
+    )
+    .take(33);
+  const eligible = candidates.filter(
+    (candidate) =>
+      candidate.buildId === input.auth.build._id &&
+      candidate.organizationId === input.auth.organizationId &&
+      candidate.brokerageId === input.auth.brokerage._id &&
+      candidate.canonicalBuildMilestoneId === input.milestone._id &&
+      candidate.canonicalPlanningState !== "superseded" &&
+      (candidate.canonicalCompanionDisposition === undefined ||
+        candidate.canonicalCompanionDisposition === "active"),
+  );
+  if (candidates.length > 32 || eligible.length > 1) {
+    throw new ConvexError({
+      code: "COMPANION_AMBIGUOUS",
+      message: "The generated Sub-milestone collaboration companion is ambiguous.",
+    });
+  }
+  const companion = eligible[0];
+  if (!companion) {
+    throw new ConvexError({
+      code: "COMPANION_REQUIRED",
+      message:
+        "A generated Sub-milestone collaboration companion is required for discussion evidence promotion.",
+    });
+  }
+  const post = await ctx.db.get(companion.originatingPostId);
+  if (
+    !post ||
+    post.buildId !== input.auth.build._id ||
+    post.organizationId !== input.auth.organizationId ||
+    post.brokerageId !== input.auth.brokerage._id ||
+    post.canonicalBuildMilestoneId !== input.milestone._id ||
+    post.systemPostKind !== "milestone" ||
+    !(await canReadCollaborationPost(ctx, input.auth, post))
+  ) {
+    throw new ConvexError({
+      code: "COMPANION_BINDING_INVALID",
+      message:
+        "The generated Sub-milestone collaboration companion is unavailable for evidence promotion.",
+    });
+  }
+  return { companion, post };
+}
+
+async function collaborationAttachmentCompanionRoot(
+  ctx: MutationCtx,
+  attachment: Doc<"buildCollaborationAttachments">,
+) {
+  if (attachment.ownerKind === "actionItem") {
+    const actionItemId = ctx.db.normalizeId(
+      "buildActionItems",
+      attachment.ownerRecordId,
+    );
+    return actionItemId ? await ctx.db.get(actionItemId) : null;
+  }
+  if (attachment.ownerKind !== "actionItemComment") {
+    return null;
+  }
+  const commentId = ctx.db.normalizeId(
+    "buildActionItemComments",
+    attachment.ownerRecordId,
+  );
+  const comment = commentId ? await ctx.db.get(commentId) : null;
+  return comment ? await ctx.db.get(comment.actionItemId) : null;
+}
+
 async function promoteCanonicalDiscussionAttachmentToEvidence(
   ctx: MutationCtx,
   auth: ActiveBuildAuthorization,
@@ -18893,28 +19002,82 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       message: "Evidence can be promoted only while work is active.",
     });
   }
-  const actorRoles = normalizeRoleSlugs(auth.viewer.roles);
-  if (actorRoles.includes("contractor")) {
-    const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
-      build: auth.build,
-      milestone,
-      submilestone,
-    });
-    if (
-      ownership.state !== "assigned" ||
-      ownership.contractor?.accountWorkosUserId !== auth.viewer.subject
-    ) {
-      throw new ConvexError({
-        code: "ASSIGNMENT_REQUIRED",
-        message: "Only the exact assigned Contractor may promote evidence.",
-      });
-    }
-  } else if (isLenderOnlyForBuilderExecution(actorRoles)) {
+  if (
+    milestone.buildId !== args.buildId ||
+    milestone.organizationId !== auth.organizationId ||
+    milestone.brokerageId !== auth.brokerage._id ||
+    submilestone.buildId !== args.buildId ||
+    submilestone.organizationId !== auth.organizationId ||
+    submilestone.brokerageId !== auth.brokerage._id ||
+    submilestone.buildMilestoneId !== milestone._id ||
+    submilestone.milestoneKey !== milestone.key ||
+    args.milestoneKey.trim() !== milestone.key ||
+    args.submilestoneKey.trim() !== submilestone.key
+  ) {
     throw new ConvexError({
-      code: "LENDER_EXECUTION_FORBIDDEN",
-      message: "Lender staff may review evidence but cannot execute Builder work.",
+      code: "CANONICAL_SCOPE_MISMATCH",
+      message:
+        "Evidence promotion must target the exact canonical Build, Milestone, and Sub-milestone.",
     });
-  } else if (!actorRoles.includes("admin")) {
+  }
+  const actorRoles = normalizeRoleSlugs(auth.viewer.roles);
+  const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+    build: auth.build,
+    milestone,
+    submilestone,
+  });
+  const contractorOnly =
+    actorRoles.includes("contractor") &&
+    !actorRoles.includes("admin") &&
+    !actorRoles.includes("builder") &&
+    !actorRoles.includes("builder-staff");
+  if (
+    contractorOnly &&
+    (ownership.state !== "assigned" ||
+      ownership.contractor?.accountWorkosUserId !== auth.viewer.subject)
+  ) {
+    throw new ConvexError({
+      code: "ASSIGNMENT_REQUIRED",
+      message:
+        "Assignment required: only the exact assigned Contractor may promote evidence.",
+    });
+  }
+  const operate = await resolveSubmilestoneOperateAuthority(ctx, {
+    build: auth.build,
+    intent: "update",
+    milestoneCompleted:
+      milestone.status === "complete" ||
+      milestone.completionClaim !== undefined,
+    ownership,
+    submilestone,
+    viewer: {
+      roles: actorRoles,
+      workosUserId: auth.viewer.subject,
+    },
+  });
+  if (
+    !operate.allowed ||
+    (operate.allowed &&
+      operate.basis === "admin" &&
+      !actorRoles.includes("admin"))
+  ) {
+    throw new ConvexError({
+      code:
+        !operate.allowed && operate.denial === "assignment_required"
+          ? "ASSIGNMENT_REQUIRED"
+          : !operate.allowed && operate.denial === "lender_review_only"
+            ? "LENDER_EXECUTION_FORBIDDEN"
+            : "OPERATE_FORBIDDEN",
+      message:
+        !operate.allowed
+          ? operateDenialMessage(operate.denial)
+          : "Admin authority must be present in the active Build role scope.",
+    });
+  }
+  if (
+    !actorRoles.includes("admin") &&
+    !actorRoles.includes("contractor")
+  ) {
     await requireActiveBuildAppPermission(
       ctx,
       {
@@ -18927,16 +19090,74 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       "create",
     );
   }
+  const idempotencyKey = args.idempotencyKey.trim();
+  if (!idempotencyKey) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REQUIRED",
+      message: "Evidence promotion requires a non-empty idempotency key.",
+    });
+  }
+  const expectedWorkflowRevision =
+    args.expectedWorkflowRevision ?? args.expectedRevision;
+  if (
+    expectedWorkflowRevision === undefined ||
+    !Number.isSafeInteger(expectedWorkflowRevision) ||
+    expectedWorkflowRevision < 0
+  ) {
+    throw new ConvexError({
+      code: "EXPECTED_REVISION_REQUIRED",
+      message:
+        "Evidence promotion requires the current canonical workflow revision.",
+    });
+  }
+  const expectedReviewRound = args.expectedReviewRound;
+  if (
+    expectedReviewRound === undefined ||
+    !Number.isSafeInteger(expectedReviewRound) ||
+    expectedReviewRound < 0
+  ) {
+    throw new ConvexError({
+      code: "REVIEW_ROUND_REQUIRED",
+      message: "Evidence promotion requires the current review round.",
+    });
+  }
+  const expectedPackageRevision = args.expectedPackageRevision;
+  if (
+    expectedPackageRevision === undefined ||
+    !Number.isSafeInteger(expectedPackageRevision) ||
+    expectedPackageRevision < 0
+  ) {
+    throw new ConvexError({
+      code: "PACKAGE_REVISION_REQUIRED",
+      message: "Evidence promotion requires the current Evidence Package revision.",
+    });
+  }
+  const requirementKey = args.requirementKey.trim();
+  if (!requirementKey) {
+    throw new ConvexError({
+      code: "EVIDENCE_REQUIREMENT_KEY_REQUIRED",
+      message: "Evidence promotion requires an explicit requirement key.",
+    });
+  }
   const command = "promoteActiveBuildDiscussionAttachmentToEvidence";
-  const fingerprint = await canonicalCommandFingerprint(command, args);
-  const existingReceipt = args.idempotencyKey
-    ? await findSubmilestoneIdempotentAudit(ctx, {
-        command,
-        fingerprint,
-        idempotencyKey: args.idempotencyKey,
-        submilestoneId: submilestone._id,
-      })
-    : null;
+  const fingerprint = await canonicalCommandFingerprint(command, {
+    assetId: args.assetId,
+    buildId: args.buildId,
+    evidenceKey: args.evidenceKey.trim(),
+    idempotencyKey,
+    label: args.label?.trim(),
+    locationAttempt: args.locationAttempt,
+    milestoneKey: milestone.key,
+    requirementKey,
+    submilestoneKey: submilestone.key,
+    tag: args.tag?.trim(),
+  });
+  const existingReceipt = await findSubmilestoneIdempotentAudit(ctx, {
+    command,
+    fingerprint,
+    idempotencyKey,
+    submilestoneId: submilestone._id,
+  });
   if (existingReceipt) {
     const result = JSON.parse(
       existingReceipt.resultJson,
@@ -18946,13 +19167,129 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       replayed: true,
     };
   }
-  assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
+  assertExpectedSubmilestoneRevision(submilestone, expectedWorkflowRevision);
+  const currentReviewRound = submilestone.evidenceReviewRound ?? 0;
+  if (expectedReviewRound !== currentReviewRound) {
+    throw new ConvexError({
+      code: "STALE_REVIEW_ROUND",
+      message: "Sub-milestone review round changed; refresh before promoting evidence.",
+      actualReviewRound: currentReviewRound,
+      expectedReviewRound,
+    });
+  }
+  if (
+    submilestone.evidenceReviewState === "in_review" ||
+    submilestone.evidenceReviewState === "approved" ||
+    submilestone.reviewDecisionState === "in_review" ||
+    submilestone.reviewDecisionState === "approved"
+  ) {
+    throw new ConvexError({
+      code: "EVIDENCE_REVIEW_STATE_INVALID",
+      message:
+        "Discussion evidence cannot be promoted while this Sub-milestone is in review or approved.",
+    });
+  }
+  const latestPackageRevision = await ctx.db
+    .query("buildSubmilestoneEvidencePackageRevisions")
+    .withIndex("by_submilestone_revision", (query) =>
+      query.eq("buildSubmilestoneId", submilestone._id),
+    )
+    .order("desc")
+    .first();
+  const currentPackageRevision = submilestone.evidencePackageRevisionId
+    ? await ctx.db.get(submilestone.evidencePackageRevisionId)
+    : latestPackageRevision;
+  if (
+    currentPackageRevision &&
+    latestPackageRevision &&
+    currentPackageRevision._id !== latestPackageRevision._id
+  ) {
+    throw new ConvexError({
+      code: "STALE_EVIDENCE_PACKAGE_REVISION",
+      message:
+        "The canonical Evidence Package pointer is not the latest package revision.",
+      actualPackageRevision: latestPackageRevision.revision,
+      expectedPackageRevision,
+    });
+  }
+  if (
+    currentPackageRevision &&
+    (currentPackageRevision.buildId !== args.buildId ||
+      currentPackageRevision.buildMilestoneId !== milestone._id ||
+      currentPackageRevision.buildSubmilestoneId !== submilestone._id ||
+      currentPackageRevision.organizationId !== auth.organizationId ||
+      currentPackageRevision.brokerageId !== auth.brokerage._id ||
+      currentPackageRevision.proposalId !== auth.proposal._id)
+  ) {
+    throw new ConvexError({
+      code: "PACKAGE_SCOPE_MISMATCH",
+      message: "The current Evidence Package revision is outside canonical scope.",
+    });
+  }
+  if (expectedPackageRevision !== (currentPackageRevision?.revision ?? 0)) {
+    throw new ConvexError({
+      code: "STALE_EVIDENCE_PACKAGE_REVISION",
+      message:
+        "Evidence Package revision changed; refresh before promoting evidence.",
+      actualPackageRevision: currentPackageRevision?.revision ?? 0,
+      expectedPackageRevision,
+    });
+  }
   const sourceAsset = await ctx.db.get(args.assetId);
   if (!sourceAsset) {
     throw new ConvexError({
       code: "DISCUSSION_ASSET_UNAVAILABLE",
       message:
         "The discussion attachment is unavailable for explicit evidence promotion.",
+      });
+  }
+  const { companion, post: companionPost } =
+    await resolveGeneratedSubmilestoneCompanionForPromotion(ctx, {
+      auth,
+      milestone,
+      submilestone,
+    });
+  if (
+    sourceAsset.buildId !== args.buildId ||
+    sourceAsset.organizationId !== auth.organizationId ||
+    sourceAsset.brokerageId !== auth.brokerage._id ||
+    sourceAsset.state !== "available" ||
+    !sourceAsset.publishedAt ||
+    !sourceAsset.publishedOwnerKind ||
+    !sourceAsset.publishedOwnerRecordId ||
+    sourceAsset.originatingPostId !== companionPost._id ||
+    sourceAsset.maximumAudienceMode !== companionPost.audienceMode
+  ) {
+    throw new ConvexError({
+      code: "DISCUSSION_ASSET_PUBLICATION_INVALID",
+      message:
+        "Only a currently published asset from the generated companion audience can be promoted.",
+    });
+  }
+  const currentCompanionReaderIds =
+    await resolveCurrentCollaborationPostReaderIds(
+      ctx,
+      auth,
+      companionPost,
+    );
+  const publishedReaderIds = sourceAsset.readerWorkosUserIds;
+  if (
+    !publishedReaderIds ||
+    currentCompanionReaderIds.some(
+      (readerId) => !publishedReaderIds.includes(readerId),
+    )
+  ) {
+    throw new ConvexError({
+      code: "DISCUSSION_AUDIENCE_INVALID",
+      message:
+        "The published discussion audience no longer covers the generated companion audience.",
+    });
+  }
+  if (!isCleanCollaborationAsset(sourceAsset)) {
+    throw new ConvexError({
+      code: "DISCUSSION_ASSET_SCAN_INVALID",
+      message:
+        "Only a clean, retained collaboration asset can be promoted to Evidence.",
     });
   }
   const attachments = await ctx.db
@@ -18963,13 +19300,20 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
         .eq("attachmentKind", "collaborationAsset")
         .eq("attachmentId", sourceAsset._id),
     )
-    .take(100);
+    .take(101);
+  if (attachments.length > 100) {
+    throw new ConvexError({
+      code: "DISCUSSION_ATTACHMENT_AMBIGUOUS",
+      message:
+        "The discussion asset has too many attachment owners to promote safely.",
+    });
+  }
   if (attachments.length === 0) {
     throw new ConvexError({
       code: "DISCUSSION_ATTACHMENT_REQUIRED",
       message:
         "Only a published discussion attachment can be explicitly promoted to Evidence.",
-    });
+      });
   }
   if (
     !(await canReadCollaborationAsset(ctx, {
@@ -18987,9 +19331,24 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
   let sourceOwnerKind: string | undefined;
   let sourceOwnerRecordId: string | undefined;
   for (const attachment of attachments) {
+    if (
+      attachment.organizationId !== auth.organizationId ||
+      attachment.brokerageId !== auth.brokerage._id ||
+      attachment.buildId !== args.buildId ||
+      (attachment.ownerKind !== "actionItem" &&
+        attachment.ownerKind !== "actionItemComment") ||
+      sourceAsset.publishedOwnerKind !== attachment.ownerKind ||
+      sourceAsset.publishedOwnerRecordId !== attachment.ownerRecordId
+    ) {
+      continue;
+    }
+    const root = await collaborationAttachmentCompanionRoot(ctx, attachment);
+    if (!root || root._id !== companion._id) {
+      continue;
+    }
     const candidatePostId = await collaborationAttachmentPostId(ctx, attachment);
     if (
-      candidatePostId &&
+      candidatePostId === companionPost._id &&
       (await ctx.db.get(candidatePostId)) &&
       (await canReadCollaborationPost(
         ctx,
@@ -19005,19 +19364,89 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
   }
   if (!sourcePostId) {
     throw new ConvexError({
-      code: "DISCUSSION_ATTACHMENT_UNAVAILABLE",
+      code: "DISCUSSION_COMPANION_ATTACHMENT_REQUIRED",
       message:
-        "The source discussion attachment is not readable in this Build context.",
+        "The source asset must be attached to this generated companion or one of its comments.",
     });
   }
-  const evidenceKey =
-    args.evidenceKey.trim() ||
-    `discussion-promotion-${sourceAsset._id}-${submilestone._id}`;
+  const evidenceKey = args.evidenceKey.trim();
   if (!evidenceKey) {
     throw new ConvexError({
       code: "EVIDENCE_KEY_REQUIRED",
       message: "Evidence key is required for explicit promotion.",
     });
+  }
+  const priorPromotions = await ctx.db
+    .query("buildSubmilestoneEvidencePromotions")
+    .withIndex("by_source_asset", (query) =>
+      query.eq("sourceDiscussionAssetId", sourceAsset._id),
+    )
+    .take(101);
+  if (priorPromotions.length > 100) {
+    throw new ConvexError({
+      code: "EVIDENCE_PROMOTION_AMBIGUOUS",
+      message: "The source discussion asset has too many promotion records.",
+    });
+  }
+  if (priorPromotions.length > 0) {
+    throw new ConvexError({
+      code: "EVIDENCE_ALREADY_PROMOTED",
+      message:
+        "This discussion asset has already been explicitly promoted to canonical Evidence.",
+    });
+  }
+  const priorEvidenceAssets = await ctx.db
+    .query("buildEvidenceAssets")
+    .withIndex("by_build_milestone_submilestone", (query) =>
+      query
+        .eq("buildId", args.buildId)
+        .eq("milestoneKey", milestone.key)
+        .eq("submilestoneKey", submilestone.key),
+    )
+    .take(101);
+  if (priorEvidenceAssets.length > 100) {
+    throw new ConvexError({
+      code: "EVIDENCE_ASSET_AMBIGUOUS",
+      message:
+        "The canonical Evidence Asset set is too large to verify promotion uniqueness safely.",
+    });
+  }
+  if (
+    priorEvidenceAssets.some(
+      (asset) => asset.sourceDiscussionAssetId === sourceAsset._id,
+    )
+  ) {
+    throw new ConvexError({
+      code: "EVIDENCE_ALREADY_PROMOTED",
+      message:
+        "This discussion asset already has a canonical Evidence Asset.",
+    });
+  }
+  if (currentPackageRevision) {
+    const currentPackageItems = await ctx.db
+      .query("buildSubmilestoneEvidencePackageItems")
+      .withIndex("by_package_revision", (query) =>
+        query.eq("packageRevisionId", currentPackageRevision._id),
+      )
+      .take(101);
+    if (currentPackageItems.length > 100) {
+      throw new ConvexError({
+        code: "EVIDENCE_PACKAGE_AMBIGUOUS",
+        message:
+          "The current Evidence Package is too large to verify promotion uniqueness safely.",
+      });
+    }
+    if (
+      currentPackageItems.some(
+        (item) => item.sourceDiscussionAssetId === sourceAsset._id,
+      )
+    ) {
+      throw new ConvexError({
+        code: "EVIDENCE_ALREADY_PROMOTED",
+        message:
+          "This discussion asset already has a current Evidence Package item.",
+      });
+    }
   }
   const existing = await ctx.db
     .query("buildEvidenceAssets")
@@ -19026,9 +19455,6 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     )
     .unique();
   if (existing) {
-    if (existing.sourceDiscussionAssetId === sourceAsset._id) {
-      return { assetId: existing._id, replayed: true as const };
-    }
     throw new ConvexError({
       code: "EVIDENCE_IDEMPOTENCY_CONFLICT",
       message: "This Evidence key was already used for another asset.",
@@ -19098,7 +19524,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       asset: persistedAsset,
       build: auth.build,
       milestone,
-      requirementKey: args.requirementKey,
+      requirementKey,
       sourceDiscussionAsset: sourceAsset,
       sourceDiscussionPostId: sourcePostId,
       sourceKind: "discussion_promotion",
@@ -19109,6 +19535,13 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     promotedAt: now,
     promotedByWorkosUserId: auth.viewer.subject,
     updatedAt: now,
+  });
+  const nextWorkflowRevision = (submilestone.workflowRevision ?? 0) + 1;
+  await ctx.db.patch(submilestone._id, {
+    evidencePackageRevisionId: packageMembership.packageRevision._id,
+    evidenceReviewState: "not_ready",
+    updatedAt: now,
+    workflowRevision: nextWorkflowRevision,
   });
   await ctx.db.insert("buildSubmilestoneEvidencePromotions", {
     brokerageId: auth.brokerage._id,
@@ -19126,6 +19559,11 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     sourceDiscussionPostId: sourcePostId,
     sourcePublishedAt: sourceAsset.publishedAt,
     sourceUploaderWorkosUserId: sourceAsset.uploadedByWorkosUserId,
+    requirementKey,
+    idempotencyKey,
+    fingerprint,
+    reviewRound: currentReviewRound,
+    workflowRevision: nextWorkflowRevision,
   });
   await writeActiveBuildEvent(ctx, {
     auth: {
@@ -19141,9 +19579,11 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       evidenceAssetId,
       evidenceKey,
       packageRevision: packageMembership.packageRevision.revision,
+      reviewRound: currentReviewRound,
       sourceDiscussionAssetId: sourceAsset._id,
       sourceDiscussionPostId: sourcePostId,
       sourceDiscussionAssetVersion: sourceAsset.version,
+      workflowRevision: nextWorkflowRevision,
     }),
     warnings:
       locationAttempt && !locationAttempt.verified
@@ -19154,19 +19594,20 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     assetId: evidenceAssetId,
     evidencePackageRevisionId: packageMembership.packageRevision._id,
     locationVerified: persistedAsset.locationVerified,
+    packageRevision: packageMembership.packageRevision.revision,
+    reviewRound: currentReviewRound,
+    revision: nextWorkflowRevision,
     replayed: false as const,
   };
-  if (args.idempotencyKey) {
-    await insertSubmilestoneCommandReceipt(ctx, {
-      buildId: args.buildId,
-      command,
-      fingerprint,
-      idempotencyKey: args.idempotencyKey,
-      organizationId: auth.build.organizationId,
-      result,
-      submilestoneId: submilestone._id,
-    });
-  }
+  await insertSubmilestoneCommandReceipt(ctx, {
+    buildId: args.buildId,
+    command,
+    fingerprint,
+    idempotencyKey,
+    organizationId: auth.build.organizationId,
+    result,
+    submilestoneId: submilestone._id,
+  });
   await publishEvidenceSubmittedCollaborationEvents(ctx, {
     asset: persistedAsset,
     revision: collaborationEventRevision,
@@ -19180,12 +19621,15 @@ export const promoteActiveBuildDiscussionAttachmentToEvidence =
       assetId: v.id("buildCollaborationAssets"),
       buildId: v.id("activeBuilds"),
       evidenceKey: v.string(),
-      expectedRevision: v.number(),
-      idempotencyKey: v.optional(v.string()),
+      expectedRevision: v.optional(v.number()),
+      expectedWorkflowRevision: v.optional(v.number()),
+      expectedPackageRevision: v.optional(v.number()),
+      expectedReviewRound: v.optional(v.number()),
+      idempotencyKey: v.string(),
       label: v.optional(v.string()),
       locationAttempt: v.optional(siteVisitLocationAttemptValidator),
       milestoneKey: v.string(),
-      requirementKey: v.optional(v.string()),
+      requirementKey: v.string(),
       submilestoneKey: v.string(),
       tag: v.optional(v.string()),
       workosOrganizationId: v.string(),
@@ -19193,10 +19637,13 @@ export const promoteActiveBuildDiscussionAttachmentToEvidence =
     .returns(
       v.object({
         assetId: v.id("buildEvidenceAssets"),
-        evidencePackageRevisionId: v.optional(
-          v.id("buildSubmilestoneEvidencePackageRevisions"),
+        evidencePackageRevisionId: v.id(
+          "buildSubmilestoneEvidencePackageRevisions",
         ),
-        locationVerified: v.optional(v.boolean()),
+        locationVerified: v.boolean(),
+        packageRevision: v.number(),
+        reviewRound: v.number(),
+        revision: v.number(),
         replayed: v.boolean(),
       }),
     )
