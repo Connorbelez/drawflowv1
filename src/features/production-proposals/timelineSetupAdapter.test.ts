@@ -371,6 +371,7 @@ describe("production proposal timeline setup adapter", () => {
             submilestoneDetails: [
               {
                 budgetCents: 100_000_00,
+                description: "Excavate and install engineered footing forms.",
                 durationDays: 10,
                 key: "forms",
                 name: "Forms",
@@ -440,6 +441,21 @@ describe("production proposal timeline setup adapter", () => {
             key: "forms",
             name: "Forms",
             order: 1,
+            scopeOfWorkTiptapJson:
+              JSON.stringify({
+                content: [
+                  {
+                    content: [
+                      {
+                        text: "Excavate and install engineered footing forms.",
+                        type: "text",
+                      },
+                    ],
+                    type: "paragraph",
+                  },
+                ],
+                type: "doc",
+              }),
           },
         ],
       }),

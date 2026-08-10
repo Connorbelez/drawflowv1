@@ -298,6 +298,13 @@ export function timelineSetupResultToDraftPackage(
             key: submilestone.key,
             name: submilestone.name,
             order: submilestone.order,
+            ...(submilestone.description === undefined
+              ? {}
+              : {
+                  scopeOfWorkTiptapJson: plainTextTiptapJson(
+                    submilestone.description
+                  ),
+                }),
             ...(submilestone.startDay === undefined
               ? {}
               : { startDay: submilestone.startDay }),
@@ -351,4 +358,16 @@ function iconForMilestone(
 
 function dollarsToCents(value: number) {
   return Math.max(0, Math.round(value * 100));
+}
+
+function plainTextTiptapJson(value: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text: value, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
 }

@@ -607,6 +607,10 @@ describe("TimelineMilestoneWorksheetTable", () => {
         ) as HTMLInputElement
       ).value
     ).toBe("Foundation scope");
+    const scopeEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    expect(scopeEditor.value).toBe("Clear the site and pour foundation");
 
     fireEvent.click(within(sheet).getByRole("tab", { name: "Contractors" }));
     fireEvent.change(
@@ -738,8 +742,9 @@ describe("TimelineMilestoneWorksheetTable", () => {
     fireEvent.click(within(sheet).getByRole("tab", { name: "Field Guidance" }));
     const guidanceEditor = within(sheet).getByTestId(
       "timeline-setup-submilestone-guidance-description-site-prep-foundation-sub-1"
-    );
+    ) as HTMLTextAreaElement;
     expect(guidanceEditor.getAttribute("data-rich-text-editor")).toBe("true");
+    expect(guidanceEditor.value).toBe("Clear the site and pour foundation");
     fireEvent.change(guidanceEditor, {
       target: { value: "Verify footing layout before pour." },
     });

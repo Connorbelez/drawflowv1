@@ -12679,6 +12679,12 @@ describe("production proposal foundation", () => {
   });
 });
 
+describe("Sub-milestone Scope and Field Guidance lineage", () => {
+  test.todo(
+    "keeps the canonical Scope contract and Field Guidance lineage when an approved Proposal becomes a Build",
+  );
+});
+
 describe("recipient delivery inbox", () => {
   test("serves only recipient-scoped deliveries and supports legal read, dismiss, and resolve actions", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");

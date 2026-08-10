@@ -647,6 +647,7 @@ export interface ProductionProposalDraftSavePayload {
       key: string;
       name: string;
       order: number;
+      scopeOfWorkTiptapJson?: string;
     }>;
   }>;
   proposedStartDate?: string;
