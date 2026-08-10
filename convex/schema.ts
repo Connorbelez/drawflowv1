@@ -2622,6 +2622,9 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     budgetCents: v.optional(v.number()),
+    sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    sourceScopeVersion: v.optional(v.number()),
+    sourceScopeChangeReason: v.optional(v.string()),
     scopeOfWorkTiptapJson: v.string(),
     createdAt: v.number(),
   })
@@ -3531,6 +3534,103 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_milestone", ["proposalMilestoneId"]),
+  submilestoneScopeContracts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    buildId: v.optional(v.id("activeBuilds")),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    effectiveRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    activeDraftRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    latestVersion: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"])
+    .index("by_organizationId_and_proposalId", [
+      "organizationId",
+      "proposalId",
+    ])
+    .index("by_organizationId_and_buildId", ["organizationId", "buildId"])
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
+  submilestoneScopeRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    contractId: v.id("submilestoneScopeContracts"),
+    version: v.number(),
+    status: v.union(v.literal("draft"), v.literal("published")),
+    scopeOfWorkTiptapJson: v.string(),
+    basedOnRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    authoredByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    savedAt: v.number(),
+    publishedByWorkosUserId: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+    changeReason: v.optional(v.string()),
+  })
+    .index("by_contractId_and_version", ["contractId", "version"])
+    .index("by_contractId_and_status", ["contractId", "status"]),
+  submilestoneScopeDecisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    contractId: v.id("submilestoneScopeContracts"),
+    revisionId: v.id("submilestoneScopeRevisions"),
+    version: v.number(),
+    kind: v.union(
+      v.literal("borrower_acknowledged"),
+      v.literal("borrower_rejected"),
+      v.literal("lender_admin_approved"),
+      v.literal("admin_override")
+    ),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    reason: v.optional(v.string()),
+    bypassedDecisionKinds: v.optional(
+      v.array(
+        v.union(
+          v.literal("borrower_acknowledged"),
+          v.literal("borrower_rejected"),
+          v.literal("lender_admin_approved")
+        )
+      )
+    ),
+    priorEffectiveRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    newEffectiveRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    idempotencyKey: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_revisionId_and_createdAt", ["revisionId", "createdAt"])
+    .index("by_revisionId_and_kind", ["revisionId", "kind"])
+    .index("by_contractId", ["contractId"])
+    .index("by_contractId_and_idempotencyKey", [
+      "contractId",
+      "idempotencyKey",
+    ]),
+  submilestoneFieldGuidance: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    buildId: v.optional(v.id("activeBuilds")),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    whatToVerifyTiptapJson: v.string(),
+    cameraAnglesTiptapJson: v.string(),
+    updatedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"])
+    .index("by_organizationId_and_proposalId", [
+      "organizationId",
+      "proposalId",
+    ])
+    .index("by_organizationId_and_buildId", ["organizationId", "buildId"])
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
   proposalContractorAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -8152,6 +8252,25 @@ export default defineSchema({
       "scheduleIdempotencyKey",
     ])
     .index("by_visit", ["visitId"]),
+  buildSiteVisitGuidanceSections: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildSiteVisitId: v.id("buildSiteVisits"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    submilestoneKey: v.string(),
+    submilestoneName: v.string(),
+    order: v.number(),
+    whatToVerifyTiptapJson: v.string(),
+    cameraAnglesTiptapJson: v.string(),
+    capturedAt: v.number(),
+  })
+    .index("by_buildSiteVisitId_and_order", ["buildSiteVisitId", "order"])
+    .index("by_buildId", ["buildId"])
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
   buildMilestoneReviewDecisions: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
