@@ -654,12 +654,6 @@ function VisibleActionItemDetail({
   const retractCanonicalSubmilestoneApproval = useBuildCollaborationMutation(
     api.build_submilestone_review.retractActiveBuildSubmilestoneApproval,
   );
-  const approveCanonicalMilestone = useBuildCollaborationMutation(
-    api.build_submilestone_review.approveActiveBuildMilestoneReview,
-  );
-  const retractCanonicalMilestoneApproval = useBuildCollaborationMutation(
-    api.build_submilestone_review.retractActiveBuildMilestoneApproval,
-  );
   const workflow = useQuery(
     api.build_action_item_workflow.getBuildActionItemWorkflowContext,
     {
@@ -1312,8 +1306,6 @@ function VisibleActionItemDetail({
   const canonicalReviewRevision =
     canonicalPresentation?.reviewRevision ??
     canonicalPresentation?.workflowRevision;
-  const canonicalMilestoneReviewRevision =
-    canonicalPresentation?.milestoneReviewRevision;
   const runCanonicalReviewCommand = async (
     commandScope: string,
     command: () => Promise<unknown>,
@@ -1470,58 +1462,6 @@ function VisibleActionItemDetail({
       "Unable to retract Sub-milestone approval.",
     );
   };
-  const approveCanonicalMilestoneCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    if (canonicalMilestoneReviewRevision === undefined) {
-      toast.error(
-        "Refresh this Action Item before approving the parent; the canonical review revision is unavailable.",
-      );
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-milestone-approval",
-      () =>
-        approveCanonicalMilestone({
-          buildId,
-          expectedRevision: canonicalMilestoneReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-milestone-approval"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          reason: canonicalReviewNote.trim() || undefined,
-          workosOrganizationId: organizationId,
-        }),
-      "Milestone approved; the System Post is resolved.",
-      "Unable to approve this Milestone.",
-    );
-  };
-  const retractCanonicalMilestoneCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    if (canonicalMilestoneReviewRevision === undefined) {
-      toast.error(
-        "Refresh this Action Item before retracting parent approval; the canonical review revision is unavailable.",
-      );
-      return;
-    }
-    const reason = canonicalReviewReason.trim();
-    if (!reason) {
-      toast.error("Parent approval retraction reason is required.");
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-milestone-retraction",
-      () =>
-        retractCanonicalMilestoneApproval({
-          buildId,
-          expectedRevision: canonicalMilestoneReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-milestone-retraction"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          reason,
-          workosOrganizationId: organizationId,
-        }),
-      "Milestone approval retracted; the same System Post is reopened.",
-      "Unable to retract Milestone approval.",
-    );
-  };
-
   return (
     <>
       <DetailSheetHeader
@@ -1587,11 +1527,9 @@ function VisibleActionItemDetail({
             onProgressChange={setCanonicalProgress}
             onStart={openCanonicalStart}
             onSubmitReview={submitCanonicalReview}
-            onApproveMilestone={approveCanonicalMilestoneCommand}
             onApproveSubmilestone={approveCanonicalSubmilestoneCommand}
             onRecommendReview={recommendCanonicalReviewCommand}
             onRequestChanges={requestCanonicalChangesCommand}
-            onRetractMilestone={retractCanonicalMilestoneCommand}
             onRetractSubmilestone={retractCanonicalSubmilestoneCommand}
             onWaiveSiteVisit={waiveCanonicalSiteVisitCommand}
             reviewBusy={canonicalReviewBusy}
@@ -1909,7 +1847,6 @@ function VisibleActionItemDetail({
 function CanonicalMilestoneActionItemFacts({
   actualCost,
   canonicalStartRevisionError,
-  onApproveMilestone,
   onApproveSubmilestone,
   completionNote,
   detail,
@@ -1923,7 +1860,6 @@ function CanonicalMilestoneActionItemFacts({
   onFreezePackage,
   onRecommendReview,
   onRequestChanges,
-  onRetractMilestone,
   onRetractSubmilestone,
   onStart,
   onSubmitReview,
@@ -1944,7 +1880,6 @@ function CanonicalMilestoneActionItemFacts({
 }: {
   actualCost: string;
   canonicalStartRevisionError: string | null;
-  onApproveMilestone: () => void;
   onApproveSubmilestone: () => void;
   completionNote: string;
   detail: VisibleActionItemDetail;
@@ -1958,7 +1893,6 @@ function CanonicalMilestoneActionItemFacts({
   onFreezePackage: () => void;
   onRecommendReview: () => void;
   onRequestChanges: () => void;
-  onRetractMilestone: () => void;
   onRetractSubmilestone: () => void;
   onStart?: () => void;
   onSubmitReview: () => void;
@@ -2102,11 +2036,9 @@ function CanonicalMilestoneActionItemFacts({
         ) : null}
         <CanonicalReviewLifecyclePanel
           detail={detail}
-          onApproveMilestone={onApproveMilestone}
           onApproveSubmilestone={onApproveSubmilestone}
           onRecommendReview={onRecommendReview}
           onRequestChanges={onRequestChanges}
-          onRetractMilestone={onRetractMilestone}
           onRetractSubmilestone={onRetractSubmilestone}
           onReviewNoteChange={onReviewNoteChange}
           onReviewReasonChange={onReviewReasonChange}
@@ -2356,11 +2288,9 @@ function siteVisitRequirementLabel(
 
 function CanonicalReviewLifecyclePanel({
   detail,
-  onApproveMilestone,
   onApproveSubmilestone,
   onRecommendReview,
   onRequestChanges,
-  onRetractMilestone,
   onRetractSubmilestone,
   onReviewNoteChange,
   onReviewReasonChange,
@@ -2374,11 +2304,9 @@ function CanonicalReviewLifecyclePanel({
   tagOptions,
 }: {
   detail: VisibleActionItemDetail;
-  onApproveMilestone: () => void;
   onApproveSubmilestone: () => void;
   onRecommendReview: () => void;
   onRequestChanges: () => void;
-  onRetractMilestone: () => void;
   onRetractSubmilestone: () => void;
   onReviewNoteChange: (value: string) => void;
   onReviewReasonChange: (value: string) => void;
@@ -2403,9 +2331,7 @@ function CanonicalReviewLifecyclePanel({
       presentation.canRequestChanges === true ||
       presentation.canApproveSubmilestone === true ||
       presentation.canWaiveSiteVisit === true ||
-      presentation.canRetractSubmilestoneApproval === true ||
-      presentation.canApproveMilestone === true ||
-      presentation.canRetractMilestoneApproval === true);
+      presentation.canRetractSubmilestoneApproval === true);
   const requirement = presentation.siteVisitRequirement;
   const reviewHistory = presentation.reviewHistory ?? [];
   const participantOptions = tagOptions.filter(
@@ -2497,8 +2423,7 @@ function CanonicalReviewLifecyclePanel({
           <div className="space-y-3 rounded-md border p-3">
             <p className="font-medium text-xs">Review command</p>
             {presentation.canRecommendReview ||
-            presentation.canApproveSubmilestone ||
-            presentation.canApproveMilestone ? (
+            presentation.canApproveSubmilestone ? (
               <Label className="space-y-1 text-xs">
                 <span>Reviewer note</span>
                 <Input
@@ -2511,8 +2436,7 @@ function CanonicalReviewLifecyclePanel({
             ) : null}
             {presentation.canRequestChanges ||
             presentation.canWaiveSiteVisit ||
-            presentation.canRetractSubmilestoneApproval ||
-            presentation.canRetractMilestoneApproval ? (
+            presentation.canRetractSubmilestoneApproval ? (
               <Label className="space-y-1 text-xs">
                 <span>Reason (required for this command)</span>
                 <Input
@@ -2589,27 +2513,6 @@ function CanonicalReviewLifecyclePanel({
                   variant="warning"
                 >
                   Retract child approval
-                </Button>
-              ) : null}
-              {presentation.canApproveMilestone ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onApproveMilestone}
-                  size="sm"
-                  type="button"
-                >
-                  Approve Milestone
-                </Button>
-              ) : null}
-              {presentation.canRetractMilestoneApproval ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onRetractMilestone}
-                  size="sm"
-                  type="button"
-                  variant="warning"
-                >
-                  Retract Milestone approval
                 </Button>
               ) : null}
             </div>

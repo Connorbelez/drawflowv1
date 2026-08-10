@@ -2104,6 +2104,29 @@ describe("canonical Sub-milestone completion review", () => {
         workosOrganizationId: ORG,
       },
     );
+    const reviewTarget = await submilestoneState(fixture);
+    const staffWorkspace = await fixture.lender.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.closing.buildId,
+        buildSubmilestoneId: reviewTarget.submilestone._id,
+        organizationId: ORG,
+      },
+    );
+    expect(staffWorkspace).toMatchObject({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: false },
+          retractChildApproval: { allowed: false },
+          waiveSiteVisit: { allowed: false },
+        },
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+    });
     const recommendation = await fixture.lender.mutation(
       (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
       {
@@ -2243,6 +2266,25 @@ describe("canonical Sub-milestone completion review", () => {
       },
     );
     expect(waived.status).toBe("waived");
+    const waivedTarget = await submilestoneState(fixture);
+    const adminWorkspace = await fixture.admin.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.closing.buildId,
+        buildSubmilestoneId: waivedTarget.submilestone._id,
+        organizationId: ORG,
+      },
+    );
+    expect(adminWorkspace).toMatchObject({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: true },
+          retractChildApproval: { allowed: false },
+          waiveSiteVisit: { allowed: false },
+        },
+      },
+    });
     const approved = await fixture.admin.mutation(
       (api as any).build_submilestone_review.approveActiveBuildSubmilestone,
       {

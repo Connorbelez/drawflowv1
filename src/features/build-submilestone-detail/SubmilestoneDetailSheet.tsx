@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import {
   CanonicalSubmilestoneTabPanel,
   isCanonicalSubmilestoneSuperseded,
@@ -29,6 +30,7 @@ import {
   type CanonicalWorkspaceCollection,
 } from "./SubmilestoneDetailCanonical.tsx";
 import { SubmilestoneCollaborationPanel } from "./SubmilestoneCollaborationPanel.tsx";
+import { SubmilestoneReviewTab } from "./SubmilestoneReviewTab.tsx";
 import {
   BUILD_SUBMILESTONE_DETAIL_TABS,
   type BuildSubmilestoneDetailTab,
@@ -92,7 +94,6 @@ const COLLECTION_FOR_TAB: Partial<
   evidence: "evidence_assets",
   materials: "materials",
   people: "people_assignments",
-  review: "review_decisions",
 };
 
 const ACTIVE_REVIEW_STATES = new Set([
@@ -119,6 +120,10 @@ export interface SubmilestoneDetailSheetProps {
   onGoBack?: () => void;
   onGoForward?: () => void;
   onOpenChange: (open: boolean) => void;
+  onOpenTarget?: (
+    target: BuildDetailTarget,
+    context?: { selectedTab?: string },
+  ) => void;
   onReferenceOpen?: (reference: {
     entityId: string;
     entityKind: string;
@@ -150,6 +155,7 @@ export function SubmilestoneDetailSheet({
   onGoBack = () => undefined,
   onGoForward = () => undefined,
   onOpenChange,
+  onOpenTarget,
   onReferenceOpen,
   onRetry,
   onSelectedTabChange,
@@ -384,6 +390,7 @@ export function SubmilestoneDetailSheet({
             onGoBack={onGoBack}
             onGoForward={onGoForward}
             onLoadMore={loadMore}
+            onOpenTarget={onOpenTarget}
             onRetry={onRetry}
             onReferenceOpen={onReferenceOpen}
             onTabChange={handleTabChange}
@@ -563,6 +570,7 @@ function VisibleState({
   onLoadMore,
   onRetry,
   onReferenceOpen,
+  onOpenTarget,
   onTabChange,
   organizationId,
   readOnly,
@@ -580,6 +588,7 @@ function VisibleState({
   onLoadMore: () => void;
   onRetry?: () => void;
   onReferenceOpen?: SubmilestoneDetailSheetProps["onReferenceOpen"];
+  onOpenTarget?: SubmilestoneDetailSheetProps["onOpenTarget"];
   onTabChange: (tab: BuildSubmilestoneDetailTab) => void;
   organizationId: string;
   readOnly: boolean;
@@ -763,6 +772,16 @@ function VisibleState({
                     }}
                     submilestoneKey={bootstrap.submilestone.key}
                     superseded={superseded}
+                  />
+                ) : tab === "review" ? (
+                  <SubmilestoneReviewTab
+                    bootstrap={bootstrap}
+                    buildId={buildId}
+                    onOpenTarget={onOpenTarget}
+                    onReferenceOpen={onReferenceOpen}
+                    onRetry={onRetry}
+                    organizationId={organizationId}
+                    readOnly={readOnly || superseded}
                   />
                 ) : (
                   <CollectionPanel

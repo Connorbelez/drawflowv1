@@ -583,6 +583,13 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
       actualStartedAt: submilestone.actualStartedAt,
       evidencePackageStatus: packageRevision?.status,
       evidenceReviewState: submilestone.evidenceReviewState ?? "not_ready",
+      reviewDecisionState: submilestone.reviewDecisionState ?? "in_review",
+      siteVisitRequirement: siteVisitRequirement
+        ? {
+            required: siteVisitRequirement.required,
+            status: siteVisitRequirement.status,
+          }
+        : undefined,
       superseded,
       updateAuthority,
     });
@@ -816,6 +823,9 @@ function buildCapabilities(input: {
   collaboration: CollaborationState;
   evidencePackageStatus?: Doc<"buildSubmilestoneEvidencePackageRevisions">["status"];
   evidenceReviewState: NonNullable<Doc<"buildSubmilestones">["evidenceReviewState"]>;
+  reviewDecisionState: NonNullable<
+    Doc<"buildSubmilestones">["reviewDecisionState"]
+  >;
   reopenAuthority: Awaited<
     ReturnType<typeof resolveSubmilestoneOperateAuthority>
   >;
@@ -823,6 +833,10 @@ function buildCapabilities(input: {
     ReturnType<typeof resolveSubmilestoneOperateAuthority>
   >;
   status: Doc<"buildSubmilestones">["status"];
+  siteVisitRequirement?: Pick<
+    Doc<"buildSubmilestoneSiteVisitRequirements">,
+    "required" | "status"
+  >;
   superseded: boolean;
   updateAuthority: Awaited<
     ReturnType<typeof resolveSubmilestoneOperateAuthority>
@@ -911,6 +925,34 @@ function buildCapabilities(input: {
     input.collaboration.state === "available" &&
     input.evidenceReviewState !== "in_review" &&
     input.evidenceReviewState !== "approved";
+  const childReviewActive = input.evidenceReviewState === "in_review";
+  const siteVisitGateEvaluated = input.siteVisitRequirement !== undefined;
+  const siteVisitGateSatisfied = Boolean(
+    input.siteVisitRequirement &&
+      (!input.siteVisitRequirement.required ||
+        input.siteVisitRequirement.status === "satisfied" ||
+        input.siteVisitRequirement.status === "waived"),
+  );
+  const childApproved = input.reviewDecisionState === "approved";
+  const requiredSiteVisitCanBeWaived = Boolean(
+    childReviewActive &&
+      input.siteVisitRequirement?.required &&
+      input.siteVisitRequirement.status === "required",
+  );
+  const childReviewReason = input.superseded
+    ? disabledReason
+    : childReviewActive
+      ? reason
+      : "The Sub-milestone must be In Review.";
+  const approveChildReason = input.superseded
+    ? disabledReason
+    : childReviewActive
+      ? siteVisitGateEvaluated
+        ? siteVisitGateSatisfied
+          ? reason
+          : "Complete or waive the required Site Visit before child approval."
+        : "Evaluate the current Site Visit requirement before child approval."
+      : "Final child approval requires an In Review Sub-milestone.";
   const canAssign = fullStructure || lenderAdmin;
   const plannedLifecycleReason =
     "Start the Sub-milestone before updating execution or evidence.";
@@ -923,7 +965,14 @@ function buildCapabilities(input: {
       : updateReason;
   return {
     canonical: {
-      approveChild: allowed(!input.superseded && lenderAdmin, reason),
+      approveChild: allowed(
+        !input.superseded &&
+          lenderAdmin &&
+          childReviewActive &&
+          siteVisitGateEvaluated &&
+          siteVisitGateSatisfied,
+        approveChildReason,
+      ),
       correctStart: allowed(
         canAmendStartedAt,
         input.superseded
@@ -936,7 +985,14 @@ function buildCapabilities(input: {
         canComplete,
         input.superseded ? disabledReason : updateLifecycleReason,
       ),
-      retractChildApproval: allowed(!input.superseded && lenderAdmin, reason),
+      retractChildApproval: allowed(
+        !input.superseded && lenderAdmin && childApproved,
+        input.superseded
+          ? disabledReason
+          : childApproved
+            ? reason
+            : "Only an approved child can be retracted.",
+      ),
       retractStart: allowed(
         canAmendStartedAt,
         input.superseded
@@ -965,7 +1021,14 @@ function buildCapabilities(input: {
         !input.superseded && inProgress && completionAuthority,
         input.superseded ? disabledReason : updateLifecycleReason,
       ),
-      waiveSiteVisit: allowed(!input.superseded && lenderAdmin, reason),
+      waiveSiteVisit: allowed(
+        !input.superseded && lenderAdmin && requiredSiteVisitCanBeWaived,
+        input.superseded
+          ? disabledReason
+          : requiredSiteVisitCanBeWaived
+            ? reason
+            : "Only a required Site Visit in an active review can be waived.",
+      ),
       uploadEvidence: allowed(
         !input.superseded && canUploadEvidence,
         input.superseded ? disabledReason : updateLifecycleReason,
@@ -1003,8 +1066,14 @@ function buildCapabilities(input: {
       toggleChecklist: structureCapability("toggle_checklist"),
     },
     review: {
-      recommend: allowed(!input.superseded && lenderStaff, reason),
-      requestChanges: allowed(!input.superseded && lenderStaff, reason),
+      recommend: allowed(
+        !input.superseded && lenderStaff && childReviewActive,
+        childReviewReason,
+      ),
+      requestChanges: allowed(
+        !input.superseded && lenderStaff && childReviewActive,
+        childReviewReason,
+      ),
     },
   };
 }

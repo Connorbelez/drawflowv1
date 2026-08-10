@@ -153,10 +153,19 @@ const CANONICAL_STALE_CONFLICT_CODES = new Set([
   "STALE_SUBMILESTONE_REVIEW_REVISION",
   "STALE_WORKFLOW_REVISION",
 ]);
+// Review commands in build_submilestone_review.ts guard only the child and
+// parent review revisions below. Keep this set separate from the broader
+// canonical command conflicts so the Review tab does not show review-specific
+// guidance for workflow, evidence, or unrelated validation conflicts.
+const CANONICAL_REVIEW_STALE_CONFLICT_CODES = new Set([
+  "STALE_MILESTONE_REVIEW_REVISION",
+  "STALE_SUBMILESTONE_REVIEW_REVISION",
+]);
 
 function structuredConvexErrorCode(
   value: unknown,
   depth = 0,
+  acceptedCodes: ReadonlySet<string> = CANONICAL_STALE_CONFLICT_CODES,
 ): string | undefined {
   if (depth > 4 || value === null || value === undefined) {
     return undefined;
@@ -167,7 +176,11 @@ function structuredConvexErrorCode(
       return undefined;
     }
     try {
-      return structuredConvexErrorCode(JSON.parse(normalized), depth + 1);
+      return structuredConvexErrorCode(
+        JSON.parse(normalized),
+        depth + 1,
+        acceptedCodes,
+      );
     } catch {
       return undefined;
     }
@@ -178,12 +191,16 @@ function structuredConvexErrorCode(
 
   const record = value as Record<string, unknown>;
   const code = record.code;
-  if (typeof code === "string" && CANONICAL_STALE_CONFLICT_CODES.has(code)) {
+  if (typeof code === "string" && acceptedCodes.has(code)) {
     return code;
   }
 
   for (const key of ["cause", "data", "error", "errorData"] as const) {
-    const nestedCode = structuredConvexErrorCode(record[key], depth + 1);
+    const nestedCode = structuredConvexErrorCode(
+      record[key],
+      depth + 1,
+      acceptedCodes,
+    );
     if (nestedCode) {
       return nestedCode;
     }
@@ -192,11 +209,18 @@ function structuredConvexErrorCode(
   // A few wrappers serialize ConvexError.data into the Error message. Parse
   // only a complete JSON object; prose such as local revision guidance must
   // never become a stale-command signal.
-  return structuredConvexErrorCode(record.message, depth + 1);
+  return structuredConvexErrorCode(record.message, depth + 1, acceptedCodes);
 }
 
 function isStaleConflict(error: unknown) {
   return structuredConvexErrorCode(error) !== undefined;
+}
+
+function isReviewStaleConflict(error: unknown) {
+  return (
+    structuredConvexErrorCode(error, 0, CANONICAL_REVIEW_STALE_CONFLICT_CODES) !==
+    undefined
+  );
 }
 
 function commandKey(prefix: string) {
@@ -206,6 +230,13 @@ function commandKey(prefix: string) {
     ? `${prefix}-${randomUuid}`
     : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
+
+export {
+  commandKey as createCanonicalCommandKey,
+  errorMessage as canonicalCommandErrorMessage,
+  isReviewStaleConflict as isCanonicalReviewStaleConflict,
+  isStaleConflict as isCanonicalStaleConflict,
+};
 
 function evidenceUploadTimeoutMs(sizeBytes: number) {
   const payloadDurationMs =

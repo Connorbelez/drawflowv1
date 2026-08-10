@@ -169,6 +169,7 @@ export function BuildCollaborationWorkspace({
                 key={`${host.target.submilestoneId}:${detailRetryVersion}`}
                 onGoBack={host.controller.back}
                 onGoForward={host.controller.forward}
+                onOpenTarget={host.controller.openTarget}
                 onOpenChange={(open) => {
                   if (!open) {
                     closeDetailTarget();

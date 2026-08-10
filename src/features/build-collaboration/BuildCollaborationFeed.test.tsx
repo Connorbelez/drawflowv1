@@ -2962,7 +2962,7 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
-  test("shows Admin Site Visit waiver and independent child/parent approval commands", async () => {
+  test("keeps Admin Action Item review commands child-scoped", async () => {
     mocks.canonicalSystemActionItem = true;
     mocks.canonicalParentReadyForApproval = true;
     mocks.viewerBinding = {
@@ -2994,8 +2994,8 @@ describe("BuildCollaborationFeed", () => {
       screen.getByRole("button", { name: "Approve Sub-milestone" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Approve Milestone" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Approve Milestone" }),
+    ).toBeNull();
     fireEvent.change(screen.getByLabelText("Review reason"), {
       target: { value: "Admin reviewed the exception." },
     });
@@ -3003,7 +3003,7 @@ describe("BuildCollaborationFeed", () => {
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalled());
   });
 
-  test("keeps resolved discussion on the same System Post while exposing Admin retraction", async () => {
+  test("keeps resolved discussion on the same System Post with child-only retraction", async () => {
     mocks.canonicalSystemActionItem = true;
     mocks.canonicalReviewState = "approved";
     mocks.canonicalMilestoneReviewState = "approved";
@@ -3038,8 +3038,8 @@ describe("BuildCollaborationFeed", () => {
       screen.getByRole("button", { name: "Retract child approval" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Retract Milestone approval" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Retract Milestone approval" }),
+    ).toBeNull();
     expect(screen.getByText("Milestone · approved")).toBeTruthy();
   });
 

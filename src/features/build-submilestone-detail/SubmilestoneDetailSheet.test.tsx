@@ -9,13 +9,16 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import type { ComponentProps } from "react";
 import { useState } from "react";
 
 const useQuery = vi.fn();
+const useMutation = vi.fn();
+const mutationByName = new Map<string, ReturnType<typeof vi.fn>>();
 
 vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn().mockResolvedValue({}),
+  useMutation: (reference: unknown) => useMutation(reference),
   useQuery: (reference: unknown, args: unknown) => useQuery(reference, args),
 }));
 
@@ -36,6 +39,8 @@ const bootstrapRef =
   api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceBootstrap;
 const collectionRef =
   api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceCollection;
+const reviewRef =
+  api.build_submilestone_review.getActiveBuildSubmilestoneReview;
 
 function makeBootstrap(
   overrides: Record<string, unknown> = {},
@@ -45,7 +50,19 @@ function makeBootstrap(
       buildId,
       buildName: "Maple House",
       location: "Toronto, ON",
+      startDate: "2026-08-01",
       status: "active",
+    },
+    capabilities: {
+      canonical: {
+        approveChild: { allowed: false, reason: "Not permitted." },
+        retractChildApproval: { allowed: false, reason: "Not permitted." },
+        waiveSiteVisit: { allowed: false, reason: "Not permitted." },
+      },
+      review: {
+        recommend: { allowed: false, reason: "Not permitted." },
+        requestChanges: { allowed: false, reason: "Not permitted." },
+      },
     },
     companion: {
       actionItemId: companionActionItemId,
@@ -58,6 +75,7 @@ function makeBootstrap(
       itemCount: 0,
       partial: false,
       requirementCount: 2,
+      requirements: [],
     },
     execution: {
       actualCostCents: 12_500,
@@ -130,10 +148,118 @@ function makeCollection(
 
 let bootstrap: unknown;
 let collectionByName: Record<string, unknown>;
+let review: unknown;
+let approveChildMutation: ReturnType<typeof vi.fn>;
+let recommendMutation: ReturnType<typeof vi.fn>;
+let requestChangesMutation: ReturnType<typeof vi.fn>;
+let retractChildMutation: ReturnType<typeof vi.fn>;
+let scheduleSiteVisitMutation: ReturnType<typeof vi.fn>;
+let waiveSiteVisitMutation: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mutationByName.clear();
+  approveChildMutation = vi.fn().mockResolvedValue({ status: "approved" });
+  recommendMutation = vi.fn().mockResolvedValue({ reviewRound: 2 });
+  requestChangesMutation = vi.fn().mockResolvedValue({ status: "changes_requested" });
+  retractChildMutation = vi.fn().mockResolvedValue({ status: "reopened" });
+  scheduleSiteVisitMutation = vi.fn().mockResolvedValue({ status: "requested" });
+  waiveSiteVisitMutation = vi.fn().mockResolvedValue({ status: "waived" });
+  mutationByName.set(
+    "build_submilestone_review:approveActiveBuildSubmilestone",
+    approveChildMutation,
+  );
+  mutationByName.set(
+    "build_submilestone_review:recommendActiveBuildSubmilestoneReview",
+    recommendMutation,
+  );
+  mutationByName.set(
+    "build_submilestone_review:requestActiveBuildSubmilestoneChanges",
+    requestChangesMutation,
+  );
+  mutationByName.set(
+    "build_submilestone_review:retractActiveBuildSubmilestoneApproval",
+    retractChildMutation,
+  );
+  mutationByName.set(
+    "build_submilestone_review:waiveActiveBuildSubmilestoneSiteVisit",
+    waiveSiteVisitMutation,
+  );
+  mutationByName.set(
+    "production_proposals:scheduleActiveBuildSiteVisit",
+    scheduleSiteVisitMutation,
+  );
+  useMutation.mockImplementation((reference: never) =>
+    mutationByName.get(getFunctionName(reference)) ?? vi.fn().mockResolvedValue({}),
+  );
   bootstrap = makeBootstrap();
+  review = {
+    child: {
+      evidenceReviewState: "in_review",
+      reviewDecisionState: "in_review",
+      reviewRevision: 3,
+      reviewRound: 2,
+      status: "complete",
+    },
+    decisions: [
+      {
+        _creationTime: 1_750_000_000_000,
+        _id: "decision-01",
+        actorRoles: ["broker"],
+        actorWorkosUserId: "reviewer-01",
+        brokerageId: "brokerage-01",
+        buildId,
+        buildMilestoneId: "milestone-01",
+        buildSubmilestoneId: submilestoneId,
+        createdAt: 1_750_000_000_000,
+        idempotencyKey: "decision-01",
+        kind: "recommendation",
+        milestoneKey: "foundation",
+        newState: JSON.stringify({ siteVisitRequired: true }),
+        note: "Confirm the footing depth before approval.",
+        organizationId,
+        priorState: JSON.stringify({ reviewDecisionState: "in_review" }),
+        remediation: ["Upload the depth measurement."],
+        reviewRound: 2,
+        siteVisitRequired: true,
+        submilestoneKey: "footings",
+        warnings: ["Location could not be verified."],
+      },
+    ],
+    parent: {
+      approvedChildCount: 2,
+      childCount: 2,
+      readyForApproval: true,
+      reviewDecisionState: "ready_for_approval",
+      reviewRevision: 4,
+    },
+    siteVisit: {
+      currentVisit: null,
+      requirement: {
+        _creationTime: 1_750_000_000_000,
+        _id: "requirement-01",
+        brokerageId: "brokerage-01",
+        buildId,
+        buildMilestoneId: "milestone-01",
+        buildSubmilestoneId: submilestoneId,
+        createdAt: 1_750_000_000_000,
+        evaluatedAt: 1_750_000_000_000,
+        manualRequired: true,
+        manualSignals: ["Reviewer requested an inspection."],
+        milestoneKey: "foundation",
+        organizationId,
+        policyRequired: false,
+        policySignals: [],
+        required: true,
+        reviewRound: 2,
+        riskRequired: true,
+        riskSignals: ["Location could not be verified."],
+        status: "required",
+        submilestoneKey: "footings",
+        updatedAt: 1_750_000_000_000,
+      },
+    },
+  };
   collectionByName = {
     collaboration_comments: makeCollection("collaboration_comments"),
     evidence_requirements: makeCollection("evidence_requirements", {
@@ -165,6 +291,12 @@ beforeEach(() => {
     }
     if (typeof args === "object" && args !== null && "collection" in args) {
       return collectionByName[(args as { collection: string }).collection];
+    }
+    if (
+      reference === reviewRef ||
+      (typeof args === "object" && args !== null && "milestoneKey" in args)
+    ) {
+      return review;
     }
     return bootstrap;
   });
@@ -239,14 +371,396 @@ describe("SubmilestoneDetailSheet", () => {
     ).toBe("true");
     expect(
       useQuery.mock.calls.some(
-        ([, args]) =>
+        ([reference, args]) =>
+          (reference === reviewRef ||
+            (typeof args === "object" &&
+              args !== null &&
+              "milestoneKey" in args)) &&
           typeof args === "object" &&
           args !== null &&
-          "collection" in args &&
-          args.collection === "review_decisions",
+          !('collection' in args),
       ),
     ).toBe(true);
   });
+
+  test("renders canonical child review and opens the parent through typed history without inline parent approval", () => {
+    const onOpenTarget = vi.fn();
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: true },
+          retractChildApproval: {
+            allowed: false,
+            reason: "Only an approved child can be retracted.",
+          },
+          waiveSiteVisit: { allowed: true },
+        },
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+      evidence: {
+        evidencePackageRevision: 4,
+        evidencePackageStatus: "frozen",
+        evidenceReviewState: "in_review",
+        itemCount: 3,
+        partial: false,
+        requirementCount: 3,
+        requirements: [],
+      },
+      persona: "admin",
+    });
+
+    renderSheet({ onOpenTarget, selectedTab: "review", viewerCapacity: "admin" });
+
+    expect(screen.getByText("Child review")).toBeTruthy();
+    expect(screen.getByText("3 of 3 evidence items")).toBeTruthy();
+    expect(screen.getAllByText("Required").length).toBeGreaterThan(0);
+    expect(screen.getByText("Location could not be verified.")).toBeTruthy();
+    expect(screen.getByText("Confirm the footing depth before approval.")).toBeTruthy();
+    expect(screen.getByTestId("submilestone-review-tab")).toBeTruthy();
+    expect(
+      screen.getByText("Round 2 · Jun 15, 2025, 3:06 p.m."),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Order Site Visit" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Approve Sub-milestone" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve Milestone" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Retract Milestone approval" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review parent Milestone" }),
+    );
+    expect(onOpenTarget).toHaveBeenCalledWith(
+      { kind: "milestone", milestoneId: "milestone-01" },
+      { selectedTab: "review" },
+    );
+  });
+
+  test("executes Staff recommendation and changes-requested commands with canonical child revisions", async () => {
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: false, reason: "Admin only." },
+          retractChildApproval: { allowed: false, reason: "Admin only." },
+          waiveSiteVisit: { allowed: false, reason: "Admin only." },
+        },
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+      persona: "broker",
+    });
+    renderSheet({ selectedTab: "review", viewerCapacity: "broker" });
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Reviewer note" }), {
+      target: { value: "Recommend after the depth check." },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Require a Site Visit/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Record recommendation" }));
+    await waitFor(() => expect(recommendMutation).toHaveBeenCalledTimes(1));
+    expect(recommendMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId,
+        expectedRevision: 3,
+        milestoneKey: "foundation",
+        note: "Recommend after the depth check.",
+        siteVisitRequired: true,
+        submilestoneKey: "footings",
+        workosOrganizationId: organizationId,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("checkbox", { name: /Require a Site Visit/ })
+          .getAttribute("aria-checked"),
+      ).toBe("false"),
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Review reason" }), {
+      target: { value: "The depth is not documented." },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Remediation steps" }), {
+      target: { value: "Upload the depth measurement.\nConfirm the survey datum." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+    await waitFor(() => expect(requestChangesMutation).toHaveBeenCalledTimes(1));
+    expect(requestChangesMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedRevision: 3,
+        reason: "The depth is not documented.",
+        remediation: [
+          "Upload the depth measurement.",
+          "Confirm the survey datum.",
+        ],
+      }),
+    );
+  });
+
+  test("shows the waiver rationale input and records it with the Admin waiver", async () => {
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: false, reason: "Admin only." },
+          retractChildApproval: { allowed: false, reason: "Not approved." },
+          waiveSiteVisit: { allowed: true },
+        },
+        review: {
+          recommend: { allowed: false, reason: "Admin only." },
+          requestChanges: { allowed: false, reason: "Admin only." },
+        },
+      },
+      persona: "admin",
+    });
+    renderSheet({ selectedTab: "review", viewerCapacity: "admin" });
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Review reason" }), {
+      target: { value: "Existing inspection evidence is sufficient." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Waive Site Visit" }));
+    await waitFor(() => expect(waiveSiteVisitMutation).toHaveBeenCalledTimes(1));
+    expect(waiveSiteVisitMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedRevision: 3,
+        reason: "Existing inspection evidence is sufficient.",
+      }),
+    );
+  });
+
+  test("allows Admin child approval only after the canonical Site Visit gate passes", async () => {
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: true },
+          retractChildApproval: { allowed: false, reason: "Not approved." },
+          waiveSiteVisit: { allowed: true },
+        },
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+      persona: "admin",
+    });
+    review = {
+      ...(review as Record<string, unknown>),
+      siteVisit: {
+        currentVisit: null,
+        requirement: {
+          ...((review as { siteVisit: { requirement: object } }).siteVisit
+            .requirement),
+          status: "waived",
+          waivedAt: 1_750_000_001_000,
+          waivedByRole: "admin",
+          waivedByWorkosUserId: "admin-01",
+          waiverReason: "Existing inspection evidence is sufficient.",
+        },
+      },
+    };
+    renderSheet({ selectedTab: "review", viewerCapacity: "admin" });
+
+    expect(screen.queryByRole("button", { name: "Order Site Visit" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Approve Sub-milestone" }));
+    await waitFor(() => expect(approveChildMutation).toHaveBeenCalledTimes(1));
+    expect(approveChildMutation).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedRevision: 3 }),
+    );
+  });
+
+  test("orders and manages the child-scoped Site Visit through the shared preflight", async () => {
+    const onReferenceOpen = vi.fn();
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: true },
+          retractChildApproval: { allowed: false, reason: "Not approved." },
+          waiveSiteVisit: { allowed: true },
+        },
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+      persona: "admin",
+    });
+    const view = renderSheet({
+      onReferenceOpen,
+      selectedTab: "review",
+      viewerCapacity: "admin",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Order Site Visit" }));
+    expect(screen.getByRole("dialog", { name: "Configure site visit" })).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm and order site visit" }),
+    );
+    await waitFor(() => expect(scheduleSiteVisitMutation).toHaveBeenCalledTimes(1));
+    expect(scheduleSiteVisitMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId,
+        milestoneKey: "foundation",
+        requestedDay: 0,
+        submilestoneKeys: ["footings"],
+        workosOrganizationId: organizationId,
+      }),
+    );
+
+    review = {
+      ...(review as Record<string, unknown>),
+      siteVisit: {
+        ...((review as { siteVisit: object }).siteVisit),
+        currentVisit: {
+          _id: "site-visit-01",
+          status: "requested",
+          visitId: "VISIT-01",
+        },
+      },
+    };
+    view.rerender(
+      <SubmilestoneDetailSheet
+        buildId={buildId}
+        buildSubmilestoneId={submilestoneId}
+        companionActionItemId={companionActionItemId}
+        onOpenChange={vi.fn()}
+        onReferenceOpen={onReferenceOpen}
+        open
+        organizationId={organizationId}
+        selectedTab="review"
+        viewerCapacity="admin"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Manage Site Visit" }));
+    expect(onReferenceOpen).toHaveBeenCalledWith({
+      entityId: "site-visit-01",
+      entityKind: "siteVisit",
+      href: "siteVisit:site-visit-01",
+    });
+  });
+
+  test("requires an audited reason for Admin waiver and child approval retraction", async () => {
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: false, reason: "Already approved." },
+          retractChildApproval: { allowed: true },
+          waiveSiteVisit: { allowed: true },
+        },
+        review: {
+          recommend: { allowed: false, reason: "Already approved." },
+          requestChanges: { allowed: false, reason: "Already approved." },
+        },
+      },
+      persona: "admin",
+    });
+    review = {
+      ...(review as Record<string, unknown>),
+      child: {
+        ...((review as { child: object }).child),
+        evidenceReviewState: "approved",
+        reviewDecisionState: "approved",
+      },
+      siteVisit: {
+        ...((review as { siteVisit: object }).siteVisit),
+        requirement: {
+          ...((review as { siteVisit: { requirement: object } }).siteVisit
+            .requirement),
+          status: "waived",
+        },
+      },
+    };
+    renderSheet({ selectedTab: "review", viewerCapacity: "admin" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retract child approval" }));
+    expect(screen.getByRole("alert").textContent).toMatch(/add a reason/i);
+    expect(retractChildMutation).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Review reason" }), {
+      target: { value: "The evidence needs a corrected survey datum." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Retract child approval" }));
+    await waitFor(() => expect(retractChildMutation).toHaveBeenCalledTimes(1));
+    expect(retractChildMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedRevision: 3,
+        reason: "The evidence needs a corrected survey datum.",
+      }),
+    );
+  });
+
+  test("surfaces stale child review conflicts with explicit refresh guidance", async () => {
+    const onRetry = vi.fn();
+    approveChildMutation.mockRejectedValueOnce(
+      new Error(
+        JSON.stringify({
+          code: "STALE_SUBMILESTONE_REVIEW_REVISION",
+          message: "The child review revision is stale.",
+        }),
+      ),
+    );
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: true },
+          retractChildApproval: { allowed: false, reason: "Not approved." },
+          waiveSiteVisit: { allowed: true },
+        },
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+      persona: "admin",
+    });
+    review = {
+      ...(review as Record<string, unknown>),
+      siteVisit: {
+        currentVisit: null,
+        requirement: {
+          ...((review as { siteVisit: { requirement: object } }).siteVisit
+            .requirement),
+          status: "waived",
+        },
+      },
+    };
+    renderSheet({ onRetry, selectedTab: "review", viewerCapacity: "admin" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve Sub-milestone" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(
+        /newer child or parent review decision.*refresh.*retry/i,
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh review" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(["builder", "contractor", "homeowner"] as const)(
+    "shows authorized canonical remediation history without lender controls for %s",
+    (persona) => {
+      bootstrap = makeBootstrap({ persona });
+      review = {
+        ...(review as Record<string, unknown>),
+        child: {
+          ...((review as { child: object }).child),
+          evidenceReviewState: "changes_requested",
+          reviewDecisionState: "changes_requested",
+        },
+      };
+      renderSheet({ selectedTab: "review", viewerCapacity: persona });
+
+      expect(screen.getByText("Confirm the footing depth before approval.")).toBeTruthy();
+      expect(screen.getByText("Upload the depth measurement.")).toBeTruthy();
+      expect(screen.queryByText("Child review commands")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Waive Site Visit" })).toBeNull();
+    },
+  );
 
   test("keeps Overview as the default for non-lender personas", () => {
     bootstrap = makeBootstrap({ persona: "builder" });
