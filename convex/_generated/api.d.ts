@@ -170,6 +170,7 @@ import type * as quote_response_templates from "../quote_response_templates.js";
 import type * as quote_round_lifecycle from "../quote_round_lifecycle.js";
 import type * as quote_rounds from "../quote_rounds.js";
 import type * as siteVisitGuidance from "../siteVisitGuidance.js";
+import type * as submilestone_field_guidance from "../submilestone_field_guidance.js";
 import type * as submilestone_scope_contracts from "../submilestone_scope_contracts.js";
 import type * as todos from "../todos.js";
 import type * as types from "../types.js";
@@ -346,6 +347,7 @@ declare const fullApi: ApiFromModules<{
   quote_round_lifecycle: typeof quote_round_lifecycle;
   quote_rounds: typeof quote_rounds;
   siteVisitGuidance: typeof siteVisitGuidance;
+  submilestone_field_guidance: typeof submilestone_field_guidance;
   submilestone_scope_contracts: typeof submilestone_scope_contracts;
   todos: typeof todos;
   types: typeof types;

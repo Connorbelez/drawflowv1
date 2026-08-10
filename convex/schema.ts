@@ -7483,7 +7483,8 @@ export default defineSchema({
   })
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"])
-    .index("by_milestone_and_key", ["buildMilestoneId", "key"]),
+    .index("by_milestone_and_key", ["buildMilestoneId", "key"])
+    .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"]),
   buildSubmilestoneDocumentLinks: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
