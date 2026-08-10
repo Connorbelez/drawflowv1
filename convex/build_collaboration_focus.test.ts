@@ -412,6 +412,27 @@ describe("build detail target resolution", () => {
     ).resolves.toEqual({ state: "revoked" });
   });
 
+  test("keeps a direct canonical Sub-milestone visible when its companion is missing", async () => {
+    const fixture = await seedBuildDetailTargets();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.delete(fixture.companionId);
+    });
+
+    await expect(
+      resolveTarget(fixture.builder, {
+        buildId: fixture.buildId,
+        focus: `submilestone:${fixture.submilestoneId}`,
+      }),
+    ).resolves.toEqual({
+      state: "visible",
+      target: {
+        kind: "submilestone",
+        readOnly: false,
+        submilestoneId: fixture.submilestoneId,
+      },
+    });
+  });
+
   test("fails malformed generated bindings closed without a generic fallback", async () => {
     const fixture = await seedBuildDetailTargets();
 

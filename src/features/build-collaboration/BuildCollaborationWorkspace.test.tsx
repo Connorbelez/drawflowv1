@@ -8,7 +8,7 @@ const hostMocks = vi.hoisted(() => ({
   target: undefined as
     | undefined
     | {
-        companionId: string;
+        companionId?: string;
         kind: "submilestone";
         submilestoneId: string;
       },
@@ -55,7 +55,7 @@ vi.mock(
       selectedTab,
     }: {
       buildSubmilestoneId: string;
-      companionActionItemId: string;
+      companionActionItemId?: string;
       onOpenChange: (open: boolean) => void;
       selectedTab?: string;
     }) => (
@@ -131,6 +131,25 @@ describe("BuildCollaborationWorkspace search hydration", () => {
 
     expect(screen.getByTestId("submilestone-detail-sheet").textContent).toBe(
       "submilestone-1:action-1:review",
+    );
+  });
+
+  test("mounts the unified shell when canonical collaboration has no companion", () => {
+    hostMocks.target = {
+      kind: "submilestone",
+      submilestoneId: "submilestone-1",
+    };
+
+    render(
+      <BuildCollaborationWorkspace
+        buildId="build-1"
+        detailTab="overview"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(screen.getByTestId("submilestone-detail-sheet").textContent).toBe(
+      "submilestone-1::overview",
     );
   });
 

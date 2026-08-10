@@ -1316,6 +1316,15 @@ vi.mock("convex/react", () => ({
         summary: "92% complete",
       },
       {
+        entityId: "submilestone-1",
+        entityKind: "submilestone",
+        eyebrow: "Sub-milestone",
+        href: "?tab=details&focus=submilestone%3Asubmilestone-1",
+        label: "Excavate",
+        searchTerms: ["foundation", "excavate"],
+        summary: "Planned",
+      },
+      {
         entityId: "action-4",
         entityKind: "actionItem",
         eyebrow: "Action Item",
@@ -3439,6 +3448,42 @@ describe("BuildCollaborationFeed", () => {
       screen.queryByRole("heading", {
         name: "Foundation completion photo",
       }),
+    ).toBeNull();
+  });
+
+  test("opens a Sub-milestone reference in its unified detail sheet", () => {
+    const entry = focusedPostEntryFixture(
+      "post-submilestone-reference",
+      "Excavation is ready to start.",
+    );
+    entry.references = [
+      {
+        _id: "reference-submilestone-1",
+        entityId: "submilestone-1",
+        entityKind: "submilestone",
+        labelSnapshot: "Excavate",
+        summarySnapshot: "Planned",
+      },
+    ];
+    mocks.feedRows = [entry];
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        onOpenReference={mocks.onOpenReference}
+        organizationId="org-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Excavate"));
+
+    expect(mocks.onOpenReference).toHaveBeenCalledWith({
+      entityId: "submilestone-1",
+      entityKind: "submilestone",
+      href: "?tab=details&focus=submilestone%3Asubmilestone-1",
+    });
+    expect(
+      screen.queryByTestId("build-collaboration-focused-reference"),
     ).toBeNull();
   });
 

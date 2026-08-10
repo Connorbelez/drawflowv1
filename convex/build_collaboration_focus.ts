@@ -24,7 +24,10 @@ import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
-import { resolveBuildSubmilestoneWorkspaceContext } from "./build_submilestone_workspace";
+import {
+  resolveBuildSubmilestoneWorkspaceContext,
+  resolveCanonicalBuildSubmilestoneWorkspaceContext,
+} from "./build_submilestone_workspace";
 import type { Id, QueryCtx } from "./types";
 
 export const buildDetailTargetValidator = v.union(
@@ -34,7 +37,7 @@ export const buildDetailTargetValidator = v.union(
     readOnly: v.boolean(),
   }),
   v.object({
-    companionId: v.id("buildActionItems"),
+    companionId: v.optional(v.id("buildActionItems")),
     kind: v.literal("submilestone"),
     readOnly: v.boolean(),
     submilestoneId: v.id("buildSubmilestones"),
@@ -65,7 +68,7 @@ type ParsedBuildDetailFocus = {
 };
 
 type VisibleSubmilestoneWorkspaceContext = Extract<
-  Awaited<ReturnType<typeof resolveBuildSubmilestoneWorkspaceContext>>,
+  Awaited<ReturnType<typeof resolveCanonicalBuildSubmilestoneWorkspaceContext>>,
   { state: "visible" }
 >;
 
@@ -99,13 +102,13 @@ function visibleSubmilestoneTarget(
 ) {
   const readOnly =
     resolved.submilestone.planningState === "superseded" ||
-    resolved.companion.canonicalPlanningState === "superseded" ||
-    (resolved.companion.canonicalCompanionDisposition !== undefined &&
+    resolved.companion?.canonicalPlanningState === "superseded" ||
+    (resolved.companion?.canonicalCompanionDisposition !== undefined &&
       resolved.companion.canonicalCompanionDisposition !== "active");
   return {
     state: "visible" as const,
     target: {
-      companionId: resolved.companion._id,
+      ...(resolved.companion ? { companionId: resolved.companion._id } : {}),
       kind: "submilestone" as const,
       readOnly,
       submilestoneId: resolved.submilestone._id,
@@ -155,6 +158,22 @@ export const resolveBuildDetailTarget = authenticatedQuery
         organizationId: args.organizationId,
         viewerCapacity: args.viewerCapacity,
       });
+      if (
+        resolved.state === "integrity_error" &&
+        resolved.code === "COMPANION_MISSING"
+      ) {
+        const canonical =
+          await resolveCanonicalBuildSubmilestoneWorkspaceContext(ctx, {
+            buildId: args.buildId,
+            buildSubmilestoneId: submilestoneId,
+            organizationId: args.organizationId,
+            viewerCapacity: args.viewerCapacity,
+          });
+        if (canonical.state !== "visible") {
+          return canonical;
+        }
+        return visibleSubmilestoneTarget(canonical);
+      }
       if (resolved.state !== "visible") {
         return resolved;
       }

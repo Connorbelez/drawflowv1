@@ -1094,6 +1094,14 @@ function BuildCollaborationFeedContent({
     setFocusedReference,
   });
   const focusReference = (reference: FocusedReference) => {
+    if (reference.kind === "submilestone" && onOpenReference) {
+      onOpenReference({
+        entityId: reference.id,
+        entityKind: reference.kind,
+        href: reference.href,
+      });
+      return;
+    }
     focusCollaborationReference({
       reference,
       setActionItemSheetTarget,
