@@ -3112,12 +3112,15 @@ export function ActionItemStructurePanel({
     (option) =>
       option.kind === "action_item" && option.id !== detail.item.actionItemId,
   );
+  const canCreateChild =
+    capabilities?.createChild ??
+    (structure?.state === "visible" ? structure.viewerCanCreateChild : false);
 
   useEffect(() => {
-    if (readOnly) {
+    if (readOnly || !canCreateChild) {
       setCreatingChild(false);
     }
-  }, [readOnly]);
+  }, [canCreateChild, readOnly]);
 
   if (structure === undefined) {
     return (
@@ -3134,16 +3137,13 @@ export function ActionItemStructurePanel({
   const visibleStructure = structure as VisibleStructureContext;
   const canAddChecklist =
     capabilities?.addChecklist ?? visibleStructure.viewerCanAddChecklist;
-  const canCreateChild =
-    capabilities?.createChild ?? visibleStructure.viewerCanCreateChild;
   const canLinkRelation =
     capabilities?.linkRelation ?? visibleStructure.viewerCanLinkRelation;
   const canRepairRelation =
     capabilities?.repairRelation ?? visibleStructure.viewerCanRepairRelations;
-  const canToggleChecklist =
-    capabilities?.toggleChecklist ?? capabilities === undefined;
+  const canToggleChecklist = capabilities?.toggleChecklist ?? true;
   const canUnlinkRelation =
-    capabilities?.unlinkRelation ?? canLinkRelation;
+    capabilities?.unlinkRelation ?? visibleStructure.viewerCanLinkRelation;
   const addChecklist = async () => {
     const label = checklistLabel.trim();
     if (!(label && !busy)) {
@@ -3563,7 +3563,7 @@ export function ActionItemStructurePanel({
         </FramePanel>
       </Frame>
 
-      {!readOnly && creatingChild ? (
+      {!readOnly && canCreateChild && creatingChild ? (
         <Frame>
           <FramePanel className="p-0">
             <ActionItemCreatePanel
