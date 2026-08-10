@@ -103,6 +103,7 @@ interface MaterialPlanningTabProps {
   actions?: MaterialPlanningActions;
   budgetImpact?: MaterialPlanningBudgetImpact;
   budgetTreatmentEnabled?: boolean;
+  currencyCode?: "CAD" | "USD";
   defaultBudgetSubmilestoneKey?: string;
   defaultBudgetTreatment?: MaterialPlanningBudgetTreatment;
   focusedItemId?: string;
@@ -144,6 +145,7 @@ export function MaterialPlanningTab({
   actions,
   budgetImpact,
   budgetTreatmentEnabled = false,
+  currencyCode = "USD",
   defaultBudgetSubmilestoneKey,
   defaultBudgetTreatment = "logOnly",
   focusedItemId,
@@ -508,6 +510,7 @@ export function MaterialPlanningTab({
                 budgetImpact={budgetImpact}
                 budgetTreatmentEnabled={budgetTreatmentEnabled}
                 chrome="plain"
+                currencyCode={currencyCode}
                 defaultBudgetSubmilestoneKey={defaultBudgetSubmilestoneKey}
                 defaultBudgetTreatment={defaultBudgetTreatment}
                 item={editingItem}
@@ -531,6 +534,7 @@ export function MaterialPlanningTab({
                 budgetImpact={budgetImpact}
                 budgetTreatmentEnabled={budgetTreatmentEnabled}
                 chrome="plain"
+                currencyCode={currencyCode}
                 defaultBudgetSubmilestoneKey={defaultBudgetSubmilestoneKey}
                 defaultBudgetTreatment={defaultBudgetTreatment}
                 key={activeEditor.milestoneKey}
@@ -561,6 +565,7 @@ function MaterialItemEditor({
   budgetImpact,
   budgetTreatmentEnabled,
   chrome = "frame",
+  currencyCode,
   defaultBudgetSubmilestoneKey,
   defaultBudgetTreatment,
   item,
@@ -577,6 +582,7 @@ function MaterialItemEditor({
   budgetImpact?: MaterialPlanningBudgetImpact;
   budgetTreatmentEnabled: boolean;
   chrome?: "frame" | "plain";
+  currencyCode: "CAD" | "USD";
   defaultBudgetSubmilestoneKey?: string;
   defaultBudgetTreatment: MaterialPlanningBudgetTreatment;
   item?: MaterialPlanningItem;
@@ -881,7 +887,7 @@ function MaterialItemEditor({
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-2">
             <Label htmlFor={fieldId(item, "costCents")}>
-              Cost per unit (USD)
+              Cost per unit ({currencyCode})
             </Label>
             <Input
               aria-describedby={cn(
@@ -1393,10 +1399,17 @@ function itemToFormState(
       ? defaultBudgetTreatment
       : normalizeBudgetTreatment(item.budgetTreatment);
   return {
+    // Existing active-build rows own their budget target. Preserve it even
+    // when the budget controls are hidden/locked; only a new draft may use
+    // the caller's default target.
     budgetSubmilestoneKey:
-      budgetTreatment === "logOnly"
-        ? ""
-        : (item?.budgetSubmilestoneKey ?? defaultBudgetSubmilestoneKey ?? ""),
+      item === undefined
+        ? defaultBudgetTreatment === "logOnly"
+          ? ""
+          : (defaultBudgetSubmilestoneKey ?? "")
+        : budgetTreatment === "logOnly"
+          ? ""
+          : (item.budgetSubmilestoneKey ?? defaultBudgetSubmilestoneKey ?? ""),
     budgetTreatment,
     costCents: item ? centsToDollarsInput(item.costCents) : "",
     description: item?.description ?? "",

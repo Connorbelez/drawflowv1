@@ -51,15 +51,22 @@ vi.mock(
     SubmilestoneDetailSheet: ({
       buildSubmilestoneId,
       companionActionItemId,
+      onOpenChange,
       selectedTab,
     }: {
       buildSubmilestoneId: string;
       companionActionItemId: string;
+      onOpenChange: (open: boolean) => void;
       selectedTab?: string;
     }) => (
-      <output data-testid="submilestone-detail-sheet">
-        {buildSubmilestoneId}:{companionActionItemId}:{selectedTab ?? "default"}
-      </output>
+      <div>
+        <output data-testid="submilestone-detail-sheet">
+          {buildSubmilestoneId}:{companionActionItemId}:{selectedTab ?? "default"}
+        </output>
+        <button onClick={() => onOpenChange(false)} type="button">
+          Close detail
+        </button>
+      </div>
     ),
   }),
 );
@@ -102,6 +109,7 @@ afterEach(() => {
   cleanup();
   hostMocks.selectTab.mockReset();
   hostMocks.target = undefined;
+  vi.unstubAllGlobals();
   window.history.replaceState({}, "", "/");
 });
 
@@ -153,4 +161,24 @@ describe("BuildCollaborationWorkspace search hydration", () => {
       );
     },
   );
+
+  test("restores focus to the launcher after an explicit detail close", () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    hostMocks.target = {
+      companionId: "action-1",
+      kind: "submilestone",
+      submilestoneId: "submilestone-1",
+    };
+    render(
+      <BuildCollaborationWorkspace buildId="build-1" organizationId="org-1" />,
+    );
+    const launcher = screen.getByRole("button", { name: "Open search result" });
+    launcher.focus();
+    fireEvent.click(launcher);
+    fireEvent.click(screen.getByRole("button", { name: "Close detail" }));
+    expect(document.activeElement).toBe(launcher);
+  });
 });

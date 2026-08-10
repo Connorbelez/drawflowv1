@@ -7047,6 +7047,11 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_build_key", ["buildId", "evidenceKey"])
     .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_build_milestone_submilestone", [
+      "buildId",
+      "milestoneKey",
+      "submilestoneKey",
+    ])
     .index("by_site_visit", ["siteVisitId"])
     .index("by_site_visit_client", ["siteVisitId", "clientEvidenceId"]),
   buildNotes: defineTable({
@@ -7278,6 +7283,7 @@ export default defineSchema({
     reviewRevision: v.optional(v.number()),
     collaborationEventRevision: v.optional(v.number()),
     collaborationEvidenceEventRevision: v.optional(v.number()),
+    workflowRevision: v.optional(v.number()),
     evidenceState: v.optional(v.string()),
     isDragLocked: v.optional(v.boolean()),
     policyState: v.optional(v.string()),
@@ -7577,6 +7583,10 @@ export default defineSchema({
     submilestoneKey: v.string(),
     revision: v.number(),
     idempotencyKey: v.string(),
+    // A deterministic command/payload fingerprint protects retries from
+    // accidentally reusing a key for a different completion declaration.
+    // Optional keeps legacy rows readable while all new writes persist it.
+    fingerprint: v.optional(v.string()),
     actorWorkosUserId: v.string(),
     actorRoles: v.array(v.string()),
     declaredAt: v.number(),
@@ -7621,6 +7631,9 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     buildSubmilestoneId: v.id("buildSubmilestones"),
     command: v.string(),
+    // Canonical command payload identity. Legacy receipts may not have a
+    // fingerprint; new commands reject such rows as unsafe key reuse.
+    fingerprint: v.optional(v.string()),
     idempotencyKey: v.string(),
     resultJson: v.string(),
     createdAt: v.number(),
@@ -7672,6 +7685,7 @@ export default defineSchema({
     source: v.string(),
     startParentRequested: v.optional(v.boolean()),
     submilestoneKey: v.optional(v.string()),
+    workflowRevision: v.optional(v.number()),
     warnings: v.array(v.string()),
   })
     .index("by_organization_idempotency", ["organizationId", "idempotencyKey"])

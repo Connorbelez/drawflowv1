@@ -308,6 +308,7 @@ function canonicalMilestoneSystemPostEntryFixture() {
           },
           state: "known",
           timezone: "America/Toronto",
+          workflowRevision: 2,
         },
         systemMode: "generated_milestone_submilestone",
         title: "Excavate",
@@ -1789,6 +1790,108 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByText("Your role cannot start this Sub-milestone."),
     ).toBeNull();
+  });
+
+  test("explains revision-gated Sub-milestone controls before a refresh", () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture() as {
+      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
+    };
+    const presentation = entry.actionItems[0]!.systemPresentation;
+    delete presentation.workflowRevision;
+    Object.assign(presentation, {
+      canAddEvidence: true,
+      canSubmitForReview: true,
+      evidencePackageRevision: 1,
+      evidencePackageRevisionId: "package-1",
+      startCommand: {
+        ...(presentation.startCommand as Record<string, unknown>),
+        allowed: true,
+        denialReason: undefined,
+      },
+    });
+    mocks.viewerBinding = {
+      ...mocks.viewerBinding,
+      role: "builder",
+      roles: ["builder"],
+      workosUserId: "user_builder",
+    };
+    mocks.feedRows = [entry];
+    window.history.replaceState(
+      {},
+      "",
+      "/builder/builds/build-1?tab=collaboration",
+    );
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
+
+    const reason =
+      "Refresh this collaboration card; the canonical workflow revision is unavailable.";
+    expect(screen.getAllByText(reason).length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByRole("button", { name: "Start Sub-milestone" }).hasAttribute(
+        "disabled",
+      ),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Complete Sub-milestone" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  test("freezes evidence with a stable key before submitting at the returned revision", async () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture() as {
+      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
+    };
+    const presentation = entry.actionItems[0]!.systemPresentation;
+    Object.assign(presentation, {
+      canSubmitForReview: true,
+      evidencePackageRevision: 1,
+      evidencePackageRevisionId: "package-1",
+      evidenceReviewState: "not_ready",
+      startCommand: {
+        ...(presentation.startCommand as Record<string, unknown>),
+        allowed: false,
+        denialReason: "already_started",
+      },
+    });
+    mocks.viewerBinding = {
+      ...mocks.viewerBinding,
+      role: "builder",
+      roles: ["builder"],
+      workosUserId: "user_builder",
+    };
+    mocks.feedRows = [entry];
+    mocks.mutate
+      .mockReset()
+      .mockResolvedValueOnce({ revision: 3 })
+      .mockResolvedValueOnce({ revision: 4 });
+    window.history.replaceState(
+      {},
+      "",
+      "/builder/builds/build-1?tab=collaboration",
+    );
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Complete Sub-milestone" }),
+    );
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(2));
+    expect(mocks.mutate.mock.calls[0]?.[0]).toMatchObject({
+      expectedRevision: 2,
+      idempotencyKey: expect.stringMatching(/^evidence-freeze:/),
+      packageRevisionId: "package-1",
+      submilestoneKey: "foundation-1",
+    });
+    expect(mocks.mutate.mock.calls[1]?.[0]).toMatchObject({
+      expectedRevision: 3,
+      idempotencyKey: expect.stringMatching(/^completion-review:/),
+      packageRevisionId: "package-1",
+      submilestoneKey: "foundation-1",
+    });
   });
 
   test("keeps canonical Milestone status transitions disabled in the detail sheet", async () => {

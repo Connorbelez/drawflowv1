@@ -73,6 +73,7 @@ interface ContractorScope {
   submilestoneKey: string | null;
   submilestoneName: string | null;
   workStatus: "complete" | "in_progress" | "planned" | null;
+  workflowRevision?: number;
 }
 
 interface ContractorPermitDocument {
@@ -385,12 +386,19 @@ function ContractorBuildDetail() {
                         !scope.actualStartedAt ? (
                           <Button
                             data-testid={`contractor-start-work-${scope.submilestoneKey}`}
-                            onClick={() =>
+                            onClick={() => {
+                              if (scope.workflowRevision === undefined) {
+                                setErrorMessage(
+                                  "Refresh this assigned scope before starting; the canonical workflow revision is unavailable.",
+                                );
+                                return;
+                              }
                               setStartRequest({
                                 request: {
                                   action: "start",
                                   buildName: detail.build.buildName,
                                   dependencyBlockers: scope.dependencyBlockers,
+                                  expectedRevision: scope.workflowRevision,
                                   milestoneKey: scope.milestoneKey,
                                   milestoneName: scope.milestoneName,
                                   plannedStartDate:
@@ -407,8 +415,8 @@ function ContractorBuildDetail() {
                                     undefined,
                                 },
                                 scope,
-                              })
-                            }
+                              });
+                            }}
                             size="sm"
                           >
                             Start work
@@ -606,6 +614,7 @@ function ContractorBuildDetail() {
               actualStartedAt: input.actualStartedAt,
               buildId: buildId as Id<"activeBuilds">,
               dependencyOverrideReason: input.dependencyOverrideReason,
+              expectedRevision: input.expectedRevision,
               idempotencyKey: input.idempotencyKey,
               milestoneKey: input.milestoneKey,
               source: input.source as

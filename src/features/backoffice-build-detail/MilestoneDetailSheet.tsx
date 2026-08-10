@@ -15,7 +15,7 @@ import {
   Play,
   UserPlus,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
@@ -110,6 +110,7 @@ export interface MilestoneSheetSubmilestone {
   }>;
   startDate: string;
   status: WorkState;
+  workflowRevision?: number;
 }
 
 export interface MilestoneSheetData {
@@ -144,6 +145,7 @@ interface SubmilestoneUpdateInput {
   actualCostCents?: number | null;
   actualStartedAt?: number;
   dependencyOverrideReason?: string;
+  expectedRevision: number;
   fieldNote?: string | null;
   idempotencyKey?: string;
   milestoneKey: string;
@@ -256,13 +258,14 @@ export function MilestoneDetailSheet({
   const incomplete = rows.filter((row) => row.status !== "complete");
   const completedCount = rows.length - incomplete.length;
   const eligible = rows.length === 0 || incomplete.length === 0;
+  const lifecycleCommandKeys = useRef(new Map<string, string>());
 
   if (!data) {
     return null;
   }
 
   const updateSubmilestone = async (
-    input: Omit<SubmilestoneUpdateInput, "milestoneKey">,
+    input: Omit<SubmilestoneUpdateInput, "expectedRevision" | "milestoneKey">,
     optimistic: Partial<MilestoneSheetSubmilestone>
   ) => {
     if (!onUpdateSubmilestone) {
@@ -270,8 +273,41 @@ export function MilestoneDetailSheet({
     }
     setPendingKey(input.submilestoneKey);
     setLocalError(null);
+    const target = rows.find((row) => row.key === input.submilestoneKey);
+    const expectedRevision = target?.workflowRevision;
+    if (expectedRevision === undefined) {
+      const error = new Error(
+        "Refresh this Build detail before changing Sub-milestone work; the canonical workflow revision is unavailable."
+      );
+      setLocalError(error.message);
+      setPendingKey(null);
+      throw error;
+    }
+    const lifecycleIntent =
+      input.status === "complete" ||
+      (target.status === "complete" &&
+        input.status !== undefined &&
+        input.status !== "complete")
+        ? `${input.submilestoneKey}:${input.status ?? "reopen"}`
+        : undefined;
+    const idempotencyKey = lifecycleIntent
+      ? (input.idempotencyKey ??
+        lifecycleCommandKeys.current.get(lifecycleIntent) ??
+        crypto.randomUUID())
+      : input.idempotencyKey;
+    if (lifecycleIntent && idempotencyKey) {
+      lifecycleCommandKeys.current.set(lifecycleIntent, idempotencyKey);
+    }
     try {
-      await onUpdateSubmilestone({ ...input, milestoneKey: data.milestoneKey });
+      await onUpdateSubmilestone({
+        ...input,
+        expectedRevision,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+        milestoneKey: data.milestoneKey,
+      });
+      if (lifecycleIntent) {
+        lifecycleCommandKeys.current.delete(lifecycleIntent);
+      }
       setOverrides((current) => ({
         ...current,
         [input.submilestoneKey]: {

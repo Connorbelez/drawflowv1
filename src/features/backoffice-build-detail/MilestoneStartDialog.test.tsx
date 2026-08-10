@@ -17,6 +17,7 @@ import {
 const request: MilestoneStartDialogRequest = {
   buildName: "Hamilton Garden Suite",
   dependencyBlockers: [],
+  expectedRevision: 3,
   milestoneKey: "rough-in",
   milestoneName: "Rough-in",
   plannedStartDate: "2026-07-20T09:00:00.000Z",
@@ -50,6 +51,7 @@ describe("MilestoneStartDialog", () => {
     expect(onConfirm).toHaveBeenCalledWith(
       expect.objectContaining({
         actualStartedAt: Date.parse("2026-07-19T08:30:00"),
+        expectedRevision: 3,
         milestoneKey: "rough-in",
         source: "milestone_detail",
       }),
@@ -134,5 +136,19 @@ describe("MilestoneStartDialog", () => {
     ).toBe(true);
     expect(screen.getByText(/Future work belongs/i)).toBeTruthy();
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  test("fails gracefully when the planned schedule date is unavailable", () => {
+    render(
+      <MilestoneStartDialog
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+        request={{ ...request, plannedStartDate: "Not scheduled" }}
+      />,
+    );
+
+    expect(screen.getByText("Unknown")).toBeTruthy();
+    expect(screen.getByText("Schedule unavailable")).toBeTruthy();
+    expect(screen.queryByText(/NaN/)).toBeNull();
   });
 });

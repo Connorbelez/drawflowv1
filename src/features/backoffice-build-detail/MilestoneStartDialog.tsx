@@ -51,6 +51,8 @@ export interface MilestoneStartDialogRequest {
   actualStartedAt?: number;
   buildName: string;
   dependencyBlockers: MilestoneStartDependency[];
+  /** Canonical workflow revision observed when the dialog opened. */
+  expectedRevision: number;
   milestoneKey: string;
   milestoneName: string;
   plannedStartDate: string;
@@ -65,6 +67,8 @@ export interface MilestoneStartConfirmation {
   action: "correct" | "retract" | "start";
   actualStartedAt?: number;
   dependencyOverrideReason?: string;
+  /** Echoed from the canonical draft so stale writes fail closed. */
+  expectedRevision: number;
   idempotencyKey: string;
   milestoneKey: string;
   reason?: string;
@@ -85,25 +89,25 @@ export function MilestoneStartDialog({
 }) {
   const action = request.action ?? "start";
   const [actualStartInput, setActualStartInput] = useState(() =>
-    toDateTimeLocal(request.actualStartedAt ?? Date.now())
+    toDateTimeLocal(request.actualStartedAt ?? Date.now()),
   );
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [online, setOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine
+    typeof navigator === "undefined" ? true : navigator.onLine,
   );
   const actualStartedAt = Date.parse(actualStartInput);
+  const plannedStartedAt = Date.parse(request.plannedStartDate);
   const varianceDays = useMemo(
     () =>
-      Number.isFinite(actualStartedAt)
+      Number.isFinite(actualStartedAt) && Number.isFinite(plannedStartedAt)
         ? Math.round(
-            (actualStartedAt - Date.parse(request.plannedStartDate)) /
-              86_400_000
+            (actualStartedAt - plannedStartedAt) / 86_400_000,
           )
-        : 0,
-    [actualStartedAt, request.plannedStartDate]
+        : undefined,
+    [actualStartedAt, plannedStartedAt],
   );
   const targetName = request.submilestoneName ?? request.milestoneName;
   const needsDependencyReason =
@@ -127,7 +131,7 @@ export function MilestoneStartDialog({
     const normalizedReason = reason.trim();
     if (!online) {
       setError(
-        "Work starts are online-only. Reconnect before recording this event."
+        "Work starts are online-only. Reconnect before recording this event.",
       );
       return;
     }
@@ -137,7 +141,7 @@ export function MilestoneStartDialog({
     }
     if (needsDependencyReason && !normalizedReason) {
       setError(
-        "Explain why work began before the declared predecessor milestones were complete."
+        "Explain why work began before the declared predecessor milestones were complete.",
       );
       return;
     }
@@ -151,6 +155,7 @@ export function MilestoneStartDialog({
       ...(needsDependencyReason
         ? { dependencyOverrideReason: normalizedReason }
         : {}),
+      expectedRevision: request.expectedRevision,
       idempotencyKey,
       milestoneKey: request.milestoneKey,
       ...(needsAmendmentReason ? { reason: normalizedReason } : {}),
@@ -196,7 +201,7 @@ export function MilestoneStartDialog({
           <Frame>
             <FramePanel className="grid gap-3 p-4">
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-[0.16em]">
+                <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
                   Build
                 </p>
                 <p className="mt-1 font-medium">{request.buildName}</p>
@@ -376,7 +381,7 @@ function Fact({
         {icon}
       </span>
       <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+        <p className="text-muted-foreground text-xs uppercase tracking-wider">
           {label}
         </p>
         <p className="mt-0.5 text-sm">{value}</p>
@@ -397,7 +402,7 @@ function dialogTitle(action: "correct" | "retract" | "start") {
 
 function confirmationLabel(
   action: "correct" | "retract" | "start",
-  exception: boolean
+  exception: boolean,
 ) {
   if (action === "correct") {
     return "Record correction";
@@ -428,7 +433,10 @@ function lifecycleLabel(status: MilestoneStartDependency["status"]) {
   return status === "in_progress" ? "In progress" : "Planned";
 }
 
-function varianceLabel(days: number) {
+function varianceLabel(days: number | undefined) {
+  if (days === undefined) {
+    return "Schedule unavailable";
+  }
   if (days === 0) {
     return "On planned date";
   }

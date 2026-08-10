@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import { LockKeyhole } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { api } from "../../../convex/_generated/api";
@@ -46,6 +46,7 @@ export function BuildCollaborationWorkspace({
     | "homeowner"
     | "principle-broker";
 }) {
+  const launchElementRef = useRef<HTMLElement | null>(null);
   const [localFocusedReference, setLocalFocusedReference] =
     useState(focusedReference);
   const [detailRetryVersion, setDetailRetryVersion] = useState(0);
@@ -73,7 +74,7 @@ export function BuildCollaborationWorkspace({
       <Frame data-testid="build-collaboration-rollout-loading">
         <FramePanel
           aria-live="polite"
-          className="animate-pulse text-muted-foreground text-sm"
+          className="animate-pulse text-muted-foreground text-sm motion-reduce:animate-none"
           role="status"
         >
           Checking collaboration availability…
@@ -103,6 +104,10 @@ export function BuildCollaborationWorkspace({
           entityKind: string;
           href: string;
         }) => {
+          launchElementRef.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
           const focus = `${reference.entityKind}:${reference.entityId}`;
           setLocalFocusedReference(focus);
           if (parseBuildDetailFocus(focus)) {
@@ -125,8 +130,13 @@ export function BuildCollaborationWorkspace({
           onOpenReference?.(reference);
         };
         const closeDetailTarget = () => {
+          const launchElement = launchElementRef.current;
+          launchElementRef.current = null;
           setLocalFocusedReference(undefined);
           host.controller.close();
+          if (launchElement?.isConnected) {
+            requestAnimationFrame(() => launchElement.focus({ preventScroll: true }));
+          }
         };
         return (
           <>

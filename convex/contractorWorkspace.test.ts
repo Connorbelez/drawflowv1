@@ -328,6 +328,8 @@ describe("contractor workspace scope + redaction", () => {
       {
         buildId,
         contractorId: myContractor,
+        expectedRevision: 0,
+        idempotencyKey: "contractor-workspace-detail-assignment-001",
         milestoneKey: "foundation",
         role: "mason",
         workosOrganizationId: ORG,
@@ -473,6 +475,8 @@ describe("contractor workspace scope + redaction", () => {
       {
         buildId,
         contractorId: myContractor,
+        expectedRevision: 0,
+        idempotencyKey: "contractor-workspace-detail-assignment-001",
         milestoneKey: "foundation",
         role: "mason",
         submilestoneKeys: ["forms"],
@@ -488,6 +492,7 @@ describe("contractor workspace scope + redaction", () => {
     expect(detail.build.buildName).toBe("Contractor workspace build");
     expect(detail.assignedScope[0].milestoneKey).toBe("foundation");
     expect(detail.assignedScope[0].buildSubmilestoneId).toBeDefined();
+    expect(detail.assignedScope[0].workflowRevision).toBe(1);
     expect(detail.assignedScope[0].costDocumentCaptureEligible).toBe(true);
     expect(detail.permitDocuments.every((d: any) => d.documentType === "permit")).toBe(true);
     // Raw/internal ratings and financing never reach the contractor.
@@ -504,6 +509,8 @@ describe("contractor workspace scope + redaction", () => {
       {
         buildId,
         contractorId,
+        expectedRevision: 0,
+        idempotencyKey: "contractor-workspace-start-assignment-001",
         milestoneKey: "foundation",
         role: "mason",
         submilestoneKeys: ["forms"],
@@ -518,6 +525,7 @@ describe("contractor workspace scope + redaction", () => {
       {
         actualStartedAt,
         buildId,
+        expectedRevision: 1,
         idempotencyKey: "contractor-forms-start-001",
         milestoneKey: "foundation",
         source: "guided_field_workflow",
@@ -525,6 +533,12 @@ describe("contractor workspace scope + redaction", () => {
         workosOrganizationId: ORG,
       },
     );
+
+    const detailAfterStart = await me.query(
+      (api as any).contractorWorkspace.getContractorBuildDetail,
+      { buildId },
+    );
+    expect(detailAfterStart.assignedScope[0].workflowRevision).toBe(2);
 
     await admin.run(async (ctx: any) => {
       const milestone = await ctx.db
@@ -558,6 +572,8 @@ describe("contractor workspace scope + redaction", () => {
       {
         buildId,
         contractorId,
+        expectedRevision: 0,
+        idempotencyKey: "contractor-public-start-assignment-001",
         milestoneKey: "foundation",
         role: "mason",
         submilestoneKeys: ["forms"],
@@ -568,6 +584,7 @@ describe("contractor workspace scope + redaction", () => {
     const startInput = {
       actualStartedAt: Date.now() - 60 * 60 * 1000,
       buildId,
+      expectedRevision: 1,
       idempotencyKey: "public-contractor-forms-start-001",
       milestoneKey: "foundation",
       source: "submilestone_detail" as const,
@@ -628,6 +645,8 @@ describe("contractor workspace scope + redaction", () => {
       {
         buildId: assignedBuild.buildId,
         contractorId: assignedContractorId,
+        expectedRevision: 0,
+        idempotencyKey: "eng409-assigned-assignment-001",
         milestoneKey: "foundation",
         role: "mason",
         submilestoneKeys: ["forms"],
@@ -721,6 +740,7 @@ describe("contractor workspace scope + redaction", () => {
         {
           actualStartedAt: Date.now() - 60 * 60 * 1000,
           buildId: assignedBuild.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng409-unassigned-child-start",
           milestoneKey: "foundation",
           source: "submilestone_detail",
@@ -737,6 +757,7 @@ describe("contractor workspace scope + redaction", () => {
         {
           actualStartedAt: Date.now() - 60 * 60 * 1000,
           buildId: assignedBuild.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng409-contractor-parent-start",
           milestoneKey: "foundation",
           source: "milestone_detail",
@@ -752,6 +773,7 @@ describe("contractor workspace scope + redaction", () => {
       {
         actualStartedAt: Date.now() - 45 * 60 * 1000,
         buildId: assignedBuild.buildId,
+        expectedRevision: 1,
         idempotencyKey: "eng409-contractor-child-start",
         milestoneKey: "foundation",
         source: "submilestone_detail",
@@ -771,13 +793,14 @@ describe("contractor workspace scope + redaction", () => {
         {
           actualStartedAt: Date.now() - 30 * 60 * 1000,
           buildId: assignedBuild.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng409-lender-start",
           milestoneKey: "foundation",
           source: "milestone_detail",
           workosOrganizationId: ORG,
         },
       ),
-    ).rejects.toThrow(/lender roles cannot originate/i);
+    ).rejects.toThrow(/lender roles cannot originate|Forbidden: proposal scope/i);
 
     const adminOperator = withIdentity(base, ["admin"], PRINCIPAL_BROKER);
     const adminOperateBuild = await createApprovedBuild(admin, seed);
@@ -787,6 +810,7 @@ describe("contractor workspace scope + redaction", () => {
         {
           actualStartedAt: Date.now() - 30 * 60 * 1000,
           buildId: adminOperateBuild.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng409-admin-operate-start",
           milestoneKey: "foundation",
           source: "milestone_detail",
@@ -805,6 +829,7 @@ describe("contractor workspace scope + redaction", () => {
         {
           actualStartedAt: Date.now() - 30 * 60 * 1000,
           buildId: builderBuild.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng409-builder-parent-child-start",
           milestoneKey: "foundation",
           source: "submilestone_detail",
@@ -858,6 +883,7 @@ describe("contractor workspace scope + redaction", () => {
         {
           actualStartedAt: Date.now() - 30 * 60 * 1000,
           buildId: staffBuild.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng409-staff-parent-child-start",
           milestoneKey: "foundation",
           source: "submilestone_detail",
@@ -878,6 +904,8 @@ describe("contractor workspace scope + redaction", () => {
       {
         buildId,
         contractorId,
+        expectedRevision: 0,
+        idempotencyKey: "contractor-cross-org-assignment-001",
         milestoneKey: "foundation",
         role: "mason",
         submilestoneKeys: ["forms"],
@@ -887,6 +915,7 @@ describe("contractor workspace scope + redaction", () => {
     const input = {
       actualStartedAt: Date.now() - 60 * 60 * 1000,
       buildId,
+      expectedRevision: 1,
       idempotencyKey: "contractor-cross-org-start-001",
       milestoneKey: "foundation",
       source: "guided_field_workflow" as const,

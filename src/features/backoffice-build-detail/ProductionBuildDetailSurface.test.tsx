@@ -345,6 +345,7 @@ const detail: ProductionBuildDetail = {
       name: "Foundation",
       order: 1,
       status: "in_progress",
+      workflowRevision: 3,
     },
   ],
   submilestones: [
@@ -355,6 +356,7 @@ const detail: ProductionBuildDetail = {
       name: "Excavation",
       order: 1,
       status: "complete",
+      workflowRevision: 3,
     },
   ],
   auditEvents: [
@@ -3255,6 +3257,81 @@ describe("ProductionBuildDetailSurface", () => {
           milestoneKey: "foundation",
         }),
       ),
+    );
+  });
+
+  test("routes planned submilestone execution edits through canonical start before updating", async () => {
+    const startMilestoneWork = vi.fn().mockResolvedValue({ revision: 8 });
+    const updateSubmilestoneExecution = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ startMilestoneWork, updateSubmilestoneExecution }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              status: "in_progress",
+              workflowRevision: 3,
+            },
+          ],
+          submilestones: [
+            {
+              ...detail.submilestones[0],
+              actualStartedAt: undefined,
+              status: "planned",
+              workflowRevision: 7,
+            },
+          ],
+        }}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        viewerRole="builder"
+      />,
+    );
+
+    const milestoneSheet = within(
+      screen.getByTestId("milestone-detail-sheet-panel"),
+    );
+    const excavationLabel = milestoneSheet.getByText("Excavation");
+    fireEvent.click(excavationLabel.closest("button") ?? excavationLabel);
+    const actualCost = screen.getByPlaceholderText("Not reported");
+    fireEvent.change(actualCost, { target: { value: "123.45" } });
+    fireEvent.blur(actualCost);
+
+    expect(await screen.findByTestId("milestone-start-dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Record start" }));
+
+    await waitFor(() => expect(startMilestoneWork).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(updateSubmilestoneExecution).toHaveBeenCalledTimes(1),
+    );
+
+    const startInput = startMilestoneWork.mock.calls[0][0];
+    const updateInput = updateSubmilestoneExecution.mock.calls[0][0];
+    expect(startInput).toMatchObject({
+      expectedRevision: 7,
+      milestoneKey: "foundation",
+      source: "submilestone_detail",
+      submilestoneKey: "excavation",
+    });
+    expect(startInput.idempotencyKey).toEqual(expect.any(String));
+    expect(updateInput).toMatchObject({
+      actualCostCents: 12_345,
+      actualStartedAt: expect.any(Number),
+      expectedRevision: 8,
+      milestoneKey: "foundation",
+      submilestoneKey: "excavation",
+    });
+    expect(updateInput.idempotencyKey).toBe(
+      `${startInput.idempotencyKey}:execution`,
+    );
+    expect(startMilestoneWork.mock.invocationCallOrder[0]).toBeLessThan(
+      updateSubmilestoneExecution.mock.invocationCallOrder[0],
     );
   });
 

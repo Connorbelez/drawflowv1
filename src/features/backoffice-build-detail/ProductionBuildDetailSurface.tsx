@@ -216,6 +216,7 @@ export interface ProductionBuildDetailActions {
   }) => Promise<unknown> | unknown;
   correctMilestoneStart?: (input: {
     actualStartedAt: number;
+    expectedRevision: number;
     idempotencyKey: string;
     milestoneKey: string;
     reason: string;
@@ -337,6 +338,7 @@ export interface ProductionBuildDetailActions {
     visitId: string;
   }) => Promise<unknown> | unknown;
   retractMilestoneStart?: (input: {
+    expectedRevision: number;
     idempotencyKey: string;
     milestoneKey: string;
     reason: string;
@@ -411,6 +413,7 @@ export interface ProductionBuildDetailActions {
   startMilestoneWork?: (input: {
     actualStartedAt: number;
     dependencyOverrideReason?: string;
+    expectedRevision: number;
     idempotencyKey: string;
     milestoneKey: string;
     source: MilestoneStartSource;
@@ -441,6 +444,7 @@ export interface ProductionBuildDetailActions {
     actualCostCents?: number | null;
     actualStartedAt?: number;
     dependencyOverrideReason?: string;
+    expectedRevision: number;
     fieldNote?: string | null;
     idempotencyKey?: string;
     milestoneKey: string;
@@ -549,6 +553,7 @@ interface ProductionMilestone {
   status: ProductionMilestoneStatus;
   totalSubmilestoneCount?: number;
   updatedAt?: number;
+  workflowRevision?: number;
 }
 
 interface ProductionSubmilestone {
@@ -570,6 +575,7 @@ interface ProductionSubmilestone {
   startReportedAt?: number;
   startSource?: MilestoneStartSource;
   status: ProductionMilestoneStatus;
+  workflowRevision?: number;
 }
 
 interface ProductionDraw {
@@ -628,6 +634,7 @@ interface ProductionFacilityChangeRequest {
   reviewNote?: string;
   status: "requested" | "approved" | "rejected";
   updatedAt?: number;
+  workflowRevision?: number;
 }
 
 interface ProductionBudgetRevisionRequest {
@@ -920,6 +927,8 @@ export function ProductionBuildDetailSurface({
     ) => Promise<unknown> | unknown;
     request: MilestoneStartDialogRequest;
   } | null>(null);
+  const [milestoneStartRevisionError, setMilestoneStartRevisionError] =
+    useState<string | null>(null);
   const milestoneStartRequest = milestoneStartController?.request ?? null;
   const [localFocusedReference, setLocalFocusedReference] = useState<
     string | undefined
@@ -1006,6 +1015,20 @@ export function ProductionBuildDetailSurface({
     if (!milestone) {
       return;
     }
+    // Convex treats legacy milestone and sub-milestone rows without
+    // workflowRevision as canonical revision 0. Keep the sub-milestone token
+    // scoped to that row; a parent revision is not a substitute for it.
+    const expectedRevision = submilestone
+      ? (submilestone.workflowRevision ?? 0)
+      : (milestone.workflowRevision ?? 0);
+    if (expectedRevision === undefined) {
+      setMilestoneStartRevisionError(
+        "Refresh this Build detail before changing the start; the canonical workflow revision is unavailable.",
+      );
+      setMilestoneStartController(null);
+      return;
+    }
+    setMilestoneStartRevisionError(null);
     const dependencyBlockers = milestone.dependencyKeys
       .map((key) =>
         detail.milestones.find((candidate) => candidate.key === key),
@@ -1018,8 +1041,8 @@ export function ProductionBuildDetailSurface({
         } =>
           Boolean(
             candidate &&
-            (candidate.status === "planned" ||
-              candidate.status === "in_progress"),
+              (candidate.status === "planned" ||
+                candidate.status === "in_progress"),
           ),
       )
       .map((candidate) => ({
@@ -1033,6 +1056,7 @@ export function ProductionBuildDetailSurface({
         submilestone?.actualStartedAt ?? milestone.actualStartedAt,
       buildName: detail.build.buildName,
       dependencyBlockers: action === "start" ? dependencyBlockers : [],
+      expectedRevision,
       milestoneKey,
       milestoneName: milestone.name,
       plannedStartDate: addDaysSafe(
@@ -1055,11 +1079,16 @@ export function ProductionBuildDetailSurface({
       return await milestoneStartController.onConfirm(input);
     }
     if (input.action === "correct") {
-      if (input.actualStartedAt === undefined || !input.reason) {
+      if (
+        input.actualStartedAt === undefined ||
+        input.expectedRevision === undefined ||
+        !input.reason
+      ) {
         throw new Error("A corrected actual start and reason are required.");
       }
       return await actions?.correctMilestoneStart?.({
         actualStartedAt: input.actualStartedAt,
+        expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey,
         milestoneKey: input.milestoneKey,
         reason: input.reason,
@@ -1068,10 +1097,11 @@ export function ProductionBuildDetailSurface({
       });
     }
     if (input.action === "retract") {
-      if (!input.reason) {
+      if (input.expectedRevision === undefined || !input.reason) {
         throw new Error("A retraction reason is required.");
       }
       return await actions?.retractMilestoneStart?.({
+        expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey,
         milestoneKey: input.milestoneKey,
         reason: input.reason,
@@ -1079,12 +1109,16 @@ export function ProductionBuildDetailSurface({
         submilestoneKey: input.submilestoneKey,
       });
     }
-    if (input.actualStartedAt === undefined) {
+    if (
+      input.actualStartedAt === undefined ||
+      input.expectedRevision === undefined
+    ) {
       throw new Error("An actual start is required.");
     }
     return await actions?.startMilestoneWork?.({
       actualStartedAt: input.actualStartedAt,
       dependencyOverrideReason: input.dependencyOverrideReason,
+      expectedRevision: input.expectedRevision,
       idempotencyKey: input.idempotencyKey,
       milestoneKey: input.milestoneKey,
       source: input.source,
@@ -1463,14 +1497,75 @@ export function ProductionBuildDetailSurface({
           }
           onUpdateSubmilestone={
             actions?.updateSubmilestoneExecution
-              ? (input) => {
+              ? async (input) => {
                   const target = detail.submilestones.find(
                     (candidate) =>
                       candidate.milestoneKey === input.milestoneKey &&
                       candidate.key === input.submilestoneKey,
                   );
-                  if (input.status !== "complete" || target?.actualStartedAt) {
-                    return actions.updateSubmilestoneExecution?.(input);
+                  if (!target) {
+                    throw new Error("Submilestone execution target is unavailable.");
+                  }
+                  if (target.status === "complete" && input.status === undefined) {
+                    throw new Error(
+                      "Reopen this Sub-milestone before changing its execution details.",
+                    );
+                  }
+                  if (target.status === "planned" && input.status !== "complete") {
+                    if (!actions.startMilestoneWork) {
+                      throw new Error(
+                        "Start this Sub-milestone before recording execution details.",
+                      );
+                    }
+                    const request = openMilestoneStart(
+                      input.milestoneKey,
+                      "submilestone_detail",
+                      input.submilestoneKey,
+                    );
+                    if (!request) {
+                      throw new Error(
+                        "Submilestone start target is unavailable.",
+                      );
+                    }
+                    return confirmStartAndCompletion(
+                      request,
+                      async (confirmation) => {
+                        if (
+                          confirmation.actualStartedAt === undefined ||
+                          confirmation.expectedRevision === undefined
+                        ) {
+                          throw new Error("An actual start is required.");
+                        }
+                        const startResult = await actions.startMilestoneWork?.({
+                          actualStartedAt: confirmation.actualStartedAt,
+                          dependencyOverrideReason:
+                            confirmation.dependencyOverrideReason,
+                          expectedRevision: confirmation.expectedRevision,
+                          idempotencyKey: confirmation.idempotencyKey,
+                          milestoneKey: confirmation.milestoneKey,
+                          source: confirmation.source,
+                          startParent: confirmation.startParent,
+                          submilestoneKey: confirmation.submilestoneKey,
+                        });
+                        const revision = commandResultRevision(startResult);
+                        if (revision === undefined) {
+                          throw new Error(
+                            "Refresh this Build detail before recording execution; the committed start revision is unavailable.",
+                          );
+                        }
+                        return await actions.updateSubmilestoneExecution?.({
+                          ...input,
+                          actualStartedAt: confirmation.actualStartedAt,
+                          dependencyOverrideReason:
+                            confirmation.dependencyOverrideReason,
+                          expectedRevision: revision,
+                          idempotencyKey: `${confirmation.idempotencyKey}:execution`,
+                        });
+                      },
+                    );
+                  }
+                  if (input.status !== "complete" || target.actualStartedAt) {
+                    return await actions.updateSubmilestoneExecution?.(input);
                   }
                   const request = openMilestoneStart(
                     input.milestoneKey,
@@ -1509,6 +1604,13 @@ export function ProductionBuildDetailSurface({
           onConfirm={confirmMilestoneStart}
           request={milestoneStartRequest}
         />
+      ) : null}
+      {milestoneStartRevisionError ? (
+        <Frame aria-live="assertive" role="alert">
+          <FramePanel className="border-destructive/35 p-3 text-destructive-text text-sm">
+            {milestoneStartRevisionError}
+          </FramePanel>
+        </Frame>
       ) : null}
       <SiteVisitOrderDialog
         build={{
@@ -5531,10 +5633,10 @@ function ProductionContractorsTab({
       <ContractorPlanningPanel
         canMutate={Boolean(
           actions?.assignContractorToMilestone ||
-          actions?.removeContractorFromMilestone ||
-          actions?.attachAndInviteContractor ||
-          actions?.attachContractor ||
-          actions?.createAndAttachContractor,
+            actions?.removeContractorFromMilestone ||
+            actions?.attachAndInviteContractor ||
+            actions?.attachContractor ||
+            actions?.createAndAttachContractor,
         )}
         milestones={milestones}
         onAssignToMilestone={
@@ -7029,6 +7131,10 @@ function buildMilestoneSheetData(
         siteVisits,
         startDate: addDaysSafe(detail.build.startDate, startDay),
         status: submilestone.status,
+        // Convex treats a legacy sub-milestone row without workflowRevision as
+        // canonical revision 0. Preserve that row-scoped token for governed
+        // lifecycle commands instead of borrowing the parent revision.
+        workflowRevision: submilestone.workflowRevision ?? 0,
       };
     }),
   };
@@ -7869,6 +7975,16 @@ function numberFromRecord(
 ) {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function commandResultRevision(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const revision = (value as { revision?: unknown }).revision;
+  return typeof revision === "number" && Number.isSafeInteger(revision)
+    ? revision
+    : undefined;
 }
 
 function siteVisitFromCompletionReview(

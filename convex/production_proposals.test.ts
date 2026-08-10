@@ -1283,6 +1283,254 @@ describe("production proposal foundation", () => {
     expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(40_000_000);
   });
 
+  test("scopes active-build material commands to canonical revisions and receipts", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Scoped material command build",
+      location: "18 Scoped Material Lane",
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+
+    const submilestoneId = await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query: any) =>
+          query.eq("buildMilestoneId", milestone._id),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .unique();
+      return submilestone._id;
+    });
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("buildSubmilestoneCommandReceipts", {
+        buildId: closing.buildId,
+        buildSubmilestoneId: submilestoneId,
+        command: "createActiveBuildCostItem",
+        createdAt: Date.now(),
+        idempotencyKey: "scoped-material-legacy-receipt",
+        organizationId: ORG,
+        resultJson: JSON.stringify({
+          itemId: "legacy-material-item",
+          revision: 1,
+        }),
+      });
+    });
+
+    const createArgs = {
+      buildId: closing.buildId,
+      costCents: 1_500_000,
+      expectedRevision: 0,
+      idempotencyKey: "scoped-material-create-001",
+      itemType: "material" as const,
+      milestoneKey: "foundation",
+      quantity: 1,
+      relevantSubmilestoneKeys: ["forms"],
+      submilestoneKey: "forms",
+      supplier: "Scoped Supply",
+      title: "Scoped forms package",
+      workosOrganizationId: ORG,
+    };
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.createActiveBuildCostItem,
+        {
+          ...createArgs,
+          idempotencyKey: "scoped-material-blank-key",
+          submilestoneKey: "   ",
+        },
+      ),
+    ).rejects.toThrow(/SUBMILESTONE_NOT_FOUND|non-empty Sub-milestone key/i);
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.createActiveBuildCostItem,
+        {
+          ...createArgs,
+          idempotencyKey: "scoped-material-legacy-receipt",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|different canonical command/i);
+
+    const created = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      createArgs,
+    );
+    expect(created).toMatchObject({
+      replayed: false,
+      revision: 1,
+    });
+    const createdItemId = (created as any).itemId;
+
+    const replayedCreate = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      createArgs,
+    );
+    expect(replayedCreate).toMatchObject({
+      itemId: createdItemId,
+      replayed: true,
+      revision: 1,
+    });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.createActiveBuildCostItem,
+        {
+          ...createArgs,
+          title: "Different scoped forms package",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|different canonical command/i);
+
+    const updated = await admin.mutation(
+      (api as any).production_proposals.updateActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        costCents: 1_750_000,
+        expectedRevision: 1,
+        idempotencyKey: "scoped-material-update-001",
+        itemId: createdItemId,
+        reason: "Scoped material quote revised.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(updated).toMatchObject({ replayed: false, revision: 2 });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.updateActiveBuildCostItem,
+        {
+          buildId: closing.buildId,
+          costCents: 2_000_000,
+          expectedRevision: 1,
+          idempotencyKey: "scoped-material-update-stale-001",
+          itemId: createdItemId,
+          reason: "Stale scoped material write.",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/STALE_SUBMILESTONE_REVISION|Sub-milestone changed/i);
+
+    const deleted = await admin.mutation(
+      (api as any).production_proposals.deleteActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        expectedRevision: 2,
+        idempotencyKey: "scoped-material-delete-001",
+        itemId: createdItemId,
+        milestoneKey: "foundation",
+        reason: "Scoped material removed.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(deleted).toMatchObject({ replayed: false, revision: 3 });
+    const replayedDelete = await admin.mutation(
+      (api as any).production_proposals.deleteActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        expectedRevision: 2,
+        idempotencyKey: "scoped-material-delete-001",
+        itemId: createdItemId,
+        milestoneKey: "foundation",
+        reason: "Scoped material removed.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replayedDelete).toMatchObject({
+      itemId: createdItemId,
+      replayed: true,
+      revision: 3,
+    });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.deleteActiveBuildCostItem,
+        {
+          ...{
+            buildId: closing.buildId,
+            expectedRevision: 2,
+            idempotencyKey: "scoped-material-delete-001",
+            itemId: createdItemId,
+            reason: "Scoped material removed.",
+            submilestoneKey: "forms",
+            workosOrganizationId: ORG,
+          },
+          milestoneKey: "   ",
+        },
+      ),
+    ).rejects.toThrow(/MILESTONE_KEY_REQUIRED|non-empty Milestone key/i);
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.costItems).toHaveLength(0);
+    expect(detail.submilestones[0].workflowRevision).toBe(3);
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(submilestoneId, { workflowRevision: undefined });
+    });
+    const legacyDetail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(legacyDetail.submilestones[0].workflowRevision).toBe(0);
+  });
+
+  test("canonical scoped key sets use code-unit ordering for fingerprints", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Code-unit scoped key build",
+      location: "18 Code Unit Lane",
+      submilestones: [
+        { key: "Zeta", name: "Uppercase target", order: 1 },
+        { key: "alpha", name: "Lowercase target", order: 2 },
+      ],
+    });
+    const createArgs = {
+      buildId: closing.buildId,
+      costCents: 1_500_000,
+      expectedRevision: 0,
+      idempotencyKey: "code-unit-scoped-material-001",
+      itemType: "material" as const,
+      milestoneKey: "foundation",
+      quantity: 1,
+      relevantSubmilestoneKeys: ["alpha", "Zeta"],
+      submilestoneKey: "Zeta",
+      supplier: "Code Unit Supply",
+      title: "Code-unit scoped package",
+      workosOrganizationId: ORG,
+    };
+    const created = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      createArgs,
+    );
+    const item = await admin.run(async (ctx: any) =>
+      ctx.db.get((created as any).itemId),
+    );
+    expect(item.relevantSubmilestoneKeys).toEqual(["Zeta", "alpha"]);
+
+    const replayed = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      {
+        ...createArgs,
+        expectedRevision: 99,
+        relevantSubmilestoneKeys: ["Zeta", "alpha"],
+      },
+    );
+    expect(replayed).toMatchObject({
+      itemId: (created as any).itemId,
+      replayed: true,
+      revision: 1,
+    });
+  });
+
   test("applies log-only, additive, and maintained sub-milestone cost treatments", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
@@ -6567,6 +6815,65 @@ describe("production proposal foundation", () => {
     );
   });
 
+  test("allows canonical execution fields to be explicitly cleared with null", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
+        buildId: closing.buildId,
+        expectedRevision: 0,
+        idempotencyKey: "clear-execution-start-001",
+        milestoneKey: "foundation",
+        source: "submilestone_detail",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await builder.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+      {
+        actualCostCents: 47_500_000,
+        buildId: closing.buildId,
+        completionForecastDate: "2026-06-12",
+        expectedRevision: 1,
+        fieldNote: "Initial execution note.",
+        idempotencyKey: "clear-execution-set-001",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await builder.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+      {
+        actualCostCents: null,
+        buildId: closing.buildId,
+        completionForecastDate: null,
+        expectedRevision: 2,
+        fieldNote: null,
+        idempotencyKey: "clear-execution-clear-001",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.submilestones[0]).not.toHaveProperty("actualCostCents");
+    expect(detail.submilestones[0]).not.toHaveProperty(
+      "completionForecastDate",
+    );
+    expect(detail.submilestones[0]).not.toHaveProperty("fieldNote");
+    expect(detail.submilestones[0].workflowRevision).toBe(3);
+  });
+
   test("projects build quick actions from unresolved domain state instead of audit payloads", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(admin, seed);
@@ -6579,6 +6886,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 30,
+        expectedRevision: 0,
         idempotencyKey: "quick-action-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
@@ -6652,6 +6960,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         fieldNote: "Forms stripped and dimensions verified.",
+        expectedRevision: 0,
         idempotencyKey: "summary-forms-completion-001",
         milestoneKey: "foundation",
         status: "complete",
@@ -6666,6 +6975,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 1,
         idempotencyKey: "summary-milestone-completion-001",
         milestoneKey: "foundation",
         note: "Builder submitted the foundation package.",
@@ -6733,6 +7043,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "progress-reconciliation-forms-001",
         milestoneKey: "foundation",
         progressPercent: 100,
@@ -6755,6 +7066,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: Date.parse("2026-05-03T12:00:00.000Z"),
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "progress-reconciliation-waterproofing-start-001",
         milestoneKey: "foundation",
         source: "submilestone_detail",
@@ -6817,6 +7129,7 @@ describe("production proposal foundation", () => {
       actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
       buildId: closing.buildId,
       completedDay: 20,
+      expectedRevision: 0,
       idempotencyKey: "strict-milestone-completion-001",
       milestoneKey: "foundation",
       note: "Foundation ready for review.",
@@ -6837,6 +7150,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         fieldNote: "Forms removed; footing measurements match plan.",
+        expectedRevision: 0,
         idempotencyKey: "strict-forms-completion-001",
         milestoneKey: "foundation",
         status: "complete",
@@ -6846,7 +7160,7 @@ describe("production proposal foundation", () => {
     );
     await builder.mutation(
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
-      completionArgs,
+      { ...completionArgs, expectedRevision: 1 },
     );
 
     const detail = await admin.query(
@@ -7342,6 +7656,7 @@ describe("production proposal foundation", () => {
     const startArgs = {
       actualStartedAt,
       buildId: closing.buildId,
+      expectedRevision: 0,
       idempotencyKey: "test-foundation-start-001",
       milestoneKey: "foundation",
       source: "milestone_detail" as const,
@@ -7353,14 +7668,14 @@ describe("production proposal foundation", () => {
     );
     const replayResult = await builder.mutation(
       (api as any).production_proposals.startActiveBuildMilestone,
-      startArgs,
+      { ...startArgs, expectedRevision: 99 },
     );
 
     const detail = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
-    expect(firstResult).toMatchObject({ replayed: false });
+    expect(firstResult).toMatchObject({ replayed: false, revision: 1 });
     expect(replayResult).toEqual({ ...firstResult, replayed: true });
     expect(detail.milestones[0]).toMatchObject({
       actualStartedAt,
@@ -7391,6 +7706,14 @@ describe("production proposal foundation", () => {
             .eq("relatedEntityId", String(closing.buildId)),
         )
         .collect();
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .collect();
       expect(startEvents).toHaveLength(1);
       expect(startEvents[0]).toMatchObject({
         actualStartedAt,
@@ -7398,12 +7721,22 @@ describe("production proposal foundation", () => {
         eventType: "started",
         milestoneKey: "foundation",
         source: "milestone_detail",
+        workflowRevision: 1,
       });
-      expect(
-        outboxEvents.filter(
-          (event: any) => event.eventType === "milestone.started",
-        ),
-      ).toHaveLength(1);
+      const startOutboxEvents = outboxEvents.filter(
+        (event: any) => event.eventType === "milestone.started",
+      );
+      expect(startOutboxEvents).toHaveLength(1);
+      expect(JSON.parse(startOutboxEvents[0].payloadPreview)).toMatchObject({
+        workflowRevision: 1,
+      });
+      const startAuditEvents = auditEvents.filter(
+        (event: any) => event.eventType === "milestone.started",
+      );
+      expect(startAuditEvents).toHaveLength(1);
+      expect(JSON.parse(startAuditEvents[0].newState)).toMatchObject({
+        workflowRevision: 1,
+      });
     });
 
     const workspace = await t.query(
@@ -7488,6 +7821,7 @@ describe("production proposal foundation", () => {
     const input = {
       actualStartedAt,
       buildId: closing.buildId,
+      expectedRevision: 0,
       idempotencyKey: "framing-dependency-start-001",
       milestoneKey: "framing",
       source: "gantt" as const,
@@ -7618,6 +7952,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt,
         buildId: closing.buildId,
+        expectedRevision: 0,
         dependencyOverrideReason:
           "Roof crew mobilized while foundation closeout was pending.",
         idempotencyKey: "roofing-dependency-fallback-001",
@@ -7651,6 +7986,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: initialStart,
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "forms-parent-child-start-001",
         milestoneKey: "foundation",
         source: "submilestone_ledger",
@@ -7670,6 +8006,7 @@ describe("production proposal foundation", () => {
         {
           actualStartedAt: initialStart,
           buildId: closing.buildId,
+          expectedRevision: 0,
           idempotencyKey: "forms-parent-child-start-001",
           milestoneKey: "foundation",
           source: "submilestone_ledger",
@@ -7686,6 +8023,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: correctedStart,
         buildId: closing.buildId,
+        expectedRevision: 1,
         idempotencyKey: "forms-start-correction-001",
         milestoneKey: "foundation",
         reason: "Crew log confirmed an earlier mobilization time.",
@@ -7699,6 +8037,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: correctedStart,
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "forms-start-correction-001",
         milestoneKey: "foundation",
         reason: "Crew log confirmed an earlier mobilization time.",
@@ -7707,7 +8046,7 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    expect(firstCorrection).toMatchObject({ replayed: false });
+    expect(firstCorrection).toMatchObject({ replayed: false, revision: 2 });
     expect(correctionReplay).toEqual({
       ...firstCorrection,
       replayed: true,
@@ -7716,6 +8055,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.retractActiveBuildMilestoneStart,
       {
         buildId: closing.buildId,
+        expectedRevision: 2,
         idempotencyKey: "forms-start-retraction-001",
         milestoneKey: "foundation",
         reason: "The crew log was attached to the wrong work scope.",
@@ -7747,6 +8087,22 @@ describe("production proposal foundation", () => {
             .eq("submilestoneKey", "forms"),
         )
         .collect();
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .collect();
+      const outboxEvents = await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("relatedEntityType", "activeBuild")
+            .eq("relatedEntityId", String(closing.buildId)),
+        )
+        .collect();
       expect(milestone).toMatchObject({
         actualStartedAt: initialStart,
         status: "in_progress",
@@ -7760,6 +8116,27 @@ describe("production proposal foundation", () => {
       ]);
       expect(events[1].originalEventId).toBe(events[0]._id);
       expect(events[2].originalEventId).toBe(events[1]._id);
+      expect(
+        auditEvents
+          .filter((event: any) =>
+            ["milestone.start_corrected", "milestone.start_retracted"].includes(
+              event.eventType,
+            ),
+          )
+          .map((event: any) => JSON.parse(event.newState).workflowRevision),
+      ).toEqual([2, 3]);
+      expect(
+        outboxEvents
+          .filter((event: any) =>
+            ["milestone.start_corrected", "milestone.start_retracted"].includes(
+              event.eventType,
+            ),
+          )
+          .map(
+            (event: any) =>
+              JSON.parse(event.payloadPreview).workflowRevision,
+          ),
+      ).toEqual([2, 3]);
     });
   });
 
@@ -7773,6 +8150,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt,
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "foundation-start-before-completion-001",
         milestoneKey: "foundation",
         source: "milestone_detail",
@@ -7792,6 +8170,7 @@ describe("production proposal foundation", () => {
     const correction = {
       actualStartedAt: actualStartedAt - 60 * 60 * 1000,
       buildId: closing.buildId,
+      expectedRevision: 1,
       idempotencyKey: "foundation-post-completion-correction-001",
       milestoneKey: "foundation",
       reason: "Daily log confirmed an earlier mobilization time.",
@@ -7832,6 +8211,7 @@ describe("production proposal foundation", () => {
     const common = {
       actualStartedAt: Date.parse("2026-05-02T15:00:00.000Z"),
       buildId: closing.buildId,
+      expectedRevision: 0,
       milestoneKey: "foundation",
       reason: "Daily log correction.",
       source: "milestone_detail" as const,
@@ -7869,6 +8249,7 @@ describe("production proposal foundation", () => {
       actualStartedAt,
       buildId: closing.buildId,
       completedDay: 12,
+      expectedRevision: 0,
       idempotencyKey: "foundation-completion-catch-up-001",
       milestoneKey: "foundation",
       note: "Completion and missing actual start confirmed together.",
@@ -8189,6 +8570,458 @@ describe("production proposal foundation", () => {
     );
     expect(removedDetail.milestoneContractorAssignments).toEqual([]);
     expect(removedDetail.milestones[0].assignmentCount).toBe(0);
+
+    const assignmentHistory = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(
+            q.field("command"),
+            "assignActiveBuildContractorToMilestone",
+          ),
+        )
+        .collect(),
+    );
+    const removalHistory = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(
+            q.field("command"),
+            "removeActiveBuildContractorFromMilestone",
+          ),
+        )
+        .collect(),
+    );
+    expect(JSON.parse(assignmentHistory.at(-1)!.newState)).toMatchObject({
+      assignments: [
+        expect.objectContaining({
+          assignmentId: assignmentIds[0],
+          contractorId,
+          role: "Foundation crew",
+          status: "active",
+        }),
+      ],
+    });
+    expect(JSON.parse(removalHistory.at(-1)!.priorState)).toEqual([
+      expect.objectContaining({
+        _id: assignmentIds[0],
+        contractorId,
+        role: "Foundation crew",
+        status: "active",
+      }),
+    ]);
+    expect(JSON.parse(removalHistory.at(-1)!.newState)).toMatchObject({
+      assignments: [
+        expect.objectContaining({
+          assignmentId: assignmentIds[0],
+          contractorId,
+          status: "removed",
+        }),
+      ],
+    });
+  });
+
+  test("sub-milestone assignment and removal use canonical revisions and replay receipts", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        {
+          budgetCents: 10_000_000,
+          durationDays: 5,
+          key: "forms",
+          name: "Forms",
+          order: 1,
+        },
+      ],
+    });
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "scoped-assignment@example.com",
+        kind: "company",
+        name: "Scoped Assignment Co",
+        trades: ["concrete"],
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.linkContractorProfileToWorkosUser,
+      {
+        contractorId,
+        workosOrganizationId: ORG,
+        workosUserId: "user_scoped_assignment_contractor",
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const assignArgs = {
+      buildId: closing.buildId,
+      contractorId,
+      expectedRevision: 0,
+      idempotencyKey: "scoped-assignment-001",
+      milestoneKey: "foundation",
+      role: "Forms crew",
+      submilestoneKeys: ["forms"],
+      workosOrganizationId: ORG,
+    };
+    const assignmentIds = await builder.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      assignArgs,
+    );
+    expect(assignmentIds).toHaveLength(1);
+    const assignedTarget = await builder.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .filter((q: any) => q.eq(q.field("key"), "forms"))
+        .unique();
+      return {
+        id: submilestone._id,
+        key: submilestone.key,
+        workflowRevision: submilestone.workflowRevision ?? 0,
+      };
+    });
+    expect(assignedTarget.workflowRevision).toBe(1);
+
+    const assignmentAuditAndReceipt = await builder.run(async (ctx: any) => {
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("command"), "assignActiveBuildContractorToMilestone"),
+        )
+        .collect();
+      const receipts = await ctx.db
+        .query("buildSubmilestoneCommandReceipts")
+        .withIndex("by_submilestone_idempotency", (q: any) =>
+          q
+            .eq("buildSubmilestoneId", assignedTarget.id)
+            .eq("idempotencyKey", assignArgs.idempotencyKey),
+        )
+        .collect();
+      return {
+        audit: JSON.parse(auditEvents.at(-1)!.newState),
+        receipt: JSON.parse(receipts[0]!.resultJson),
+      };
+    });
+    expect(assignmentAuditAndReceipt.audit.workflowRevisions).toEqual({
+      forms: 1,
+    });
+    expect(assignmentAuditAndReceipt.receipt.workflowRevisions).toEqual({
+      forms: 1,
+    });
+
+    // A replay must win before stale checking. The original revision is now
+    // stale, but the committed assignment result is still returned.
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        assignArgs,
+      ),
+    ).resolves.toEqual(assignmentIds);
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        {
+          ...assignArgs,
+          role: "Different role",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|idempotency key/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        {
+          ...assignArgs,
+          expectedRevision: 0,
+          idempotencyKey: "scoped-assignment-stale-001",
+        },
+      ),
+    ).rejects.toMatchObject({
+      data: { code: "STALE_SUBMILESTONE_REVISION" },
+    });
+
+    const removeArgs = {
+      buildId: closing.buildId,
+      contractorId,
+      expectedRevision: 1,
+      idempotencyKey: "scoped-removal-001",
+      milestoneKey: "foundation",
+      reason: "Forms scope reassigned after review.",
+      submilestoneKey: "forms",
+      workosOrganizationId: ORG,
+    };
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        {
+          ...removeArgs,
+          idempotencyKey: "scoped-removal-missing-target-001",
+          submilestoneKey: "missing",
+        },
+      ),
+    ).rejects.toThrow(/SUBMILESTONE_NOT_FOUND|Submilestone is unavailable/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        removeArgs,
+      ),
+    ).resolves.toEqual(assignmentIds);
+    const removedRevision = await builder.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .filter((q: any) => q.eq(q.field("key"), "forms"))
+        .unique();
+      const assignments = await ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_submilestone", (q: any) =>
+          q
+            .eq("buildId", closing.buildId)
+            .eq("milestoneKey", "foundation")
+            .eq("submilestoneKey", "forms"),
+        )
+        .collect();
+      const deliveries = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q: any) =>
+          q
+            .eq("organizationId", ORG)
+            .eq(
+              "recipientWorkosUserId",
+              "user_scoped_assignment_contractor",
+            ),
+        )
+        .collect();
+      return {
+        id: submilestone._id,
+        key: submilestone.key,
+        assignments,
+        deliveries,
+        workflowRevision: submilestone.workflowRevision ?? 0,
+      };
+    });
+    expect(removedRevision.workflowRevision).toBe(2);
+    expect(removedRevision.assignments).toEqual([
+      expect.objectContaining({ status: "removed" }),
+    ]);
+    expect(removedRevision.deliveries).toHaveLength(2);
+
+    const removalAuditAndReceipt = await builder.run(async (ctx: any) => {
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(
+            q.field("command"),
+            "removeActiveBuildContractorFromMilestone",
+          ),
+        )
+        .collect();
+      const receipts = await ctx.db
+        .query("buildSubmilestoneCommandReceipts")
+        .withIndex("by_submilestone_idempotency", (q: any) =>
+          q
+            .eq("buildSubmilestoneId", removedRevision.id)
+            .eq("idempotencyKey", removeArgs.idempotencyKey),
+        )
+        .collect();
+      return {
+        audit: JSON.parse(auditEvents.at(-1)!.newState),
+        receipt: JSON.parse(receipts[0]!.resultJson),
+      };
+    });
+    expect(removalAuditAndReceipt.audit.submilestoneKey).toBe("forms");
+    expect(removalAuditAndReceipt.audit.workflowRevision).toBe(2);
+    expect(removalAuditAndReceipt.receipt.workflowRevisions).toEqual({
+      forms: 2,
+    });
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        removeArgs,
+      ),
+    ).resolves.toEqual(assignmentIds);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        {
+          ...removeArgs,
+          reason: "A different removal reason.",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|idempotency key/i);
+  });
+
+  test("multi-target assignment canonicalizes keys and accepts per-target revisions", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { key: "forms", name: "Forms", order: 1 },
+        { key: "waterproofing", name: "Waterproofing", order: 2 },
+      ],
+    });
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "multi-target-assignment@example.com",
+        kind: "company",
+        name: "Multi Target Assignment Co",
+        trades: ["concrete"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await builder.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId: closing.buildId,
+        contractorId,
+        expectedRevision: 0,
+        idempotencyKey: "multi-target-forms-first-001",
+        milestoneKey: "foundation",
+        role: "Forms crew",
+        submilestoneKeys: ["forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .assignActiveBuildContractorToMilestone,
+        {
+          buildId: closing.buildId,
+          contractorId,
+          expectedRevision: 1,
+          idempotencyKey: "multi-target-assignment-scalar-001",
+          milestoneKey: "foundation",
+          role: "Foundation crew",
+          submilestoneKeys: ["waterproofing", "forms"],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/EXPECTED_REVISION_MAP_REQUIRED|revision map/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .assignActiveBuildContractorToMilestone,
+        {
+          buildId: closing.buildId,
+          contractorId,
+          expectedRevisions: { forms: 1 },
+          idempotencyKey: "multi-target-assignment-missing-001",
+          milestoneKey: "foundation",
+          role: "Foundation crew",
+          submilestoneKeys: ["waterproofing", "forms"],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/EXPECTED_REVISION_MAP_REQUIRED|revision map/i);
+    const assignmentIds = await builder.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId: closing.buildId,
+        contractorId,
+        expectedRevisions: { forms: 1, waterproofing: 0 },
+        idempotencyKey: "multi-target-assignment-001",
+        milestoneKey: "foundation",
+        role: "Foundation crew",
+        submilestoneKeys: ["waterproofing", "forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(assignmentIds).toHaveLength(2);
+    const revisions = await builder.run(async (ctx: any) => {
+      const rows = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .collect();
+      return Object.fromEntries(
+        rows.map((row: any) => [row.key, row.workflowRevision ?? 0]),
+      );
+    });
+    expect(revisions).toMatchObject({ forms: 2, waterproofing: 1 });
+
+    const multiTargetAuditAndReceipts = await builder.run(async (ctx: any) => {
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("command"), "assignActiveBuildContractorToMilestone"),
+        )
+        .collect();
+      const receipts = await ctx.db
+        .query("buildSubmilestoneCommandReceipts")
+        .filter((q: any) =>
+          q.and(
+            q.eq(q.field("buildId"), closing.buildId),
+            q.eq(q.field("idempotencyKey"), "multi-target-assignment-001"),
+          ),
+        )
+        .collect();
+      return {
+        audit: JSON.parse(auditEvents.at(-1)!.newState),
+        receipts: receipts.map((receipt: any) => JSON.parse(receipt.resultJson)),
+      };
+    });
+    expect(Object.keys(multiTargetAuditAndReceipts.audit.workflowRevisions)).toEqual([
+      "forms",
+      "waterproofing",
+    ]);
+    expect(multiTargetAuditAndReceipts.audit.workflowRevisions).toEqual({
+      forms: 2,
+      waterproofing: 1,
+    });
+    expect(multiTargetAuditAndReceipts.receipts).toHaveLength(2);
+    for (const receipt of multiTargetAuditAndReceipts.receipts) {
+      expect(receipt.workflowRevisions).toEqual({ forms: 2, waterproofing: 1 });
+    }
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        {
+          buildId: closing.buildId,
+          contractorId,
+          expectedRevisions: { waterproofing: 99, forms: 99 },
+          idempotencyKey: "multi-target-assignment-001",
+          milestoneKey: "foundation",
+          role: "Foundation crew",
+          submilestoneKeys: ["forms", "waterproofing"],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toEqual(assignmentIds);
   });
 
   test("atomic active-build attach and invite projects an invited lifecycle state", async () => {
@@ -9101,6 +9934,136 @@ describe("production proposal foundation", () => {
     expect(sortedByBudget.page.length).toBeLessThanOrEqual(15);
   });
 
+  test("keeps filtered roster pagination cursor-safe across nonmatching builds", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const matchingBuild = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Cursor-safe matching build",
+    });
+    const nonMatchingBuild = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Cursor-safe nonmatching build",
+    });
+
+    await t.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.patch(matchingBuild.buildId, { updatedAt: now - 1_000 });
+      await ctx.db.patch(nonMatchingBuild.buildId, {
+        status: "future_start",
+        updatedAt: now,
+      });
+    });
+
+    const queryArgs = {
+      paginationOpts: { cursor: null, numItems: 1 },
+      sortBy: "updatedAt",
+      sortDirection: "desc",
+      workosOrganizationId: ORG,
+    } as const;
+    const firstSearchPage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      { ...queryArgs, search: "cursor-safe matching" },
+    );
+
+    expect(firstSearchPage.page).toEqual([]);
+    expect(firstSearchPage.isDone).toBe(false);
+    expect(firstSearchPage.continueCursor).not.toBe("");
+
+    const secondSearchPage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        ...queryArgs,
+        paginationOpts: {
+          cursor: firstSearchPage.continueCursor,
+          numItems: 1,
+        },
+        search: "cursor-safe matching",
+      },
+    );
+
+    expect(secondSearchPage.page.map((row: any) => row.buildId)).toEqual([
+      matchingBuild.buildId,
+    ]);
+    expect(secondSearchPage.isDone).toBe(true);
+    const matchingPhase = secondSearchPage.page[0].phase;
+
+    const firstPhasePage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      { ...queryArgs, phase: matchingPhase },
+    );
+    expect(firstPhasePage.page).toEqual([]);
+    expect(firstPhasePage.isDone).toBe(false);
+    expect(firstPhasePage.continueCursor).not.toBe("");
+
+    const secondPhasePage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        ...queryArgs,
+        paginationOpts: {
+          cursor: firstPhasePage.continueCursor,
+          numItems: 1,
+        },
+        phase: matchingPhase,
+      },
+    );
+
+    expect(secondPhasePage.page.map((row: any) => row.buildId)).toEqual([
+      matchingBuild.buildId,
+    ]);
+    expect(secondPhasePage.isDone).toBe(true);
+  });
+
+  test("summarizes every active build across multiple source batches", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const additionalBuildCount = 51;
+    await t.run(async (ctx: any) => {
+      const source = await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage", (query: any) =>
+          query.eq("brokerageId", seed.brokerageId),
+        )
+        .first();
+      if (!source) {
+        throw new Error("Expected the seeded active build source row.");
+      }
+
+      const {
+        _creationTime: _sourceCreationTime,
+        _id: _sourceId,
+        ...sourceFields
+      } = source;
+      for (let index = 0; index < additionalBuildCount; index += 1) {
+        await ctx.db.insert("activeBuilds", {
+          ...sourceFields,
+          buildName: `Summary batch build ${index + 1}`,
+          updatedAt: source.updatedAt + index + 1,
+        });
+      }
+    });
+
+    const expectedBuildCount = await t.run(async (ctx: any) => {
+      const builds = await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage", (query: any) =>
+          query.eq("brokerageId", seed.brokerageId),
+        )
+        .collect();
+      return builds.filter((build: any) => build.organizationId === ORG).length;
+    });
+    expect(expectedBuildCount).toBeGreaterThan(50);
+
+    const summary = await t.query(
+      (api as any).production_proposals.getBackofficeBuildRosterSummary,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(summary.total).toBe(expectedBuildCount);
+  });
+
   test("admin sees every brokerage build regardless of their own builder assignment", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const secondBuilderProfileId = await t.run(async (ctx: any) => {
@@ -9464,6 +10427,7 @@ describe("production proposal foundation", () => {
         {
           actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
           buildId,
+          expectedRevision: 0,
           idempotencyKey: `dashboard-submilestone-${submilestoneKey}`,
           milestoneKey: "foundation",
           status: "complete",
@@ -9479,6 +10443,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId,
         completedDay: 30,
+        expectedRevision: 1,
         idempotencyKey: "dashboard-milestone-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
@@ -9543,6 +10508,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "draw-availability-completion-001",
         milestoneKey: "foundation",
         note: "Foundation complete below approved budget.",
@@ -9599,6 +10565,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "draw-approval-completion-001",
         milestoneKey: "foundation",
         note: "Foundation complete below approved budget.",
@@ -9725,6 +10692,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "staff-review-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for lender review.",
@@ -9857,6 +10825,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "change-request-completion-001",
         milestoneKey: "foundation",
         note: "Signed report attached.",
@@ -11825,6 +12794,7 @@ describe("recipient delivery inbox", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "delivery-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
@@ -11869,6 +12839,7 @@ describe("recipient delivery inbox", () => {
         actualCostCents: 30_000_000,
         buildId: closing.buildId,
         completedDay: 21,
+        expectedRevision: 2,
         idempotencyKey: "delivery-completion-resubmit-002",
         milestoneKey: "foundation",
         note: "Footing photos added for review.",

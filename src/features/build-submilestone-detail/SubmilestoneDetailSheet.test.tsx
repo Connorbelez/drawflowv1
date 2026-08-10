@@ -15,6 +15,7 @@ import { useState } from "react";
 const useQuery = vi.fn();
 
 vi.mock("convex/react", () => ({
+  useMutation: () => vi.fn().mockResolvedValue({}),
   useQuery: (reference: unknown, args: unknown) => useQuery(reference, args),
 }));
 
@@ -51,6 +52,7 @@ function makeBootstrap(
       currentRevision: 4,
       originatingPostId: "post-01",
     },
+    collaboration: { state: "available" },
     evidence: {
       evidenceReviewState: "not_ready",
       itemCount: 0,
@@ -134,6 +136,24 @@ beforeEach(() => {
   bootstrap = makeBootstrap();
   collectionByName = {
     collaboration_comments: makeCollection("collaboration_comments"),
+    evidence_requirements: makeCollection("evidence_requirements", {
+      page: [
+        {
+          id: "requirement-01",
+          kind: "photo",
+          required: true,
+          requirementKey: "forms-photo",
+          title: "Forms photo",
+        },
+        {
+          id: "requirement-02",
+          kind: "document",
+          required: true,
+          requirementKey: "forms-document",
+          title: "Forms document",
+        },
+      ],
+    }),
     evidence_assets: makeCollection("evidence_assets"),
     materials: makeCollection("materials"),
     people_assignments: makeCollection("people_assignments"),
@@ -263,6 +283,30 @@ describe("SubmilestoneDetailSheet", () => {
       screen.getByRole("tab", { name: "Materials" }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByTestId("submilestone-materials-collection")).toBeTruthy();
+  });
+
+  test("keeps canonical tabs readable when the companion is degraded", () => {
+    bootstrap = makeBootstrap({
+      collaboration: {
+        code: "COMPANION_MISSING",
+        message: "Collaboration is unavailable.",
+        state: "degraded",
+      },
+      companion: undefined,
+    });
+    renderSheet({ selectedTab: "materials" });
+
+    expect(screen.getByTestId("submilestone-materials-collection")).toBeTruthy();
+    const materialQuery = [...useQuery.mock.calls]
+      .map(([, args]) => args)
+      .find(
+        (args) =>
+          typeof args === "object" &&
+          args !== null &&
+          "collection" in args &&
+          args.collection === "materials",
+      );
+    expect(materialQuery).toMatchObject({ companionActionItemId: undefined });
   });
 
   test("shows loading, revoked, integrity, and superseded states", () => {
@@ -443,7 +487,7 @@ describe("SubmilestoneDetailSheet", () => {
       expect(screen.getByTestId("submilestone-evidence-collection")).toBeTruthy(),
     );
     expect(onSelectedTabChange).toHaveBeenCalledWith("evidence");
-    expect(screen.getByText("Partial projection · More available")).toBeTruthy();
+    expect(screen.getByText("More records are available.")).toBeTruthy();
     expect(screen.getByText("Location unverified")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Load more Evidence" }),

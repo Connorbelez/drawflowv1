@@ -51,6 +51,7 @@ const sheetData: MilestoneSheetData = {
       ],
       startDate: "2026-08-04",
       status: "planned",
+      workflowRevision: 7,
     },
     {
       assignments: [],
@@ -66,6 +67,7 @@ const sheetData: MilestoneSheetData = {
       siteVisits: [],
       startDate: "2026-08-09",
       status: "complete",
+      workflowRevision: 11,
     },
   ],
 };
@@ -139,6 +141,8 @@ describe("MilestoneDetailSheet", () => {
 
     await waitFor(() =>
       expect(onUpdateSubmilestone).toHaveBeenCalledWith({
+        expectedRevision: 7,
+        idempotencyKey: expect.any(String),
         milestoneKey: "foundation",
         status: "complete",
         submilestoneKey: "forms",
@@ -221,6 +225,101 @@ describe("MilestoneDetailSheet", () => {
       "foundation",
       "forms",
       "guided_field_workflow"
+    );
+  });
+
+  test("uses the exact workflow revision and reuses the lifecycle key after a completion retry", async () => {
+    let attempts = 0;
+    const onUpdateSubmilestone = vi.fn().mockImplementation(() => {
+      attempts += 1;
+      return attempts === 1
+        ? Promise.reject(new Error("temporary network failure"))
+        : Promise.resolve(undefined);
+    });
+
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        onClose={vi.fn()}
+        onUpdateSubmilestone={onUpdateSubmilestone}
+      />,
+    );
+
+    const markComplete = screen.getByRole("button", { name: "Mark complete" });
+    fireEvent.click(markComplete);
+    await waitFor(() => expect(onUpdateSubmilestone).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(markComplete);
+    await waitFor(() => expect(onUpdateSubmilestone).toHaveBeenCalledTimes(2));
+
+    const firstInput = onUpdateSubmilestone.mock.calls[0][0];
+    const retryInput = onUpdateSubmilestone.mock.calls[1][0];
+    expect(firstInput).toMatchObject({
+      expectedRevision: 7,
+      milestoneKey: "foundation",
+      status: "complete",
+      submilestoneKey: "forms",
+    });
+    expect(retryInput).toMatchObject({
+      expectedRevision: 7,
+      milestoneKey: "foundation",
+      status: "complete",
+      submilestoneKey: "forms",
+    });
+    expect(firstInput.idempotencyKey).toEqual(retryInput.idempotencyKey);
+    expect(firstInput.idempotencyKey).toEqual(expect.any(String));
+  });
+
+  test("completes an in-progress submilestone directly with its revision and lifecycle key", async () => {
+    const onUpdateSubmilestone = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MilestoneDetailSheet
+        data={{
+          ...sheetData,
+          submilestones: [
+            {
+              ...sheetData.submilestones![0],
+              actualStartedAt: Date.parse("2026-08-05T12:00:00Z"),
+              status: "in_progress",
+              workflowRevision: 23,
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+        onUpdateSubmilestone={onUpdateSubmilestone}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    await waitFor(() =>
+      expect(onUpdateSubmilestone).toHaveBeenCalledWith({
+        expectedRevision: 23,
+        idempotencyKey: expect.any(String),
+        milestoneKey: "foundation",
+        status: "complete",
+        submilestoneKey: "forms",
+      }),
+    );
+  });
+
+  test("fails closed when the canonical workflow revision is unavailable", async () => {
+    const onUpdateSubmilestone = vi.fn().mockResolvedValue(undefined);
+    const withoutRevision = sheetData.submilestones!.map(
+      ({ workflowRevision: _workflowRevision, ...row }) => row,
+    );
+
+    render(
+      <MilestoneDetailSheet
+        data={{ ...sheetData, submilestones: withoutRevision }}
+        onClose={vi.fn()}
+        onUpdateSubmilestone={onUpdateSubmilestone}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    expect(onUpdateSubmilestone).not.toHaveBeenCalled();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "canonical workflow revision is unavailable",
     );
   });
 });

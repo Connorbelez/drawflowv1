@@ -335,6 +335,63 @@ const workItemValidator = v.object({
   nextActionDueDay: v.union(v.number(), v.null()),
 });
 
+const contractorBuildDetailAssignmentValidator = v.object({
+  acknowledgement: v.any(),
+  actualCostCents: v.union(v.number(), v.null()),
+  actualHours: v.union(v.number(), v.null()),
+  actualStartedAt: v.union(v.number(), v.null()),
+  agreedRateCents: v.union(v.number(), v.null()),
+  agreedRateUnit: v.union(v.string(), v.null()),
+  assignmentId: v.id("milestoneContractorAssignments"),
+  buildSubmilestoneId: v.union(v.id("buildSubmilestones"), v.null()),
+  costDocumentCaptureEligible: v.boolean(),
+  dependencyBlockers: v.array(
+    v.object({
+      milestoneKey: v.optional(v.string()),
+      milestoneName: v.optional(v.string()),
+      status: v.optional(v.string()),
+    }),
+  ),
+  estimatedCostCents: v.union(v.number(), v.null()),
+  estimatedHours: v.union(v.number(), v.null()),
+  milestoneKey: v.string(),
+  milestoneName: v.string(),
+  note: v.union(v.string(), v.null()),
+  plannedEndDay: v.union(v.number(), v.null()),
+  plannedStartDay: v.union(v.number(), v.null()),
+  role: v.string(),
+  startReportedAt: v.union(v.number(), v.null()),
+  status: v.string(),
+  submilestoneKey: v.union(v.string(), v.null()),
+  submilestoneName: v.union(v.string(), v.null()),
+  workflowRevision: v.union(v.number(), v.null()),
+  workStatus: v.union(v.string(), v.null()),
+});
+
+const contractorBuildDetailValidator = v.object({
+  assignedScope: v.array(contractorBuildDetailAssignmentValidator),
+  availability: v.optional(
+    v.object({
+      message: v.string(),
+      reference: v.string(),
+      state: v.literal("assignment_unavailable"),
+    }),
+  ),
+  build: v.union(
+    v.object({
+      _id: v.id("activeBuilds"),
+      buildName: v.string(),
+      location: v.string(),
+      organizationId: v.string(),
+      startDate: v.string(),
+      status: v.string(),
+    }),
+    v.null(),
+  ),
+  builderContact: v.any(),
+  permitDocuments: v.array(v.any()),
+});
+
 // ---------------------------------------------------------------------------
 // getContractorWorkspaceSummary (PRD §8.2 dashboard rollup)
 // ---------------------------------------------------------------------------
@@ -683,7 +740,7 @@ export const getContractorProposalDetail = contractorRoleQuery
 
 export const getContractorBuildDetail = contractorRoleQuery
   .input({ buildId: v.id("activeBuilds") })
-  .returns(v.any())
+  .returns(contractorBuildDetailValidator)
   .handler(async (ctx, args) => {
     const contractor = ctx.contractorProfile;
     const build = await ctx.db.get(args.buildId);
@@ -857,6 +914,9 @@ export const getContractorBuildDetail = contractorRoleQuery
           note: assignment.note ?? null,
           plannedStartDay: milestone?.dayStart ?? null,
           plannedEndDay: milestone?.dayEnd ?? null,
+          workflowRevision: submilestone
+            ? (submilestone.workflowRevision ?? 0)
+            : null,
         };
       }),
       permitDocuments,
@@ -869,6 +929,7 @@ export const startAssignedSubmilestone = contractorRoleMutation
   .input({
     actualStartedAt: v.number(),
     buildId: v.id("activeBuilds"),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     source: v.union(
@@ -951,6 +1012,7 @@ export const startAssignedSubmilestone = contractorRoleMutation
       },
       actualStartedAt: args.actualStartedAt,
       build,
+      expectedRevision: args.expectedRevision,
       idempotencyKey: args.idempotencyKey,
       milestone,
       milestones,

@@ -1123,6 +1123,7 @@ describe("Build Collaboration operational events", () => {
     const startArgs = {
       actualStartedAt: Date.parse("2026-08-03T12:00:00.000Z"),
       buildId: fixture.buildId,
+      expectedRevision: 0,
       idempotencyKey: "eng-407-foundation-start-001",
       milestoneKey: "foundation",
       source: "milestone_detail" as const,
@@ -1260,7 +1261,9 @@ describe("Build Collaboration operational events", () => {
           postId: systemPosts[0]!._id,
         },
       ),
-    ).resolves.toEqual({ state: "revoked" });
+    ).resolves.toMatchObject({
+      state: "revoked",
+    });
     const auditEvents = await fixture.base.run(async (ctx) =>
       ctx.db
         .query("auditEvents")
@@ -1470,6 +1473,68 @@ describe("Build Collaboration operational events", () => {
         updatedAt: now,
         updatedByWorkosUserId: "user_builder",
       });
+      await ctx.db.insert("buildSubmilestoneEvidenceRequirements", {
+        active: true,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        buildMilestoneId: latentPost.canonicalBuildMilestoneId,
+        buildSubmilestoneId: submilestoneId,
+        createdAt: now,
+        createdByWorkosUserId: "user_builder",
+        description: "Progress photo from the active work area.",
+        kind: "photo",
+        label: "Progress photo",
+        locationRequired: true,
+        milestoneKey: "framing",
+        organizationId: ORGANIZATION_ID,
+        proposalId: fixture.proposalId,
+        required: true,
+        requirementKey: "progress-photo",
+        revision: 1,
+        submilestoneKey: "frame-walls",
+        updatedAt: now,
+      });
+      await ctx.db.insert("buildSubmilestoneEvidenceRequirements", {
+        active: true,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        buildMilestoneId: latentPost.canonicalBuildMilestoneId,
+        buildSubmilestoneId: submilestoneId,
+        createdAt: now,
+        createdByWorkosUserId: "user_builder",
+        kind: "document",
+        label: "Delivery ticket",
+        locationRequired: false,
+        milestoneKey: "framing",
+        organizationId: ORGANIZATION_ID,
+        proposalId: fixture.proposalId,
+        required: false,
+        requirementKey: "delivery-ticket",
+        revision: 1,
+        submilestoneKey: "frame-walls",
+        updatedAt: now,
+      });
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        brokerageId: fixture.brokerageId,
+        command: "assignActiveBuildContractorToMilestone",
+        createdAt: now + 2,
+        entityId: String(fixture.buildId),
+        entityType: "activeBuild",
+        eventType: "active_build.contractor.milestone_assignment_created",
+        newState: JSON.stringify({
+          assignmentIds: [assignment._id],
+          contractorId: assignment.contractorId,
+          milestoneKey: "framing",
+          role: assignment.role,
+          status: assignment.status,
+          submilestoneKeys: ["frame-walls"],
+        }),
+        organizationId: ORGANIZATION_ID,
+        priorState: undefined,
+        warnings: [],
+      });
       const matchingMaterialId = await ctx.db.insert("buildCostItems", {
         brokerageId: fixture.brokerageId,
         budgetSubmilestoneKey: "frame-walls",
@@ -1483,11 +1548,28 @@ describe("Build Collaboration operational events", () => {
         milestoneKey: "framing",
         organizationId: ORGANIZATION_ID,
         proposalId: fixture.proposalId,
-        quantity: 1,
+        quantity: 2,
         relevantSubmilestoneKeys: ["frame-walls"],
+        supplier: "Northstar Supply",
+        budgetTreatment: "add",
+        description: "Framing package",
         title: "Frame walls material",
         updatedAt: now + 1,
         updatedByWorkosUserId: "user_builder",
+      });
+      await ctx.db.insert("contractorProfiles", {
+        brokerageId: fixture.brokerageId,
+        city: "Hamilton",
+        createdAt: now + 1,
+        defaultPayRateCents: 32_000,
+        defaultPayRateUnit: "day",
+        email: "candidate@example.com",
+        name: "Candidate contractor",
+        onboardingStatus: "invited",
+        organizationId: ORGANIZATION_ID,
+        status: "active",
+        trades: ["framing"],
+        updatedAt: now + 1,
       });
       return {
         commentIds,
@@ -1507,6 +1589,9 @@ describe("Build Collaboration operational events", () => {
       },
     );
     expect(builderBootstrap).toMatchObject({
+      build: {
+        startDate: "2026-07-28",
+      },
       companion: {
         actionItemId: companion._id,
         currentRevision: 17,
@@ -1524,8 +1609,11 @@ describe("Build Collaboration operational events", () => {
     expect(builderBootstrap).toMatchObject({
       capabilities: {
         canonical: {
+          complete: { allowed: true },
           start: { allowed: true },
-          updateExecution: { allowed: true },
+          updateEvidence: { allowed: false },
+          updateExecution: { allowed: false },
+          uploadEvidence: { allowed: false },
         },
         collaboration: {
           comment: { allowed: true },
@@ -1544,7 +1632,56 @@ describe("Build Collaboration operational events", () => {
     expect(builderBootstrap).not.toHaveProperty("activity");
     expect(builderBootstrap).not.toHaveProperty("revisionHistory");
     expect(builderBootstrap).not.toHaveProperty("evidenceRequirements");
-    expect(builderBootstrap).not.toHaveProperty("materials");
+    expect(builderBootstrap.materials).toMatchObject({
+      equipmentCount: expect.any(Number),
+      materialCount: expect.any(Number),
+      totalBudgetCents: 4_000,
+    });
+    expect(builderBootstrap.people).toMatchObject({
+      availableContractors: expect.arrayContaining([
+        expect.objectContaining({
+          defaultPayRateCents: 32_000,
+          defaultPayRateUnit: "day",
+          name: "Candidate contractor",
+          onboardingStatus: "invited",
+          trades: ["framing"],
+        }),
+        expect.objectContaining({
+          name: "Assigned contractor",
+          onboardingStatus: "account_linked",
+          trades: ["concrete"],
+        }),
+      ]),
+      participants: expect.arrayContaining([
+        expect.objectContaining({
+          displayName: "Builder",
+          redacted: false,
+          role: "builder",
+          source: "grant",
+          workosUserId: "user_builder",
+        }),
+      ]),
+      participantsPartial: false,
+    });
+    expect(builderBootstrap.evidence).toMatchObject({
+      requirementCount: 2,
+      requirements: [
+        expect.objectContaining({
+          kind: "photo",
+          label: "Progress photo",
+          locationRequired: true,
+          requirementKey: "progress-photo",
+          status: "active",
+        }),
+        expect.objectContaining({
+          kind: "document",
+          label: "Delivery ticket",
+          locationRequired: false,
+          requirementKey: "delivery-ticket",
+          status: "active",
+        }),
+      ],
+    });
     const materialGapPage = await fixture.builder.query(
       (api as any).build_submilestone_workspace
         .getBuildSubmilestoneWorkspaceCollection,
@@ -1558,33 +1695,75 @@ describe("Build Collaboration operational events", () => {
     );
     expect(materialGapPage).toMatchObject({
       collection: "materials",
-      hasMore: true,
-      nextCursor: expect.any(String),
-      page: [],
-      state: "visible",
-    });
-    if (materialGapPage.state !== "visible") {
-      throw new Error("Expected the first Materials collection page.");
-    }
-    const materialMatchPage = await fixture.builder.query(
-      (api as any).build_submilestone_workspace
-        .getBuildSubmilestoneWorkspaceCollection,
-      {
-        buildId: fixture.buildId,
-        buildSubmilestoneId: submilestoneId,
-        collection: "materials",
-        cursor: materialGapPage.nextCursor,
-        limit: 1,
-        organizationId: ORGANIZATION_ID,
-      },
-    );
-    expect(materialMatchPage).toMatchObject({
       hasMore: false,
       page: [
         expect.objectContaining({
           id: matchingMaterialId,
           kind: "material",
+          budgetSubmilestoneKey: "frame-walls",
+          budgetTreatment: "add",
+          costCents: 2_000,
+          description: "Framing package",
+          itemKey: "frame-walls-material",
+          itemType: "material",
+          milestoneKey: "framing",
+          quantity: 2,
+          relevantSubmilestoneKeys: ["frame-walls"],
+          supplier: "Northstar Supply",
           title: "Frame walls material",
+          totalCents: 4_000,
+        }),
+      ],
+      state: "visible",
+    });
+    const evidenceRequirementsPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "evidence_requirements",
+        limit: 10,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(evidenceRequirementsPage).toMatchObject({
+      hasMore: false,
+      page: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "photo",
+          locationRequired: true,
+          requirementKey: "progress-photo",
+          title: "Progress photo",
+        }),
+        expect.objectContaining({
+          kind: "document",
+          locationRequired: false,
+          requirementKey: "delivery-ticket",
+          title: "Delivery ticket",
+        }),
+      ]),
+      state: "visible",
+    });
+    const peopleHistoryPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "people_history",
+        limit: 10,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(peopleHistoryPage).toMatchObject({
+      hasMore: false,
+      page: [
+        expect.objectContaining({
+          historyType:
+            "active_build.contractor.milestone_assignment_created",
+          kind: "assignment_history",
+          status: "active",
         }),
       ],
       state: "visible",
@@ -1642,6 +1821,138 @@ describe("Build Collaboration operational events", () => {
     if (commentsPageTwo.state === "visible") {
       expect(commentsPageTwo.page).toHaveLength(5);
     }
+
+    // Bootstrap and offset collections expose an explicit bounded/partial
+    // contract. The raw source may contain unrelated sibling materials or
+    // audit rows, so exercise the pre-filter truncation signal as well as the
+    // collection-specific cursor envelope.
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const assignment = (
+        await ctx.db.query("milestoneContractorAssignments").collect()
+      ).find((candidate) => candidate.buildId === fixture.buildId);
+      if (!assignment) {
+        throw new Error("Expected the assigned Contractor fixture.");
+      }
+      for (let index = 0; index < 501; index += 1) {
+        await ctx.db.insert("buildCostItems", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          buildMilestoneId: latentPost.canonicalBuildMilestoneId,
+          costCents: 1,
+          createdAt: now + index,
+          createdByWorkosUserId: "user_builder",
+          itemKey: `bounded-overflow-material-${index}`,
+          itemType: "material",
+          milestoneKey: "framing",
+          organizationId: ORGANIZATION_ID,
+          proposalId: fixture.proposalId,
+          quantity: 1,
+          relevantSubmilestoneKeys: ["other-submilestone"],
+          title: `Bounded overflow material ${index}`,
+          updatedAt: now + index,
+          updatedByWorkosUserId: "user_builder",
+        });
+        await ctx.db.insert("auditEvents", {
+          actorRoles: ["builder"],
+          actorWorkosUserId: "user_builder",
+          brokerageId: fixture.brokerageId,
+          command: "assignActiveBuildContractorToMilestone",
+          createdAt: now + index,
+          entityId: String(fixture.buildId),
+          entityType: "activeBuild",
+          eventType:
+            "active_build.contractor.milestone_assignment_updated",
+          newState: JSON.stringify({
+            assignmentIds: [assignment._id],
+            contractorId: assignment.contractorId,
+            milestoneKey: "framing",
+            role: assignment.role,
+            status: assignment.status,
+            submilestoneKeys: ["frame-walls"],
+          }),
+          organizationId: ORGANIZATION_ID,
+          priorState: undefined,
+          warnings: [],
+        });
+      }
+    });
+    const boundedBootstrap = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(boundedBootstrap).toMatchObject({
+      materials: { partial: true },
+      people: { historyCount: 501, historyPartial: true },
+    });
+    expect(boundedBootstrap.materials).not.toHaveProperty("equipmentCount");
+    expect(boundedBootstrap.materials).not.toHaveProperty("materialCount");
+    expect(boundedBootstrap.materials).not.toHaveProperty("totalBudgetCents");
+
+    const boundedHistoryPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "people_history",
+        limit: 10,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(boundedHistoryPage).toMatchObject({
+      collection: "people_history",
+      hasMore: true,
+      nextCursor: expect.stringMatching(
+        /^ws1\|history\|people_history\|/,
+      ),
+      partial: true,
+      state: "visible",
+    });
+    expect(boundedHistoryPage.page).toHaveLength(10);
+
+    expect(commentsPageOne.nextCursor).toEqual(
+      expect.stringMatching(/^ws1\|indexed\|collaboration_comments\|/),
+    );
+    const offsetIntoIndexed = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "collaboration_comments",
+        cursor: boundedHistoryPage.nextCursor,
+        limit: 10,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(offsetIntoIndexed).toEqual({
+      code: "WORKSPACE_CURSOR_MISMATCH",
+      message: "The workspace cursor belongs to a different collection.",
+      state: "integrity_error",
+    });
+    const indexedIntoOffset = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "materials",
+        cursor: commentsPageOne.nextCursor,
+        limit: 10,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(indexedIntoOffset).toEqual({
+      code: "WORKSPACE_CURSOR_MISMATCH",
+      message: "The workspace cursor belongs to a different collection.",
+      state: "integrity_error",
+    });
     await expect(
       fixture.admin.query(
         (api as any).build_submilestone_workspace
@@ -1679,19 +1990,22 @@ describe("Build Collaboration operational events", () => {
       persona: "broker",
       state: "visible",
     });
-    await expect(
-      fixture.assignedContractor.query(
-        (api as any).build_submilestone_workspace
-          .getBuildSubmilestoneWorkspaceBootstrap,
-        {
-          buildId: fixture.buildId,
-          buildSubmilestoneId: submilestoneId,
-          organizationId: ORGANIZATION_ID,
-        },
-      ),
-    ).resolves.toMatchObject({
+    const assignedContractorBootstrap = await fixture.assignedContractor.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(assignedContractorBootstrap).toMatchObject({
       capabilities: {
-        canonical: { updateExecution: { allowed: true } },
+        canonical: {
+          complete: { allowed: true },
+          start: { allowed: true },
+          updateExecution: { allowed: false },
+        },
         collaboration: {
           comment: { allowed: true },
           toggleChecklist: {
@@ -1703,6 +2017,242 @@ describe("Build Collaboration operational events", () => {
       },
       persona: "contractor",
       state: "visible",
+    });
+    expect(assignedContractorBootstrap.overview.executionOwnership).not.toHaveProperty(
+      "contractorId",
+    );
+    expect(assignedContractorBootstrap.overview.executionOwnership).not.toHaveProperty(
+      "contractorName",
+    );
+    expect(assignedContractorBootstrap.people.availableContractors).toEqual(
+      [],
+    );
+    expect(
+      assignedContractorBootstrap.people.participants.every(
+        (participant: { redacted?: boolean }) => participant.redacted === true,
+      ),
+    ).toBe(true);
+    expect(
+      assignedContractorBootstrap.people.participants.every(
+        (participant: { workosUserId?: string }) =>
+          !Object.prototype.hasOwnProperty.call(participant, "workosUserId"),
+      ),
+    ).toBe(true);
+    const contractorPeoplePage = await fixture.assignedContractor.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        collection: "people_assignments",
+        limit: 10,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(contractorPeoplePage.page).toEqual([
+      expect.objectContaining({
+        kind: "contractor_assignment",
+        title: expect.any(String),
+      }),
+    ]);
+    expect(contractorPeoplePage.page[0]).not.toHaveProperty("contractorId");
+    expect(contractorPeoplePage.page[0]).not.toHaveProperty("displayName");
+    expect(contractorPeoplePage.page[0]).not.toHaveProperty("email");
+
+    // Capability projections follow the canonical lifecycle, while the
+    // legacy execution mutation still supports the explicit planned -> start
+    // -> complete catch-up path.
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(submilestoneId, {
+        actualStartedAt: Date.parse("2026-08-03T14:00:00.000Z"),
+        status: "in_progress",
+        updatedAt: Date.now(),
+        workflowRevision: 8,
+      });
+    });
+    const inProgressBuilderBootstrap = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(inProgressBuilderBootstrap).toMatchObject({
+      capabilities: {
+        canonical: {
+          complete: { allowed: true },
+          correctStart: { allowed: true },
+          retractStart: { allowed: true },
+          reopen: { allowed: false },
+          start: { allowed: false },
+          updateEvidence: { allowed: true },
+          updateExecution: { allowed: true },
+          uploadEvidence: { allowed: true },
+        },
+      },
+    });
+    const inProgressContractorBootstrap = await fixture.assignedContractor.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(inProgressContractorBootstrap).toMatchObject({
+      capabilities: {
+        canonical: {
+          complete: { allowed: true },
+          updateEvidence: { allowed: true },
+          updateExecution: { allowed: true },
+          uploadEvidence: { allowed: true },
+        },
+      },
+    });
+
+    await fixture.assignedContractor.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+      {
+        actualCostCents: 1_234,
+        buildId: fixture.buildId,
+        expectedRevision: 8,
+        fieldNote: "Assigned Contractor field completion note.",
+        idempotencyKey: "eng-428-assigned-contractor-complete-001",
+        milestoneKey: "framing",
+        reason: "Assigned Contractor completed the field work.",
+        status: "complete",
+        submilestoneKey: "frame-walls",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const completeContractorBootstrap = await fixture.assignedContractor.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(completeContractorBootstrap).toMatchObject({
+      capabilities: {
+        canonical: {
+          complete: { allowed: false },
+          reopen: { allowed: true },
+          start: { allowed: false },
+          updateEvidence: { allowed: false },
+          updateExecution: { allowed: false },
+          uploadEvidence: { allowed: false },
+        },
+      },
+      execution: {
+        actualStartedAt: Date.parse("2026-08-03T14:00:00.000Z"),
+      },
+      submilestone: { status: "complete" },
+    });
+    await fixture.assignedContractor.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 9,
+        idempotencyKey: "eng-428-assigned-contractor-reopen-001",
+        milestoneKey: "framing",
+        reason: "Assigned Contractor reopened the work for a correction.",
+        status: "in_progress",
+        submilestoneKey: "frame-walls",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const reopenedContractorBootstrap = await fixture.assignedContractor.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(reopenedContractorBootstrap).toMatchObject({
+      capabilities: {
+        canonical: {
+          complete: { allowed: true },
+          reopen: { allowed: false },
+          updateExecution: { allowed: true },
+        },
+      },
+      submilestone: { status: "in_progress" },
+    });
+    const reopenedRevision = await fixture.base.run(async (ctx) => {
+      const row = await ctx.db.get(
+        submilestoneId as Id<"buildSubmilestones">,
+      );
+      return row?.workflowRevision ?? 0;
+    });
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: reopenedRevision,
+          idempotencyKey: "eng-428-unassigned-contractor-complete-001",
+          milestoneKey: "framing",
+          reason: "Unassigned Contractor must be denied.",
+          status: "complete",
+          submilestoneKey: "frame-walls",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/assignment|required|operate|permission/i);
+    await expect(
+      fixture.broker.mutation(
+        (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: reopenedRevision,
+          idempotencyKey: "eng-428-lender-complete-denied-001",
+          milestoneKey: "framing",
+          reason: "Lender review roles cannot execute Builder work.",
+          status: "complete",
+          submilestoneKey: "frame-walls",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/lender|review|operate|forbidden/i);
+    await expect(
+      fixture.homeowner.mutation(
+        (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: reopenedRevision,
+          idempotencyKey: "eng-428-homeowner-complete-denied-001",
+          milestoneKey: "framing",
+          reason: "Homeowner is read-only on execution commands.",
+          status: "complete",
+          submilestoneKey: "frame-walls",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/forbidden|permission|scope/i);
+
+    // Restore the fixture's planned state for the remainder of this
+    // operational-events test, which exercises the separate canonical start
+    // and planning-revision flows.
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(submilestoneId, {
+        actualStartedAt: undefined,
+        completedAt: undefined,
+        completedByWorkosUserId: undefined,
+        status: "planned",
+        updatedAt: Date.now(),
+        workflowRevision: 7,
+      });
+      await ctx.db.patch(fixture.milestoneId, {
+        progressPercent: 75,
+        updatedAt: Date.now(),
+      });
     });
     await expect(
       fixture.builder.query(
@@ -1716,8 +2266,11 @@ describe("Build Collaboration operational events", () => {
         },
       ),
     ).resolves.toMatchObject({
-      code: "COMPANION_ID_MISMATCH",
-      state: "integrity_error",
+      collaboration: {
+        code: "COMPANION_ID_MISMATCH",
+        state: "degraded",
+      },
+      state: "visible",
     });
     await expect(
       fixture.builder.query(
@@ -1748,17 +2301,34 @@ describe("Build Collaboration operational events", () => {
         },
       ),
     ).resolves.toEqual({ state: "revoked" });
-    await expect(
-      fixture.homeowner.query(
-        (api as any).build_submilestone_workspace
-          .getBuildSubmilestoneWorkspaceBootstrap,
-        {
-          buildId: fixture.buildId,
-          buildSubmilestoneId: submilestoneId,
-          organizationId: ORGANIZATION_ID,
-        },
+    const homeownerBootstrap = await fixture.homeowner.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: submilestoneId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(homeownerBootstrap).toMatchObject({
+      persona: "homeowner",
+      state: "visible",
+      people: {
+        assigned: expect.any(Number),
+      },
+    });
+    expect(homeownerBootstrap.overview.executionOwnership).not.toHaveProperty(
+      "contractorId",
+    );
+    expect(homeownerBootstrap.overview.executionOwnership).not.toHaveProperty(
+      "contractorName",
+    );
+    expect(homeownerBootstrap.people.availableContractors).toEqual([]);
+    expect(
+      homeownerBootstrap.people.participants.every(
+        (participant: { redacted?: boolean }) => participant.redacted === true,
       ),
-    ).resolves.toEqual({ state: "revoked" });
+    ).toBe(true);
     await expect(
       fixture.builder.query(
         (api as any).build_submilestone_workspace
@@ -1855,6 +2425,7 @@ describe("Build Collaboration operational events", () => {
       {
         actualStartedAt: Date.parse("2026-08-03T14:00:00.000Z"),
         buildId: fixture.buildId,
+        expectedRevision: 0,
         idempotencyKey: "eng-423-framing-start-001",
         milestoneKey: "framing",
         source: "milestone_detail",
@@ -1907,6 +2478,7 @@ describe("Build Collaboration operational events", () => {
       {
         actualStartedAt: Date.parse("2026-08-03T14:00:00.000Z"),
         buildId: fixture.buildId,
+        expectedRevision: 0,
         idempotencyKey: "eng-423-framing-start-001",
         milestoneKey: "framing",
         source: "milestone_detail",
@@ -2017,6 +2589,175 @@ describe("Build Collaboration operational events", () => {
     ).not.toBe(companion?._id);
   });
 
+  test("keeps people history pagination stable across inserts and ignores invalid contractor IDs", async () => {
+    const fixture = await seedOperationalBuild();
+    const source = await createCompanionCutoverMilestone(
+      fixture,
+      "history-pagination",
+    );
+    const assignment = await fixture.base.run(async (ctx) => {
+      const assignment = await ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .first();
+      if (!assignment) {
+        throw new Error("Expected the operational Contractor assignment.");
+      }
+      await ctx.db.patch(assignment._id, {
+        buildMilestoneId: source.milestone._id,
+        buildSubmilestoneId: source.submilestone._id,
+        milestoneKey: source.milestone.key,
+        submilestoneKey: source.submilestone.key,
+      });
+      return assignment;
+    });
+
+    const eventIds = await fixture.base.run(async (ctx) => {
+      const ids = [];
+      for (let index = 0; index < 4; index += 1) {
+        ids.push(
+          await ctx.db.insert("auditEvents", {
+            actorRoles: ["builder"],
+            actorWorkosUserId: "user_builder",
+            brokerageId: fixture.brokerageId,
+            command: "assignActiveBuildContractorToMilestone",
+            createdAt: 1_000 + index,
+            entityId: String(fixture.buildId),
+            entityType: "activeBuild",
+            eventType:
+              "active_build.contractor.milestone_assignment_updated",
+            newState: JSON.stringify({
+              assignmentIds: [assignment._id],
+              contractorId: assignment.contractorId,
+              milestoneKey: source.milestone.key,
+              role: assignment.role,
+              status: assignment.status,
+              submilestoneKeys: [source.submilestone.key],
+            }),
+            organizationId: ORGANIZATION_ID,
+            priorState: undefined,
+            warnings: [],
+          }),
+        );
+      }
+      return ids;
+    });
+
+    const firstPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: source.submilestone._id,
+        collection: "people_history",
+        limit: 2,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(firstPage).toMatchObject({
+      hasMore: true,
+      nextCursor: expect.stringMatching(/^ws1\|history\|people_history\|/),
+      state: "visible",
+    });
+    if (firstPage.state !== "visible" || !firstPage.nextCursor) {
+      throw new Error("Expected a paginated people history page.");
+    }
+    expect(firstPage.page.map((row: { id: string }) => row.id)).toEqual([
+      eventIds[3],
+      eventIds[2],
+    ]);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        brokerageId: fixture.brokerageId,
+        command: "assignActiveBuildContractorToMilestone",
+        createdAt: 2_000,
+        entityId: String(fixture.buildId),
+        entityType: "activeBuild",
+        eventType: "active_build.contractor.milestone_assignment_updated",
+        newState: JSON.stringify({
+          assignmentIds: [assignment._id],
+          contractorId: assignment.contractorId,
+          milestoneKey: source.milestone.key,
+          role: assignment.role,
+          status: assignment.status,
+          submilestoneKeys: [source.submilestone.key],
+        }),
+        organizationId: ORGANIZATION_ID,
+        priorState: undefined,
+        warnings: [],
+      });
+    });
+    const secondPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: source.submilestone._id,
+        collection: "people_history",
+        cursor: firstPage.nextCursor,
+        limit: 2,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(secondPage).toMatchObject({
+      hasMore: false,
+      page: [
+        expect.objectContaining({ id: eventIds[1] }),
+        expect.objectContaining({ id: eventIds[0] }),
+      ],
+      state: "visible",
+    });
+    expect(secondPage.page.map((row: { id: string }) => row.id)).not.toEqual(
+      expect.arrayContaining(
+        firstPage.page.map((row: { id: string }) => row.id),
+      ),
+    );
+
+    const invalidEventId = await fixture.base.run(async (ctx) =>
+      ctx.db.insert("auditEvents", {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        brokerageId: fixture.brokerageId,
+        command: "assignActiveBuildContractorToMilestone",
+        createdAt: 3_000,
+        entityId: String(fixture.buildId),
+        entityType: "activeBuild",
+        eventType: "active_build.contractor.milestone_assignment_updated",
+        newState: JSON.stringify({
+          assignmentIds: [assignment._id],
+          contractorId: "not-a-convex-contractor-id",
+          milestoneKey: source.milestone.key,
+          role: assignment.role,
+          status: assignment.status,
+          submilestoneKeys: [source.submilestone.key],
+        }),
+        organizationId: ORGANIZATION_ID,
+        priorState: undefined,
+        warnings: [],
+      }),
+    );
+    const invalidIdPage = await fixture.builder.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceCollection,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: source.submilestone._id,
+        collection: "people_history",
+        limit: 1,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(invalidIdPage).toMatchObject({
+      hasMore: true,
+      page: [expect.objectContaining({ id: invalidEventId })],
+      state: "visible",
+    });
+    expect(invalidIdPage.page[0]).not.toHaveProperty("contractorId");
+  });
+
   test("fails closed for malformed and duplicate canonical companion bindings", async () => {
     const fixture = await seedOperationalBuild();
     await fixture.admin.mutation(
@@ -2091,6 +2832,7 @@ describe("Build Collaboration operational events", () => {
         {
           actualStartedAt: Date.parse("2026-08-03T15:00:00.000Z"),
           buildId: fixture.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng-423-duplicate-binding-start-001",
           milestoneKey: "rough-in",
           source: "milestone_detail",
@@ -2655,6 +3397,7 @@ describe("Build Collaboration operational events", () => {
       {
         actualStartedAt: Date.parse("2026-08-03T13:00:00.000Z"),
         buildId: fixture.buildId,
+        expectedRevision: 0,
         idempotencyKey: "eng-407-legacy-zero-child-start-001",
         milestoneKey: "foundation",
         source: "milestone_detail",
@@ -3322,6 +4065,7 @@ describe("Build Collaboration operational events", () => {
       actualStartedAt: Date.now() - 86_400_000,
       buildId: fixture.buildId,
       completedDay: 20,
+      expectedRevision: 0,
       idempotencyKey: "foundation-completion-v1",
       milestoneKey: "foundation",
       note: "Foundation work is ready for lender review.",
@@ -4774,6 +5518,7 @@ describe("Build Collaboration operational events", () => {
       {
         actualStartedAt: Date.parse("2026-08-03T12:00:00.000Z"),
         buildId: fixture.buildId,
+        expectedRevision: 0,
         idempotencyKey: "eng-412-plan-start-001",
         milestoneKey: "foundation",
         source: "milestone_detail",
@@ -4786,6 +5531,7 @@ describe("Build Collaboration operational events", () => {
       {
         actualStartedAt: Date.parse("2026-08-03T12:01:00.000Z"),
         buildId: fixture.buildId,
+        expectedRevision: 0,
         idempotencyKey: "eng-412-child-start-001",
         milestoneKey: "foundation",
         source: "submilestone_detail",
@@ -4977,6 +5723,7 @@ describe("Build Collaboration operational events", () => {
         {
           actualStartedAt: Date.parse("2026-08-03T12:05:00.000Z"),
           buildId: fixture.buildId,
+          expectedRevision: 0,
           idempotencyKey: "eng-412-superseded-start-001",
           milestoneKey: "foundation",
           source: "submilestone_detail",
@@ -4996,6 +5743,7 @@ describe("Build Collaboration operational events", () => {
             requirementKey: "missing-requirement",
             sizeBytes: 100,
           },
+          expectedRevision: 0,
           idempotencyKey: "eng-412-superseded-evidence-001",
           milestoneKey: "foundation",
           submilestoneKey: "foundation-1",

@@ -563,6 +563,8 @@ describe("contractors v1", () => {
         costNotes: "Finished under expected crew hours.",
         contractorId,
         estimatedHours: 48,
+        expectedRevision: 0,
+        idempotencyKey: "contractors-v1-forms-assignment-001",
         milestoneKey: "foundation",
         note: "Backfilled from superintendent logs.",
         postHoc: true,

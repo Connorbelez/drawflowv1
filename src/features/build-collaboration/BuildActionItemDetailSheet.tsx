@@ -684,8 +684,9 @@ function VisibleActionItemDetail({
   >("idle");
   const [definitionReason, setDefinitionReason] = useState("");
   const [commentHtml, setCommentHtml] = useState("");
-  const [commentDocument, setCommentDocument] =
-    useState<JSONContent>(emptyDocument());
+  const [commentDocument, setCommentDocument] = useState<JSONContent>(
+    emptyDocument(),
+  );
   const [commentReferences, setCommentReferences] = useState<
     CollaborationTagReference[]
   >([]);
@@ -715,6 +716,12 @@ function VisibleActionItemDetail({
 
   const canonicalPresentation = detail.item.systemPresentation;
   const canonicalStartCommand = canonicalPresentation?.startCommand;
+  const canonicalStartRevision = canonicalPresentation?.workflowRevision;
+  const canonicalStartRevisionAvailable =
+    typeof canonicalStartRevision === "number" &&
+    Number.isFinite(canonicalStartRevision);
+  const [canonicalStartRevisionError, setCanonicalStartRevisionError] =
+    useState<string | null>(null);
   const canonicalProgressValue = canonicalPresentation?.progressPercent ?? 0;
   const canonicalForecastValue =
     canonicalPresentation?.completionForecastDate ?? "";
@@ -1034,10 +1041,18 @@ function VisibleActionItemDetail({
     if (!command?.allowed || readOnly) {
       return;
     }
+    if (!canonicalStartRevisionAvailable) {
+      setCanonicalStartRevisionError(
+        "Refresh this Action Item before starting; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
+    setCanonicalStartRevisionError(null);
     setCanonicalStartRequest({
       action: "start",
       buildName: command.buildName,
       dependencyBlockers: command.dependencyBlockers,
+      expectedRevision: canonicalStartRevision,
       milestoneKey: command.milestoneKey,
       milestoneName: command.milestoneName,
       plannedStartDate: command.plannedStartDate,
@@ -1050,13 +1065,20 @@ function VisibleActionItemDetail({
   };
 
   const confirmCanonicalStart = async (input: MilestoneStartConfirmation) => {
-    if (input.action !== "start" || input.actualStartedAt === undefined) {
-      throw new Error("An actual start is required.");
+    if (
+      input.action !== "start" ||
+      input.actualStartedAt === undefined ||
+      input.expectedRevision === undefined
+    ) {
+      throw new Error(
+        "Refresh this Action Item before starting; the canonical workflow revision is unavailable.",
+      );
     }
     await startCanonicalMilestone({
       actualStartedAt: input.actualStartedAt,
       buildId,
       dependencyOverrideReason: input.dependencyOverrideReason,
+      expectedRevision: input.expectedRevision,
       idempotencyKey: input.idempotencyKey,
       milestoneKey: input.milestoneKey,
       source: input.source,
@@ -1069,6 +1091,15 @@ function VisibleActionItemDetail({
 
   const updateCanonicalExecution = async () => {
     if (!canonicalStartCommand || readOnly) {
+      return;
+    }
+    if (
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
+    ) {
+      toast.error(
+        "Refresh this Action Item before updating execution; the canonical workflow revision is unavailable.",
+      );
       return;
     }
     const actualCostInput = canonicalActualCost.trim();
@@ -1089,7 +1120,7 @@ function VisibleActionItemDetail({
         buildId,
         completionForecastDate: canonicalForecast.trim() || undefined,
         fieldNote: canonicalFieldNote.trim() || undefined,
-        expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         idempotencyKey: canonicalCommandKey("progress"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         progressPercent: canonicalProgress,
@@ -1112,6 +1143,15 @@ function VisibleActionItemDetail({
     file,
   }: EvidenceUploaderUploadInput) => {
     if (!(canonicalStartCommand && file) || readOnly) {
+      return;
+    }
+    if (
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
+    ) {
+      toast.error(
+        "Refresh this Action Item before adding evidence; the canonical workflow revision is unavailable.",
+      );
       return;
     }
     setCanonicalEvidenceBusy(true);
@@ -1150,7 +1190,7 @@ function VisibleActionItemDetail({
           sizeBytes: uploadFile.size,
           storageId: uploadResult.storageId,
         },
-        expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         idempotencyKey: canonicalCommandKey("evidence"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         submilestoneKey: canonicalStartCommand.submilestoneKey,
@@ -1177,11 +1217,20 @@ function VisibleActionItemDetail({
     ) {
       return;
     }
+    if (
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
+    ) {
+      toast.error(
+        "Refresh this Action Item before freezing evidence; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
     setCanonicalEvidenceBusy(true);
     try {
       await freezeCanonicalEvidencePackage({
         buildId,
-        expectedRevision: canonicalPresentation.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         milestoneKey: canonicalStartCommand.milestoneKey,
         packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
         submilestoneKey: canonicalStartCommand.submilestoneKey,
@@ -1206,7 +1255,9 @@ function VisibleActionItemDetail({
         canonicalPresentation?.evidencePackageRevisionId
       ) ||
       canonicalPresentation.evidencePackageRevision === undefined ||
-      readOnly
+      readOnly ||
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
     ) {
       return;
     }
@@ -1217,7 +1268,7 @@ function VisibleActionItemDetail({
         completionNote: canonicalCompletionNote.trim() || undefined,
         declareComplete: true,
         expectedPackageRevision: canonicalPresentation.evidencePackageRevision,
-        expectedRevision: canonicalPresentation.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         idempotencyKey: canonicalCommandKey("completion-review"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
@@ -1246,10 +1297,9 @@ function VisibleActionItemDetail({
     : null;
   const canonicalReviewRevision =
     canonicalPresentation?.reviewRevision ??
-    canonicalPresentation?.workflowRevision ??
-    0;
+    canonicalPresentation?.workflowRevision;
   const canonicalMilestoneReviewRevision =
-    canonicalPresentation?.milestoneReviewRevision ?? 0;
+    canonicalPresentation?.milestoneReviewRevision;
   const runCanonicalReviewCommand = async (
     commandScope: string,
     command: () => Promise<unknown>,
@@ -1272,6 +1322,12 @@ function VisibleActionItemDetail({
   };
   const recommendCanonicalReviewCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before recording review; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     void runCanonicalReviewCommand(
       "review-recommendation",
       () =>
@@ -1291,6 +1347,12 @@ function VisibleActionItemDetail({
   };
   const requestCanonicalChangesCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before requesting changes; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     const reason = canonicalReviewReason.trim();
     if (!reason) {
       toast.error("Changes requested reason is required.");
@@ -1314,6 +1376,12 @@ function VisibleActionItemDetail({
   };
   const waiveCanonicalSiteVisitCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before waiving the Site Visit; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     const reason = canonicalReviewReason.trim();
     if (!reason) {
       toast.error("Site Visit waiver reason is required.");
@@ -1337,6 +1405,12 @@ function VisibleActionItemDetail({
   };
   const approveCanonicalSubmilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before approving; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     void runCanonicalReviewCommand(
       "review-child-approval",
       () =>
@@ -1355,6 +1429,12 @@ function VisibleActionItemDetail({
   };
   const retractCanonicalSubmilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before retracting approval; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     const reason = canonicalReviewReason.trim();
     if (!reason) {
       toast.error("Child approval retraction reason is required.");
@@ -1378,6 +1458,12 @@ function VisibleActionItemDetail({
   };
   const approveCanonicalMilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalMilestoneReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before approving the parent; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     void runCanonicalReviewCommand(
       "review-milestone-approval",
       () =>
@@ -1395,6 +1481,12 @@ function VisibleActionItemDetail({
   };
   const retractCanonicalMilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalMilestoneReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before retracting parent approval; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     const reason = canonicalReviewReason.trim();
     if (!reason) {
       toast.error("Parent approval retraction reason is required.");
@@ -1466,6 +1558,7 @@ function VisibleActionItemDetail({
         {detail.item.systemMode === "generated_milestone_submilestone" ? (
           <CanonicalMilestoneActionItemFacts
             actualCost={canonicalActualCost}
+            canonicalStartRevisionError={canonicalStartRevisionError}
             completionNote={canonicalCompletionNote}
             detail={detail}
             evidenceBusy={canonicalEvidenceBusy}
@@ -1801,6 +1894,7 @@ function VisibleActionItemDetail({
 
 function CanonicalMilestoneActionItemFacts({
   actualCost,
+  canonicalStartRevisionError,
   onApproveMilestone,
   onApproveSubmilestone,
   completionNote,
@@ -1835,6 +1929,7 @@ function CanonicalMilestoneActionItemFacts({
   onReviewSiteVisitRequiredChange,
 }: {
   actualCost: string;
+  canonicalStartRevisionError: string | null;
   onApproveMilestone: () => void;
   onApproveSubmilestone: () => void;
   completionNote: string;
@@ -1876,6 +1971,11 @@ function CanonicalMilestoneActionItemFacts({
   const submilestoneReference = detail.references.find(
     (reference) => reference.entityKind === "submilestone",
   );
+  const canonicalStartRevision =
+    detail.item.systemPresentation?.workflowRevision;
+  const canonicalStartRevisionAvailable =
+    typeof canonicalStartRevision === "number" &&
+    Number.isFinite(canonicalStartRevision);
   return (
     <Frame className="border-dashed bg-muted/20" size="sm">
       <FramePanel className="space-y-2 p-3">
@@ -1920,13 +2020,30 @@ function CanonicalMilestoneActionItemFacts({
               : ""}
           </p>
         ) : null}
-        {detail.item.systemPresentation?.startCommand?.allowed && !readOnly ? (
+        {detail.item.systemPresentation?.startCommand?.allowed &&
+        !readOnly &&
+        canonicalStartRevisionAvailable ? (
           <Button onClick={onStart} size="sm" type="button">
             <Play aria-hidden="true" className="size-4" />
             Start work
           </Button>
         ) : null}
-        {detail.item.systemPresentation?.canUpdateExecution && !readOnly ? (
+        {detail.item.systemPresentation?.startCommand?.allowed &&
+        !readOnly &&
+        !canonicalStartRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before starting; canonical workflow
+            revision is unavailable.
+          </p>
+        ) : null}
+        {canonicalStartRevisionError ? (
+          <p className="text-destructive-text text-xs" role="alert">
+            {canonicalStartRevisionError}
+          </p>
+        ) : null}
+        {detail.item.systemPresentation?.canUpdateExecution &&
+        !readOnly &&
+        canonicalStartRevisionAvailable ? (
           <CanonicalFieldExecutionPanel
             actualCost={actualCost}
             evidenceBusy={evidenceBusy}
@@ -1940,7 +2057,17 @@ function CanonicalMilestoneActionItemFacts({
             progress={progress}
           />
         ) : null}
-        {detail.item.systemPresentation?.canAddEvidence && !readOnly ? (
+        {detail.item.systemPresentation?.canUpdateExecution &&
+        !readOnly &&
+        !canonicalStartRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before updating execution; canonical
+            workflow revision is unavailable.
+          </p>
+        ) : null}
+        {detail.item.systemPresentation?.canAddEvidence &&
+        !readOnly &&
+        canonicalStartRevisionAvailable ? (
           <CanonicalEvidencePackagePanel
             completionNote={completionNote}
             detail={detail}
@@ -1950,6 +2077,14 @@ function CanonicalMilestoneActionItemFacts({
             onSubmitReview={onSubmitReview}
             onUploadEvidence={onUploadEvidence}
           />
+        ) : null}
+        {detail.item.systemPresentation?.canAddEvidence &&
+        !readOnly &&
+        !canonicalStartRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before adding evidence; canonical workflow
+            revision is unavailable.
+          </p>
         ) : null}
         <CanonicalReviewLifecyclePanel
           detail={detail}
@@ -2244,8 +2379,12 @@ function CanonicalReviewLifecyclePanel({
 }) {
   const presentation = detail.item.systemPresentation;
   if (!presentation) return null;
+  const canonicalRevisionAvailable =
+    typeof presentation.workflowRevision === "number" &&
+    Number.isFinite(presentation.workflowRevision);
   const canEditReview =
     !readOnly &&
+    canonicalRevisionAvailable &&
     (presentation.canRecommendReview === true ||
       presentation.canRequestChanges === true ||
       presentation.canApproveSubmilestone === true ||
@@ -2461,6 +2600,12 @@ function CanonicalReviewLifecyclePanel({
               ) : null}
             </div>
           </div>
+        ) : null}
+        {!readOnly && !canonicalRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before recording review; canonical workflow
+            revision is unavailable.
+          </p>
         ) : null}
         <div className="space-y-2">
           <div className="flex items-center gap-2 font-medium text-xs">

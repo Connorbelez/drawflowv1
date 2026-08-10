@@ -1,4 +1,5 @@
 import {
+  type PaginationOptions,
   paginationOptsValidator,
   paginationResultValidator,
 } from "convex/server";
@@ -853,6 +854,12 @@ const productionBuildCostItemUpdateInput = {
   title: v.optional(v.string()),
   unit: v.optional(v.string()),
 };
+
+const activeBuildCostItemScopedMutationResult = v.object({
+  itemId: v.id("buildCostItems"),
+  replayed: v.boolean(),
+  revision: v.number(),
+});
 
 export const dev_seedProductionFoundation = authenticatedMutation
   .input({ workosOrganizationId: v.string() })
@@ -3542,9 +3549,12 @@ export const createActiveBuildCostItem = authenticatedMutation
   .input({
     ...productionCostItemCreateInput,
     buildId: v.id("activeBuilds"),
+    expectedRevision: v.optional(v.number()),
+    idempotencyKey: v.optional(v.string()),
+    submilestoneKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
-  .returns(v.id("buildCostItems"))
+  .returns(v.union(v.id("buildCostItems"), activeBuildCostItemScopedMutationResult))
   .handler(async (ctx, args) => {
     const auth = await authorizeActiveBuildCostItemWrite(
       ctx,
@@ -3559,11 +3569,56 @@ export const createActiveBuildCostItem = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    const canonicalSubmilestoneKey = canonicalOptionalSubmilestoneKey(
+      args.submilestoneKey,
+    );
+    const scopedSubmilestone = canonicalSubmilestoneKey !== undefined
+      ? await activeBuildMaterialTarget(ctx, {
+          buildId: args.buildId,
+          milestone,
+          submilestoneKey: canonicalSubmilestoneKey,
+        })
+      : undefined;
+    const scopedMaterialCommand = scopedSubmilestone !== undefined;
+    const scopedIdempotencyKey = scopedMaterialCommand
+      ? requireScopedMaterialCommandInput(args)
+      : undefined;
+    const command = "createActiveBuildCostItem";
+    const fingerprint = scopedMaterialCommand
+      ? await canonicalCommandFingerprint(command, {
+          ...args,
+          relevantSubmilestoneKeys: canonicalStringKeyList(
+            args.relevantSubmilestoneKeys,
+          ),
+          submilestoneKey: scopedSubmilestone.key,
+        })
+      : undefined;
+    if (scopedMaterialCommand) {
+      const existing = await findSubmilestoneIdempotentAudit(ctx, {
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: scopedIdempotencyKey!,
+        submilestoneId: scopedSubmilestone._id,
+      });
+      if (existing) {
+        return materialScopedMutationReplay(existing);
+      }
+      assertExpectedSubmilestoneRevision(
+        scopedSubmilestone,
+        args.expectedRevision!,
+      );
+    }
     const relevantSubmilestoneKeys = await validateBuildCostItemSubmilestones(
       ctx,
       milestone,
       args.relevantSubmilestoneKeys,
     );
+    const scopedRelevantSubmilestoneKeys = scopedSubmilestone
+      ? canonicalStringKeyList([
+          ...relevantSubmilestoneKeys,
+          scopedSubmilestone.key,
+        ])
+      : relevantSubmilestoneKeys;
     if (
       (args.budgetTreatment !== undefined && args.budgetTreatment !== "add") ||
       normalizeCostItemBudgetSubmilestoneKey(args.budgetSubmilestoneKey)
@@ -3600,7 +3655,7 @@ export const createActiveBuildCostItem = authenticatedMutation
       organizationId: args.workosOrganizationId,
       proposalId: auth.proposal._id,
       quantity,
-      relevantSubmilestoneKeys,
+      relevantSubmilestoneKeys: scopedRelevantSubmilestoneKeys,
       specificationTiptapJson: normalizeOptionalTiptapJson(
         args.specificationTiptapJson,
         "Material specification",
@@ -3612,6 +3667,15 @@ export const createActiveBuildCostItem = authenticatedMutation
       updatedByWorkosUserId: auth.subject,
     };
     const itemId = await ctx.db.insert("buildCostItems", item);
+    const nextRevision = scopedSubmilestone
+      ? (scopedSubmilestone.workflowRevision ?? 0) + 1
+      : undefined;
+    if (scopedSubmilestone && nextRevision !== undefined) {
+      await ctx.db.patch(scopedSubmilestone._id, {
+        updatedAt: now,
+        workflowRevision: nextRevision,
+      });
+    }
     await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
       buildId: args.buildId,
       deltaCents: budgetTreatment === "add" ? costItemTotalCents(item) : 0,
@@ -3621,11 +3685,37 @@ export const createActiveBuildCostItem = authenticatedMutation
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
-      command: "createActiveBuildCostItem",
+      command,
       eventType: "active_build.cost_item.created",
-      newState: JSON.stringify({ ...item, _id: itemId }),
+      newState: JSON.stringify({
+        ...item,
+        _id: itemId,
+        ...(nextRevision === undefined
+          ? {}
+          : {
+              submilestoneKey: scopedSubmilestone?.key,
+              workflowRevision: nextRevision,
+            }),
+      }),
       reason: args.reason,
     });
+    if (scopedSubmilestone && nextRevision !== undefined) {
+      const result = {
+        itemId,
+        replayed: false,
+        revision: nextRevision,
+      };
+      await insertSubmilestoneCommandReceipt(ctx, {
+        buildId: args.buildId,
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: scopedIdempotencyKey!,
+        organizationId: auth.build.organizationId,
+        result,
+        submilestoneId: scopedSubmilestone._id,
+      });
+      return result;
+    }
     return itemId;
   })
   .public();
@@ -3634,9 +3724,12 @@ export const updateActiveBuildCostItem = authenticatedMutation
   .input({
     ...productionBuildCostItemUpdateInput,
     buildId: v.id("activeBuilds"),
+    expectedRevision: v.optional(v.number()),
+    idempotencyKey: v.optional(v.string()),
+    submilestoneKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
-  .returns(v.null())
+  .returns(v.union(v.null(), activeBuildCostItemScopedMutationResult))
   .handler(async (ctx, args) => {
     const auth = await authorizeActiveBuildCostItemWrite(
       ctx,
@@ -3658,6 +3751,53 @@ export const updateActiveBuildCostItem = authenticatedMutation
       throw new Error("Production active-build milestone not found.");
     }
     const milestoneChanged = milestone._id !== item.buildMilestoneId;
+    const canonicalSubmilestoneKey = canonicalOptionalSubmilestoneKey(
+      args.submilestoneKey,
+    );
+    const scopedSubmilestone = canonicalSubmilestoneKey !== undefined
+      ? await activeBuildMaterialTarget(ctx, {
+          buildId: args.buildId,
+          milestone,
+          submilestoneKey: canonicalSubmilestoneKey,
+        })
+      : undefined;
+    if (scopedSubmilestone && item && item.milestoneKey !== milestone.key) {
+      throw new ConvexError({
+        code: "MATERIAL_SCOPE_MISMATCH",
+        message:
+          "The material does not belong to the requested canonical Milestone scope.",
+      });
+    }
+    const scopedMaterialCommand = scopedSubmilestone !== undefined;
+    const scopedIdempotencyKey = scopedMaterialCommand
+      ? requireScopedMaterialCommandInput(args)
+      : undefined;
+    const command = "updateActiveBuildCostItem";
+    const fingerprint = scopedMaterialCommand
+      ? await canonicalCommandFingerprint(command, {
+          ...args,
+          relevantSubmilestoneKeys:
+            args.relevantSubmilestoneKeys === undefined
+              ? undefined
+              : canonicalStringKeyList(args.relevantSubmilestoneKeys),
+          submilestoneKey: scopedSubmilestone.key,
+        })
+      : undefined;
+    if (scopedMaterialCommand) {
+      const existing = await findSubmilestoneIdempotentAudit(ctx, {
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: scopedIdempotencyKey!,
+        submilestoneId: scopedSubmilestone._id,
+      });
+      if (existing) {
+        return materialScopedMutationReplay(existing);
+      }
+      assertExpectedSubmilestoneRevision(
+        scopedSubmilestone,
+        args.expectedRevision!,
+      );
+    }
     const relevantSubmilestoneKeys =
       args.relevantSubmilestoneKeys === undefined && !milestoneChanged
         ? item.relevantSubmilestoneKeys
@@ -3666,6 +3806,12 @@ export const updateActiveBuildCostItem = authenticatedMutation
             milestone,
             args.relevantSubmilestoneKeys ?? [],
           );
+    const scopedRelevantSubmilestoneKeys = scopedSubmilestone
+      ? canonicalStringKeyList([
+          ...relevantSubmilestoneKeys,
+          scopedSubmilestone.key,
+        ])
+      : relevantSubmilestoneKeys;
     const budgetTreatment = normalizeCostItemBudgetTreatment(
       item.budgetTreatment,
     );
@@ -3739,7 +3885,7 @@ export const updateActiveBuildCostItem = authenticatedMutation
       ...(args.quantity === undefined
         ? {}
         : { quantity: normalizeCostItemQuantity(args.quantity) }),
-      relevantSubmilestoneKeys,
+      relevantSubmilestoneKeys: scopedRelevantSubmilestoneKeys,
       ...(args.supplier === undefined
         ? {}
         : { supplier: normalizeOptionalText(args.supplier) }),
@@ -3824,15 +3970,49 @@ export const updateActiveBuildCostItem = authenticatedMutation
         submilestoneKey: budgetSubmilestoneKey,
       });
     }
+    const nextRevision = scopedSubmilestone
+      ? (scopedSubmilestone.workflowRevision ?? 0) + 1
+      : undefined;
+    if (scopedSubmilestone && nextRevision !== undefined) {
+      await ctx.db.patch(scopedSubmilestone._id, {
+        updatedAt: now,
+        workflowRevision: nextRevision,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
-      command: "updateActiveBuildCostItem",
+      command,
       eventType: "active_build.cost_item.updated",
-      newState: JSON.stringify(nextItem),
+      newState: JSON.stringify({
+        ...nextItem,
+        ...(nextRevision === undefined
+          ? {}
+          : {
+              submilestoneKey: scopedSubmilestone?.key,
+              workflowRevision: nextRevision,
+            }),
+      }),
       priorState: JSON.stringify(item),
       reason: args.reason,
     });
+    if (scopedSubmilestone && nextRevision !== undefined) {
+      const result = {
+        itemId: item._id,
+        replayed: false,
+        revision: nextRevision,
+      };
+      await insertSubmilestoneCommandReceipt(ctx, {
+        buildId: args.buildId,
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: scopedIdempotencyKey!,
+        organizationId: auth.build.organizationId,
+        result,
+        submilestoneId: scopedSubmilestone._id,
+      });
+      return result;
+    }
     return null;
   })
   .public();
@@ -3841,10 +4021,14 @@ export const deleteActiveBuildCostItem = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     itemId: v.id("buildCostItems"),
+    expectedRevision: v.optional(v.number()),
+    idempotencyKey: v.optional(v.string()),
+    milestoneKey: v.optional(v.string()),
     reason: v.optional(v.string()),
+    submilestoneKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
-  .returns(v.null())
+  .returns(v.union(v.null(), activeBuildCostItemScopedMutationResult))
   .handler(async (ctx, args) => {
     const auth = await authorizeActiveBuildCostItemWrite(
       ctx,
@@ -3853,10 +4037,81 @@ export const deleteActiveBuildCostItem = authenticatedMutation
       "delete",
       args.reason,
     );
-    const item = await getBuildCostItemOrThrow(ctx, args.buildId, args.itemId);
-    const milestone = await ctx.db.get(item.buildMilestoneId);
+    const canonicalSubmilestoneKey = canonicalOptionalSubmilestoneKey(
+      args.submilestoneKey,
+    );
+    const scopedMilestoneKey = args.milestoneKey?.trim();
+    if (canonicalSubmilestoneKey !== undefined && !scopedMilestoneKey) {
+      throw new ConvexError({
+        code: "MILESTONE_KEY_REQUIRED",
+        message:
+          "A non-empty Milestone key is required for a scoped material command.",
+      });
+    }
+    let item =
+      canonicalSubmilestoneKey !== undefined
+        ? undefined
+        : await getBuildCostItemOrThrow(ctx, args.buildId, args.itemId);
+    const milestone = item
+      ? await ctx.db.get(item.buildMilestoneId)
+      : await getActiveBuildMilestoneOrThrow(
+          ctx,
+          args.buildId,
+          scopedMilestoneKey ?? args.milestoneKey!,
+        );
     if (!milestone) {
       throw new Error("Production active-build milestone not found.");
+    }
+    const scopedSubmilestone = canonicalSubmilestoneKey !== undefined
+      ? await activeBuildMaterialTarget(ctx, {
+          buildId: args.buildId,
+          milestone,
+          submilestoneKey: canonicalSubmilestoneKey,
+        })
+      : undefined;
+    if (scopedSubmilestone && item && item.milestoneKey !== milestone.key) {
+      throw new ConvexError({
+        code: "MATERIAL_SCOPE_MISMATCH",
+        message:
+          "The material does not belong to the requested canonical Milestone scope.",
+      });
+    }
+    const scopedMaterialCommand = scopedSubmilestone !== undefined;
+    const scopedIdempotencyKey = scopedMaterialCommand
+      ? requireScopedMaterialCommandInput(args)
+      : undefined;
+    const command = "deleteActiveBuildCostItem";
+    const fingerprint = scopedMaterialCommand
+      ? await canonicalCommandFingerprint(command, {
+          ...args,
+          milestoneKey: milestone.key,
+          submilestoneKey: scopedSubmilestone.key,
+        })
+      : undefined;
+    if (scopedMaterialCommand) {
+      const existing = await findSubmilestoneIdempotentAudit(ctx, {
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: scopedIdempotencyKey!,
+        submilestoneId: scopedSubmilestone._id,
+      });
+      if (existing) {
+        return materialScopedMutationReplay(existing);
+      }
+      assertExpectedSubmilestoneRevision(
+        scopedSubmilestone,
+        args.expectedRevision!,
+      );
+    }
+    if (!item) {
+      item = await getBuildCostItemOrThrow(ctx, args.buildId, args.itemId);
+    }
+    if (item.milestoneKey !== milestone.key) {
+      throw new ConvexError({
+        code: "MATERIAL_SCOPE_MISMATCH",
+        message:
+          "The material does not belong to the requested canonical Milestone scope.",
+      });
     }
     await ctx.db.delete(item._id);
     await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
@@ -3864,18 +4119,58 @@ export const deleteActiveBuildCostItem = authenticatedMutation
       deltaCents:
         normalizeCostItemBudgetTreatment(item.budgetTreatment) === "add"
           ? -costItemTotalCents(item)
-          : 0,
+        : 0,
       milestone,
       submilestoneKey: item.budgetSubmilestoneKey,
     });
+    const nextRevision = scopedSubmilestone
+      ? (scopedSubmilestone.workflowRevision ?? 0) + 1
+      : undefined;
+    if (scopedSubmilestone && nextRevision !== undefined) {
+      await ctx.db.patch(scopedSubmilestone._id, {
+        updatedAt: Date.now(),
+        workflowRevision: nextRevision,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
-      command: "deleteActiveBuildCostItem",
+      command,
       eventType: "active_build.cost_item.deleted",
-      priorState: JSON.stringify(item),
+      newState: JSON.stringify({
+        itemId: item._id,
+        ...(scopedSubmilestone === undefined
+          ? {}
+          : {
+              submilestoneKey: scopedSubmilestone.key,
+              workflowRevision: nextRevision,
+            }),
+      }),
+      priorState: JSON.stringify({
+        ...item,
+        ...(scopedSubmilestone === undefined
+          ? {}
+          : { submilestoneKey: scopedSubmilestone.key }),
+      }),
       reason: args.reason,
     });
+    if (scopedSubmilestone && nextRevision !== undefined) {
+      const result = {
+        itemId: item._id,
+        replayed: false,
+        revision: nextRevision,
+      };
+      await insertSubmilestoneCommandReceipt(ctx, {
+        buildId: args.buildId,
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: scopedIdempotencyKey!,
+        organizationId: auth.build.organizationId,
+        result,
+        submilestoneId: scopedSubmilestone._id,
+      });
+      return result;
+    }
     return null;
   })
   .public();
@@ -5538,6 +5833,7 @@ export const recordOfflineClosing = authenticatedMutation
           milestone.completionReview?.status === "approved"
             ? "complete"
             : "planned",
+        workflowRevision: 0,
         updatedAt: now,
       });
       milestoneIdByProposalMilestone.set(milestone._id, buildMilestoneId);
@@ -12625,7 +12921,6 @@ type BackofficeBuildRosterAuth = {
 };
 
 const BACKOFFICE_BUILD_ROSTER_PAGE_SIZE = 15;
-const BACKOFFICE_BUILD_ROSTER_PAGE_SCAN_LIMIT = 150;
 const BACKOFFICE_BUILD_ROSTER_SUMMARY_BATCH_SIZE = 50;
 const BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE = 100;
 
@@ -12640,19 +12935,16 @@ async function paginateBackofficeBuilds(
   ctx: QueryCtx,
   {
     brokerageId,
-    cursor,
-    numItems,
+    paginationOpts,
     sortBy,
     sortDirection,
   }: {
     brokerageId: Id<"brokerages">;
-    cursor: string | null;
-    numItems: number;
+    paginationOpts: PaginationOptions;
     sortBy: BackofficeBuildRosterSort;
     sortDirection: BackofficeBuildRosterSortDirection;
   },
 ) {
-  const paginationOpts = { cursor, numItems };
   switch (sortBy) {
     case "build":
       return await ctx.db
@@ -12737,63 +13029,37 @@ export const listBackofficeBuildRosterPage = authenticatedQuery
     const normalizedSearch = args.search?.trim().toLowerCase() ?? "";
     const sortBy = args.sortBy ?? "updatedAt";
     const sortDirection = args.sortDirection ?? "desc";
-    const sourcePageSize =
-      args.phase || normalizedSearch ? 1 : requestedPageSize;
-    const rows: BackofficeBuildRosterRowWithStorage[] = [];
-    let cursor = args.paginationOpts.cursor;
-    let isDone = false;
-    let scanned = 0;
-
-    while (
-      rows.length < requestedPageSize &&
-      !isDone &&
-      scanned < BACKOFFICE_BUILD_ROSTER_PAGE_SCAN_LIMIT
-    ) {
-      const sourcePage = await paginateBackofficeBuilds(ctx, {
-        brokerageId: auth.brokerage._id,
-        cursor,
-        numItems: Math.min(
-          sourcePageSize,
-          BACKOFFICE_BUILD_ROSTER_PAGE_SCAN_LIMIT - scanned,
+    // Apply phase/search filtering after one bounded native page. The native
+    // page size stays equal to the public page size so every source row before
+    // the continuation cursor is considered exactly once; matching rows are
+    // therefore never skipped when the client requests the next page.
+    const sourcePage = await paginateBackofficeBuilds(ctx, {
+      brokerageId: auth.brokerage._id,
+      paginationOpts: {
+        ...args.paginationOpts,
+        numItems: requestedPageSize,
+      },
+      sortBy,
+      sortDirection,
+    });
+    const projected = await Promise.all(
+      sourcePage.page
+        .filter((build) => build.organizationId === args.workosOrganizationId)
+        .map((build) =>
+          projectBackofficeBuildRosterRow(ctx, {
+            auth,
+            build,
+            staffCanRead,
+          }),
         ),
-        sortBy,
-        sortDirection,
-      });
-      cursor = sourcePage.continueCursor;
-      isDone = sourcePage.isDone;
-      scanned += sourcePage.page.length;
-
-      const projected = await Promise.all(
-        sourcePage.page
-          .filter((build) => build.organizationId === args.workosOrganizationId)
-          .map((build) =>
-            projectBackofficeBuildRosterRow(ctx, {
-              auth,
-              build,
-              staffCanRead,
-            }),
-          ),
-      );
-
-      for (const row of projected) {
-        if (!row) {
-          continue;
-        }
-        if (args.phase && row.phase !== args.phase) {
-          continue;
-        }
-        if (
-          normalizedSearch &&
-          !backofficeBuildRosterSearchText(row).includes(normalizedSearch)
-        ) {
-          continue;
-        }
-        rows.push(row);
-        if (rows.length === requestedPageSize) {
-          break;
-        }
-      }
-    }
+    );
+    const rows = projected.filter(
+      (row): row is BackofficeBuildRosterRowWithStorage =>
+        row !== null &&
+        (!args.phase || row.phase === args.phase) &&
+        (!normalizedSearch ||
+          backofficeBuildRosterSearchText(row).includes(normalizedSearch)),
+    );
 
     const resolveStorageUrl = createStorageUrlResolver(ctx, rows.length);
     const page = await Promise.all(
@@ -12804,8 +13070,8 @@ export const listBackofficeBuildRosterPage = authenticatedQuery
     );
 
     return {
-      continueCursor: cursor ?? "",
-      isDone,
+      continueCursor: sourcePage.continueCursor,
+      isDone: sourcePage.isDone,
       page,
     };
   })
@@ -12854,6 +13120,54 @@ type BackofficeBuildRosterSummarySiteVisit = Infer<
   typeof backofficeBuildRosterSummarySiteVisitValidator
 >;
 
+type BackofficeBuildRosterSummaryPage<T> = {
+  continueCursor: string;
+  isDone: boolean;
+  page: T[];
+};
+
+/**
+ * Reads one complete source page for the summary coordinator. Keep this as a
+ * separate internal query: Convex permits one native paginate call per query
+ * invocation, while the coordinator may need multiple invocations for a
+ * brokerage with more than one summary batch.
+ */
+export const listBackofficeBuildRosterSummaryBuildsPage = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(paginationResultValidator(backofficeBuildRosterSummaryBuildValidator))
+  .handler(async (ctx, args) => {
+    const page = await paginateBackofficeBuilds(ctx, {
+      brokerageId: args.brokerageId,
+      paginationOpts: args.paginationOpts,
+      sortBy: "updatedAt",
+      sortDirection: "desc",
+    });
+    const builds: BackofficeBuildRosterSummaryBuild[] = [];
+    for (const build of page.page) {
+      if (build.organizationId !== args.organizationId) {
+        continue;
+      }
+      const proposal = await ctx.db.get(build.proposalId);
+      if (!proposal || proposal.organizationId !== args.organizationId) {
+        continue;
+      }
+      builds.push({
+        buildId: build._id,
+        buildStatus: build.status,
+      });
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      page: builds,
+    };
+  })
+  .internal();
+
 export const listBackofficeBuildRosterSummaryBuilds = internalQuery
   .input({
     brokerageId: v.id("brokerages"),
@@ -12866,31 +13180,58 @@ export const listBackofficeBuildRosterSummaryBuilds = internalQuery
     let isDone = false;
 
     while (!isDone) {
-      const page = await paginateBackofficeBuilds(ctx, {
-        brokerageId: args.brokerageId,
-        cursor,
-        numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_BATCH_SIZE,
-        sortBy: "updatedAt",
-        sortDirection: "desc",
-      });
-      for (const build of page.page) {
-        if (build.organizationId !== args.organizationId) {
-          continue;
-        }
-        const proposal = await ctx.db.get(build.proposalId);
-        if (!proposal || proposal.organizationId !== args.organizationId) {
-          continue;
-        }
-        builds.push({
-          buildId: build._id,
-          buildStatus: build.status,
-        });
-      }
+      const page: BackofficeBuildRosterSummaryPage<BackofficeBuildRosterSummaryBuild> = await ctx.runQuery(
+        internal.production_proposals.listBackofficeBuildRosterSummaryBuildsPage,
+        {
+          brokerageId: args.brokerageId,
+          organizationId: args.organizationId,
+          paginationOpts: {
+            cursor,
+            numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_BATCH_SIZE,
+          },
+        },
+      );
+      builds.push(...page.page);
       cursor = page.continueCursor;
       isDone = page.isDone;
     }
 
     return builds;
+  })
+  .internal();
+
+export const listBackofficeBuildRosterSummaryLoansPage = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(paginationResultValidator(backofficeBuildRosterSummaryLoanValidator))
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const page = await ctx.db
+      .query("loanFacilities")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", args.brokerageId))
+      .paginate(args.paginationOpts);
+    const loans: BackofficeBuildRosterSummaryLoan[] = [];
+    for (const loan of page.page) {
+      if (
+        loan.organizationId !== args.organizationId ||
+        !buildIds.has(loan.buildId)
+      ) {
+        continue;
+      }
+      loans.push({
+        buildId: loan.buildId,
+        status: loan.status,
+      });
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      page: loans,
+    };
   })
   .internal();
 
@@ -12902,7 +13243,6 @@ export const listBackofficeBuildRosterSummaryLoans = internalQuery
   })
   .returns(v.array(backofficeBuildRosterSummaryLoanValidator))
   .handler(async (ctx, args) => {
-    const buildIds = new Set(args.buildIds);
     const loansByBuild = new Map<
       Id<"activeBuilds">,
       BackofficeBuildRosterSummaryLoan
@@ -12911,22 +13251,20 @@ export const listBackofficeBuildRosterSummaryLoans = internalQuery
     let isDone = false;
 
     while (!isDone) {
-      const page = await ctx.db
-        .query("loanFacilities")
-        .withIndex("by_brokerage", (q) =>
-          q.eq("brokerageId", args.brokerageId),
-        )
-        .paginate({
-          cursor,
-          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
-        });
+      const page: BackofficeBuildRosterSummaryPage<BackofficeBuildRosterSummaryLoan> =
+        await ctx.runQuery(
+          internal.production_proposals.listBackofficeBuildRosterSummaryLoansPage,
+          {
+            brokerageId: args.brokerageId,
+            buildIds: args.buildIds,
+            organizationId: args.organizationId,
+            paginationOpts: {
+              cursor,
+              numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+            },
+          },
+        );
       for (const loan of page.page) {
-        if (
-          loan.organizationId !== args.organizationId ||
-          !buildIds.has(loan.buildId)
-        ) {
-          continue;
-        }
         loansByBuild.set(loan.buildId, {
           buildId: loan.buildId,
           status: loan.status,
@@ -12940,6 +13278,56 @@ export const listBackofficeBuildRosterSummaryLoans = internalQuery
   })
   .internal();
 
+export const listBackofficeBuildRosterSummaryMilestonesPage = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(
+    paginationResultValidator(backofficeBuildRosterSummaryMilestoneValidator),
+  )
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const page = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", args.brokerageId))
+      .paginate(args.paginationOpts);
+    const milestonesByBuild = new Map<
+      Id<"activeBuilds">,
+      BackofficeBuildRosterSummaryMilestone
+    >();
+    for (const milestone of page.page) {
+      if (
+        milestone.organizationId !== args.organizationId ||
+        !buildIds.has(milestone.buildId)
+      ) {
+        continue;
+      }
+      const state = milestonesByBuild.get(milestone.buildId) ?? {
+        buildId: milestone.buildId,
+        milestonesComplete: 0,
+        milestonesInReview: 0,
+        milestonesTotal: 0,
+      };
+      state.milestonesTotal += 1;
+      if (milestone.status === "complete") {
+        state.milestonesComplete += 1;
+      }
+      if (productionMilestoneNeedsBackofficeReview(milestone)) {
+        state.milestonesInReview += 1;
+      }
+      milestonesByBuild.set(milestone.buildId, state);
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      page: [...milestonesByBuild.values()],
+    };
+  })
+  .internal();
+
 export const listBackofficeBuildRosterSummaryMilestones = internalQuery
   .input({
     brokerageId: v.id("brokerages"),
@@ -12948,7 +13336,6 @@ export const listBackofficeBuildRosterSummaryMilestones = internalQuery
   })
   .returns(v.array(backofficeBuildRosterSummaryMilestoneValidator))
   .handler(async (ctx, args) => {
-    const buildIds = new Set(args.buildIds);
     const milestonesByBuild = new Map<
       Id<"activeBuilds">,
       BackofficeBuildRosterSummaryMilestone
@@ -12957,35 +13344,30 @@ export const listBackofficeBuildRosterSummaryMilestones = internalQuery
     let isDone = false;
 
     while (!isDone) {
-      const page = await ctx.db
-        .query("buildMilestones")
-        .withIndex("by_brokerage", (q) =>
-          q.eq("brokerageId", args.brokerageId),
-        )
-        .paginate({
-          cursor,
-          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
-        });
+      const page: BackofficeBuildRosterSummaryPage<BackofficeBuildRosterSummaryMilestone> =
+        await ctx.runQuery(
+          internal.production_proposals
+            .listBackofficeBuildRosterSummaryMilestonesPage,
+          {
+            brokerageId: args.brokerageId,
+            buildIds: args.buildIds,
+            organizationId: args.organizationId,
+            paginationOpts: {
+              cursor,
+              numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+            },
+          },
+        );
       for (const milestone of page.page) {
-        if (
-          milestone.organizationId !== args.organizationId ||
-          !buildIds.has(milestone.buildId)
-        ) {
-          continue;
-        }
         const state = milestonesByBuild.get(milestone.buildId) ?? {
           buildId: milestone.buildId,
           milestonesComplete: 0,
           milestonesInReview: 0,
           milestonesTotal: 0,
         };
-        state.milestonesTotal += 1;
-        if (milestone.status === "complete") {
-          state.milestonesComplete += 1;
-        }
-        if (productionMilestoneNeedsBackofficeReview(milestone)) {
-          state.milestonesInReview += 1;
-        }
+        state.milestonesComplete += milestone.milestonesComplete;
+        state.milestonesInReview += milestone.milestonesInReview;
+        state.milestonesTotal += milestone.milestonesTotal;
         milestonesByBuild.set(milestone.buildId, state);
       }
       cursor = page.continueCursor;
@@ -12993,6 +13375,47 @@ export const listBackofficeBuildRosterSummaryMilestones = internalQuery
     }
 
     return [...milestonesByBuild.values()];
+  })
+  .internal();
+
+export const listBackofficeBuildRosterSummaryDrawRequestsPage = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(
+    paginationResultValidator(backofficeBuildRosterSummaryDrawRequestValidator),
+  )
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const page = await ctx.db
+      .query("activeBuildDrawRequests")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", args.brokerageId))
+      .paginate(args.paginationOpts);
+    const pendingByBuild = new Map<Id<"activeBuilds">, number>();
+    for (const drawRequest of page.page) {
+      if (
+        drawRequest.organizationId !== args.organizationId ||
+        drawRequest.status !== "requested" ||
+        !buildIds.has(drawRequest.buildId)
+      ) {
+        continue;
+      }
+      pendingByBuild.set(
+        drawRequest.buildId,
+        (pendingByBuild.get(drawRequest.buildId) ?? 0) + 1,
+      );
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      page: [...pendingByBuild].map(([buildId, drawRequestsPending]) => ({
+        buildId,
+        drawRequestsPending,
+      })),
+    };
   })
   .internal();
 
@@ -13004,29 +13427,26 @@ export const listBackofficeBuildRosterSummaryDrawRequests = internalQuery
   })
   .returns(v.array(backofficeBuildRosterSummaryDrawRequestValidator))
   .handler(async (ctx, args) => {
-    const buildIds = new Set(args.buildIds);
     const pendingByBuild = new Map<Id<"activeBuilds">, number>();
     let cursor: string | null = null;
     let isDone = false;
 
     while (!isDone) {
-      const page = await ctx.db
-        .query("activeBuildDrawRequests")
-        .withIndex("by_brokerage", (q) =>
-          q.eq("brokerageId", args.brokerageId),
-        )
-        .paginate({
-          cursor,
-          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
-        });
+      const page: BackofficeBuildRosterSummaryPage<BackofficeBuildRosterSummaryDrawRequest> =
+        await ctx.runQuery(
+          internal.production_proposals
+            .listBackofficeBuildRosterSummaryDrawRequestsPage,
+          {
+            brokerageId: args.brokerageId,
+            buildIds: args.buildIds,
+            organizationId: args.organizationId,
+            paginationOpts: {
+              cursor,
+              numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+            },
+          },
+        );
       for (const drawRequest of page.page) {
-        if (
-          drawRequest.organizationId !== args.organizationId ||
-          drawRequest.status !== "requested" ||
-          !buildIds.has(drawRequest.buildId)
-        ) {
-          continue;
-        }
         pendingByBuild.set(
           drawRequest.buildId,
           (pendingByBuild.get(drawRequest.buildId) ?? 0) + 1,
@@ -13043,6 +13463,48 @@ export const listBackofficeBuildRosterSummaryDrawRequests = internalQuery
   })
   .internal();
 
+export const listBackofficeBuildRosterSummarySiteVisitsPage = internalQuery
+  .input({
+    asOf: v.number(),
+    brokerageId: v.id("brokerages"),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(
+    paginationResultValidator(backofficeBuildRosterSummarySiteVisitValidator),
+  )
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const page = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", args.brokerageId))
+      .paginate(args.paginationOpts);
+    const expiredByBuild = new Map<Id<"activeBuilds">, number>();
+    for (const visit of page.page) {
+      if (
+        visit.organizationId !== args.organizationId ||
+        !buildIds.has(visit.buildId) ||
+        productionSiteVisitOperationalStatus(visit, args.asOf) !== "expired"
+      ) {
+        continue;
+      }
+      expiredByBuild.set(
+        visit.buildId,
+        (expiredByBuild.get(visit.buildId) ?? 0) + 1,
+      );
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      page: [...expiredByBuild].map(([buildId, expiredSiteVisits]) => ({
+        buildId,
+        expiredSiteVisits,
+      })),
+    };
+  })
+  .internal();
+
 export const listBackofficeBuildRosterSummarySiteVisits = internalQuery
   .input({
     brokerageId: v.id("brokerages"),
@@ -13051,30 +13513,28 @@ export const listBackofficeBuildRosterSummarySiteVisits = internalQuery
   })
   .returns(v.array(backofficeBuildRosterSummarySiteVisitValidator))
   .handler(async (ctx, args) => {
-    const buildIds = new Set(args.buildIds);
     const expiredByBuild = new Map<Id<"activeBuilds">, number>();
     const now = Date.now();
     let cursor: string | null = null;
     let isDone = false;
 
     while (!isDone) {
-      const page = await ctx.db
-        .query("buildSiteVisits")
-        .withIndex("by_brokerage", (q) =>
-          q.eq("brokerageId", args.brokerageId),
-        )
-        .paginate({
-          cursor,
-          numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
-        });
+      const page: BackofficeBuildRosterSummaryPage<BackofficeBuildRosterSummarySiteVisit> =
+        await ctx.runQuery(
+          internal.production_proposals
+            .listBackofficeBuildRosterSummarySiteVisitsPage,
+          {
+            asOf: now,
+            brokerageId: args.brokerageId,
+            buildIds: args.buildIds,
+            organizationId: args.organizationId,
+            paginationOpts: {
+              cursor,
+              numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+            },
+          },
+        );
       for (const visit of page.page) {
-        if (
-          visit.organizationId !== args.organizationId ||
-          !buildIds.has(visit.buildId) ||
-          productionSiteVisitOperationalStatus(visit, now) !== "expired"
-        ) {
-          continue;
-        }
         expiredByBuild.set(
           visit.buildId,
           (expiredByBuild.get(visit.buildId) ?? 0) + 1,
@@ -15590,6 +16050,12 @@ export const getActiveBuildDetailByString = authenticatedQuery
         milestone.siteVisitGuidance,
       ]),
     );
+    const hydratedSubmilestones = (
+      submilestones as Doc<"buildSubmilestones">[]
+    ).map((submilestone) => ({
+      ...submilestone,
+      workflowRevision: submilestone.workflowRevision ?? 0,
+    }));
     const hydratedMilestones = (milestones as Doc<"buildMilestones">[]).map(
       (milestone) => {
         const proposalGuidance = proposalGuidanceByMilestoneId.get(
@@ -16071,7 +16537,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
               ),
               milestone,
               milestones: hydratedMilestones,
-              submilestones: submilestones as Doc<"buildSubmilestones">[],
+              submilestones: hydratedSubmilestones,
             }),
           }))
         : [],
@@ -16082,7 +16548,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
         ? buildSiteVisits
         : [],
       submilestones: canUseAppPermission(appPermissions, "submilestone", "view")
-        ? submilestones
+        ? hydratedSubmilestones
         : [],
       costItems: canUseAppPermission(appPermissions, "material", "view")
         ? costItems
@@ -18329,7 +18795,7 @@ type ActiveBuildEvidencePromotionArgs = {
   assetId: Id<"buildCollaborationAssets">;
   buildId: Id<"activeBuilds">;
   evidenceKey: string;
-  expectedRevision?: number;
+  expectedRevision: number;
   idempotencyKey?: string;
   label?: string;
   locationAttempt?: SiteVisitLocationAttempt;
@@ -18461,8 +18927,12 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       "create",
     );
   }
+  const command = "promoteActiveBuildDiscussionAttachmentToEvidence";
+  const fingerprint = await canonicalCommandFingerprint(command, args);
   const existingReceipt = args.idempotencyKey
     ? await findSubmilestoneIdempotentAudit(ctx, {
+        command,
+        fingerprint,
         idempotencyKey: args.idempotencyKey,
         submilestoneId: submilestone._id,
       })
@@ -18476,17 +18946,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       replayed: true,
     };
   }
-  if (
-    args.expectedRevision !== undefined &&
-    args.expectedRevision !== (submilestone.workflowRevision ?? 0)
-  ) {
-    throw new ConvexError({
-      code: "STALE_SUBMILESTONE_REVISION",
-      message: "Sub-milestone changed; refresh before retrying the command.",
-      actualRevision: submilestone.workflowRevision ?? 0,
-      expectedRevision: args.expectedRevision,
-    });
-  }
+  assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
   const sourceAsset = await ctx.db.get(args.assetId);
   if (!sourceAsset) {
     throw new ConvexError({
@@ -18699,7 +19159,8 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
   if (args.idempotencyKey) {
     await insertSubmilestoneCommandReceipt(ctx, {
       buildId: args.buildId,
-      command: "promoteActiveBuildDiscussionAttachmentToEvidence",
+      command,
+      fingerprint,
       idempotencyKey: args.idempotencyKey,
       organizationId: auth.build.organizationId,
       result,
@@ -18719,7 +19180,7 @@ export const promoteActiveBuildDiscussionAttachmentToEvidence =
       assetId: v.id("buildCollaborationAssets"),
       buildId: v.id("activeBuilds"),
       evidenceKey: v.string(),
-      expectedRevision: v.optional(v.number()),
+      expectedRevision: v.number(),
       idempotencyKey: v.optional(v.string()),
       label: v.optional(v.string()),
       locationAttempt: v.optional(siteVisitLocationAttemptValidator),
@@ -18828,6 +19289,7 @@ export const startActiveBuildMilestone = authenticatedMutation
     actualStartedAt: v.number(),
     buildId: v.id("activeBuilds"),
     dependencyOverrideReason: v.optional(v.string()),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     source: milestoneStartSourceValidator,
@@ -18892,20 +19354,25 @@ export const startActiveBuildMilestone = authenticatedMutation
           milestone.completionClaim !== undefined,
         ownership,
         submilestone,
+        allowReplay: true,
         viewer: {
           roles: auth.roles,
           workosUserId: auth.subject,
         },
       });
       if (!operate.allowed) {
+        const effectiveDenial =
+          contractorStart && operate.denial === "permission_denied"
+            ? "assignment_required"
+            : operate.denial;
         throw new ConvexError({
           code:
-            operate.denial === "assignment_required"
+            effectiveDenial === "assignment_required"
               ? "ASSIGNMENT_REQUIRED"
-              : operate.denial === "lender_review_only"
+              : effectiveDenial === "lender_review_only"
                 ? "LENDER_EXECUTION_FORBIDDEN"
                 : "OPERATE_FORBIDDEN",
-          message: operateDenialMessage(operate.denial),
+          message: operateDenialMessage(effectiveDenial),
         });
       }
     } else if (!canOriginateParentMilestoneStart(auth.roles)) {
@@ -18936,6 +19403,7 @@ export const startActiveBuildMilestone = authenticatedMutation
       actualStartedAt: args.actualStartedAt,
       build: auth.build,
       dependencyOverrideReason: args.dependencyOverrideReason,
+      expectedRevision: args.expectedRevision,
       idempotencyKey: args.idempotencyKey,
       milestone,
       milestones: milestones as Doc<"buildMilestones">[],
@@ -18950,6 +19418,7 @@ export const correctActiveBuildMilestoneStart = authenticatedMutation
   .input({
     actualStartedAt: v.number(),
     buildId: v.id("activeBuilds"),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     reason: v.string(),
@@ -18979,6 +19448,7 @@ export const correctActiveBuildMilestoneStart = authenticatedMutation
       },
       actualStartedAt: args.actualStartedAt,
       build: auth.build,
+      expectedRevision: args.expectedRevision,
       idempotencyKey: args.idempotencyKey,
       milestone,
       reason: args.reason,
@@ -18991,6 +19461,7 @@ export const correctActiveBuildMilestoneStart = authenticatedMutation
 export const retractActiveBuildMilestoneStart = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     reason: v.string(),
@@ -19019,6 +19490,7 @@ export const retractActiveBuildMilestoneStart = authenticatedMutation
         workosUserId: auth.subject,
       },
       build: auth.build,
+      expectedRevision: args.expectedRevision,
       idempotencyKey: args.idempotencyKey,
       milestone,
       reason: args.reason,
@@ -19036,6 +19508,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     completionForecastDate: v.optional(v.union(v.string(), v.null())),
     dependencyOverrideReason: v.optional(v.string()),
     fieldNote: v.optional(v.union(v.string(), v.null())),
+    expectedRevision: v.number(),
     idempotencyKey: v.optional(v.string()),
     milestoneKey: v.string(),
     progressPercent: v.optional(v.number()),
@@ -19053,19 +19526,14 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const auth = await authorizeActiveBuildOrThrow(
+    // The canonical start-scope admission is also the only safe admission
+    // path for an exact assigned Contractor.  Builder staff still receive
+    // their normal app-permission checks below.
+    const auth = await authorizeActiveBuildForStart(
       ctx,
       args.buildId,
       args.workosOrganizationId,
     );
-    await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
-    if (
-      args.actualCostCents !== undefined ||
-      args.fieldNote !== undefined ||
-      args.scopeOfWorkTiptapJson !== undefined
-    ) {
-      await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
-    }
     if (
       args.progressPercent !== undefined &&
       (!Number.isFinite(args.progressPercent) ||
@@ -19099,6 +19567,140 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     }
     assertActiveBuildPlanningTargetActive(milestone, submilestone);
     const nextStatus = args.status ?? submilestone.status;
+    const priorStatus = submilestone.status as
+      | "planned"
+      | "in_progress"
+      | "complete";
+    const nextStatusValue = String(nextStatus);
+    const command = "updateActiveBuildSubmilestoneExecution";
+    const fingerprint = await canonicalCommandFingerprint(command, args);
+    const existing = args.idempotencyKey
+      ? await findSubmilestoneIdempotentAudit(ctx, {
+          command,
+          fingerprint,
+          idempotencyKey: args.idempotencyKey,
+          submilestoneId: submilestone._id,
+        })
+      : null;
+    if (existing) {
+      // Execution updates intentionally retain their historical null return
+      // shape; the receipt still carries the committed revision.
+      return null;
+    }
+    const completing =
+      nextStatusValue === "complete" && priorStatus !== "complete";
+    const reopening =
+      priorStatus === "complete" && nextStatusValue !== "complete";
+    const completionOrReopen = completing || reopening;
+    if (priorStatus === "planned" && !completing) {
+      throw new ConvexError({
+        code: "USE_CANONICAL_START_COMMAND",
+        message:
+          "Planned Sub-milestones require the explicit start command before execution updates.",
+      });
+    }
+    if (priorStatus === "complete" && !reopening) {
+      throw new ConvexError({
+        code: "USE_CANONICAL_REOPEN_COMMAND",
+        message:
+          "Completed Sub-milestones may only be changed through an explicit reopen command.",
+      });
+    }
+    if (completionOrReopen && !args.idempotencyKey) {
+      throw new ConvexError({
+        code: "IDEMPOTENCY_KEY_REQUIRED",
+        message:
+          "Completion and reopen execution commands require an idempotency key.",
+      });
+    }
+    const ownership = completionOrReopen
+      ? await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+          build: auth.build,
+          includeCompleted: true,
+          milestone,
+          submilestone,
+        })
+      : undefined;
+    let canonicalOperate:
+      | Awaited<ReturnType<typeof resolveSubmilestoneOperateAuthority>>
+      | undefined;
+    if (completionOrReopen && ownership) {
+      canonicalOperate = await resolveSubmilestoneOperateAuthority(ctx, {
+        allowCompleted: reopening,
+        build: auth.build,
+        intent: "update",
+        milestoneCompleted:
+          milestone.status === "complete" ||
+          milestone.completionClaim !== undefined,
+        ownership,
+        submilestone,
+        viewer: {
+          roles: auth.roles,
+          workosUserId: auth.subject,
+        },
+      });
+      if (!canonicalOperate.allowed) {
+        const denial = canonicalOperate.denial;
+        throw new ConvexError({
+          code:
+            denial === "assignment_required"
+              ? "ASSIGNMENT_REQUIRED"
+              : denial === "lender_review_only"
+                ? "LENDER_EXECUTION_FORBIDDEN"
+                : "OPERATE_FORBIDDEN",
+          message: operateDenialMessage(denial),
+        });
+      }
+      if (priorStatus === "planned" && completing) {
+        const startOperate = await resolveSubmilestoneOperateAuthority(ctx, {
+          build: auth.build,
+          intent: "start",
+          milestoneCompleted:
+            milestone.status === "complete" ||
+            milestone.completionClaim !== undefined,
+          ownership,
+          submilestone,
+          viewer: {
+            roles: auth.roles,
+            workosUserId: auth.subject,
+          },
+        });
+        if (!startOperate.allowed) {
+          const denial = startOperate.denial;
+          throw new ConvexError({
+            code:
+              denial === "assignment_required"
+                ? "ASSIGNMENT_REQUIRED"
+                : denial === "lender_review_only"
+                  ? "LENDER_EXECUTION_FORBIDDEN"
+                  : "OPERATE_FORBIDDEN",
+            message: operateDenialMessage(denial),
+          });
+        }
+      }
+    }
+    if (
+      completionOrReopen &&
+      canonicalOperate?.allowed === true &&
+      canonicalOperate.basis === "contractor_assignee"
+    ) {
+      // Exact assigned Contractors are authorized by canonical Work
+      // Allocation, never by Builder staff grants.
+    } else {
+      await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
+    }
+    const exactContractorLifecycleCommand =
+      completionOrReopen &&
+      canonicalOperate?.allowed === true &&
+      canonicalOperate.basis === "contractor_assignee";
+    if (
+      args.scopeOfWorkTiptapJson !== undefined ||
+      ((args.actualCostCents !== undefined || args.fieldNote !== undefined) &&
+        !exactContractorLifecycleCommand)
+    ) {
+      await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    }
+    assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
     if (submilestone.status === "planned" && nextStatus === "in_progress") {
       throw new ConvexError({
         code: "USE_CANONICAL_START_COMMAND",
@@ -19119,6 +19721,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         submilestoneKey: submilestone.key,
       });
     }
+    let executionRevision = submilestone.workflowRevision ?? 0;
     if (
       nextStatus === "complete" &&
       submilestone.actualStartedAt === undefined
@@ -19134,7 +19737,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         .query("buildMilestones")
         .withIndex("by_build", (query) => query.eq("buildId", args.buildId))
         .take(500)) as Doc<"buildMilestones">[];
-      await recordMilestoneStart(ctx, {
+      const startResult = await recordMilestoneStart(ctx, {
         actor: {
           brokerageId: auth.brokerage._id,
           organizationId: auth.build.organizationId,
@@ -19144,6 +19747,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         actualStartedAt: args.actualStartedAt,
         build: auth.build,
         dependencyOverrideReason: args.dependencyOverrideReason,
+        expectedRevision: submilestone.workflowRevision ?? 0,
         idempotencyKey: `${args.idempotencyKey}:start`,
         milestone,
         milestones,
@@ -19151,8 +19755,10 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         startParent: true,
         submilestone,
       });
+      executionRevision = startResult.revision;
     }
     const now = Date.now();
+    const nextWorkflowRevision = executionRevision + 1;
     const patch = {
       ...(args.actualCostCents === undefined
         ? {}
@@ -19191,7 +19797,8 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
                     args.scopeOfWorkTiptapJson,
                     "Sub-milestone Scope of Work",
                   ),
-          }),      ...(args.status === undefined
+          }),
+      ...(args.status === undefined
         ? {}
         : {
             completedAt:
@@ -19204,6 +19811,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
                 : undefined,
             status: nextStatus,
           }),
+      workflowRevision: nextWorkflowRevision,
       updatedAt: now,
     };
     await ctx.db.patch(submilestone._id, patch);
@@ -19231,7 +19839,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
-      command: "updateActiveBuildSubmilestoneExecution",
+      command,
       eventType: "active_build.submilestone.execution_updated",
       newState: JSON.stringify({
         actualCostCents: patch.actualCostCents,
@@ -19242,6 +19850,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         scopeOfWorkTiptapJson: patch.scopeOfWorkTiptapJson,
         status: nextStatus,
         submilestoneKey: submilestone.key,
+        workflowRevision: nextWorkflowRevision,
       }),
       priorState: JSON.stringify({
         actualCostCents: submilestone.actualCostCents,
@@ -19250,9 +19859,21 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         progressPercent: submilestone.progressPercent,
         scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
         status: submilestone.status,
+        workflowRevision: submilestone.workflowRevision ?? 0,
       }),
       reason: args.reason,
     });
+    if (args.idempotencyKey) {
+      await insertSubmilestoneCommandReceipt(ctx, {
+        buildId: args.buildId,
+        command,
+        fingerprint,
+        idempotencyKey: args.idempotencyKey,
+        organizationId: auth.build.organizationId,
+        result: { revision: nextWorkflowRevision },
+        submilestoneId: submilestone._id,
+      });
+    }
     return null;
   })
   .public();
@@ -19268,7 +19889,7 @@ export const updateActiveBuildSubmilestoneProgress = authenticatedMutation
     buildId: v.id("activeBuilds"),
     completionForecastDate: v.optional(v.union(v.string(), v.null())),
     fieldNote: v.optional(v.union(v.string(), v.null())),
-    expectedRevision: v.optional(v.number()),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     progressPercent: v.number(),
@@ -19283,7 +19904,11 @@ export const updateActiveBuildSubmilestoneProgress = authenticatedMutation
       milestoneKey: args.milestoneKey,
       submilestoneKey: args.submilestoneKey,
     });
+    const command = "updateActiveBuildSubmilestoneProgress";
+    const fingerprint = await canonicalCommandFingerprint(command, args);
     const existing = await findSubmilestoneIdempotentAudit(ctx, {
+      command,
+      fingerprint,
       submilestoneId: submilestone._id,
       idempotencyKey: args.idempotencyKey,
     });
@@ -19356,7 +19981,7 @@ export const updateActiveBuildSubmilestoneProgress = authenticatedMutation
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
-      command: "updateActiveBuildSubmilestoneProgress",
+      command,
       eventType: "active_build.submilestone.progress_updated",
       newState: JSON.stringify({
         actualCostCents: patch.actualCostCents,
@@ -19382,7 +20007,8 @@ export const updateActiveBuildSubmilestoneProgress = authenticatedMutation
     };
     await insertSubmilestoneCommandReceipt(ctx, {
       buildId: args.buildId,
-      command: "updateActiveBuildSubmilestoneProgress",
+      command,
+      fingerprint,
       idempotencyKey: args.idempotencyKey,
       organizationId: auth.build.organizationId,
       result,
@@ -19522,7 +20148,7 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
       storageId: v.optional(v.id("_storage")),
       tag: v.optional(v.string()),
     }),
-    expectedRevision: v.optional(v.number()),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     submilestoneKey: v.string(),
@@ -19536,7 +20162,11 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
       milestoneKey: args.milestoneKey,
       submilestoneKey: args.submilestoneKey,
     });
+    const command = "addActiveBuildSubmilestoneEvidence";
+    const fingerprint = await canonicalCommandFingerprint(command, args);
     const existing = await findSubmilestoneIdempotentAudit(ctx, {
+      command,
+      fingerprint,
       submilestoneId: submilestone._id,
       idempotencyKey: args.idempotencyKey,
     });
@@ -19679,7 +20309,7 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
-      command: "addActiveBuildSubmilestoneEvidence",
+      command,
       eventType: "active_build.submilestone.evidence_added",
       newState: JSON.stringify({
         evidenceAssetId: persistedAssetId,
@@ -19697,7 +20327,8 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     });
     await insertSubmilestoneCommandReceipt(ctx, {
       buildId: args.buildId,
-      command: "addActiveBuildSubmilestoneEvidence",
+      command,
+      fingerprint,
       idempotencyKey: args.idempotencyKey,
       organizationId: auth.build.organizationId,
       result: {
@@ -19733,7 +20364,8 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
 export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
-    expectedRevision: v.optional(v.number()),
+    expectedRevision: v.number(),
+    idempotencyKey: v.string(),
     milestoneKey: v.string(),
     packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
     submilestoneKey: v.string(),
@@ -19747,6 +20379,20 @@ export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutatio
       milestoneKey: args.milestoneKey,
       submilestoneKey: args.submilestoneKey,
     });
+    const command = "freezeActiveBuildSubmilestoneEvidencePackage";
+    const fingerprint = await canonicalCommandFingerprint(command, args);
+    const existing = await findSubmilestoneIdempotentAudit(ctx, {
+      command,
+      fingerprint,
+      idempotencyKey: args.idempotencyKey,
+      submilestoneId: submilestone._id,
+    });
+    if (existing) {
+      return {
+        ...(JSON.parse(existing.resultJson) as Record<string, unknown>),
+        replayed: true,
+      };
+    }
     assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
     const packageRevision = await getScopedSubmilestonePackageRevision(ctx, {
       auth,
@@ -19775,12 +20421,23 @@ export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutatio
       });
     }
     if (packageRevision.status === "frozen") {
-      return {
+      const result = {
         packageRevisionId: packageRevision._id,
         readyExceptFor: [],
         revision: submilestone.workflowRevision ?? 0,
+        replayed: false,
         status: packageRevision.status,
       };
+      await insertSubmilestoneCommandReceipt(ctx, {
+        buildId: args.buildId,
+        command,
+        fingerprint,
+        idempotencyKey: args.idempotencyKey,
+        organizationId: auth.build.organizationId,
+        result,
+        submilestoneId: submilestone._id,
+      });
+      return result;
     }
     if (packageRevision.status !== "draft") {
       throw new ConvexError({
@@ -19818,7 +20475,7 @@ export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutatio
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
-      command: "freezeActiveBuildSubmilestoneEvidencePackage",
+      command,
       eventType: "active_build.submilestone.evidence_package_frozen",
       newState: JSON.stringify({
         packageRevisionId: packageRevision._id,
@@ -19827,12 +20484,23 @@ export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutatio
       }),
       priorState: JSON.stringify({ status: packageRevision.status }),
     });
-    return {
+    const result = {
       packageRevisionId: packageRevision._id,
       readyExceptFor: [],
+      replayed: false,
       revision: nextWorkflowRevision,
       status: "frozen" as const,
     };
+    await insertSubmilestoneCommandReceipt(ctx, {
+      buildId: args.buildId,
+      command,
+      fingerprint,
+      idempotencyKey: args.idempotencyKey,
+      organizationId: auth.build.organizationId,
+      result,
+      submilestoneId: submilestone._id,
+    });
+    return result;
   })
   .public();
 
@@ -19844,7 +20512,7 @@ export const submitActiveBuildSubmilestoneCompletionForReview =
       completionNote: v.optional(v.string()),
       declareComplete: v.boolean(),
       expectedPackageRevision: v.number(),
-      expectedRevision: v.optional(v.number()),
+      expectedRevision: v.number(),
       idempotencyKey: v.string(),
       milestoneKey: v.string(),
       packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
@@ -19859,6 +20527,20 @@ export const submitActiveBuildSubmilestoneCompletionForReview =
         milestoneKey: args.milestoneKey,
         submilestoneKey: args.submilestoneKey,
       });
+      const command = "submitActiveBuildSubmilestoneCompletionForReview";
+      const fingerprint = await canonicalCommandFingerprint(command, args);
+      const receipt = await findSubmilestoneIdempotentAudit(ctx, {
+        command,
+        fingerprint,
+        idempotencyKey: args.idempotencyKey,
+        submilestoneId: submilestone._id,
+      });
+      if (receipt) {
+        return {
+          ...(JSON.parse(receipt.resultJson) as Record<string, unknown>),
+          replayed: true,
+        };
+      }
       const existing = await ctx.db
         .query("buildSubmilestoneCompletionSubmissions")
         .withIndex("by_submilestone_idempotency", (query) =>
@@ -19868,6 +20550,16 @@ export const submitActiveBuildSubmilestoneCompletionForReview =
         )
         .first();
       if (existing) {
+        if (
+          existing.fingerprint === undefined ||
+          existing.fingerprint !== fingerprint
+        ) {
+          throw new ConvexError({
+            code: "IDEMPOTENCY_KEY_REUSED",
+            message:
+              "This idempotency key already belongs to a different completion review payload.",
+          });
+        }
         const round = await ctx.db
           .query("buildSubmilestoneReviewRounds")
           .withIndex("by_submilestone_round", (query) =>
@@ -19950,6 +20642,7 @@ export const submitActiveBuildSubmilestoneCompletionForReview =
         progressPercent: 100,
         revision: nextRound,
         submilestoneKey: submilestone.key,
+        fingerprint,
       });
       await ctx.db.insert("buildSubmilestoneReviewRounds", {
         buildId: args.buildId,
@@ -19997,13 +20690,23 @@ export const submitActiveBuildSubmilestoneCompletionForReview =
           evidenceReviewState: submilestone.evidenceReviewState ?? "not_ready",
         }),
       });
-      return {
+      const result = {
         completionSubmissionId: submissionId,
         readyExceptFor: [],
         reviewRound: nextRound,
         replayed: false,
         status: "in_review" as const,
       };
+      await insertSubmilestoneCommandReceipt(ctx, {
+        buildId: args.buildId,
+        command,
+        fingerprint,
+        idempotencyKey: args.idempotencyKey,
+        organizationId: auth.build.organizationId,
+        result,
+        submilestoneId: submilestone._id,
+      });
+      return result;
     })
     .public();
 
@@ -20023,6 +20726,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         }),
       ),
     ),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
@@ -20048,13 +20752,26 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       args.milestoneKey,
     );
     assertActiveBuildPlanningTargetActive(milestone);
+    const command = "submitActiveBuildMilestoneCompletion";
+    const fingerprint = await canonicalCommandFingerprint(command, args);
     if (
       milestone.completionClaim &&
       (milestone.completionClaim as { idempotencyKey?: string })
         .idempotencyKey === args.idempotencyKey
     ) {
+      const priorFingerprint = (
+        milestone.completionClaim as { commandFingerprint?: string }
+      ).commandFingerprint;
+      if (priorFingerprint === undefined || priorFingerprint !== fingerprint) {
+        throw new ConvexError({
+          code: "IDEMPOTENCY_KEY_REUSED",
+          message:
+            "This idempotency key already belongs to a different milestone completion payload.",
+        });
+      }
       return null;
     }
+    assertExpectedMilestoneRevision(milestone, args.expectedRevision);
     const submilestones = (await ctx.db
       .query("buildSubmilestones")
       .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
@@ -20215,6 +20932,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       }
       evidencePackages.push({ alreadyInReview, packageRevision, submilestone });
     }
+    let completionRevision = milestone.workflowRevision ?? 0;
     if (milestone.actualStartedAt === undefined) {
       if (args.actualStartedAt === undefined) {
         throw new ConvexError({
@@ -20227,7 +20945,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         .query("buildMilestones")
         .withIndex("by_build", (query) => query.eq("buildId", args.buildId))
         .take(500)) as Doc<"buildMilestones">[];
-      await recordMilestoneStart(ctx, {
+      const startResult = await recordMilestoneStart(ctx, {
         actor: {
           brokerageId: auth.brokerage._id,
           organizationId: auth.build.organizationId,
@@ -20237,17 +20955,20 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         actualStartedAt: args.actualStartedAt,
         build: auth.build,
         dependencyOverrideReason: args.dependencyOverrideReason,
+        expectedRevision: completionRevision,
         idempotencyKey: `${args.idempotencyKey}:start`,
         milestone,
         milestones,
         source: "completion_catch_up",
       });
+      completionRevision = startResult.revision;
     }
     const completionClaim = {
       ...(args.actualCostCents === undefined
         ? {}
         : { actualCostCents: Math.max(0, Math.round(args.actualCostCents)) }),
       completedDay: Math.max(0, Math.round(args.completedDay)),
+      commandFingerprint: fingerprint,
       ...(args.note ? { note: args.note } : {}),
       idempotencyKey: args.idempotencyKey,
       ...(args.qualityRating === undefined
@@ -20280,6 +21001,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       progressPercent: 100,
       status: "in_progress",
       updatedAt: Date.now(),
+      workflowRevision: completionRevision + 1,
     });
     for (const { alreadyInReview, packageRevision, submilestone } of evidencePackages) {
       if (alreadyInReview) continue;
@@ -21689,6 +22411,9 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
     contractorId: v.id("contractorProfiles"),
     estimatedCostCents: v.optional(v.number()),
     estimatedHours: v.optional(v.number()),
+    expectedRevision: v.optional(v.number()),
+    expectedRevisions: v.optional(v.record(v.string(), v.number())),
+    idempotencyKey: v.optional(v.string()),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
     postHoc: v.optional(v.boolean()),
@@ -21712,10 +22437,6 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
-    await ensureActiveBuildPlanningActivationRevision(ctx, {
-      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
-      build: auth.build,
-    });
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
@@ -21729,6 +22450,96 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    const requestedSubmilestoneKeys = args.submilestoneKeys ?? [];
+    if (requestedSubmilestoneKeys.some((key) => key.trim().length === 0)) {
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_FOUND",
+        message: "Assignment target Sub-milestone keys must be non-empty.",
+      });
+    }
+    const submilestoneKeys = canonicalStringKeyList(requestedSubmilestoneKeys);
+    const targetSubmilestones = await resolveAssignmentSubmilestones(ctx, {
+      buildId: args.buildId,
+      milestoneKey: args.milestoneKey,
+      submilestoneKeys,
+    });
+    const targets =
+      targetSubmilestones.length > 0
+        ? targetSubmilestones
+        : [{ id: undefined, key: undefined }];
+    const scopedAssignment = targetSubmilestones.length > 0;
+    const command = "assignActiveBuildContractorToMilestone";
+    const idempotencyKey = scopedAssignment
+      ? requireScopedAssignmentCommandInput(args)
+      : undefined;
+    const expectedRevisions = scopedAssignment
+      ? canonicalAssignmentExpectedRevisions(
+          args.expectedRevisions,
+          targetSubmilestones.map((target) => target.key),
+        )
+      : undefined;
+    if (
+      scopedAssignment &&
+      targetSubmilestones.length > 1 &&
+      expectedRevisions === undefined
+    ) {
+      throw new ConvexError({
+        code: "EXPECTED_REVISION_MAP_REQUIRED",
+        message:
+          "Multi-target scoped assignments require one expected workflow revision per target.",
+        submilestoneKeys: targetSubmilestones.map((target) => target.key),
+      });
+    }
+    const fingerprint = scopedAssignment
+      ? await canonicalCommandFingerprint(command, {
+          ...args,
+          expectedRevisions,
+          submilestoneKeys,
+          idempotencyKey,
+        })
+      : undefined;
+    const scopedSubmilestoneRows = scopedAssignment
+      ? await Promise.all(
+          targetSubmilestones.map((target) => ctx.db.get(target.id)),
+        )
+      : [];
+    if (scopedAssignment) {
+      for (const submilestone of scopedSubmilestoneRows) {
+        if (!submilestone) {
+          throw new ConvexError({
+            code: "SUBMILESTONE_NOT_FOUND",
+            message: "Sub-milestone is unavailable for this assignment.",
+          });
+        }
+      }
+      const replay = await replayScopedAssignmentCommand(ctx, {
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: idempotencyKey!,
+        submilestoneIds: targetSubmilestones.map((target) => target.id),
+      });
+      if (replay) {
+        return replay;
+      }
+      for (const [index, submilestone] of scopedSubmilestoneRows.entries()) {
+        // The replay lookup must happen before this stale check so a retry
+        // returns its committed result even when the caller's revision is no
+        // longer current.
+        assertExpectedSubmilestoneRevision(
+          submilestone!,
+          expectedAssignmentRevisionForTarget({
+            expectedRevision: args.expectedRevision,
+            expectedRevisions,
+            submilestoneKey: targetSubmilestones[index]?.key ?? "",
+            targetKeys: targetSubmilestones.map((target) => target.key),
+          }),
+        );
+      }
+    }
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const buildAssignmentId = await ensureBuildContractorAssignment(ctx, {
       agreedRateCents: args.agreedRateCents ?? contractor.defaultPayRateCents,
       agreedRateUnit:
@@ -21739,20 +22550,22 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
       role: args.role,
       workosOrganizationId: args.workosOrganizationId,
     });
-    const submilestoneKeys = [...new Set(args.submilestoneKeys ?? [])];
-    const targetSubmilestones = await resolveAssignmentSubmilestones(ctx, {
-      buildId: args.buildId,
-      milestoneKey: args.milestoneKey,
-      submilestoneKeys,
-    });
-    const targets =
-      targetSubmilestones.length > 0
-        ? targetSubmilestones
-        : [{ id: undefined, key: undefined }];
     const now = Date.now();
     const assignmentIds: Id<"milestoneContractorAssignments">[] = [];
     const assignmentOperations = new Set<"created" | "updated" | "removed">();
     const priorAssignments: Array<Record<string, unknown>> = [];
+    const nextAssignments: Array<Record<string, unknown>> = [];
+    const nextWorkflowRevisionBySubmilestoneKey = new Map(
+      scopedSubmilestoneRows
+        .filter(
+          (submilestone): submilestone is Doc<"buildSubmilestones"> =>
+            submilestone !== null,
+        )
+        .map((submilestone) => [
+          submilestone.key,
+          (submilestone.workflowRevision ?? 0) + 1,
+        ]),
+    );
     const agreedRateCents =
       normalizeOptionalMoneyCents(args.agreedRateCents) ??
       contractor.defaultPayRateCents;
@@ -21783,11 +22596,8 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
       });
       if (existing) {
         priorAssignments.push({
+          ...existing,
           assignmentId: existing._id,
-          milestoneKey: existing.milestoneKey,
-          role: existing.role,
-          status: existing.status,
-          submilestoneKey: existing.submilestoneKey,
         });
       }
       const nextStatus =
@@ -21841,6 +22651,10 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         submilestoneKey: target.key,
         updatedAt: now,
       };
+      const workflowRevision =
+        target.id && target.key !== undefined
+          ? nextWorkflowRevisionBySubmilestoneKey.get(target.key)
+          : undefined;
       let assignmentId: Id<"milestoneContractorAssignments">;
       if (existing) {
         await ctx.db.patch(existing._id, row);
@@ -21855,6 +22669,20 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         });
       }
       assignmentIds.push(assignmentId);
+      if (target.id && workflowRevision !== undefined) {
+        await ctx.db.patch(target.id, {
+          updatedAt: now,
+          workflowRevision,
+        });
+      }
+      // Persist the complete post-command assignment snapshot in the
+      // immutable audit event. People history must not reconstruct prior
+      // states from the mutable assignment row.
+      nextAssignments.push({
+        assignmentId,
+        ...row,
+        ...(workflowRevision === undefined ? {} : { workflowRevision }),
+      });
       const operation =
         nextStatus === "removed" ? "removed" : existing ? "updated" : "created";
       assignmentOperations.add(operation);
@@ -21887,12 +22715,27 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
           : "active_build.contractor.milestone_assignment_updated",
       newState: JSON.stringify({
         assignmentIds,
+        assignments: nextAssignments,
         contractorId: args.contractorId,
         estimatedCostCents,
         actualCostCents,
         milestoneKey: args.milestoneKey,
         postHoc: Boolean(args.postHoc),
+        ...(nextAssignments.length === 1
+          ? {
+              role: nextAssignments[0]?.role,
+              status: nextAssignments[0]?.status,
+              submilestoneKey: nextAssignments[0]?.submilestoneKey,
+            }
+          : {}),
         submilestoneKeys,
+        ...(scopedAssignment
+          ? {
+              workflowRevisions: Object.fromEntries(
+                [...nextWorkflowRevisionBySubmilestoneKey.entries()],
+              ),
+            }
+          : {}),
       }),
       priorState:
         priorAssignments.length > 0
@@ -21915,6 +22758,25 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         milestone: currentMilestone,
       });
     }
+    if (scopedAssignment) {
+      const result = {
+        assignmentIds,
+        workflowRevisions: Object.fromEntries(
+          [...nextWorkflowRevisionBySubmilestoneKey.entries()],
+        ),
+      };
+      for (const target of targetSubmilestones) {
+        await insertSubmilestoneCommandReceipt(ctx, {
+          buildId: args.buildId,
+          command,
+          fingerprint: fingerprint!,
+          idempotencyKey: idempotencyKey!,
+          organizationId: auth.build.organizationId,
+          result,
+          submilestoneId: target.id,
+        });
+      }
+    }
     return assignmentIds;
   })
   .public();
@@ -21923,6 +22785,8 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     contractorId: v.id("contractorProfiles"),
+    expectedRevision: v.optional(v.number()),
+    idempotencyKey: v.optional(v.string()),
     milestoneKey: v.string(),
     reason: v.string(),
     submilestoneKey: v.optional(v.string()),
@@ -21940,10 +22804,6 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
-    await ensureActiveBuildPlanningActivationRevision(ctx, {
-      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
-      build: auth.build,
-    });
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
@@ -21954,25 +22814,88 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    const canonicalSubmilestoneKey = args.submilestoneKey?.trim();
+    if (args.submilestoneKey !== undefined && !canonicalSubmilestoneKey) {
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_FOUND",
+        message: "A non-empty Sub-milestone key is required for removal.",
+      });
+    }
+    const scopedAssignment = canonicalSubmilestoneKey !== undefined;
+    const command = "removeActiveBuildContractorFromMilestone";
+    const scopedSubmilestone = scopedAssignment
+      ? (
+          await resolveAssignmentSubmilestones(ctx, {
+            buildId: args.buildId,
+            milestoneKey: args.milestoneKey,
+            submilestoneKeys: [canonicalSubmilestoneKey!],
+          })
+        )[0]
+      : undefined;
+    const idempotencyKey = scopedAssignment
+      ? requireScopedAssignmentCommandInput(args)
+      : undefined;
+    const fingerprint = scopedAssignment
+      ? await canonicalCommandFingerprint(command, {
+          ...args,
+          submilestoneKey: canonicalSubmilestoneKey,
+          idempotencyKey,
+        })
+      : undefined;
+    let currentScopedSubmilestone: Doc<"buildSubmilestones"> | null = null;
+    if (scopedAssignment && scopedSubmilestone) {
+      const replay = await replayScopedAssignmentCommand(ctx, {
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: idempotencyKey!,
+        submilestoneIds: [scopedSubmilestone.id],
+      });
+      if (replay) {
+        return replay;
+      }
+      currentScopedSubmilestone = await ctx.db.get(scopedSubmilestone.id);
+      if (!currentScopedSubmilestone) {
+        throw new ConvexError({
+          code: "SUBMILESTONE_NOT_FOUND",
+          message: "Sub-milestone is unavailable for this assignment.",
+        });
+      }
+      // Replay lookup intentionally precedes this stale check. A retry of a
+      // committed command must return its receipt even after later writes
+      // have advanced the canonical workflow revision.
+      assertExpectedSubmilestoneRevision(
+        currentScopedSubmilestone,
+        args.expectedRevision!,
+      );
+    }
     const assignments = await ctx.db
       .query("milestoneContractorAssignments")
       .withIndex("by_contractor_build", (q) =>
         q.eq("contractorId", args.contractorId).eq("buildId", args.buildId),
       )
       .collect();
-    const targets = assignments.filter(
+    const scopedAssignments = assignments.filter(
       (assignment) =>
         assignment.milestoneKey === args.milestoneKey &&
-        assignment.status !== "removed" &&
-        (args.submilestoneKey === undefined ||
-          assignment.submilestoneKey === args.submilestoneKey),
+        (canonicalSubmilestoneKey === undefined ||
+          assignment.submilestoneKey === canonicalSubmilestoneKey),
+    );
+    const targets = scopedAssignments.filter(
+      (assignment) => assignment.status !== "removed",
     );
     if (targets.length === 0) {
       throw new Error(
         "No active contractor assignment was found for this scope.",
       );
     }
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const now = Date.now();
+    const nextWorkflowRevision = currentScopedSubmilestone
+      ? (currentScopedSubmilestone.workflowRevision ?? 0) + 1
+      : undefined;
     for (const assignment of targets) {
       await ctx.db.patch(assignment._id, {
         note: reason,
@@ -21986,6 +22909,12 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
         contractor,
         milestone,
         operation: "removed",
+      });
+    }
+    if (scopedAssignment && scopedSubmilestone && nextWorkflowRevision !== undefined) {
+      await ctx.db.patch(scopedSubmilestone.id, {
+        updatedAt: now,
+        workflowRevision: nextWorkflowRevision,
       });
     }
     const activeAssignments = assignments.filter(
@@ -22013,18 +22942,25 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
       command: "removeActiveBuildContractorFromMilestone",
       eventType: "active_build.contractor.milestone_assignment_removed",
       newState: JSON.stringify({
+        assignments: targets.map((assignment) => ({
+          ...assignment,
+          assignmentId: assignment._id,
+          status: "removed",
+          updatedAt: now,
+        })),
         assignmentIds: targets.map((assignment) => assignment._id),
         contractorId: args.contractorId,
         milestoneKey: args.milestoneKey,
         status: "removed",
-        submilestoneKey: args.submilestoneKey,
+        submilestoneKey: canonicalSubmilestoneKey,
+        ...(nextWorkflowRevision === undefined
+          ? {}
+          : { workflowRevision: nextWorkflowRevision }),
       }),
       priorState: JSON.stringify(
         targets.map((assignment) => ({
+          ...assignment,
           assignmentId: assignment._id,
-          role: assignment.role,
-          status: assignment.status,
-          submilestoneKey: assignment.submilestoneKey,
         })),
       ),
       reason,
@@ -22042,6 +22978,22 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
         actor: { roles: auth.roles, workosUserId: auth.subject },
         build: auth.build,
         milestone: currentMilestone,
+      });
+    }
+    if (scopedAssignment && scopedSubmilestone) {
+      await insertSubmilestoneCommandReceipt(ctx, {
+        buildId: args.buildId,
+        command,
+        fingerprint: fingerprint!,
+        idempotencyKey: idempotencyKey!,
+        organizationId: auth.build.organizationId,
+        result: {
+          assignmentIds: targets.map((assignment) => assignment._id),
+          workflowRevisions: {
+            [scopedSubmilestone.key]: nextWorkflowRevision,
+          },
+        },
+        submilestoneId: scopedSubmilestone.id,
       });
     }
     return targets.map((assignment) => assignment._id);
@@ -26874,12 +27826,9 @@ function assertProgressPercent(value: number) {
 
 function assertExpectedSubmilestoneRevision(
   submilestone: Doc<"buildSubmilestones">,
-  expectedRevision?: number,
+  expectedRevision: number,
 ) {
-  if (
-    expectedRevision !== undefined &&
-    expectedRevision !== (submilestone.workflowRevision ?? 0)
-  ) {
+  if (expectedRevision !== (submilestone.workflowRevision ?? 0)) {
     throw new ConvexError({
       code: "STALE_SUBMILESTONE_REVISION",
       message: "Sub-milestone changed; refresh before retrying the command.",
@@ -26887,6 +27836,264 @@ function assertExpectedSubmilestoneRevision(
       expectedRevision,
     });
   }
+}
+
+function assertExpectedMilestoneRevision(
+  milestone: Doc<"buildMilestones">,
+  expectedRevision: number,
+) {
+  if (expectedRevision !== (milestone.workflowRevision ?? 0)) {
+    throw new ConvexError({
+      code: "STALE_MILESTONE_REVISION",
+      message: "Milestone changed; refresh before retrying the command.",
+      actualRevision: milestone.workflowRevision ?? 0,
+      expectedRevision,
+    });
+  }
+}
+
+function requireScopedAssignmentCommandInput(input: {
+  expectedRevision?: number;
+  expectedRevisions?: Record<string, number>;
+  idempotencyKey?: string;
+}) {
+  if (
+    (input.expectedRevision === undefined &&
+      input.expectedRevisions === undefined) ||
+    (input.expectedRevision !== undefined &&
+      (!Number.isSafeInteger(input.expectedRevision) ||
+        input.expectedRevision < 0))
+  ) {
+    throw new ConvexError({
+      code: "EXPECTED_REVISION_REQUIRED",
+      message:
+        "Sub-milestone-scoped assignment commands require the current canonical workflow revision.",
+    });
+  }
+  if (input.expectedRevisions !== undefined) {
+    for (const revision of Object.values(input.expectedRevisions)) {
+      if (!Number.isSafeInteger(revision) || revision < 0) {
+        throw new ConvexError({
+          code: "EXPECTED_REVISION_REQUIRED",
+          message:
+            "Sub-milestone-scoped assignment commands require safe canonical workflow revisions.",
+        });
+      }
+    }
+  }
+  const idempotencyKey = input.idempotencyKey?.trim();
+  if (!idempotencyKey) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REQUIRED",
+      message:
+        "Sub-milestone-scoped assignment commands require an idempotency key.",
+    });
+  }
+  return idempotencyKey;
+}
+
+function canonicalAssignmentExpectedRevisions(
+  expectedRevisions: Record<string, number> | undefined,
+  targetKeys: readonly string[],
+) {
+  if (expectedRevisions === undefined) {
+    return undefined;
+  }
+  const normalized = Object.entries(expectedRevisions).map(
+    ([key, revision]) => [key.trim(), revision] as const,
+  );
+  const normalizedKeys = normalized.map(([key]) => key);
+  if (
+    normalized.some(([key]) => key.length === 0) ||
+    new Set(normalizedKeys).size !== normalizedKeys.length
+  ) {
+    throw new ConvexError({
+      code: "EXPECTED_REVISION_MAP_REQUIRED",
+      message:
+        "Each scoped assignment target must have one canonical workflow revision.",
+    });
+  }
+  const expectedKeys = canonicalStringKeyList(targetKeys);
+  const actualKeys = canonicalStringKeyList(normalizedKeys);
+  const missingKeys = expectedKeys.filter((key) => !actualKeys.includes(key));
+  const unknownKeys = actualKeys.filter((key) => !expectedKeys.includes(key));
+  if (missingKeys.length > 0 || unknownKeys.length > 0) {
+    throw new ConvexError({
+      code: "EXPECTED_REVISION_MAP_REQUIRED",
+      message:
+        "Provide an expected workflow revision for every scoped assignment target.",
+      missingSubmilestoneKeys: missingKeys,
+      unknownSubmilestoneKeys: unknownKeys,
+    });
+  }
+  return Object.fromEntries(
+    normalized
+      .sort(([left], [right]) => compareCanonicalStringKeys(left, right))
+      .map(([key, revision]) => [key, revision]),
+  ) as Record<string, number>;
+}
+
+function expectedAssignmentRevisionForTarget(input: {
+  expectedRevision?: number;
+  expectedRevisions?: Record<string, number>;
+  submilestoneKey: string;
+  targetKeys: readonly string[];
+}) {
+  const expectedRevisions = canonicalAssignmentExpectedRevisions(
+    input.expectedRevisions,
+    input.targetKeys,
+  );
+  const revision =
+    expectedRevisions?.[input.submilestoneKey] ?? input.expectedRevision;
+  if (
+    revision === undefined ||
+    !Number.isSafeInteger(revision) ||
+    revision < 0
+  ) {
+    throw new ConvexError({
+      code: "EXPECTED_REVISION_REQUIRED",
+      message:
+        "Sub-milestone-scoped assignment commands require the current canonical workflow revision.",
+      submilestoneKey: input.submilestoneKey,
+    });
+  }
+  return revision;
+}
+
+function requireScopedMaterialCommandInput(input: {
+  expectedRevision?: number;
+  idempotencyKey?: string;
+}) {
+  if (
+    input.expectedRevision === undefined ||
+    !Number.isSafeInteger(input.expectedRevision) ||
+    input.expectedRevision < 0
+  ) {
+    throw new ConvexError({
+      code: "EXPECTED_REVISION_REQUIRED",
+      message:
+        "Sub-milestone-scoped material commands require the current canonical workflow revision.",
+    });
+  }
+  const idempotencyKey = input.idempotencyKey?.trim();
+  if (!idempotencyKey) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REQUIRED",
+      message:
+        "Sub-milestone-scoped material commands require an idempotency key.",
+    });
+  }
+  return idempotencyKey;
+}
+
+function compareCanonicalStringKeys(left: string, right: string) {
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+
+function canonicalStringKeyList(keys: readonly string[]) {
+  return [...new Set(
+    keys
+      .map((key) => key.trim())
+      .filter((key) => key.length > 0),
+  )].sort(compareCanonicalStringKeys);
+}
+
+function canonicalOptionalSubmilestoneKey(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new ConvexError({
+      code: "SUBMILESTONE_NOT_FOUND",
+      message: "A non-empty Sub-milestone key is required for a scoped command.",
+    });
+  }
+  return normalized;
+}
+
+function materialScopedMutationReplay(
+  existing: Doc<"buildSubmilestoneCommandReceipts">,
+) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(existing.resultJson);
+  } catch {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "The stored material command receipt is invalid.",
+    });
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "The stored material command receipt is invalid.",
+    });
+  }
+  const result = parsed as {
+    itemId?: unknown;
+    revision?: unknown;
+  };
+  if (
+    typeof result.itemId !== "string" ||
+    !Number.isSafeInteger(result.revision) ||
+    (result.revision as number) < 0
+  ) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "The stored material command receipt has an invalid result.",
+    });
+  }
+  return {
+    itemId: result.itemId as Id<"buildCostItems">,
+    replayed: true,
+    revision: result.revision as number,
+  };
+}
+
+async function replayScopedAssignmentCommand(
+  ctx: MutationCtx,
+  input: {
+    command: string;
+    fingerprint: string;
+    idempotencyKey: string;
+    submilestoneIds: Id<"buildSubmilestones">[];
+  },
+) {
+  const receipts = await Promise.all(
+    input.submilestoneIds.map((submilestoneId) =>
+      findSubmilestoneIdempotentAudit(ctx, {
+        command: input.command,
+        fingerprint: input.fingerprint,
+        idempotencyKey: input.idempotencyKey,
+        submilestoneId,
+      }),
+    ),
+  );
+  const existing = receipts.filter(
+    (receipt): receipt is NonNullable<typeof receipt> => receipt !== null,
+  );
+  if (existing.length === 0) return null;
+  if (existing.length !== receipts.length) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message:
+        "This idempotency key has an incomplete Sub-milestone assignment receipt; refresh before retrying.",
+    });
+  }
+  const result = JSON.parse(existing[0]!.resultJson) as {
+    assignmentIds?: unknown;
+  };
+  if (
+    !Array.isArray(result.assignmentIds) ||
+    result.assignmentIds.some((assignmentId) => typeof assignmentId !== "string")
+  ) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "The stored assignment receipt has an invalid result.",
+    });
+  }
+  return result.assignmentIds as Id<"milestoneContractorAssignments">[];
 }
 
 function normalizeEvidenceRequirementInputs(
@@ -26936,14 +28143,67 @@ function normalizeEvidenceRequirementInputs(
   });
 }
 
+function canonicalCommandPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalCommandPayload(item));
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, canonicalCommandPayload(record[key])]),
+    );
+  }
+  return value;
+}
+
+async function canonicalCommandFingerprint(command: string, payload: unknown) {
+  const commandPayload =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? Object.fromEntries(
+          Object.entries(payload as Record<string, unknown>).filter(
+            ([key]) =>
+              key !== "expectedRevision" && key !== "expectedRevisions",
+          ),
+        )
+      : payload;
+  return await sha256Hex(
+    JSON.stringify({
+      command,
+      payload: canonicalCommandPayload(commandPayload),
+    }),
+  );
+}
+
+function assertSubmilestoneReceiptIdentity(
+  existing: Doc<"buildSubmilestoneCommandReceipts">,
+  input: { command: string; fingerprint: string },
+) {
+  if (
+    existing.command !== input.command ||
+    existing.fingerprint === undefined ||
+    existing.fingerprint !== input.fingerprint
+  ) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message:
+        "This idempotency key already belongs to a different canonical command or payload.",
+      command: input.command,
+    });
+  }
+}
+
 async function findSubmilestoneIdempotentAudit(
   ctx: MutationCtx,
   input: {
+    command: string;
+    fingerprint: string;
     idempotencyKey: string;
     submilestoneId: Id<"buildSubmilestones">;
   },
 ) {
-  return await ctx.db
+  const existing = await ctx.db
     .query("buildSubmilestoneCommandReceipts")
     .withIndex("by_submilestone_idempotency", (query) =>
       query
@@ -26951,6 +28211,10 @@ async function findSubmilestoneIdempotentAudit(
         .eq("idempotencyKey", input.idempotencyKey),
     )
     .first();
+  if (existing) {
+    assertSubmilestoneReceiptIdentity(existing, input);
+  }
+  return existing;
 }
 
 async function insertSubmilestoneCommandReceipt(
@@ -26958,6 +28222,7 @@ async function insertSubmilestoneCommandReceipt(
   input: {
     buildId: Id<"activeBuilds">;
     command: string;
+    fingerprint: string;
     idempotencyKey: string;
     organizationId: string;
     result: Record<string, unknown>;
@@ -26965,16 +28230,20 @@ async function insertSubmilestoneCommandReceipt(
   },
 ) {
   const existing = await findSubmilestoneIdempotentAudit(ctx, {
+    command: input.command,
+    fingerprint: input.fingerprint,
     idempotencyKey: input.idempotencyKey,
     submilestoneId: input.submilestoneId,
   });
   if (existing) {
+    assertSubmilestoneReceiptIdentity(existing, input);
     return existing._id;
   }
   return await ctx.db.insert("buildSubmilestoneCommandReceipts", {
     buildId: input.buildId,
     command: input.command,
     createdAt: Date.now(),
+    fingerprint: input.fingerprint,
     idempotencyKey: input.idempotencyKey,
     organizationId: input.organizationId,
     resultJson: JSON.stringify(input.result),
@@ -30085,7 +31354,11 @@ async function resolveAssignmentSubmilestones(
   return input.submilestoneKeys.map((key) => {
     const submilestone = submilestones.find((row) => row.key === key);
     if (!submilestone) {
-      throw new Error(`Submilestone not found: ${key}`);
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_FOUND",
+        message: "Submilestone is unavailable for this milestone.",
+        submilestoneKey: key,
+      });
     }
     return { id: submilestone._id, key: submilestone.key };
   });
@@ -32886,6 +34159,7 @@ async function insertActiveBuildMilestoneFromInput(
     progressPercent: 0,
     proposalMilestoneId,
     status: "planned",
+    workflowRevision: 0,
     updatedAt: now,
   });
   await replaceActiveBuildSubmilestones(ctx, auth, {
@@ -33308,6 +34582,30 @@ async function getBuildCostItemOrThrow(
     throw new Error("Active build cost item not found.");
   }
   return item;
+}
+
+async function activeBuildMaterialTarget(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestone: Doc<"buildMilestones">;
+    submilestoneKey: string;
+  },
+) {
+  const { submilestone } = await activeBuildStartTarget(ctx, {
+    buildId: input.buildId,
+    milestoneKey: input.milestone.key,
+    submilestoneKey: input.submilestoneKey.trim(),
+  });
+  if (!submilestone) {
+    throw new ConvexError({
+      code: "SUBMILESTONE_NOT_FOUND",
+      message: "Submilestone is unavailable for this milestone.",
+      submilestoneKey: input.submilestoneKey,
+    });
+  }
+  assertActiveBuildPlanningTargetActive(input.milestone, submilestone);
+  return submilestone;
 }
 
 function latestBuildCapitalPlan(
@@ -38068,6 +39366,7 @@ async function seedCloseProposal(
         milestone.completionReview?.status === "approved"
           ? "complete"
           : "planned",
+      workflowRevision: 0,
       updatedAt: input.now,
     });
     buildMilestoneIds.set(milestone._id, buildMilestoneId);

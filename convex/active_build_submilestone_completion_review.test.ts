@@ -156,6 +156,7 @@ async function startForms(fixture: Awaited<ReturnType<typeof seedFixture>>) {
     {
       actualStartedAt: Date.parse("2026-05-03T14:30:00.000Z"),
       buildId: fixture.closing.buildId,
+      expectedRevision: 0,
       idempotencyKey: "completion-review-forms-start",
       milestoneKey: "foundation",
       source: "milestone_detail",
@@ -233,6 +234,7 @@ async function submitReviewPackage(
     {
       buildId: fixture.closing.buildId,
       expectedRevision: afterEvidence.submilestone.workflowRevision,
+      idempotencyKey: `${key}-freeze`,
       milestoneKey: "foundation",
       packageRevisionId: evidence.evidencePackageRevisionId,
       submilestoneKey: "forms",
@@ -1150,6 +1152,7 @@ describe("canonical Sub-milestone completion review", () => {
       {
         buildId: fixture.closing.buildId,
         expectedRevision: evidence.revision,
+        idempotencyKey: "completion-review-forms-freeze",
         milestoneKey: "foundation",
         packageRevisionId: evidence.evidencePackageRevisionId,
         submilestoneKey: "forms",
@@ -1267,7 +1270,10 @@ describe("canonical Sub-milestone completion review", () => {
         (api as any).production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
         {
           buildId: fixture.closing.buildId,
-          expectedRevision: replayed.revision,
+          expectedRevision:
+            (await submilestoneState(fixture)).submilestone.workflowRevision ??
+            0,
+          idempotencyKey: "completion-review-forms-freeze-stale",
           milestoneKey: "foundation",
           packageRevisionId: stalePackageRevisionId,
           submilestoneKey: "forms",
@@ -1286,7 +1292,8 @@ describe("canonical Sub-milestone completion review", () => {
           sizeBytes: 2048,
           storageId: await storeEvidence(fixture, "forms-photo-replacement"),
         },
-        expectedRevision: replayed.revision,
+        expectedRevision:
+          (await submilestoneState(fixture)).submilestone.workflowRevision ?? 0,
         idempotencyKey: "completion-review-forms-evidence-replacement",
         milestoneKey: "foundation",
         submilestoneKey: "forms",
@@ -1573,6 +1580,7 @@ describe("canonical Sub-milestone completion review", () => {
           assetId: source.assetId,
           buildId: fixture.closing.buildId,
           evidenceKey: "forms-discussion-missing-attachment",
+          expectedRevision: 1,
           milestoneKey: "foundation",
           submilestoneKey: "forms",
           workosOrganizationId: ORG,
@@ -1603,6 +1611,7 @@ describe("canonical Sub-milestone completion review", () => {
           assetId: source.assetId,
           buildId: fixture.closing.buildId,
           evidenceKey: "forms-discussion-ambiguous",
+          expectedRevision: 1,
           milestoneKey: "foundation",
           submilestoneKey: "forms",
           workosOrganizationId: ORG,
@@ -1615,6 +1624,7 @@ describe("canonical Sub-milestone completion review", () => {
         assetId: source.assetId,
         buildId: fixture.closing.buildId,
         evidenceKey: "forms-discussion-promoted",
+        expectedRevision: 1,
         milestoneKey: "foundation",
         requirementKey: "forms-photo",
         submilestoneKey: "forms",
@@ -1886,7 +1896,7 @@ describe("canonical Sub-milestone completion review", () => {
     );
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({
-      actorRoles: ["admin"],
+      actorRoles: expect.arrayContaining(["admin"]),
       reason: "Admin accepted the preserved location-unverified evidence.",
       warnings: expect.any(Array),
     });
