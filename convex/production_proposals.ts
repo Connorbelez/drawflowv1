@@ -7,6 +7,7 @@ import { type Infer, ConvexError, v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
 import { copyProposalDocumentsToActiveBuild } from "./active_build_document_lineage";
+import { deriveResourceType as deriveLegacyAuditResourceType } from "./audit_event_migrations";
 import {
   authorizeActiveBuildAccess,
   type ActiveBuildAuthorization,
@@ -16713,7 +16714,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
       )
       .filter(
         (event) => {
-          const resourceType = activeBuildAuditResourceType(event.resourceType);
+          const resourceType = activeBuildAuditResourceType(
+            event.resourceType ?? deriveLegacyAuditResourceType(event),
+          );
           const isDirectChildAudit =
             event.entityType === "buildSubmilestone" ||
             event.entityType === "submilestone";

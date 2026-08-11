@@ -513,7 +513,7 @@ function isScopedSubmilestone(
   );
 }
 
-function deriveResourceType(
+export function deriveResourceType(
   event: Doc<"auditEvents">,
 ): AuditResourceType | undefined {
   const signal = `${event.eventType} ${event.command}`.toLowerCase();

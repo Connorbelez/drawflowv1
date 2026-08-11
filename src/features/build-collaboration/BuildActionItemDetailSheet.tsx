@@ -74,6 +74,7 @@ import {
 } from "./CollaborationRichTextEditor.tsx";
 import {
   emptyDocument,
+  classifyCollaborationActionItem,
   formatTimestamp,
   parseDocument,
   plainTextFromDocument,
@@ -526,12 +527,29 @@ function ActionItemDetailPanel({
     );
   }
   if (detail.item.systemMode === "generated_milestone_submilestone") {
+    const classification = classifyCollaborationActionItem({
+      _id: detail.item.actionItemId,
+      canonicalBuildSubmilestoneId: detail.item.canonicalBuildSubmilestoneId,
+      systemMode: detail.item.systemMode,
+      systemPresentation: detail.item.systemPresentation,
+    });
+    if (classification.target.kind !== "submilestone") {
+      return (
+        <CanonicalCompanionUnavailablePanel
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onGoBack={onGoBack}
+          onGoForward={onGoForward}
+          onOpenChange={onOpenChange}
+        />
+      );
+    }
     return (
       <CanonicalCompanionRedirectPanel
         actionItemId={detail.item.actionItemId}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
-        canonicalId={detail.item.canonicalBuildSubmilestoneId}
+        canonicalId={classification.target.submilestoneId}
         onGoBack={onGoBack}
         onGoForward={onGoForward}
         onOpenCanonicalTarget={onOpenCanonicalTarget}
@@ -554,6 +572,44 @@ function ActionItemDetailPanel({
       readOnly={readOnly}
       tagOptions={tagOptions}
     />
+  );
+}
+
+function CanonicalCompanionUnavailablePanel({
+  canGoBack,
+  canGoForward,
+  onGoBack,
+  onGoForward,
+  onOpenChange,
+}: {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <>
+      <DetailSheetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={() => onOpenChange(false)}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+      >
+        <Badge variant="secondary">Generated companion</Badge>
+        <SheetTitle>Canonical detail unavailable</SheetTitle>
+        <SheetDescription>
+          This generated companion has no valid Sub-milestone binding and
+          cannot be edited as a generic Action Item.
+        </SheetDescription>
+      </DetailSheetHeader>
+      <SheetFooter>
+        <Button onClick={() => onOpenChange(false)} variant="outline">
+          Close
+        </Button>
+      </SheetFooter>
+    </>
   );
 }
 
