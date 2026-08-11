@@ -8,6 +8,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   buildCollaborationShareUrl,
   buildCollaborationTargetHref,
+  normalizeSubmilestoneInput,
   ProductionTimelineWorkspace,
 } from "./ProductionTimelineWorkspace";
 import { api } from "../../../convex/_generated/api";
@@ -89,6 +90,48 @@ const workspace = {
 };
 
 describe("ProductionTimelineWorkspace collaboration integration", () => {
+  test("normalizes nested field guidance defaults without changing provided values or omission", () => {
+    expect(
+      normalizeSubmilestoneInput(
+        {
+          fieldGuidance: {
+            whatToVerifyTiptapJson: '{"type":"doc","content":[]}',
+          },
+          key: "forms",
+          name: "Forms",
+        },
+        0,
+      ),
+    ).toMatchObject({
+      fieldGuidance: {
+        cameraAnglesTiptapJson: "",
+        whatToVerifyTiptapJson: '{"type":"doc","content":[]}',
+      },
+    });
+
+    const providedValues = normalizeSubmilestoneInput(
+      {
+        fieldGuidance: {
+          cameraAnglesTiptapJson:
+            '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Capture north and east faces."}]}]}',
+          whatToVerifyTiptapJson:
+            '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Verify footing layout."}]}]}',
+        },
+      },
+      1,
+    );
+    expect(providedValues.fieldGuidance).toEqual({
+      cameraAnglesTiptapJson:
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Capture north and east faces."}]}]}',
+      whatToVerifyTiptapJson:
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Verify footing layout."}]}]}',
+    });
+
+    expect(normalizeSubmilestoneInput({ key: "no-guidance" }, 2)).not.toHaveProperty(
+      "fieldGuidance",
+    );
+  });
+
   test("builds back-office generated live links for the builder proposal route", () => {
     window.history.pushState(
       null,

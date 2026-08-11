@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import { z } from "zod/v4";
+
 import { DEMO_PERSONAS } from "./demo_personas";
 import {
   coerceSiteVisitGuidanceInput,
@@ -14,6 +16,7 @@ import {
 import {
   publicMutation,
   publicQuery,
+  publicZodMutation,
   withMutationTiming,
   withQueryTiming,
 } from "./fluent";
@@ -31,6 +34,8 @@ const TOTAL_BPS = 10_000;
 const TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS = 2;
 const TIMELINE_DEMO_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_TIPTAP_JSON_LENGTH = 250_000;
+const EMPTY_TIPTAP_JSON = JSON.stringify({ content: [], type: "doc" });
 const NOW = Date.parse("2026-05-20T18:34:00.000Z");
 
 function canonicalTimelineDemoKey(value: string) {
@@ -42,20 +47,6 @@ type DemoSettingsSiteVisitGuidanceInput = {
   whatToVerify: SiteVisitGuidanceField;
 };
 
-const iconValidator = v.union(
-  v.literal("change"),
-  v.literal("closeout"),
-  v.literal("drywall"),
-  v.literal("exterior"),
-  v.literal("finishes"),
-  v.literal("foundation"),
-  v.literal("framing"),
-  v.literal("kitchen"),
-  v.literal("plumbing"),
-  v.literal("roofing"),
-  v.literal("roughIn")
-);
-
 const scenarioDrawInputValidator = v.object({
   amountBps: v.number(),
   drawKey: v.string(),
@@ -65,37 +56,138 @@ const scenarioDrawInputValidator = v.object({
   timingDay: v.number(),
 });
 
-const siteVisitGuidanceFieldInputValidator = v.union(
-  v.string(),
-  v.array(v.string())
-);
+const optionalTiptapJsonSchema = z
+  .string()
+  .optional()
+  .superRefine((value, ctx) => {
+    if (value === undefined) {
+      return;
+    }
+    if (!value.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: "TipTap JSON must contain TipTap JSON.",
+      });
+      return;
+    }
+    if (value.length > MAX_TIPTAP_JSON_LENGTH) {
+      ctx.addIssue({
+        code: "custom",
+        message: "TipTap JSON exceeds the supported length.",
+      });
+      return;
+    }
 
-const siteVisitGuidanceInputValidator = v.object({
-  cameraAngles: siteVisitGuidanceFieldInputValidator,
-  whatToVerify: siteVisitGuidanceFieldInputValidator,
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      ctx.addIssue({
+        code: "custom",
+        message: "TipTap JSON must be valid TipTap JSON.",
+      });
+      return;
+    }
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      !("type" in parsed) ||
+      parsed.type !== "doc"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "TipTap JSON must contain a TipTap document root.",
+      });
+    }
+  });
+
+const siteVisitGuidanceFieldZodSchema = z.union([
+  z.string(),
+  z.array(z.string()),
+]);
+
+const siteVisitGuidanceZodSchema = z.object({
+  cameraAngles: siteVisitGuidanceFieldZodSchema,
+  whatToVerify: siteVisitGuidanceFieldZodSchema,
 });
 
-const milestoneInputValidator = v.object({
-  dependencyKeys: v.array(v.string()),
-  durationDays: v.number(),
-  icon: iconValidator,
-  included: v.boolean(),
-  milestoneKey: v.string(),
-  name: v.string(),
-  order: v.number(),
-  percentageBps: v.number(),
-  siteVisitGuidance: v.optional(siteVisitGuidanceInputValidator),
-  submilestones: v.array(
-    v.object({
-      description: v.string(),
-      durationDays: v.number(),
-      name: v.string(),
-      order: v.number(),
-      percentageBps: v.number(),
-      submilestoneKey: v.string(),
+const submilestoneFieldGuidanceZodSchema = z.object({
+  cameraAnglesTiptapJson: optionalTiptapJsonSchema,
+  whatToVerifyTiptapJson: optionalTiptapJsonSchema,
+});
+
+const milestoneInputZodSchema = z.object({
+  dependencyKeys: z.array(z.string()),
+  durationDays: z.number(),
+  icon: z.enum([
+    "change",
+    "closeout",
+    "drywall",
+    "exterior",
+    "finishes",
+    "foundation",
+    "framing",
+    "kitchen",
+    "plumbing",
+    "roofing",
+    "roughIn",
+  ]),
+  included: z.boolean(),
+  milestoneKey: z.string(),
+  name: z.string(),
+  order: z.number(),
+  percentageBps: z.number(),
+  siteVisitGuidance: siteVisitGuidanceZodSchema.optional(),
+  submilestones: z.array(
+    z.object({
+      description: z.string(),
+      durationDays: z.number(),
+      fieldGuidance: submilestoneFieldGuidanceZodSchema.optional(),
+      name: z.string(),
+      order: z.number(),
+      percentageBps: z.number(),
+      scopeOfWorkTiptapJson: optionalTiptapJsonSchema,
+      submilestoneKey: z.string(),
     })
   ),
-  type: v.string(),
+  type: z.string(),
+});
+
+const timelineTemplateConfigurationInputSchema = z.object({
+  milestones: z.array(milestoneInputZodSchema),
+  scenarios: z.array(
+    z.object({
+      description: z.string(),
+      draws: z.array(
+        z.object({
+          amountBps: z.number(),
+          drawKey: z.string(),
+          label: z.string(),
+          order: z.number(),
+          reviewNote: z.string(),
+          timingDay: z.number(),
+        })
+      ),
+      isActive: z.boolean(),
+      isDefault: z.boolean(),
+      name: z.string(),
+      scenarioKey: z.string(),
+      sortOrder: z.number(),
+    })
+  ),
+  template: z.object({
+    description: z.string(),
+    isDefault: z.boolean(),
+    summary: z.string(),
+    templateKey: z.string(),
+    title: z.string(),
+  }),
+});
+
+const timelineTemplateWorksheetInputSchema = z.object({
+  milestones: z.array(milestoneInputZodSchema),
+  templateKey: z.string(),
 });
 
 const scenarioInputValidator = v.object({
@@ -111,8 +203,13 @@ const scenarioInputValidator = v.object({
 interface SeedSubmilestone {
   description: string;
   durationDays: number;
+  fieldGuidance?: {
+    cameraAnglesTiptapJson: string;
+    whatToVerifyTiptapJson: string;
+  };
   name: string;
   percentageBps: number;
+  scopeOfWorkTiptapJson?: string;
   submilestoneKey: string;
 }
 
@@ -183,9 +280,35 @@ type MilestoneInput = {
   type: string;
 };
 
-type MilestoneInputDraft = Omit<MilestoneInput, "siteVisitGuidance"> & {
-  siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
+type DemoSettingsSubmilestoneFieldGuidanceInput = {
+  cameraAnglesTiptapJson?: string;
+  whatToVerifyTiptapJson?: string;
 };
+
+type MilestoneInputDraft = Omit<
+  MilestoneInput,
+  "siteVisitGuidance" | "submilestones"
+> & {
+  siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
+  submilestones: (Omit<SeedSubmilestone, "fieldGuidance"> & {
+    fieldGuidance?: DemoSettingsSubmilestoneFieldGuidanceInput;
+    order: number;
+  })[];
+};
+
+function normalizeSubmilestoneFieldGuidance(
+  guidance: DemoSettingsSubmilestoneFieldGuidanceInput | undefined
+): SeedSubmilestone["fieldGuidance"] {
+  if (guidance === undefined) {
+    return;
+  }
+  return {
+    cameraAnglesTiptapJson:
+      guidance.cameraAnglesTiptapJson ?? EMPTY_TIPTAP_JSON,
+    whatToVerifyTiptapJson:
+      guidance.whatToVerifyTiptapJson ?? EMPTY_TIPTAP_JSON,
+  };
+}
 
 function normalizeMilestoneInputs(
   rows: MilestoneInputDraft[]
@@ -195,8 +318,15 @@ function normalizeMilestoneInputs(
     siteVisitGuidance: row.siteVisitGuidance
       ? coerceSiteVisitGuidanceInput(row.siteVisitGuidance)
       : undefined,
+    submilestones: row.submilestones.map((submilestone) => ({
+      ...submilestone,
+      fieldGuidance: normalizeSubmilestoneFieldGuidance(
+        submilestone.fieldGuidance
+      ),
+    })),
   }));
 }
+
 type ScenarioInput = {
   description: string;
   draws: (SeedDraw & { order: number })[];
@@ -527,19 +657,9 @@ export const listDemoPersonas = publicQuery
   })
   .public();
 
-export const saveTimelineTemplateConfiguration = publicMutation
+export const saveTimelineTemplateConfiguration = publicZodMutation
   .use(withMutationTiming("demo_settings.saveTimelineTemplateConfiguration"))
-  .input({
-    milestones: v.array(milestoneInputValidator),
-    scenarios: v.array(scenarioInputValidator),
-    template: v.object({
-      description: v.string(),
-      isDefault: v.boolean(),
-      summary: v.string(),
-      templateKey: v.string(),
-      title: v.string(),
-    }),
-  })
+  .input(timelineTemplateConfigurationInputSchema)
   .returns(v.any())
   .handler(async (ctx, args) => {
     const milestones = normalizeMilestoneInputs(args.milestones);
@@ -577,12 +697,9 @@ export const saveTimelineTemplateConfiguration = publicMutation
   })
   .public();
 
-export const saveTimelineTemplateWorksheet = publicMutation
+export const saveTimelineTemplateWorksheet = publicZodMutation
   .use(withMutationTiming("demo_settings.saveTimelineTemplateWorksheet"))
-  .input({
-    milestones: v.array(milestoneInputValidator),
-    templateKey: v.string(),
-  })
+  .input(timelineTemplateWorksheetInputSchema)
   .returns(v.any())
   .handler(async (ctx, args) => {
     const milestones = normalizeMilestoneInputs(args.milestones);
@@ -1240,10 +1357,16 @@ async function insertMissingSubmilestone(
     createdAt: NOW,
     description: row.description,
     durationDays: row.durationDays,
+    ...(row.fieldGuidance === undefined
+      ? {}
+      : { fieldGuidance: row.fieldGuidance }),
     milestoneKey,
     name: row.name,
     order,
     percentageBps: row.percentageBps,
+    ...(row.scopeOfWorkTiptapJson === undefined
+      ? {}
+      : { scopeOfWorkTiptapJson: row.scopeOfWorkTiptapJson }),
     submilestoneKey: row.submilestoneKey,
     templateKey,
     updatedAt: NOW,
@@ -1360,10 +1483,15 @@ async function replaceTemplateMilestones(
   templateKey: string,
   rows: MilestoneInput[]
 ) {
-  for (const row of await listMilestones(ctx, templateKey)) {
+  const existingMilestones = await listMilestones(ctx, templateKey);
+  const existingSubmilestones = await listSubmilestonesForTemplate(
+    ctx,
+    templateKey
+  );
+  for (const row of existingMilestones) {
     await ctx.db.delete(row._id);
   }
-  for (const row of await listSubmilestonesForTemplate(ctx, templateKey)) {
+  for (const row of existingSubmilestones) {
     await ctx.db.delete(row._id);
   }
   for (const row of await listTemplateGuidanceRows(ctx, templateKey)) {
@@ -1389,10 +1517,16 @@ async function replaceTemplateMilestones(
         createdAt: NOW,
         description: subRow.description,
         durationDays: subRow.durationDays,
+        ...(subRow.fieldGuidance === undefined
+          ? {}
+          : { fieldGuidance: subRow.fieldGuidance }),
         milestoneKey: row.milestoneKey,
         name: subRow.name,
         order: subIndex,
         percentageBps: subRow.percentageBps,
+        ...(subRow.scopeOfWorkTiptapJson === undefined
+          ? {}
+          : { scopeOfWorkTiptapJson: subRow.scopeOfWorkTiptapJson }),
         submilestoneKey: subRow.submilestoneKey,
         templateKey,
         updatedAt: NOW,
@@ -1714,7 +1848,14 @@ function validateTemplateRows(
     order: number;
     percentageBps: number;
     siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
-    submilestones: { name: string }[];
+    submilestones: {
+      fieldGuidance?: {
+        cameraAnglesTiptapJson: string;
+        whatToVerifyTiptapJson: string;
+      };
+      name: string;
+      scopeOfWorkTiptapJson?: string;
+    }[];
   }[]
 ) {
   const included = rows.filter((row) => row.included);

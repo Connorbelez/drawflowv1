@@ -3,6 +3,8 @@ import { describe, expect, test } from "vitest";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 import {
+  normalizeQuoteRoundComposerData,
+  normalizeQuoteRoundDetail,
   normalizeQuoteRoundOrganizationId,
   toUpdateQuoteRoundDraftArgs,
 } from "./QuoteRoundComposerRoute.tsx";
@@ -33,6 +35,9 @@ function generatedComposerSource(): Parameters<
         milestoneName: "Framing",
         name: "Frame walls",
         order: 1,
+        sourceScopeChangeReason: "Clarified framing quantities.",
+        sourceScopeRevisionId: "scope-revision-2",
+        sourceScopeVersion: 2,
         scopeOfWorkTiptapJson: '{"type":"doc","content":[]}',
       },
     ],
@@ -158,5 +163,59 @@ describe("toUpdateQuoteRoundDraftArgs", () => {
     expect(normalizeQuoteRoundOrganizationId(undefined)).toBeUndefined();
     expect(normalizeQuoteRoundOrganizationId("   ")).toBeUndefined();
     expect(normalizeQuoteRoundOrganizationId(" org-1 ")).toBe("org-1");
+  });
+
+  test("preserves canonical Scope source identity and pinned draft lines in the display model", () => {
+    expect(
+      normalizeQuoteRoundComposerData(generatedComposerSource())
+        .labourSubmilestones[0]
+    ).toMatchObject({
+      sourceScopeChangeReason: "Clarified framing quantities.",
+      sourceScopeRevisionId: "scope-revision-2",
+      sourceScopeVersion: 2,
+    });
+
+    const detail = normalizeQuoteRoundDetail({
+      _id: "quote-round-1",
+      draft: {
+        labourLines: [
+          {
+            buildSubmilestoneId: "submilestone-1",
+            scopeOfWorkTiptapJson: '{"type":"doc","content":[]}',
+            sourceScopeRevisionId: "scope-revision-1",
+            sourceScopeVersion: 1,
+          },
+        ],
+        labourSubmilestoneIds: ["submilestone-1"],
+        materialRows: [],
+        recipientProfileIds: [],
+        scopeUpdateAvailable: true,
+      },
+      invitations: [],
+      mode: "labour",
+      packageRevision: null,
+      packageRevisionHistory: [],
+      revision: 5,
+      scopeUpdateAvailable: true,
+      state: "draft",
+      title: "Framing bid",
+      updatedAt: 1,
+    } as unknown as Parameters<typeof normalizeQuoteRoundDetail>[0]);
+
+    expect(detail).toMatchObject({
+      draft: {
+        labourLines: [
+          {
+            buildSubmilestoneId: "submilestone-1",
+            sourceScopeRevisionId: "scope-revision-1",
+            sourceScopeVersion: 1,
+          },
+        ],
+        scopeUpdateAvailable: true,
+      },
+      packageRevisionHistory: [],
+      revision: 5,
+      scopeUpdateAvailable: true,
+    });
   });
 });

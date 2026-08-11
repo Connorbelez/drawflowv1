@@ -10,7 +10,7 @@ import {
 import type { Editor } from "@tiptap/core";
 import { useCurrentEditor } from "@tiptap/react";
 import { useEffect } from "react";
-import { afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import { EditorProvider } from "./index.tsx";
@@ -124,6 +124,118 @@ describe("EditorProvider structural formatting", () => {
     expect(document.querySelector(".ProseMirror h1")?.textContent).toBe(
       "Foundation scope"
     );
+  });
+
+  test("syncs the mounted editor editable state when saving toggles", async () => {
+    const { rerender } = render(
+      <FieldRichTextEditor
+        ariaLabel="Project note"
+        editable
+        onChange={vi.fn()}
+        value="<p>Foundation scope</p>"
+      />
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector(".ProseMirror")).not.toBeNull()
+    );
+    const editor = document.querySelector(".ProseMirror") as HTMLElement;
+    expect(editor.getAttribute("contenteditable")).toBe("true");
+
+    rerender(
+      <FieldRichTextEditor
+        ariaLabel="Project note"
+        editable={false}
+        onChange={vi.fn()}
+        value="<p>Foundation scope</p>"
+      />
+    );
+    await waitFor(() =>
+      expect(editor.getAttribute("contenteditable")).toBe("false")
+    );
+
+    rerender(
+      <FieldRichTextEditor
+        ariaLabel="Project note"
+        editable
+        onChange={vi.fn()}
+        value="<p>Foundation scope</p>"
+      />
+    );
+    await waitFor(() =>
+      expect(editor.getAttribute("contenteditable")).toBe("true")
+    );
+  });
+
+  test("non-editable field toolbar is inert and closes selector portals", async () => {
+    const { rerender } = render(
+      <FieldRichTextEditor
+        ariaLabel="Project note"
+        editable
+        onChange={() => undefined}
+        value="<p>Foundation scope</p>"
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Link" }));
+    expect(await screen.findByRole("textbox", { name: "Link URL" })).toBeTruthy();
+
+    rerender(
+      <FieldRichTextEditor
+        ariaLabel="Project note"
+        editable={false}
+        onChange={() => undefined}
+        value="<p>Foundation scope</p>"
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Link URL" })).toBeNull()
+    );
+
+    rerender(
+      <FieldRichTextEditor
+        ariaLabel="Project note"
+        editable
+        onChange={() => undefined}
+        value="<p>Foundation scope</p>"
+      />
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Image" }));
+    expect(await screen.findByRole("textbox", { name: "Image URL" })).toBeTruthy();
+
+    rerender(
+      <FieldRichTextEditor
+        ariaLabel="Project note"
+        editable={false}
+        onChange={() => undefined}
+        value="<p>Foundation scope</p>"
+      />
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Image URL" })).toBeNull()
+    );
+
+    const toolbar = document.querySelector('[aria-disabled="true"]');
+    expect(toolbar).toBeTruthy();
+    expect(toolbar?.getAttribute("inert")).toBe("");
+
+    const editorElement = document.querySelector(".ProseMirror");
+    const textNode = editorElement?.querySelector("p")?.firstChild;
+    expect(editorElement).not.toBeNull();
+    expect(textNode).not.toBeNull();
+    (editorElement as HTMLElement).focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(textNode as Node);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const editorHtml = document.querySelector(".ProseMirror")?.innerHTML;
+    const boldButton = screen.getByRole("button", { name: "Bold" });
+    fireEvent.keyDown(boldButton, { key: "Enter" });
+    fireEvent.click(boldButton);
+    expect(document.querySelector(".ProseMirror")?.innerHTML).toBe(editorHtml);
   });
 
   test("slash menu To-do List creates task-list and task-item nodes", async () => {

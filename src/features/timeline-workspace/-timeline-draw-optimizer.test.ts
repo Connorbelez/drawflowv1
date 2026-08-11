@@ -4,7 +4,7 @@ import {
   buildCashflowChartData,
   buildCashShortfallPoints,
   buildTimelineCashflowData,
-} from "./index.tsx";
+} from "./TimelineWorkspace.tsx";
 import type {
   DemoCapitalSpike,
   DemoMilestone,

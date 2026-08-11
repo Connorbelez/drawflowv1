@@ -330,7 +330,7 @@ export function BuildCollaborationActionItems({
   ];
 
   return (
-    <section className="space-y-3">
+    <section className="min-w-0 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-xs">
           {items.length} {items.length === 1 ? "item" : "items"} anchored to
@@ -353,29 +353,31 @@ export function BuildCollaborationActionItems({
           </FramePanel>
         </Frame>
       ) : actionView === "board" ? (
-        <div className="grid min-w-[68rem] grid-cols-5 gap-2 overflow-x-auto pb-2">
-          {columns.map((column) => (
-            <Frame key={column.status}>
-              <FramePanel className="h-full bg-muted/20 p-2">
-                <p className="mb-2 font-medium text-xs">{column.label}</p>
-                <div className="space-y-2">
-                  {items
-                    .filter((item) => item.status === column.status)
-                    .map((item) => (
-                      <ActionItemCard
-                        item={item}
-                        key={item._id}
-                        mutationsAllowed={mutationsAllowed}
-                        onMove={onMove}
-                        onOpen={onOpen}
-                        participants={participants}
-                        view="board"
-                      />
-                    ))}
-                </div>
-              </FramePanel>
-            </Frame>
-          ))}
+        <div className="max-w-full overflow-x-auto pb-2">
+          <div className="grid min-w-[68rem] grid-cols-5 gap-2">
+            {columns.map((column) => (
+              <Frame key={column.status}>
+                <FramePanel className="h-full bg-muted/20 p-2">
+                  <p className="mb-2 font-medium text-xs">{column.label}</p>
+                  <div className="space-y-2">
+                    {items
+                      .filter((item) => item.status === column.status)
+                      .map((item) => (
+                        <ActionItemCard
+                          item={item}
+                          key={item._id}
+                          mutationsAllowed={mutationsAllowed}
+                          onMove={onMove}
+                          onOpen={onOpen}
+                          participants={participants}
+                          view="board"
+                        />
+                      ))}
+                  </div>
+                </FramePanel>
+              </Frame>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="space-y-2">

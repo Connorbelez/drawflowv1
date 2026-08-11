@@ -8,10 +8,6 @@ import {
   buildActionItemSystemModeValidator,
   buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
-  buildPlanningDiffCategoryValidator,
-  buildPlanningDiffChangeTypeValidator,
-  buildPlanningRevisionKindValidator,
-  buildPlanningStateValidator,
   buildCollaborationActorKindValidator,
   buildCollaborationApprovalStateValidator,
   buildCollaborationAssetScanStateValidator,
@@ -35,6 +31,10 @@ import {
   buildCollaborationTenantStatusValidator,
   buildCollaborationThreadStateValidator,
   buildParticipantStatusValidator,
+  buildPlanningDiffCategoryValidator,
+  buildPlanningDiffChangeTypeValidator,
+  buildPlanningRevisionKindValidator,
+  buildPlanningStateValidator,
   costDocumentBatchStateValidator,
   costDocumentDraftLifecycleValidator,
   costDocumentDraftPageStateValidator,
@@ -410,7 +410,7 @@ const systemPostBackfillUnknownFactValidator = v.union(
   v.literal("evidence"),
   v.literal("review"),
   v.literal("approval"),
-  v.literal("disposition"),
+  v.literal("disposition")
 );
 
 const systemPostHistoricalBackfillValidator = v.object({
@@ -1437,10 +1437,17 @@ export default defineSchema({
     createdAt: v.number(),
     description: v.string(),
     durationDays: v.number(),
+    fieldGuidance: v.optional(
+      v.object({
+        cameraAnglesTiptapJson: v.string(),
+        whatToVerifyTiptapJson: v.string(),
+      }),
+    ),
     milestoneKey: v.string(),
     name: v.string(),
     order: v.number(),
     percentageBps: v.number(),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     submilestoneKey: v.string(),
     templateKey: v.string(),
     updatedAt: v.number(),
@@ -2510,6 +2517,11 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     quoteRoundId: v.id("quoteRounds"),
     buildSubmilestoneId: v.id("buildSubmilestones"),
+    // Every Labour draft pins the exact canonical Scope revision and bytes.
+    sourceScopeRevisionId: v.id("submilestoneScopeRevisions"),
+    sourceScopeVersion: v.number(),
+    sourceScopeChangeReason: v.optional(v.string()),
+    scopeOfWorkTiptapJson: v.string(),
     order: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2622,6 +2634,12 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     budgetCents: v.optional(v.number()),
+    // Historical Package Revision snapshots may predate canonical Scope
+    // identity, so these provenance pins remain optional and immutable. New
+    // Package Revision writes always populate these pins.
+    sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    sourceScopeVersion: v.optional(v.number()),
+    sourceScopeChangeReason: v.optional(v.string()),
     scopeOfWorkTiptapJson: v.string(),
     createdAt: v.number(),
   })
@@ -2751,6 +2769,15 @@ export default defineSchema({
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
     quotePackageRevisionId: v.id("quotePackageRevisions"),
     version: v.number(),
+    // A new Package Revision may seed a Draft from the recipient's prior
+    // response only after acknowledgement. Copied commercial values remain
+    // unusable for submission until the recipient explicitly confirms them.
+    copiedFromQuotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    copiedValuesConfirmationState: v.optional(
+      v.union(v.literal("pending"), v.literal("confirmed"))
+    ),
+    copiedValuesConfirmedAt: v.optional(v.number()),
+    copiedValuesConfirmedByWorkosUserId: v.optional(v.string()),
     commentsHtml: v.optional(v.string()),
     completedPricingLineCount: v.number(),
     answeredFieldCount: v.number(),
@@ -3328,6 +3355,13 @@ export default defineSchema({
     order: v.number(),
     percentageBps: v.number(),
     durationDays: v.number(),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
+    fieldGuidance: v.optional(
+      v.object({
+        cameraAnglesTiptapJson: v.string(),
+        whatToVerifyTiptapJson: v.string(),
+      }),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3523,7 +3557,6 @@ export default defineSchema({
     name: v.string(),
     order: v.number(),
     budgetCents: v.optional(v.number()),
-    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     createdAt: v.number(),
@@ -3531,6 +3564,103 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_milestone", ["proposalMilestoneId"]),
+  submilestoneScopeContracts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    buildId: v.optional(v.id("activeBuilds")),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    effectiveRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    activeDraftRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    latestVersion: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"])
+    .index("by_organizationId_and_proposalId", [
+      "organizationId",
+      "proposalId",
+    ])
+    .index("by_organizationId_and_buildId", ["organizationId", "buildId"])
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
+  submilestoneScopeRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    contractId: v.id("submilestoneScopeContracts"),
+    version: v.number(),
+    status: v.union(v.literal("draft"), v.literal("published")),
+    scopeOfWorkTiptapJson: v.string(),
+    basedOnRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    authoredByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    savedAt: v.number(),
+    publishedByWorkosUserId: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+    changeReason: v.optional(v.string()),
+  })
+    .index("by_contractId_and_version", ["contractId", "version"])
+    .index("by_contractId_and_status", ["contractId", "status"]),
+  submilestoneScopeDecisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    contractId: v.id("submilestoneScopeContracts"),
+    revisionId: v.id("submilestoneScopeRevisions"),
+    version: v.number(),
+    kind: v.union(
+      v.literal("borrower_acknowledged"),
+      v.literal("borrower_rejected"),
+      v.literal("lender_admin_approved"),
+      v.literal("admin_override")
+    ),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    reason: v.optional(v.string()),
+    bypassedDecisionKinds: v.optional(
+      v.array(
+        v.union(
+          v.literal("borrower_acknowledged"),
+          v.literal("borrower_rejected"),
+          v.literal("lender_admin_approved")
+        )
+      )
+    ),
+    priorEffectiveRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    newEffectiveRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    idempotencyKey: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_revisionId_and_createdAt", ["revisionId", "createdAt"])
+    .index("by_revisionId_and_kind", ["revisionId", "kind"])
+    .index("by_contractId", ["contractId"])
+    .index("by_contractId_and_idempotencyKey", [
+      "contractId",
+      "idempotencyKey",
+    ]),
+  submilestoneFieldGuidance: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    buildId: v.optional(v.id("activeBuilds")),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    whatToVerifyTiptapJson: v.string(),
+    cameraAnglesTiptapJson: v.string(),
+    updatedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"])
+    .index("by_organizationId_and_proposalId", [
+      "organizationId",
+      "proposalId",
+    ])
+    .index("by_organizationId_and_buildId", ["organizationId", "buildId"])
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
   proposalContractorAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3835,12 +3965,15 @@ export default defineSchema({
           entityId: v.string(),
           entityType: v.string(),
           revision: v.optional(v.number()),
-        }),
-      ),
+        })
+      )
     ),
     priorState: v.optional(v.string()),
     newState: v.optional(v.string()),
     reason: v.optional(v.string()),
+    // Historical active-Build planning events recorded their governed app
+    // resource. Preserve that immutable audit context during schema cutovers.
+    resourceType: v.optional(v.string()),
     reconciliationKey: v.optional(v.string()),
     drawFlowCorrelationId: v.optional(v.string()),
     providerCorrelationId: v.optional(v.string()),
@@ -4089,6 +4222,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_collaborationBuildId", ["collaborationBuildId"])
+    .index("by_collaborationBuildId_and_collaborationActionItemId", [
+      "collaborationBuildId",
+      "collaborationActionItemId",
+    ])
     .index("by_recipient", [
       "organizationId",
       "recipientWorkosUserId",
@@ -4666,7 +4803,7 @@ export default defineSchema({
     materializationRecoveryAttemptCount: v.optional(v.number()),
     materializationRecoveryExhaustedAt: v.optional(v.number()),
     materializationRecoveryState: v.optional(
-      v.union(v.literal("pending"), v.literal("exhausted")),
+      v.union(v.literal("pending"), v.literal("exhausted"))
     ),
     materializationLastScheduledAt: v.optional(v.number()),
   })
@@ -5055,9 +5192,92 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_buildId_and_planToken", ["buildId", "planToken"])
-    .index("by_organizationId_and_updatedAt", [
-      "organizationId",
-      "updatedAt",
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildSubmilestoneCompanionCutoverRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    planToken: v.string(),
+    planVersion: v.string(),
+    status: v.union(
+      v.literal("seeding_reports"),
+      v.literal("repairing"),
+      v.literal("materializing"),
+      v.literal("checking_parity"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    batchSize: v.number(),
+    milestoneIds: v.array(v.id("buildMilestones")),
+    lastParityRecordKey: v.optional(v.string()),
+    nextReportOrdinal: v.number(),
+    nextMilestoneOrdinal: v.number(),
+    nextSeedOrdinal: v.number(),
+    reportCount: v.number(),
+    activeSubmilestoneCount: v.number(),
+    healthyCount: v.number(),
+    missingCount: v.number(),
+    duplicateCount: v.number(),
+    malformedCount: v.number(),
+    crossScopeCount: v.number(),
+    historicalCount: v.number(),
+    repairedCount: v.number(),
+    materializedCount: v.number(),
+    exceptionCount: v.number(),
+    parityCheckedCount: v.number(),
+    parityMismatchCount: v.number(),
+    manualActionItemCount: v.number(),
+    generatedCompanionCount: v.number(),
+    reportHash: v.optional(v.string()),
+    lastError: v.optional(v.string()),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_planToken", ["buildId", "planToken"])
+    .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_buildId_and_updatedAt", ["buildId", "updatedAt"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildSubmilestoneCompanionCutoverReports: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    runId: v.id("buildSubmilestoneCompanionCutoverRuns"),
+    ordinal: v.number(),
+    reportId: v.string(),
+    recordKey: v.string(),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    candidateActionItemIds: v.array(v.id("buildActionItems")),
+    classification: v.union(
+      v.literal("healthy"),
+      v.literal("missing"),
+      v.literal("duplicate"),
+      v.literal("malformed"),
+      v.literal("cross_scope"),
+      v.literal("incorrectly_superseded"),
+      v.literal("historical")
+    ),
+    snapshotHash: v.string(),
+    outcome: v.union(
+      v.literal("pending"),
+      v.literal("unchanged"),
+      v.literal("repaired"),
+      v.literal("materialized"),
+      v.literal("historical"),
+      v.literal("exception")
+    ),
+    survivorActionItemId: v.optional(v.id("buildActionItems")),
+    historyCountsJson: v.optional(v.string()),
+    exceptionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_runId_and_ordinal", ["runId", "ordinal"])
+    .index("by_runId_and_recordKey", ["runId", "recordKey"])
+    .index("by_buildSubmilestoneId_and_createdAt", [
+      "buildSubmilestoneId",
+      "createdAt",
     ]),
   buildCollaborationLegacyNoteMigrationRuns: defineTable({
     organizationId: v.string(),
@@ -5727,19 +5947,24 @@ export default defineSchema({
     // fields identify the immutable activation revision without making the
     // collaboration post a second source of truth.
     activationPlanningRevisionId: v.optional(
-      v.id("activeBuildPlanningRevisions"),
+      v.id("activeBuildPlanningRevisions")
     ),
     currentPlanningRevision: v.optional(v.number()),
     systemLifecycle: v.optional(
-      v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened")),
+      v.union(
+        v.literal("latent"),
+        v.literal("open"),
+        v.literal("resolved"),
+        v.literal("reopened")
+      )
     ),
     systemDisposition: v.optional(
       v.union(
         v.literal("withdrawal"),
         v.literal("cancellation"),
         v.literal("final_decline"),
-        v.literal("released"),
-      ),
+        v.literal("released")
+      )
     ),
     // Historical System Posts retain only proven source chronology/actor
     // facts.  `materializedAt` is migration metadata and must never be used
@@ -6366,9 +6591,26 @@ export default defineSchema({
     systemMode: v.optional(buildActionItemSystemModeValidator),
     canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
     canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    historicalCanonicalBuildSubmilestoneId: v.optional(
+      v.id("buildSubmilestones")
+    ),
+    canonicalCompanionDisposition: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("historical"),
+        v.literal("historical_duplicate"),
+        v.literal("quarantined")
+      )
+    ),
+    canonicalCompanionSurvivorId: v.optional(v.id("buildActionItems")),
+    canonicalCompanionSupersededAt: v.optional(v.number()),
     canonicalBindingRevision: v.optional(v.number()),
     canonicalPlanningState: v.optional(buildPlanningStateValidator),
   })
+    .index("by_canonicalBuildSubmilestoneId_and_systemMode", [
+      "canonicalBuildSubmilestoneId",
+      "systemMode",
+    ])
     .index("by_originatingPostId_and_createdAt", [
       "originatingPostId",
       "createdAt",
@@ -6543,6 +6785,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_buildId_and_projectionKey", ["buildId", "projectionKey"])
+    .index("by_buildId_and_actionItemId", ["buildId", "actionItemId"])
     .index("by_buildId_and_targetKind_and_targetId_and_createdAt", [
       "buildId",
       "targetKind",
@@ -6825,6 +7068,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_buildId", ["buildId"])
+    .index("by_buildId_and_collaborationActionItemId", [
+      "buildId",
+      "collaborationActionItemId",
+    ])
     .index("by_status_and_scheduledFor", ["status", "scheduledFor"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_providerOutboxId", ["providerOutboxId"])
@@ -6933,6 +7180,11 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_build_key", ["buildId", "evidenceKey"])
     .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_build_milestone_submilestone", [
+      "buildId",
+      "milestoneKey",
+      "submilestoneKey",
+    ])
     .index("by_site_visit", ["siteVisitId"])
     .index("by_site_visit_client", ["siteVisitId", "clientEvidenceId"]),
   buildNotes: defineTable({
@@ -7157,13 +7409,14 @@ export default defineSchema({
         v.literal("in_review"),
         v.literal("ready_for_approval"),
         v.literal("approved"),
-        v.literal("reopened"),
-      ),
+        v.literal("reopened")
+      )
     ),
     reviewDecisionId: v.optional(v.id("buildMilestoneReviewDecisions")),
     reviewRevision: v.optional(v.number()),
     collaborationEventRevision: v.optional(v.number()),
     collaborationEvidenceEventRevision: v.optional(v.number()),
+    workflowRevision: v.optional(v.number()),
     evidenceState: v.optional(v.string()),
     isDragLocked: v.optional(v.boolean()),
     policyState: v.optional(v.string()),
@@ -7207,9 +7460,6 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
-    // Canonical scope content for recipient-visible Quote Package snapshots.
-    // Legacy fieldNote remains a plain-text fallback until this field is set.
-    scopeOfWorkTiptapJson: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     completionForecastDate: v.optional(v.string()),
     evidencePackageRevisionId: v.optional(
@@ -7229,12 +7479,12 @@ export default defineSchema({
         v.literal("in_review"),
         v.literal("changes_requested"),
         v.literal("approved"),
-        v.literal("reopened"),
-      ),
+        v.literal("reopened")
+      )
     ),
     reviewDecisionId: v.optional(v.id("buildSubmilestoneReviewDecisions")),
     siteVisitRequirementId: v.optional(
-      v.id("buildSubmilestoneSiteVisitRequirements"),
+      v.id("buildSubmilestoneSiteVisitRequirements")
     ),
     reviewRevision: v.optional(v.number()),
     completionSubmissionId: v.optional(
@@ -7263,7 +7513,8 @@ export default defineSchema({
   })
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"])
-    .index("by_milestone_and_key", ["buildMilestoneId", "key"]),
+    .index("by_milestone_and_key", ["buildMilestoneId", "key"])
+    .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"]),
   buildSubmilestoneDocumentLinks: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -7301,7 +7552,7 @@ export default defineSchema({
       v.literal("not_required"),
       v.literal("required"),
       v.literal("satisfied"),
-      v.literal("waived"),
+      v.literal("waived")
     ),
     siteVisitId: v.optional(v.id("buildSiteVisits")),
     waivedByWorkosUserId: v.optional(v.string()),
@@ -7329,13 +7580,11 @@ export default defineSchema({
       v.literal("changes_requested"),
       v.literal("approved"),
       v.literal("site_visit_waived"),
-      v.literal("retracted"),
+      v.literal("retracted")
     ),
     siteVisitRequired: v.optional(v.boolean()),
     siteVisitId: v.optional(v.id("buildSiteVisits")),
-    requirementId: v.optional(
-      v.id("buildSubmilestoneSiteVisitRequirements"),
-    ),
+    requirementId: v.optional(v.id("buildSubmilestoneSiteVisitRequirements")),
     remediation: v.optional(v.array(v.string())),
     note: v.optional(v.string()),
     priorState: v.string(),
@@ -7352,10 +7601,7 @@ export default defineSchema({
       "buildSubmilestoneId",
       "idempotencyKey",
     ])
-    .index("by_submilestone_createdAt", [
-      "buildSubmilestoneId",
-      "createdAt",
-    ]),
+    .index("by_submilestone_createdAt", ["buildSubmilestoneId", "createdAt"]),
   buildSubmilestoneEvidenceRequirements: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -7453,6 +7699,14 @@ export default defineSchema({
     sourceUploaderWorkosUserId: v.string(),
     sourceCapturedAt: v.optional(v.number()),
     sourcePublishedAt: v.optional(v.number()),
+    // Explicit promotion identity/provenance. Legacy promotion rows may not
+    // have these fields; new writes persist them so retries and review rounds
+    // remain auditable without relying only on the command receipt projection.
+    idempotencyKey: v.optional(v.string()),
+    fingerprint: v.optional(v.string()),
+    requirementKey: v.optional(v.string()),
+    reviewRound: v.optional(v.number()),
+    workflowRevision: v.optional(v.number()),
     promotedByWorkosUserId: v.string(),
     promotedAt: v.number(),
   })
@@ -7468,6 +7722,10 @@ export default defineSchema({
     submilestoneKey: v.string(),
     revision: v.number(),
     idempotencyKey: v.string(),
+    // A deterministic command/payload fingerprint protects retries from
+    // accidentally reusing a key for a different completion declaration.
+    // Optional keeps legacy rows readable while all new writes persist it.
+    fingerprint: v.optional(v.string()),
     actorWorkosUserId: v.string(),
     actorRoles: v.array(v.string()),
     declaredAt: v.number(),
@@ -7512,13 +7770,17 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     buildSubmilestoneId: v.id("buildSubmilestones"),
     command: v.string(),
+    // Canonical command payload identity. Legacy receipts may not have a
+    // fingerprint; new commands reject such rows as unsafe key reuse.
+    fingerprint: v.optional(v.string()),
     idempotencyKey: v.string(),
     resultJson: v.string(),
     createdAt: v.number(),
   }).index("by_submilestone_idempotency", [
     "buildSubmilestoneId",
     "idempotencyKey",
-  ]),  milestoneStartEvents: defineTable({
+  ]),
+  milestoneStartEvents: defineTable({
     actualStartedAt: v.optional(v.number()),
     actorRoles: v.array(v.string()),
     actorWorkosUserId: v.string(),
@@ -7562,6 +7824,7 @@ export default defineSchema({
     source: v.string(),
     startParentRequested: v.optional(v.boolean()),
     submilestoneKey: v.optional(v.string()),
+    workflowRevision: v.optional(v.number()),
     warnings: v.array(v.string()),
   })
     .index("by_organization_idempotency", ["organizationId", "idempotencyKey"])
@@ -8020,6 +8283,25 @@ export default defineSchema({
       "scheduleIdempotencyKey",
     ])
     .index("by_visit", ["visitId"]),
+  buildSiteVisitGuidanceSections: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildSiteVisitId: v.id("buildSiteVisits"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    submilestoneKey: v.string(),
+    submilestoneName: v.string(),
+    order: v.number(),
+    whatToVerifyTiptapJson: v.string(),
+    cameraAnglesTiptapJson: v.string(),
+    capturedAt: v.number(),
+  })
+    .index("by_buildSiteVisitId_and_order", ["buildSiteVisitId", "order"])
+    .index("by_buildId", ["buildId"])
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
   buildMilestoneReviewDecisions: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -8038,10 +8320,7 @@ export default defineSchema({
     idempotencyKey: v.string(),
   })
     .index("by_milestone_revision", ["buildMilestoneId", "reviewRevision"])
-    .index("by_milestone_idempotency", [
-      "buildMilestoneId",
-      "idempotencyKey",
-    ]),
+    .index("by_milestone_idempotency", ["buildMilestoneId", "idempotencyKey"]),
   siteVisitLinkRecoveryRequests: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
     buildId: v.string(),

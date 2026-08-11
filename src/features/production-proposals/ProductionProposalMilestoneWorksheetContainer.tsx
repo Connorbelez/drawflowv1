@@ -9,6 +9,8 @@ import type {
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
+import type { ScopeRevisionSurfaceRoute } from "../submilestone-scope/SubmilestoneScopeRevisionSurface.tsx";
 
 import { syncMilestonesToProductionTimeline } from "./ProductionProposalGanttWorkspace.tsx";
 import { ProductionProposalMilestoneWorksheet } from "./ProductionProposalMilestoneWorksheet.tsx";
@@ -26,6 +28,8 @@ export function ProductionProposalMilestoneWorksheetContainer({
   materialPlanningActions,
   persistenceMode = "noop",
   proposalId,
+  scopeRoute,
+  viewerCapacity,
   showHeading = false,
   templateTitle,
   workosOrganizationId,
@@ -37,6 +41,8 @@ export function ProductionProposalMilestoneWorksheetContainer({
   materialPlanningActions?: MaterialPlanningActions;
   persistenceMode?: "convex" | "noop";
   proposalId: Id<"buildProposals">;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  viewerCapacity?: BuildCollaborationRole;
   showHeading?: boolean;
   templateTitle: string;
   workosOrganizationId: string;
@@ -175,6 +181,7 @@ export function ProductionProposalMilestoneWorksheetContainer({
             id: saveToastIdRef.current ?? undefined,
           }
         );
+        throw error;
       } finally {
         saveToastIdRef.current = null;
       }
@@ -211,8 +218,11 @@ export function ProductionProposalMilestoneWorksheetContainer({
       footerExtra={footer}
       materialPlanningActions={materialPlanningActions}
       onPersistRows={canPersist ? onPersistRows : undefined}
+      scopeRoute={scopeRoute}
+      scopeWorkosOrganizationId={workosOrganizationId}
       showHeading={showHeading}
       templateTitle={templateTitle}
+      viewerCapacity={viewerCapacity}
     />
   );
 }

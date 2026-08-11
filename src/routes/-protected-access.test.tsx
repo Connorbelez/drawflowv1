@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const routerMocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  useRouteContext: vi.fn(),
   useSearch: vi.fn(),
 }));
 
@@ -22,6 +23,7 @@ vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () =>
     (config: unknown) => ({
       options: config,
+      useRouteContext: routerMocks.useRouteContext,
       useSearch: routerMocks.useSearch,
     }),
   Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
@@ -55,6 +57,8 @@ const ProtectedAccessRoute = Route.options.component as ComponentType;
 
 beforeEach(() => {
   routerMocks.navigate.mockReset();
+  routerMocks.useRouteContext.mockReset();
+  routerMocks.useRouteContext.mockReturnValue(undefined);
   routerMocks.useSearch.mockReturnValue({
     reason: "no-workspace-access",
     workspace: "backoffice",

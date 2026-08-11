@@ -7,6 +7,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const mockConvex = vi.hoisted(() => {
@@ -129,6 +131,67 @@ describe("SiteVisitTokenRoute", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  test("hydrates connectivity status from a deterministic server snapshot", async () => {
+    const originalOnLine = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "onLine",
+    );
+    Object.defineProperty(window.navigator, "onLine", {
+      configurable: true,
+      value: undefined,
+    });
+    const markup = renderToString(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    document.body.append(container);
+
+    Object.defineProperty(window.navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+
+    try {
+      await act(async () => {
+        root = hydrateRoot(
+          container,
+          <SiteVisitTokenRoute
+            buildId="k57activebuild"
+            siteVisitToken="fresh-token"
+            source="production"
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(
+        consoleError.mock.calls.some(([message]) =>
+          String(message).includes("Hydration failed"),
+        ),
+      ).toBe(false);
+      expect(
+        screen.queryByText("Offline, draft saved on this device"),
+      ).toBeNull();
+    } finally {
+      await act(async () => root?.unmount());
+      consoleError.mockRestore();
+      if (originalOnLine) {
+        Object.defineProperty(window.navigator, "onLine", originalOnLine);
+      } else {
+        Reflect.deleteProperty(window.navigator, "onLine");
+      }
+    }
   });
 
   test("keeps the submitted confirmation visible after realtime marks the token consumed", async () => {
@@ -373,6 +436,186 @@ describe("SiteVisitTokenRoute", () => {
     ).toBeGreaterThan(0);
   });
 
+  test("renders ordered immutable per-submilestone guidance snapshots", async () => {
+    const active = activeVisitState();
+    mockConvex.liveVisitState = {
+      ...active,
+      targets: [
+        {
+          ...active.targets[0],
+          submilestones: ["Current footings name", "Current walls name"],
+          guidance: {
+            cameraAngles: ["Canonical camera guidance must not appear."],
+            whatToVerify: ["Canonical verification guidance must not appear."],
+          },
+          guidanceSections: [
+            {
+              proposalSubmilestoneId: "proposal-walls",
+              buildSubmilestoneId: "build-walls",
+              submilestoneKey: "foundation-walls",
+              submilestoneName: "Foundation walls",
+              order: 2,
+              whatToVerifyTiptapJson: tiptapDocument(
+                "Snapshot walls verification",
+              ),
+              cameraAnglesTiptapJson: tiptapDocument(
+                "Snapshot walls camera angle",
+              ),
+              capturedAt: 1_721_234_567_890,
+            },
+            {
+              proposalSubmilestoneId: "proposal-footings",
+              buildSubmilestoneId: "build-footings",
+              submilestoneKey: "footings",
+              submilestoneName: "Footings",
+              order: 1,
+              whatToVerifyTiptapJson: tiptapDocument(
+                "Snapshot footings verification",
+              ),
+              cameraAnglesTiptapJson: tiptapDocument(
+                "Snapshot footings camera angle",
+              ),
+              capturedAt: 1_721_234_567_890,
+            },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /packet/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Snapshot footings verification")).toBeTruthy();
+      expect(screen.getByText("Snapshot walls verification")).toBeTruthy();
+      expect(screen.getByText("Snapshot footings camera angle")).toBeTruthy();
+      expect(screen.getByText("Snapshot walls camera angle")).toBeTruthy();
+    });
+
+    const bodyText = document.body.textContent ?? "";
+    expect(bodyText.indexOf("Snapshot footings verification")).toBeLessThan(
+      bodyText.indexOf("Snapshot walls verification"),
+    );
+    expect(bodyText).not.toContain("Canonical camera guidance must not appear.");
+    expect(bodyText).not.toContain(
+      "Canonical verification guidance must not appear.",
+    );
+    expect(bodyText).not.toContain("Current footings name");
+    expect(bodyText).not.toContain("Current walls name");
+  });
+
+  test("keeps snapshot guidance renderable when display titles repeat", async () => {
+    const active = activeVisitState();
+    mockConvex.liveVisitState = {
+      ...active,
+      targets: [
+        {
+          ...active.targets[0],
+          guidanceSections: [
+            {
+              proposalSubmilestoneId: "proposal-duplicate-one",
+              buildSubmilestoneId: "build-duplicate-one",
+              submilestoneKey: "duplicate-one",
+              submilestoneName: "Same display title",
+              order: 1,
+              whatToVerifyTiptapJson: tiptapDocument(
+                "First duplicate-title verification",
+              ),
+              cameraAnglesTiptapJson: tiptapDocument(
+                "First duplicate-title camera angle",
+              ),
+              capturedAt: 1_721_234_567_890,
+            },
+            {
+              proposalSubmilestoneId: "proposal-duplicate-two",
+              buildSubmilestoneId: "build-duplicate-two",
+              submilestoneKey: "duplicate-two",
+              submilestoneName: "Same display title",
+              order: 2,
+              whatToVerifyTiptapJson: tiptapDocument(
+                "Second duplicate-title verification",
+              ),
+              cameraAnglesTiptapJson: tiptapDocument(
+                "Second duplicate-title camera angle",
+              ),
+              capturedAt: 1_721_234_567_890,
+            },
+          ],
+        },
+      ],
+    };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      render(
+        <SiteVisitTokenRoute
+          buildId="k57activebuild"
+          siteVisitToken="fresh-token"
+          source="production"
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /packet/i }));
+
+      await waitFor(() => {
+        expect(
+          screen.getAllByText("First duplicate-title verification").length,
+        ).toBeGreaterThan(0);
+        expect(
+          screen.getAllByText("Second duplicate-title camera angle").length,
+        ).toBeGreaterThan(0);
+      });
+
+      const duplicateKeyWarnings = consoleError.mock.calls.filter(([message]) =>
+        String(message).toLowerCase().includes("same key")
+      );
+      expect(duplicateKeyWarnings).toHaveLength(0);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test("falls back to the pre-cutover milestone-wide guidance shape", async () => {
+    const active = activeVisitState();
+    mockConvex.liveVisitState = {
+      ...active,
+      targets: [
+        {
+          ...active.targets[0],
+          guidance: {
+            cameraAngles: ["Legacy visit-wide camera angle"],
+            whatToVerify: ["Legacy visit-wide verification"],
+          },
+          guidanceSections: [],
+        },
+      ],
+    };
+
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /packet/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Legacy visit-wide verification")).toBeTruthy();
+      expect(screen.getByText("Legacy visit-wide camera angle")).toBeTruthy();
+    });
+  });
+
   test("renders an interactive site map and a working Open in Maps action", () => {
     render(
       <SiteVisitTokenRoute
@@ -563,6 +806,18 @@ function activeVisitState() {
       tokenExpiresAt: Date.now() + 58 * 60_000,
     },
   };
+}
+
+function tiptapDocument(text: string) {
+  return JSON.stringify({
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text }],
+      },
+    ],
+  });
 }
 
 function consumedVisitState() {

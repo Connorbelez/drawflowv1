@@ -228,6 +228,13 @@ describe("Build collaboration export and lifecycle governance", () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
     const fixture = await seedLifecycleFixture();
+    // Use a subject that is not present in the seeded WorkOS projection so the
+    // second identity below exercises a real server-derived role change.
+    const archiveAdmin = withIdentity(
+      fixture.base,
+      "admin",
+      "user_export_acl_admin",
+    );
     await fixture.base.run(async (ctx) => {
       await ctx.db.patch(fixture.sharedPostId, {
         primaryReferenceKind: "draw",
@@ -241,11 +248,11 @@ describe("Build collaboration export and lifecycle governance", () => {
       await ctx.db.patch(asset._id, {
         readerWorkosUserIds: [
           ...(asset.readerWorkosUserIds ?? []),
-          "user_admin",
+          "user_export_acl_admin",
         ],
       });
     });
-    const created = await fixture.admin.mutation(
+    const created = await archiveAdmin.mutation(
       (api as any).build_collaboration_exports.requestBuildCollaborationExport,
       {
         buildId: fixture.buildId,
@@ -254,7 +261,7 @@ describe("Build collaboration export and lifecycle governance", () => {
       },
     );
     await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
-    const downloaded = await fixture.admin.mutation(
+    const downloaded = await archiveAdmin.mutation(
       (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
       {
         buildId: fixture.buildId,
@@ -300,7 +307,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     const demotedAdmin = withIdentity(
       fixture.base,
       "principle-broker",
-      "user_admin",
+      "user_export_acl_admin",
     );
     await expect(
       demotedAdmin.mutation(
@@ -1325,7 +1332,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     expect(replay).toEqual(completed);
   });
 
-  test("cursors past more than 5,000 permanent System Posts before filtering", async () => {
+  test("skips more than 5,000 permanent System Posts while purging human content", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
     const fixture = await seedLifecycleFixture();
@@ -1378,34 +1385,25 @@ describe("Build collaboration export and lifecycle governance", () => {
       },
     );
     expect(first).toMatchObject({
-      complete: false,
-      deletedPostCount: 0,
-      hasRemainingPosts: true,
+      complete: true,
+      deletedPostCount: 2,
+      hasRemainingPosts: false,
     });
-    const progress = await fixture.base.run(async (ctx) =>
-      ctx.db
-        .query("buildCollaborationRetentionPurges")
-        .withIndex("by_buildId_and_state", (query) =>
-          query.eq("buildId", fixture.buildId).eq("state", "in_progress"),
-        )
-        .unique(),
-    );
-    expect(progress).toMatchObject({ postsScanned: false });
-    expect(progress?.postCursor).toEqual(expect.any(String));
     const permanentPosts = await fixture.base.run((ctx) =>
       ctx.db
         .query("buildCollaborationPosts")
-        .withIndex("by_buildId_and_createdAt", (query) =>
-          query.eq("buildId", fixture.buildId),
+        .withIndex("by_buildId_and_source_and_createdAt", (query) =>
+          query.eq("buildId", fixture.buildId).eq("source", "system"),
         )
         .collect(),
     );
-    expect(permanentPosts.filter((post) => post.systemPostKind)).toHaveLength(
-      5_001,
-    );
+    expect(permanentPosts).toHaveLength(5_001);
     expect(
       await fixture.base.run((ctx) => ctx.db.get(fixture.sharedPostId)),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(
+      await fixture.base.run((ctx) => ctx.db.get(fixture.secretPostId)),
+    ).toBeNull();
   });
 
   test("exports immutable full-archive history instead of only current projections", async () => {

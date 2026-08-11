@@ -9,20 +9,17 @@ import {
   type BuildCollaborationRole,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
+import { ensureActiveBuildPlanningActivationRevision } from "./build_collaboration_planning_reconciliation";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
+import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
+import type { SystemPostHistoricalBackfill } from "./build_collaboration_system_events";
 import {
-  resolveCanonicalMilestoneExecutionOwnership,
-} from "./build_collaboration_system_event_access";
-import {
-  resolveSubmilestoneOperateAuthority,
-} from "./build_submilestone_operate_authority";
-import {
+  activateLatentBuildCollaborationSystemEvent,
   publishCanonicalBuildCollaborationSystemEvent,
   resolveSystemEventScope,
 } from "./build_collaboration_system_events";
-import type { SystemPostHistoricalBackfill } from "./build_collaboration_system_events";
-import { ensureActiveBuildPlanningActivationRevision } from "./build_collaboration_planning_reconciliation";
 import { resolveActiveSubmilestoneEvidencePackageReadiness } from "./build_submilestone_evidence";
+import { resolveSubmilestoneOperateAuthority } from "./build_submilestone_operate_authority";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const SYSTEM_AUTHOR = "system";
@@ -30,6 +27,7 @@ const SYSTEM_LABEL = "DrawFlow System";
 
 export type MilestoneSystemActivationReason =
   | "explicit_start"
+  | "plan_activated"
   | "recovery"
   | "scheduled"
   | "backfill";
@@ -42,13 +40,10 @@ export type DrawSystemActivationReason =
 
 /** Only explicit human/domain activations create recipient notifications. */
 export function shouldNotifySystemPost(
-  activationReason:
-    | MilestoneSystemActivationReason
-    | DrawSystemActivationReason,
+  activationReason: MilestoneSystemActivationReason | DrawSystemActivationReason
 ) {
   return (
-    activationReason === "explicit_start" ||
-    activationReason === "draw_request"
+    activationReason === "explicit_start" || activationReason === "draw_request"
   );
 }
 
@@ -60,7 +55,10 @@ export function shouldNotifySystemPost(
  */
 export function drawSystemOccurrenceKey(
   build: Pick<Doc<"activeBuilds">, "_id" | "proposalId">,
-  draw: Pick<Doc<"plannedDrawScheduleRows">, "drawKey" | "proposalDrawScheduleRowId">,
+  draw: Pick<
+    Doc<"plannedDrawScheduleRows">,
+    "drawKey" | "proposalDrawScheduleRowId"
+  >
 ) {
   const stablePart = draw.proposalDrawScheduleRowId
     ? `proposal-row:${String(draw.proposalDrawScheduleRowId)}`
@@ -159,9 +157,11 @@ export type SystemActionItemPresentation = {
       | "completed"
       | "lender_review_only"
       | "permission_denied";
+    buildSubmilestoneId: Id<"buildSubmilestones">;
     milestoneKey: string;
     milestoneName: string;
     plannedStartDate: string;
+    proposalSubmilestoneId: Id<"proposalSubmilestones">;
     scope: "submilestone";
     source: "submilestone_detail";
     submilestoneKey: string;
@@ -317,7 +317,7 @@ function evidenceReviewColumn(
   if (state === "in_review") {
     return "in_review";
   }
-  return undefined;
+  return;
 }
 
 function derivedSubmilestoneReviewDecisionState(
@@ -335,7 +335,7 @@ function derivedSubmilestoneReviewDecisionState(
   if (submilestone.evidenceReviewState === "in_review") {
     return "in_review";
   }
-  return undefined;
+  return;
 }
 
 function derivedMilestoneReviewDecisionState(
@@ -819,11 +819,13 @@ async function projectMilestoneExecutionPresentation(
     startCommand: {
       allowed,
       buildName: input.build.buildName,
+      buildSubmilestoneId: input.submilestone._id,
       dependencyBlockers,
       ...(denialReason ? { denialReason } : {}),
       milestoneKey: input.milestone.key,
       milestoneName: input.milestone.name,
       plannedStartDate: input.plannedStartDate,
+      proposalSubmilestoneId: input.submilestone.proposalSubmilestoneId,
       scope: "submilestone",
       source: "submilestone_detail",
       submilestoneKey: input.submilestone.key,
@@ -858,12 +860,13 @@ export async function ensureMilestoneSystemPost(
       });
   const occurrenceKey = `milestone-system:${input.build._id}:${input.milestone._id}`;
   const now = input.now ?? Date.now();
-  const plainText =
-    input.historicalBackfill
-      ? "Backfilled from existing records. Canonical Milestone and Sub-milestone state remain authoritative."
+  const plainText = input.historicalBackfill
+    ? "Backfilled from existing records. Canonical Milestone and Sub-milestone state remain authoritative."
+    : input.activationReason === "plan_activated"
+      ? `${input.milestone.name} is part of the approved roadmap. Its collaboration companion is ready and will appear when the Milestone activates.`
       : input.activationReason === "scheduled"
-      ? `${input.milestone.name} is scheduled to begin today. Canonical Sub-milestone cards are synchronized from the roadmap; this does not record that work has started.`
-      : `${input.milestone.name} started. Canonical Sub-milestone cards are synchronized from the roadmap.`;
+        ? `${input.milestone.name} is scheduled to begin today. Canonical Sub-milestone cards are synchronized from the roadmap; this does not record that work has started.`
+        : `${input.milestone.name} started. Canonical Sub-milestone cards are synchronized from the roadmap.`;
   const postId = await publishCanonicalBuildCollaborationSystemEvent(ctx, {
     buildId: input.build._id,
     idempotencyKey: occurrenceKey,
@@ -875,6 +878,7 @@ export async function ensureMilestoneSystemPost(
     systemPostKind: "milestone",
     systemLabel: SYSTEM_LABEL,
     suppressNotifications: !shouldNotifySystemPost(input.activationReason),
+    silentPreactivation: input.activationReason === "plan_activated",
     ...(input.historicalBackfill
       ? { silentBackfill: input.historicalBackfill }
       : { now }),
@@ -902,7 +906,7 @@ export async function ensureMilestoneSystemPost(
     return null;
   }
 
-  const post = await ctx.db.get(postId);
+  let post = await ctx.db.get(postId);
   if (!post || post.buildId !== input.build._id) {
     throw new Error("Milestone System Post became unavailable.");
   }
@@ -911,6 +915,31 @@ export async function ensureMilestoneSystemPost(
     post.brokerageId !== input.build.brokerageId
   ) {
     return null;
+  }
+  const isPreactivation = input.activationReason === "plan_activated";
+  let activatedLatent = false;
+  if (
+    !(isPreactivation || input.historicalBackfill) &&
+    post.systemLifecycle === "latent"
+  ) {
+    activatedLatent = await activateLatentBuildCollaborationSystemEvent(ctx, {
+      buildId: input.build._id,
+      idempotencyKey: occurrenceKey,
+      now,
+      organizationId: input.build.organizationId,
+      plainText,
+      postId,
+      postType: "update",
+      primaryReferenceId: String(input.milestone._id),
+      primaryReferenceKind: "milestone",
+      systemLabel: SYSTEM_LABEL,
+      systemPostKind: "milestone",
+      suppressNotifications: !shouldNotifySystemPost(input.activationReason),
+    });
+    post = await ctx.db.get(postId);
+    if (!post) {
+      throw new Error("Milestone System Post became unavailable.");
+    }
   }
   const triggeredByRole = input.historicalBackfill
     ? undefined
@@ -931,7 +960,9 @@ export async function ensureMilestoneSystemPost(
   const postPatch = {
     activationPlanningRevisionId:
       post.activationPlanningRevisionId ?? activationRevision?._id,
-    activationReason: post.activationReason ?? input.activationReason,
+    activationReason: activatedLatent
+      ? input.activationReason
+      : (post.activationReason ?? input.activationReason),
     authorDisplayNameSnapshot: SYSTEM_LABEL,
     authorRolesSnapshot: ["system"],
     authorWorkosUserId: SYSTEM_AUTHOR,
@@ -941,12 +972,18 @@ export async function ensureMilestoneSystemPost(
     systemPostKind: "milestone" as const,
     currentPlanningRevision:
       post.currentPlanningRevision ?? activationRevision?.revision,
-    systemLifecycle: post.systemLifecycle ?? "open",
-    ...(input.historicalBackfill
+    systemLifecycle: isPreactivation
+      ? (post.systemLifecycle ?? "latent")
+      : post.systemLifecycle === "latent"
+        ? "open"
+        : (post.systemLifecycle ?? "open"),
+    ...(input.historicalBackfill || isPreactivation
       ? {}
       : { triggeredAt: post.triggeredAt ?? now }),
-    triggeredByRole: post.triggeredByRole ?? triggeredByRole,
-    ...(input.historicalBackfill
+    ...(isPreactivation
+      ? {}
+      : { triggeredByRole: post.triggeredByRole ?? triggeredByRole }),
+    ...(input.historicalBackfill || isPreactivation
       ? {}
       : {
           triggeredByWorkosUserId:
@@ -976,16 +1013,17 @@ export async function ensureMilestoneSystemPost(
     post.systemPostKind !== postPatch.systemPostKind ||
     post.currentPlanningRevision !== postPatch.currentPlanningRevision ||
     post.systemLifecycle !== postPatch.systemLifecycle ||
-    (("triggeredAt" in postPatch && post.triggeredAt !== postPatch.triggeredAt) ||
-      ("triggeredByRole" in postPatch &&
-        post.triggeredByRole !== postPatch.triggeredByRole) ||
-      ("triggeredByWorkosUserId" in postPatch &&
-        post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId) ||
-      ("materializedAt" in postPatch &&
-        post.materializedAt !== postPatch.materializedAt) ||
-      ("historicalBackfill" in postPatch &&
-        JSON.stringify(post.historicalBackfill) !==
-          JSON.stringify(postPatch.historicalBackfill)));
+    ("triggeredAt" in postPatch &&
+      post.triggeredAt !== postPatch.triggeredAt) ||
+    ("triggeredByRole" in postPatch &&
+      post.triggeredByRole !== postPatch.triggeredByRole) ||
+    ("triggeredByWorkosUserId" in postPatch &&
+      post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId) ||
+    ("materializedAt" in postPatch &&
+      post.materializedAt !== postPatch.materializedAt) ||
+    ("historicalBackfill" in postPatch &&
+      JSON.stringify(post.historicalBackfill) !==
+        JSON.stringify(postPatch.historicalBackfill));
   if (postChanged) {
     await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
   }
@@ -993,20 +1031,24 @@ export async function ensureMilestoneSystemPost(
   const generatedActionItemIds: Id<"buildActionItems">[] = [];
   let actionItemsChanged = false;
   for (const submilestone of submilestones) {
+    if (submilestone.planningState === "superseded") {
+      continue;
+    }
     const ensured = await ensureGeneratedSubmilestoneActionItem(ctx, {
       authorization: scope.authorization,
       milestone: input.milestone,
       now: input.historicalBackfill?.materializedAt ?? now,
       postId,
       submilestone,
-      silentBackfill: input.historicalBackfill !== undefined,
+      silentOperationalEffects:
+        input.historicalBackfill !== undefined || isPreactivation,
     });
     generatedActionItemIds.push(ensured.actionItemId);
     actionItemsChanged ||= ensured.changed;
   }
-  if (actionItemsChanged && !input.historicalBackfill) {
+  if (actionItemsChanged && !input.historicalBackfill && !isPreactivation) {
     await syncPostCounts(ctx, generatedActionItemIds, now);
-  } else if (actionItemsChanged && input.historicalBackfill) {
+  } else if (actionItemsChanged) {
     await syncPostCountsSilently(ctx, postId);
   }
 
@@ -1040,7 +1082,7 @@ export async function ensureDrawSystemPost(
     activationReason: DrawSystemActivationReason;
     historicalBackfill?: SystemPostHistoricalBackfill;
     now?: number;
-  },
+  }
 ) {
   const plannedDrawKey = input.drawRequest?.plannedDrawKey;
   const plannedDraw =
@@ -1049,9 +1091,7 @@ export async function ensureDrawSystemPost(
       ? await ctx.db
           .query("plannedDrawScheduleRows")
           .withIndex("by_build_draw_key", (query) =>
-            query
-              .eq("buildId", input.build._id)
-              .eq("drawKey", plannedDrawKey),
+            query.eq("buildId", input.build._id).eq("drawKey", plannedDrawKey)
           )
           .first()
       : undefined);
@@ -1073,13 +1113,14 @@ export async function ensureDrawSystemPost(
   const drawDisplay = input.drawRequest?.displayId
     ? ` (${input.drawRequest.displayId})`
     : "";
-  const plainText =
-    input.historicalBackfill
-      ? "Backfilled from existing records. Canonical Draw Request, evidence, review, approval, and release state remain authoritative."
-      : input.activationReason === "scheduled"
+  const plainText = input.historicalBackfill
+    ? "Backfilled from existing records. Canonical Draw Request, evidence, review, approval, and release state remain authoritative."
+    : input.activationReason === "scheduled"
       ? `${label} is scheduled for Draw coordination today. Canonical Draw Request, evidence, review, approval, and release state remain authoritative; no request was created.`
       : `${label}${drawDisplay} is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.`;
-  const primaryReferenceId = String(plannedDraw?._id ?? input.drawRequest?._id ?? "");
+  const primaryReferenceId = String(
+    plannedDraw?._id ?? input.drawRequest?._id ?? ""
+  );
   if (!primaryReferenceId) {
     return null;
   }
@@ -1115,7 +1156,7 @@ export async function ensureDrawSystemPost(
       systemLabel: SYSTEM_LABEL,
       systemPostKind: "draw",
     },
-    `${occurrenceKey}:scope`,
+    `${occurrenceKey}:scope`
   );
   if (scope.status !== "ready") {
     return null;
@@ -1150,7 +1191,9 @@ export async function ensureDrawSystemPost(
     systemLifecycle: post.systemLifecycle ?? "open",
     ...(input.drawRequest
       ? (() => {
-          const disposition = drawSystemDispositionForStatus(input.drawRequest.status);
+          const disposition = drawSystemDispositionForStatus(
+            input.drawRequest.status
+          );
           return disposition ? { systemDisposition: disposition } : {};
         })()
       : {}),
@@ -1177,7 +1220,8 @@ export async function ensureDrawSystemPost(
       : {}),
   };
   const postChanged =
-    post.activationPlanningRevisionId !== postPatch.activationPlanningRevisionId ||
+    post.activationPlanningRevisionId !==
+      postPatch.activationPlanningRevisionId ||
     post.activationReason !== postPatch.activationReason ||
     post.authorDisplayNameSnapshot !== postPatch.authorDisplayNameSnapshot ||
     JSON.stringify(post.authorRolesSnapshot) !==
@@ -1190,18 +1234,19 @@ export async function ensureDrawSystemPost(
     post.systemPostKind !== postPatch.systemPostKind ||
     post.currentPlanningRevision !== postPatch.currentPlanningRevision ||
     post.systemLifecycle !== postPatch.systemLifecycle ||
-    (("systemDisposition" in postPatch &&
+    ("systemDisposition" in postPatch &&
       post.systemDisposition !== postPatch.systemDisposition) ||
-      ("triggeredAt" in postPatch && post.triggeredAt !== postPatch.triggeredAt) ||
-      ("triggeredByRole" in postPatch &&
-        post.triggeredByRole !== postPatch.triggeredByRole) ||
-      ("triggeredByWorkosUserId" in postPatch &&
-        post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId) ||
-      ("materializedAt" in postPatch &&
-        post.materializedAt !== postPatch.materializedAt) ||
-      ("historicalBackfill" in postPatch &&
-        JSON.stringify(post.historicalBackfill) !==
-          JSON.stringify(postPatch.historicalBackfill)));
+    ("triggeredAt" in postPatch &&
+      post.triggeredAt !== postPatch.triggeredAt) ||
+    ("triggeredByRole" in postPatch &&
+      post.triggeredByRole !== postPatch.triggeredByRole) ||
+    ("triggeredByWorkosUserId" in postPatch &&
+      post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId) ||
+    ("materializedAt" in postPatch &&
+      post.materializedAt !== postPatch.materializedAt) ||
+    ("historicalBackfill" in postPatch &&
+      JSON.stringify(post.historicalBackfill) !==
+        JSON.stringify(postPatch.historicalBackfill));
   if (postChanged) {
     await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
     await queueBuildCollaborationSearchOwnerRebuild(ctx, {
@@ -1220,7 +1265,7 @@ export async function ensureDrawSystemPost(
 function drawSystemLifecycleForStatus(
   status:
     | Doc<"plannedDrawScheduleRows">["status"]
-    | Doc<"activeBuildDrawRequests">["status"],
+    | Doc<"activeBuildDrawRequests">["status"]
 ): "open" | "resolved" {
   return status === "released" ||
     status === "withdrawn" ||
@@ -1231,13 +1276,21 @@ function drawSystemLifecycleForStatus(
 }
 
 function drawSystemDispositionForStatus(
-  status: Doc<"activeBuildDrawRequests">["status"],
+  status: Doc<"activeBuildDrawRequests">["status"]
 ) {
-  if (status === "released") return "released" as const;
-  if (status === "withdrawn") return "withdrawal" as const;
-  if (status === "cancelled") return "cancellation" as const;
-  if (status === "rejected") return "final_decline" as const;
-  return undefined;
+  if (status === "released") {
+    return "released" as const;
+  }
+  if (status === "withdrawn") {
+    return "withdrawal" as const;
+  }
+  if (status === "cancelled") {
+    return "cancellation" as const;
+  }
+  if (status === "rejected") {
+    return "final_decline" as const;
+  }
+  return;
 }
 
 /**
@@ -1254,7 +1307,7 @@ export async function projectHistoricalSystemPostLifecycle(
     organizationId: string;
     postId: Id<"buildCollaborationPosts">;
     historicalBackfill: SystemPostHistoricalBackfill;
-  },
+  }
 ) {
   const post = await ctx.db.get(input.postId);
   if (
@@ -1295,7 +1348,9 @@ export async function projectHistoricalSystemPostLifecycle(
     post.materializedAt === input.materializedAt &&
     JSON.stringify(post.historicalBackfill) ===
       JSON.stringify(nextHistoricalBackfill);
-  if (unchanged) return post._id;
+  if (unchanged) {
+    return post._id;
+  }
   await ctx.db.patch(post._id, {
     historicalBackfill: nextHistoricalBackfill,
     lastMeaningfulActivityAt: nextActivityAt,
@@ -1331,7 +1386,7 @@ export async function synchronizeDrawSystemPostLifecycle(
     organizationId: string;
     postId?: Id<"buildCollaborationPosts">;
     reason?: string;
-  },
+  }
 ) {
   const post =
     (input.postId ? await ctx.db.get(input.postId) : null) ??
@@ -1344,7 +1399,7 @@ export async function synchronizeDrawSystemPostLifecycle(
               query
                 .eq("buildId", input.buildId)
                 .eq("systemPostKind", "draw")
-                .eq("canonicalBuildDrawOccurrenceKey", input.occurrenceKey!),
+                .eq("canonicalBuildDrawOccurrenceKey", input.occurrenceKey!)
           )
           .first()
       : null);
@@ -1472,13 +1527,14 @@ export async function synchronizeDrawSystemPostForCanonicalDraw(
     activationReason: DrawSystemActivationReason;
     reason?: string;
     now?: number;
-  },
+  }
 ) {
   const ensured = await ensureDrawSystemPost(ctx, input);
   if (!ensured) {
     return null;
   }
-  const status = input.drawRequest?.status ?? input.plannedDraw?.status ?? "planned";
+  const status =
+    input.drawRequest?.status ?? input.plannedDraw?.status ?? "planned";
   const lifecycle = drawSystemLifecycleForStatus(status);
   const actorRole = resolveEffectiveCollaborationRole(input.actor.roles)?.role;
   await synchronizeDrawSystemPostLifecycle(ctx, {
@@ -1496,6 +1552,44 @@ export async function synchronizeDrawSystemPostForCanonicalDraw(
 }
 
 /**
+ * Materialize stable, silent collaboration identity for every active
+ * Milestone in an approved Build plan. This is used at Build activation so a
+ * Sub-milestone has one companion before any execution command can run.
+ */
+export async function ensureApprovedBuildSubmilestoneCompanions(
+  ctx: MutationCtx,
+  input: {
+    actor: { roles: string[]; workosUserId: string };
+    build: Doc<"activeBuilds">;
+  }
+) {
+  const milestones = await ctx.db
+    .query("buildMilestones")
+    .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
+    .take(501);
+  if (milestones.length > 500) {
+    throw new Error(
+      "Approved Build plan exceeds the 500 Milestone companion safety limit."
+    );
+  }
+  const postIds: Id<"buildCollaborationPosts">[] = [];
+  for (const milestone of milestones) {
+    if (milestone.planningState === "superseded") {
+      continue;
+    }
+    const postId = await synchronizeMilestoneSystemPostPlanning(ctx, {
+      actor: input.actor,
+      build: input.build,
+      milestone,
+    });
+    if (postId) {
+      postIds.push(postId);
+    }
+  }
+  return postIds;
+}
+
+/**
  * Refresh an existing Milestone System Post after an approved planning write.
  * Unlike activation, this function never creates a second post or mutates
  * canonical execution state. It is intentionally idempotent for retries.
@@ -1508,7 +1602,7 @@ export async function synchronizeMilestoneSystemPostPlanning(
     milestone: Doc<"buildMilestones">;
   }
 ) {
-  const post = await ctx.db
+  const posts = await ctx.db
     .query("buildCollaborationPosts")
     .withIndex(
       "by_buildId_and_systemPostKind_and_canonicalBuildMilestoneId",
@@ -1518,9 +1612,25 @@ export async function synchronizeMilestoneSystemPostPlanning(
           .eq("systemPostKind", "milestone")
           .eq("canonicalBuildMilestoneId", input.milestone._id)
     )
-    .take(1)
-    .then((rows) => rows[0]);
-  if (!post) return null;
+    .take(2);
+  if (posts.length > 1) {
+    throw new Error(
+      "Canonical Milestone has duplicate collaboration System Posts."
+    );
+  }
+  const post = posts[0];
+  if (!post) {
+    if (input.milestone.planningState === "superseded") {
+      return null;
+    }
+    const ensured = await ensureMilestoneSystemPost(ctx, {
+      actor: input.actor,
+      activationReason: "plan_activated",
+      build: input.build,
+      milestone: input.milestone,
+    });
+    return ensured?.postId ?? null;
+  }
   const scope = await resolveSystemEventScope(
     ctx,
     {
@@ -1533,7 +1643,9 @@ export async function synchronizeMilestoneSystemPostPlanning(
     },
     `${post.systemOccurrenceKey ?? post._id}:scope`
   );
-  if (scope.status !== "ready") return null;
+  if (scope.status !== "ready") {
+    return null;
+  }
   const revision = await ctx.db
     .query("activeBuildPlanningRevisions")
     .withIndex("by_build_revision", (query) =>
@@ -1557,6 +1669,7 @@ export async function synchronizeMilestoneSystemPostPlanning(
       now: Date.now(),
       postId: post._id,
       submilestone,
+      silentOperationalEffects: post.systemLifecycle === "latent",
     });
     actionItemIds.push(ensured.actionItemId);
     changed ||= ensured.changed;
@@ -1687,33 +1800,49 @@ async function ensureGeneratedSubmilestoneActionItem(
     now: number;
     postId: Id<"buildCollaborationPosts">;
     submilestone: Doc<"buildSubmilestones">;
-    silentBackfill?: boolean;
+    silentOperationalEffects?: boolean;
   }
 ): Promise<{ actionItemId: Id<"buildActionItems">; changed: boolean }> {
   const title = input.submilestone.name.trim() || "Unnamed Sub-milestone";
-  const existing = (
-    await ctx.db
-      .query("buildActionItems")
-      .withIndex("by_originatingPostId_and_createdAt", (query) =>
-        query.eq("originatingPostId", input.postId)
-      )
-      .take(500)
-  ).find(
-    (item) =>
-      item.systemMode === "generated_milestone_submilestone" &&
-      item.canonicalBuildSubmilestoneId === input.submilestone._id
-  );
+  const matches = await ctx.db
+    .query("buildActionItems")
+    .withIndex("by_canonicalBuildSubmilestoneId_and_systemMode", (query) =>
+      query
+        .eq("canonicalBuildSubmilestoneId", input.submilestone._id)
+        .eq("systemMode", "generated_milestone_submilestone")
+    )
+    .take(2);
+  if (matches.length > 1) {
+    throw new Error(
+      "Canonical Sub-milestone has duplicate collaboration companions."
+    );
+  }
+  const existing = matches[0];
   if (existing) {
+    if (
+      existing.buildId !== input.authorization.build._id ||
+      existing.organizationId !== input.authorization.organizationId ||
+      existing.brokerageId !== input.authorization.brokerage._id ||
+      existing.originatingPostId !== input.postId
+    ) {
+      throw new Error(
+        "Canonical Sub-milestone companion binding has invalid tenant or parent scope."
+      );
+    }
     const canonicalPlanningState = input.submilestone.planningState ?? "active";
     const nextCanonicalBindingRevision =
       input.milestone.collaborationEventRevision ?? 1;
     const changed =
+      existing.canonicalCompanionDisposition !== "active" ||
       existing.canonicalBuildMilestoneId !== input.milestone._id ||
       existing.canonicalBindingRevision !== nextCanonicalBindingRevision ||
       existing.canonicalPlanningState !== canonicalPlanningState ||
       existing.title !== title;
     if (changed) {
       await ctx.db.patch(existing._id, {
+        canonicalCompanionDisposition: "active",
+        canonicalCompanionSupersededAt: undefined,
+        canonicalCompanionSurvivorId: undefined,
         canonicalBuildMilestoneId: input.milestone._id,
         canonicalBindingRevision: nextCanonicalBindingRevision,
         canonicalPlanningState,
@@ -1725,7 +1854,7 @@ async function ensureGeneratedSubmilestoneActionItem(
       if (!updated) {
         throw new Error("Generated Milestone Action Item became unavailable.");
       }
-      if (!input.silentBackfill) {
+      if (!input.silentOperationalEffects) {
         await Promise.all([
           recordBuildActionItemRevision(ctx, {
             authorization: input.authorization,
@@ -1734,28 +1863,29 @@ async function ensureGeneratedSubmilestoneActionItem(
             reason: "canonical_planning_revision",
           }),
           ctx.db.insert("buildActionItemEvents", {
-          actionItemId: existing._id,
-          actorRole: input.authorization.effectiveRole.role,
-          actorWorkosUserId: input.authorization.viewer.subject,
-          brokerageId: input.authorization.brokerage._id,
-          buildId: input.authorization.build._id,
-          createdAt: input.now,
-          eventType: "canonical_planning_revision",
-          exercisedAuthority: "canonical_milestone",
-          newState: JSON.stringify({
-            canonicalBuildMilestoneId: input.milestone._id,
-            canonicalBuildSubmilestoneId: input.submilestone._id,
-            canonicalPlanningState,
+            actionItemId: existing._id,
+            actorRole: input.authorization.effectiveRole.role,
+            actorWorkosUserId: input.authorization.viewer.subject,
+            brokerageId: input.authorization.brokerage._id,
+            buildId: input.authorization.build._id,
+            createdAt: input.now,
+            eventType: "canonical_planning_revision",
+            exercisedAuthority: "canonical_milestone",
+            newState: JSON.stringify({
+              canonicalBuildMilestoneId: input.milestone._id,
+              canonicalBuildSubmilestoneId: input.submilestone._id,
+              canonicalPlanningState,
+              revision: updated.currentRevision,
+            }),
+            organizationId: input.authorization.organizationId,
+            priorState: JSON.stringify({
+              canonicalBuildMilestoneId: existing.canonicalBuildMilestoneId,
+              canonicalPlanningState:
+                existing.canonicalPlanningState ?? "active",
+              revision: existing.currentRevision,
+            }),
             revision: updated.currentRevision,
-          }),
-          organizationId: input.authorization.organizationId,
-          priorState: JSON.stringify({
-            canonicalBuildMilestoneId: existing.canonicalBuildMilestoneId,
-            canonicalPlanningState: existing.canonicalPlanningState ?? "active",
-            revision: existing.currentRevision,
-          }),
-          revision: updated.currentRevision,
-          warnings: ["canonical_state_is_authoritative"],
+            warnings: ["canonical_state_is_authoritative"],
           }),
         ]);
       }
@@ -1772,6 +1902,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     canonicalBindingRevision: input.milestone.collaborationEventRevision ?? 1,
     canonicalBuildMilestoneId: input.milestone._id,
     canonicalBuildSubmilestoneId: input.submilestone._id,
+    canonicalCompanionDisposition: "active",
     canonicalPlanningState: input.submilestone.planningState ?? "active",
     createdAt: input.now,
     creatorRole: "admin",
@@ -1803,7 +1934,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     organizationId: input.authorization.organizationId,
     postId: input.postId,
   });
-  if (!input.silentBackfill) {
+  if (!input.silentOperationalEffects) {
     await Promise.all([
       recordBuildActionItemRevision(ctx, {
         authorization: input.authorization,
@@ -1812,33 +1943,33 @@ async function ensureGeneratedSubmilestoneActionItem(
         reason: "canonical_milestone_start",
       }),
       ctx.db.insert("buildActionItemEvents", {
-      actionItemId,
-      actorRole: "admin",
-      actorWorkosUserId: SYSTEM_AUTHOR,
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      eventType: "created_by_canonical_milestone",
-      exercisedAuthority: "canonical_milestone",
-      newState: JSON.stringify({
-        canonicalBuildMilestoneId: input.milestone._id,
-        canonicalBuildSubmilestoneId: input.submilestone._id,
-        status: "todo",
-        systemMode: "generated_milestone_submilestone",
-      }),
-      organizationId: input.authorization.organizationId,
-      revision: 1,
-      warnings: ["canonical_state_is_authoritative"],
+        actionItemId,
+        actorRole: "admin",
+        actorWorkosUserId: SYSTEM_AUTHOR,
+        brokerageId: input.authorization.brokerage._id,
+        buildId: input.authorization.build._id,
+        createdAt: input.now,
+        eventType: "created_by_canonical_milestone",
+        exercisedAuthority: "canonical_milestone",
+        newState: JSON.stringify({
+          canonicalBuildMilestoneId: input.milestone._id,
+          canonicalBuildSubmilestoneId: input.submilestone._id,
+          status: "todo",
+          systemMode: "generated_milestone_submilestone",
+        }),
+        organizationId: input.authorization.organizationId,
+        revision: 1,
+        warnings: ["canonical_state_is_authoritative"],
       }),
       ctx.db.insert("buildActionItemCreationRequests", {
-      actionItemId,
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      creatorWorkosUserId: SYSTEM_AUTHOR,
-      organizationId: input.authorization.organizationId,
-      postId: input.postId,
-      requestId: `milestone-system:${input.milestone._id}:${input.submilestone._id}`,
+        actionItemId,
+        brokerageId: input.authorization.brokerage._id,
+        buildId: input.authorization.build._id,
+        createdAt: input.now,
+        creatorWorkosUserId: SYSTEM_AUTHOR,
+        organizationId: input.authorization.organizationId,
+        postId: input.postId,
+        requestId: `milestone-system:${input.milestone._id}:${input.submilestone._id}`,
       }),
     ]);
   }
@@ -1873,7 +2004,7 @@ async function ensureGeneratedSubmilestoneActionItem(
       primary: false,
       summarySnapshot: "Canonical Milestone binding",
     }),
-    ...(input.silentBackfill
+    ...(input.silentOperationalEffects
       ? []
       : [
           ctx.db.insert("buildCollaborationActivityProjections", {
@@ -1897,7 +2028,8 @@ async function ensureGeneratedSubmilestoneActionItem(
             createdAt: input.now,
             entityId: actionItemId,
             entityType: "buildActionItem",
-            eventType: "build.collaboration.action_item.canonical_milestone_created",
+            eventType:
+              "build.collaboration.action_item.canonical_milestone_created",
             newState: JSON.stringify({
               actionItemId,
               canonicalBuildMilestoneId: input.milestone._id,
@@ -1910,7 +2042,8 @@ async function ensureGeneratedSubmilestoneActionItem(
           ctx.db.insert("eventOutbox", {
             brokerageId: input.authorization.brokerage._id,
             createdAt: input.now,
-            eventType: "build.collaboration.action_item.canonical_milestone_created",
+            eventType:
+              "build.collaboration.action_item.canonical_milestone_created",
             organizationId: input.authorization.organizationId,
             payloadPreview: JSON.stringify({
               actionItemId,
@@ -1943,21 +2076,25 @@ async function syncPostCounts(
 /** Update the canonical open-item count without creating activity records. */
 async function syncPostCountsSilently(
   ctx: MutationCtx,
-  postId: Id<"buildCollaborationPosts">,
+  postId: Id<"buildCollaborationPosts">
 ) {
   const post = await ctx.db.get(postId);
-  if (!post) return;
+  if (!post) {
+    return;
+  }
   const linkedItems = await ctx.db
     .query("buildActionItems")
     .withIndex("by_originatingPostId_and_createdAt", (query) =>
-      query.eq("originatingPostId", postId),
+      query.eq("originatingPostId", postId)
     )
     .take(1001);
   if (linkedItems.length > 1000) {
-    throw new Error("System Post Action Item count exceeds the supported safety limit.");
+    throw new Error(
+      "System Post Action Item count exceeds the supported safety limit."
+    );
   }
   const openActionItemCount = linkedItems.filter(
-    (item) => item.status !== "done" && item.status !== "cancelled",
+    (item) => item.status !== "done" && item.status !== "cancelled"
   ).length;
   await ctx.db.patch(postId, { openActionItemCount });
 }

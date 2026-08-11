@@ -101,6 +101,8 @@ import type {
   MaterialPlanningActions,
   MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import type { BuildSubmilestoneDetailTab } from "#/features/build-detail-targets/buildDetailTab.ts";
+import type { SubmilestoneFieldGuidance } from "#/features/submilestone-guidance/SubmilestoneFieldGuidanceEditor.tsx";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
   convertHeicEvidenceBlobToJpeg,
@@ -110,6 +112,7 @@ import {
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
 import type { ActiveBuildTimelineWorkspaceProps } from "./ActiveBuildTimelineWorkspace";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
   BUILD_DETAIL_TABS,
   type BuildDetailSubTab,
@@ -128,7 +131,7 @@ import {
 const LazyFieldRichTextPreview = lazy(() =>
   import("#/components/rich-text/field-rich-text.tsx").then((m) => ({
     default: m.FieldRichTextPreview,
-  }))
+  })),
 );
 import { ContractorsCard } from "./ContractorsCard";
 import { EventRailSheet } from "./EventRail";
@@ -161,6 +164,7 @@ import {
   type SiteVisitOrderConfirmation,
   SiteVisitOrderDialog,
   type SiteVisitOrderRequest,
+  type SiteVisitSubmilestoneGuidanceSection,
 } from "./SiteVisitOrderDialog.tsx";
 
 type ProductionBuildStatus = "active" | "paused" | "completed" | string;
@@ -199,6 +203,7 @@ export interface ProductionBuildDetailActions {
     note?: string;
     requestedTime?: string;
     siteVisitGuidance?: SiteVisitGuidance;
+    submilestoneGuidanceSections?: SiteVisitSubmilestoneGuidanceSection[];
     submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   attachAndInviteContractor?: (input: {
@@ -215,6 +220,7 @@ export interface ProductionBuildDetailActions {
   }) => Promise<unknown> | unknown;
   correctMilestoneStart?: (input: {
     actualStartedAt: number;
+    expectedRevision: number;
     idempotencyKey: string;
     milestoneKey: string;
     reason: string;
@@ -276,7 +282,7 @@ export interface ProductionBuildDetailActions {
     | CalendarSyncSubscriptionResult
     | void;
   generateSiteVisitGuidance?: (
-    input: SiteVisitGuidanceGenerationInput
+    input: SiteVisitGuidanceGenerationInput,
   ) => Promise<SiteVisitGuidanceGenerationResult>;
   inviteContractor?: (contractorId: string) => Promise<unknown> | unknown;
   materialPlanning?: MaterialPlanningActions;
@@ -336,6 +342,7 @@ export interface ProductionBuildDetailActions {
     visitId: string;
   }) => Promise<unknown> | unknown;
   retractMilestoneStart?: (input: {
+    expectedRevision: number;
     idempotencyKey: string;
     milestoneKey: string;
     reason: string;
@@ -376,6 +383,7 @@ export interface ProductionBuildDetailActions {
     requestedDay: number;
     requestedTime?: string;
     siteVisitGuidance?: SiteVisitGuidance;
+    submilestoneGuidanceSections?: SiteVisitSubmilestoneGuidanceSection[];
     submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   setAdminDecisionTargetDate?: (input: {
@@ -410,6 +418,7 @@ export interface ProductionBuildDetailActions {
   startMilestoneWork?: (input: {
     actualStartedAt: number;
     dependencyOverrideReason?: string;
+    expectedRevision: number;
     idempotencyKey: string;
     milestoneKey: string;
     source: MilestoneStartSource;
@@ -440,6 +449,7 @@ export interface ProductionBuildDetailActions {
     actualCostCents?: number | null;
     actualStartedAt?: number;
     dependencyOverrideReason?: string;
+    expectedRevision: number;
     fieldNote?: string | null;
     idempotencyKey?: string;
     milestoneKey: string;
@@ -548,6 +558,7 @@ interface ProductionMilestone {
   status: ProductionMilestoneStatus;
   totalSubmilestoneCount?: number;
   updatedAt?: number;
+  workflowRevision?: number;
 }
 
 interface ProductionSubmilestone {
@@ -558,17 +569,20 @@ interface ProductionSubmilestone {
   completedAt?: number;
   completedByWorkosUserId?: string;
   durationDays?: number;
+  fieldGuidance?: Partial<SubmilestoneFieldGuidance> | null;
   fieldNote?: string;
   key: string;
   milestoneKey: string;
   name: string;
   order: number;
+  proposalSubmilestoneId?: string;
   startDay?: number;
   startEventId?: string;
   startedByWorkosUserId?: string;
   startReportedAt?: number;
   startSource?: MilestoneStartSource;
   status: ProductionMilestoneStatus;
+  workflowRevision?: number;
 }
 
 interface ProductionDraw {
@@ -627,6 +641,7 @@ interface ProductionFacilityChangeRequest {
   reviewNote?: string;
   status: "requested" | "approved" | "rejected";
   updatedAt?: number;
+  workflowRevision?: number;
 }
 
 interface ProductionBudgetRevisionRequest {
@@ -837,6 +852,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref = "/backoffice/builds",
   breadcrumbSectionLabel = "Builds",
   detail,
+  detailTab,
   focusedReference,
   fundingWorkspaceEnabled = false,
   milestoneKey,
@@ -847,9 +863,11 @@ export function ProductionBuildDetailSurface({
   prototypeMilestoneStartTrigger = false,
   quotes,
   rail,
+  readOnly = false,
   staff,
   timelineWorkspace,
   visibleTabs,
+  viewerCapacity,
   viewerRole = "lender",
   workosOrganizationId,
 }: {
@@ -861,6 +879,7 @@ export function ProductionBuildDetailSurface({
   contractorDetailHrefFor?: (contractorId: string) => string;
   costs?: React.ReactNode;
   detail: ProductionBuildDetail;
+  detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   fundingWorkspaceEnabled?: boolean;
   breadcrumbRootHref?: string;
@@ -876,15 +895,17 @@ export function ProductionBuildDetailSurface({
   prototypeMilestoneStartTrigger?: boolean;
   quotes?: React.ReactNode;
   rail?: "open" | "closed";
+  readOnly?: boolean;
   staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   visibleTabs?: BuildDetailSubTab[];
+  viewerCapacity?: BuildCollaborationRole;
   viewerRole?: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
   const projection = useMemo(
     () => buildProductionBuildProjection(detail),
-    [detail]
+    [detail],
   );
   const currentDay = resolveProductionCurrentDay(detail, timelineWorkspace);
   const eventsOpen = rail === "open";
@@ -905,10 +926,12 @@ export function ProductionBuildDetailSurface({
   const [milestoneStartController, setMilestoneStartController] = useState<{
     onCancel?: () => void;
     onConfirm?: (
-      input: MilestoneStartConfirmation
+      input: MilestoneStartConfirmation,
     ) => Promise<unknown> | unknown;
     request: MilestoneStartDialogRequest;
   } | null>(null);
+  const [milestoneStartRevisionError, setMilestoneStartRevisionError] =
+    useState<string | null>(null);
   const milestoneStartRequest = milestoneStartController?.request ?? null;
   const [localFocusedReference, setLocalFocusedReference] = useState<
     string | undefined
@@ -917,10 +940,20 @@ export function ProductionBuildDetailSurface({
   useEffect(() => {
     setLocalFocusedReference(focusedReference);
   }, [focusedReference]);
-  const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
+  const focusedSubmilestoneId = effectiveFocusedReference?.startsWith(
+    "submilestone:",
+  )
+    ? effectiveFocusedReference.slice("submilestone:".length)
+    : undefined;
+  const detailTargetReplacesParentSheet =
+    effectiveFocusedReference?.startsWith("submilestone:") ||
+    effectiveFocusedReference?.startsWith("actionItem:");
+  const activeMilestoneKey = detailTargetReplacesParentSheet
+    ? null
+    : (milestoneKey ?? localActiveMilestoneKey);
   const activeMilestone = activeMilestoneKey
     ? (projection.milestones.find(
-        (milestone) => milestone.key === activeMilestoneKey
+        (milestone) => milestone.key === activeMilestoneKey,
       ) ?? null)
     : null;
   const setActiveMilestoneKey = (next: string | null) => {
@@ -932,26 +965,24 @@ export function ProductionBuildDetailSurface({
       const entityId = focusedReference.slice("milestone:".length);
       setLocalActiveMilestoneKey(
         detail.milestones.find((milestone) => milestone._id === entityId)
-          ?.key ?? null
+          ?.key ?? null,
       );
       return;
     }
-    if (focusedReference?.startsWith("submilestone:")) {
-      const entityId = focusedReference.slice("submilestone:".length);
-      setLocalActiveMilestoneKey(
-        detail.submilestones.find(
-          (submilestone) => submilestone._id === entityId
-        )?.milestoneKey ?? null
-      );
+    if (
+      focusedReference?.startsWith("submilestone:") ||
+      focusedReference?.startsWith("actionItem:")
+    ) {
+      setLocalActiveMilestoneKey(null);
     }
-  }, [detail.milestones, detail.submilestones, focusedReference]);
+  }, [detail.milestones, focusedReference]);
   const sheetData = useMemo(() => {
     const data = activeMilestoneKey
       ? buildMilestoneSheetData(
           detail,
           projection,
           activeMilestoneKey,
-          currentDay
+          currentDay,
         )
       : null;
     return data &&
@@ -972,36 +1003,50 @@ export function ProductionBuildDetailSurface({
     milestoneKey: string,
     source: MilestoneStartSource,
     submilestoneKey?: string,
-    action: "correct" | "retract" | "start" = "start"
+    action: "correct" | "retract" | "start" = "start",
   ) => {
     const milestone = detail.milestones.find(
-      (candidate) => candidate.key === milestoneKey
+      (candidate) => candidate.key === milestoneKey,
     );
     const submilestone = submilestoneKey
       ? detail.submilestones.find(
           (candidate) =>
             candidate.milestoneKey === milestoneKey &&
-            candidate.key === submilestoneKey
+            candidate.key === submilestoneKey,
         )
       : undefined;
     if (!milestone) {
       return;
     }
+    // Convex treats legacy milestone and sub-milestone rows without
+    // workflowRevision as canonical revision 0. Keep the sub-milestone token
+    // scoped to that row; a parent revision is not a substitute for it.
+    const expectedRevision = submilestone
+      ? (submilestone.workflowRevision ?? 0)
+      : (milestone.workflowRevision ?? 0);
+    if (expectedRevision === undefined) {
+      setMilestoneStartRevisionError(
+        "Refresh this Build detail before changing the start; the canonical workflow revision is unavailable.",
+      );
+      setMilestoneStartController(null);
+      return;
+    }
+    setMilestoneStartRevisionError(null);
     const dependencyBlockers = milestone.dependencyKeys
       .map((key) =>
-        detail.milestones.find((candidate) => candidate.key === key)
+        detail.milestones.find((candidate) => candidate.key === key),
       )
       .filter(
         (
-          candidate
+          candidate,
         ): candidate is ProductionMilestone & {
           status: "in_progress" | "planned";
         } =>
           Boolean(
             candidate &&
               (candidate.status === "planned" ||
-                candidate.status === "in_progress")
-          )
+                candidate.status === "in_progress"),
+          ),
       )
       .map((candidate) => ({
         milestoneKey: candidate.key,
@@ -1014,16 +1059,17 @@ export function ProductionBuildDetailSurface({
         submilestone?.actualStartedAt ?? milestone.actualStartedAt,
       buildName: detail.build.buildName,
       dependencyBlockers: action === "start" ? dependencyBlockers : [],
+      expectedRevision,
       milestoneKey,
       milestoneName: milestone.name,
       plannedStartDate: addDaysSafe(
         detail.build.startDate,
-        submilestone?.startDay ?? milestone.dayStart
+        submilestone?.startDay ?? milestone.dayStart,
       ),
       scope: submilestone ? "submilestone" : "milestone",
       source,
       startParent: Boolean(
-        submilestone && viewerRole === "builder" && !milestone.actualStartedAt
+        submilestone && viewerRole === "builder" && !milestone.actualStartedAt,
       ),
       submilestoneKey: submilestone?.key,
       submilestoneName: submilestone?.name,
@@ -1036,11 +1082,16 @@ export function ProductionBuildDetailSurface({
       return await milestoneStartController.onConfirm(input);
     }
     if (input.action === "correct") {
-      if (input.actualStartedAt === undefined || !input.reason) {
+      if (
+        input.actualStartedAt === undefined ||
+        input.expectedRevision === undefined ||
+        !input.reason
+      ) {
         throw new Error("A corrected actual start and reason are required.");
       }
       return await actions?.correctMilestoneStart?.({
         actualStartedAt: input.actualStartedAt,
+        expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey,
         milestoneKey: input.milestoneKey,
         reason: input.reason,
@@ -1049,10 +1100,11 @@ export function ProductionBuildDetailSurface({
       });
     }
     if (input.action === "retract") {
-      if (!input.reason) {
+      if (input.expectedRevision === undefined || !input.reason) {
         throw new Error("A retraction reason is required.");
       }
       return await actions?.retractMilestoneStart?.({
+        expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey,
         milestoneKey: input.milestoneKey,
         reason: input.reason,
@@ -1060,12 +1112,16 @@ export function ProductionBuildDetailSurface({
         submilestoneKey: input.submilestoneKey,
       });
     }
-    if (input.actualStartedAt === undefined) {
+    if (
+      input.actualStartedAt === undefined ||
+      input.expectedRevision === undefined
+    ) {
       throw new Error("An actual start is required.");
     }
     return await actions?.startMilestoneWork?.({
       actualStartedAt: input.actualStartedAt,
       dependencyOverrideReason: input.dependencyOverrideReason,
+      expectedRevision: input.expectedRevision,
       idempotencyKey: input.idempotencyKey,
       milestoneKey: input.milestoneKey,
       source: input.source,
@@ -1075,7 +1131,7 @@ export function ProductionBuildDetailSurface({
   };
   const confirmStartAndCompletion = <T,>(
     request: MilestoneStartDialogRequest,
-    execute: (input: MilestoneStartConfirmation) => Promise<T> | T
+    execute: (input: MilestoneStartConfirmation) => Promise<T> | T,
   ) =>
     new Promise<T>((resolve, reject) => {
       setMilestoneStartController({
@@ -1096,14 +1152,14 @@ export function ProductionBuildDetailSurface({
     });
   const siteVisitOrderMilestone = siteVisitOrderRequest
     ? (detail.milestones.find(
-        (milestone) => milestone.key === siteVisitOrderRequest.milestoneKey
+        (milestone) => milestone.key === siteVisitOrderRequest.milestoneKey,
       ) ?? null)
     : null;
   const siteVisitOrderSubmilestones = siteVisitOrderRequest
     ? detail.submilestones
         .filter(
           (submilestone) =>
-            submilestone.milestoneKey === siteVisitOrderRequest.milestoneKey
+            submilestone.milestoneKey === siteVisitOrderRequest.milestoneKey,
         )
         .sort((left, right) => left.order - right.order)
     : [];
@@ -1118,6 +1174,7 @@ export function ProductionBuildDetailSurface({
         requestedDay: input.requestedDay,
         ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
         siteVisitGuidance: input.siteVisitGuidance,
+        submilestoneGuidanceSections: input.submilestoneGuidanceSections,
         submilestoneKeys: input.submilestoneKeys,
       });
     }
@@ -1126,6 +1183,7 @@ export function ProductionBuildDetailSurface({
       ...(input.note ? { note: input.note } : {}),
       ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
       siteVisitGuidance: input.siteVisitGuidance,
+      submilestoneGuidanceSections: input.submilestoneGuidanceSections,
       submilestoneKeys: input.submilestoneKeys,
     });
   };
@@ -1136,7 +1194,7 @@ export function ProductionBuildDetailSurface({
     }
     const focusKind = effectiveFocusedReference.slice(
       0,
-      effectiveFocusedReference.indexOf(":")
+      effectiveFocusedReference.indexOf(":"),
     );
     if (
       focusKind === "milestone" ||
@@ -1153,10 +1211,10 @@ export function ProductionBuildDetailSurface({
         return;
       }
       const target = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-collaboration-focus]")
+        document.querySelectorAll<HTMLElement>("[data-collaboration-focus]"),
       ).find(
         (candidate) =>
-          candidate.dataset.collaborationFocus === effectiveFocusedReference
+          candidate.dataset.collaborationFocus === effectiveFocusedReference,
       );
       if (!target) {
         attempts += 1;
@@ -1216,12 +1274,14 @@ export function ProductionBuildDetailSurface({
               actions={actions}
               currentDay={currentDay}
               detail={detail}
+              detailTab={detailTab}
               focusedReference={effectiveFocusedReference}
               fundingWorkspaceEnabled={fundingWorkspaceEnabled}
               onChangeTab={onChangeTab}
               onFocusReference={setLocalFocusedReference}
               onOpenMilestone={setActiveMilestoneKey}
               projection={projection}
+              viewerCapacity={viewerCapacity}
               viewerRole={viewerRole}
               workosOrganizationId={workosOrganizationId}
             />
@@ -1340,11 +1400,7 @@ export function ProductionBuildDetailSurface({
         <MilestoneCompletionReviewSheet
           actions={actions}
           detail={detail}
-          focusedSubmilestoneId={
-            effectiveFocusedReference?.startsWith("submilestone:")
-              ? effectiveFocusedReference.slice("submilestone:".length)
-              : undefined
-          }
+          focusedSubmilestoneId={focusedSubmilestoneId}
           milestone={activeMilestone}
           onAmendStart={
             actions?.correctMilestoneStart || actions?.retractMilestoneStart
@@ -1353,7 +1409,7 @@ export function ProductionBuildDetailSurface({
                     activeMilestone.key,
                     "milestone_detail",
                     undefined,
-                    action
+                    action,
                   )
               : undefined
           }
@@ -1371,19 +1427,11 @@ export function ProductionBuildDetailSurface({
           assignmentsSourceLabel="buildContractorAssignments"
           data={sheetData}
           eventsSourceLabel="activeBuildAuditEvents"
-          focusedSubmilestoneId={
-            effectiveFocusedReference?.startsWith("submilestone:")
-              ? effectiveFocusedReference.slice("submilestone:".length)
-              : undefined
-          }
+          focusedSubmilestoneId={focusedSubmilestoneId}
           focusedSubmilestoneKey={
-            effectiveFocusedReference?.startsWith("submilestone:")
-              ? detail.submilestones.find(
-                  (submilestone) =>
-                    submilestone._id ===
-                    effectiveFocusedReference.slice("submilestone:".length)
-                )?.key
-              : undefined
+            detail.submilestones.find(
+              (submilestone) => submilestone._id === focusedSubmilestoneId,
+            )?.key
           }
           key={activeMilestoneKey ?? "milestone-sheet"}
           onAmendStart={
@@ -1395,7 +1443,7 @@ export function ProductionBuildDetailSurface({
                       ? "submilestone_detail"
                       : "milestone_detail",
                     submilestoneKey,
-                    action
+                    action,
                   )
               : undefined
           }
@@ -1432,7 +1480,7 @@ export function ProductionBuildDetailSurface({
                   }
                   const request = openMilestoneStart(
                     input.milestoneKey,
-                    "completion_catch_up"
+                    "completion_catch_up",
                   );
                   if (!request) {
                     throw new Error("Milestone start target is unavailable.");
@@ -1454,23 +1502,92 @@ export function ProductionBuildDetailSurface({
           }
           onUpdateSubmilestone={
             actions?.updateSubmilestoneExecution
-              ? (input) => {
+              ? async (input) => {
                   const target = detail.submilestones.find(
                     (candidate) =>
                       candidate.milestoneKey === input.milestoneKey &&
-                      candidate.key === input.submilestoneKey
+                      candidate.key === input.submilestoneKey,
                   );
-                  if (input.status !== "complete" || target?.actualStartedAt) {
-                    return actions.updateSubmilestoneExecution?.(input);
+                  if (!target) {
+                    throw new Error(
+                      "Submilestone execution target is unavailable.",
+                    );
+                  }
+                  if (
+                    target.status === "complete" &&
+                    input.status === undefined
+                  ) {
+                    throw new Error(
+                      "Reopen this Sub-milestone before changing its execution details.",
+                    );
+                  }
+                  if (
+                    target.status === "planned" &&
+                    input.status !== "complete"
+                  ) {
+                    if (!actions.startMilestoneWork) {
+                      throw new Error(
+                        "Start this Sub-milestone before recording execution details.",
+                      );
+                    }
+                    const request = openMilestoneStart(
+                      input.milestoneKey,
+                      "submilestone_detail",
+                      input.submilestoneKey,
+                    );
+                    if (!request) {
+                      throw new Error(
+                        "Submilestone start target is unavailable.",
+                      );
+                    }
+                    return confirmStartAndCompletion(
+                      request,
+                      async (confirmation) => {
+                        if (
+                          confirmation.actualStartedAt === undefined ||
+                          confirmation.expectedRevision === undefined
+                        ) {
+                          throw new Error("An actual start is required.");
+                        }
+                        const startResult = await actions.startMilestoneWork?.({
+                          actualStartedAt: confirmation.actualStartedAt,
+                          dependencyOverrideReason:
+                            confirmation.dependencyOverrideReason,
+                          expectedRevision: confirmation.expectedRevision,
+                          idempotencyKey: confirmation.idempotencyKey,
+                          milestoneKey: confirmation.milestoneKey,
+                          source: confirmation.source,
+                          startParent: confirmation.startParent,
+                          submilestoneKey: confirmation.submilestoneKey,
+                        });
+                        const revision = commandResultRevision(startResult);
+                        if (revision === undefined) {
+                          throw new Error(
+                            "Refresh this Build detail before recording execution; the committed start revision is unavailable.",
+                          );
+                        }
+                        return await actions.updateSubmilestoneExecution?.({
+                          ...input,
+                          actualStartedAt: confirmation.actualStartedAt,
+                          dependencyOverrideReason:
+                            confirmation.dependencyOverrideReason,
+                          expectedRevision: revision,
+                          idempotencyKey: `${confirmation.idempotencyKey}:execution`,
+                        });
+                      },
+                    );
+                  }
+                  if (input.status !== "complete" || target.actualStartedAt) {
+                    return await actions.updateSubmilestoneExecution?.(input);
                   }
                   const request = openMilestoneStart(
                     input.milestoneKey,
                     "completion_catch_up",
-                    input.submilestoneKey
+                    input.submilestoneKey,
                   );
                   if (!request) {
                     throw new Error(
-                      "Submilestone start target is unavailable."
+                      "Submilestone start target is unavailable.",
                     );
                   }
                   return confirmStartAndCompletion(request, (confirmation) => {
@@ -1489,6 +1606,9 @@ export function ProductionBuildDetailSurface({
               : undefined
           }
           onUploadEvidence={actions?.uploadSubmilestoneEvidence}
+          readOnly={readOnly}
+          viewerCapacity={viewerCapacity}
+          workosOrganizationId={workosOrganizationId}
         />
       )}
       {milestoneStartRequest ? (
@@ -1500,6 +1620,13 @@ export function ProductionBuildDetailSurface({
           onConfirm={confirmMilestoneStart}
           request={milestoneStartRequest}
         />
+      ) : null}
+      {milestoneStartRevisionError ? (
+        <Frame aria-live="assertive" role="alert">
+          <FramePanel className="border-destructive/35 p-3 text-destructive-text text-sm">
+            {milestoneStartRevisionError}
+          </FramePanel>
+        </Frame>
       ) : null}
       <SiteVisitOrderDialog
         build={{
@@ -1703,24 +1830,28 @@ function ProductionDetailsTab({
   actions,
   currentDay,
   detail,
+  detailTab,
   focusedReference,
   fundingWorkspaceEnabled,
   onChangeTab,
   onFocusReference,
   onOpenMilestone,
   projection,
+  viewerCapacity,
   viewerRole,
   workosOrganizationId,
 }: {
   actions?: ProductionBuildDetailActions;
   currentDay: number;
   detail: ProductionBuildDetail;
+  detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   fundingWorkspaceEnabled: boolean;
   onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
   onFocusReference: (focus?: string) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
+  viewerCapacity?: BuildCollaborationRole;
   viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -1740,7 +1871,7 @@ function ProductionDetailsTab({
         className={cn(
           "grid items-stretch",
           showSitePhotos &&
-            "xl:grid-cols-[minmax(0,2fr)_auto_minmax(320px,1fr)]"
+            "xl:grid-cols-[minmax(0,2fr)_auto_minmax(320px,1fr)]",
         )}
         data-testid="build-overview-layout"
       >
@@ -1758,7 +1889,10 @@ function ProductionDetailsTab({
         {showSitePhotos ? (
           <>
             <Separator className="my-5 xl:hidden" />
-            <Separator className="mx-5 hidden xl:block" orientation="vertical" />
+            <Separator
+              className="mx-5 hidden xl:block"
+              orientation="vertical"
+            />
             <SitePhotoCarousel
               buildName={detail.build.buildName}
               photos={detail.sitePhotos ?? []}
@@ -1786,62 +1920,55 @@ function ProductionDetailsTab({
           `${detail.build._id}:${workosOrganizationId ?? "unscoped"}`
         }
       >
-        <Suspense
-          fallback={<BuildDetailTabFallback label="collaboration" />}
-        >
-        <DeferredBuildCollaborationWorkspace
-          buildId={detail.build._id}
-          eager={Boolean(focusedReference)}
-          focusedReference={focusedReference}
-          onOpenReference={(reference) => {
-            const nextFocus = `${reference.entityKind}:${reference.entityId}`;
-            onFocusReference(nextFocus);
-            window.history.replaceState(
-              window.history.state,
-              "",
-              reference.href
-            );
-            if (reference.entityKind === "milestone") {
-              const milestone = detail.milestones.find(
-                (candidate) => candidate._id === reference.entityId
-              );
-              if (milestone) {
-                onOpenMilestone(milestone.key);
+        <Suspense fallback={<BuildDetailTabFallback label="collaboration" />}>
+          <DeferredBuildCollaborationWorkspace
+            buildId={detail.build._id}
+            detailTab={detailTab}
+            eager={Boolean(focusedReference)}
+            focusedReference={focusedReference}
+            onOpenReference={(reference) => {
+              const nextFocus = `${reference.entityKind}:${reference.entityId}`;
+              onFocusReference(nextFocus);
+              if (reference.entityKind === "milestone") {
+                onChangeTab("details", nextFocus);
+                const milestone = detail.milestones.find(
+                  (candidate) => candidate._id === reference.entityId,
+                );
+                if (milestone) {
+                  onOpenMilestone(milestone.key);
+                  return;
+                }
+              }
+              if (reference.entityKind === "submilestone") {
+                onChangeTab("details", nextFocus);
                 return;
               }
-            }
-            if (reference.entityKind === "submilestone") {
-              const submilestone = detail.submilestones.find(
-                (candidate) => candidate._id === reference.entityId
-              );
-              if (submilestone) {
-                onOpenMilestone(submilestone.milestoneKey);
+              if (reference.entityKind === "draw") {
+                setActiveOverviewSection("draws");
+                document
+                  .querySelector(
+                    '[data-testid="production-build-details-card"]',
+                  )
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
                 return;
               }
-            }
-            if (reference.entityKind === "draw") {
-              setActiveOverviewSection("draws");
-              document
-                .querySelector('[data-testid="production-build-details-card"]')
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-              return;
-            }
-            const tabByKind: Partial<Record<string, BuildDetailSubTab>> = {
-              actionItem: "details",
-              document: "documents",
-              evidenceAsset: "evidence",
-              evidencePackage: "evidence",
-              material: "materials",
-              participant: "details",
-              siteVisit: "calendar",
-            };
-            const tab = tabByKind[reference.entityKind];
-            if (tab) {
-              onChangeTab(tab, nextFocus);
-            }
-          }}
-          organizationId={workosOrganizationId}
-        />
+              const tabByKind: Partial<Record<string, BuildDetailSubTab>> = {
+                actionItem: "details",
+                document: "documents",
+                evidenceAsset: "evidence",
+                evidencePackage: "evidence",
+                material: "materials",
+                participant: "details",
+                siteVisit: "calendar",
+              };
+              const tab = tabByKind[reference.entityKind];
+              if (tab) {
+                onChangeTab(tab, nextFocus);
+              }
+            }}
+            organizationId={workosOrganizationId}
+            viewerCapacity={viewerCapacity}
+          />
         </Suspense>
       </CatchBoundary>
     </div>
@@ -1852,7 +1979,7 @@ type BuildOverviewSection = "current" | "draws" | "build" | "loan";
 
 function fundingRequestAction(
   draws: ProductionDraw[],
-  action?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  action?: (draw: ProductionDraw) => Promise<unknown> | unknown,
 ) {
   if (!action) {
     return;
@@ -1868,7 +1995,7 @@ function fundingRequestAction(
 
 function fundingRejectAction(
   draws: ProductionDraw[],
-  action?: ProductionBuildDetailActions["rejectDraw"]
+  action?: ProductionBuildDetailActions["rejectDraw"],
 ) {
   if (!action) {
     return;
@@ -1905,7 +2032,7 @@ function ProductionBuildDetailsCard({
 }) {
   const currentOverview = useMemo(
     () => buildCurrentBuildOverview(detail, projection, currentDay),
-    [currentDay, detail, projection]
+    [currentDay, detail, projection],
   );
   const siteVisitsOpen =
     detail.siteVisits?.filter((visit) => visit.status === "requested").length ??
@@ -1971,9 +2098,7 @@ function ProductionBuildDetailsCard({
               currentDay={currentDay}
               currentOverview={currentOverview}
               detail={detail}
-              onReviewMilestone={(milestone) =>
-                onOpenMilestone(milestone.key)
-              }
+              onReviewMilestone={(milestone) => onOpenMilestone(milestone.key)}
               projection={projection}
               viewerRole={viewerRole}
             />
@@ -1994,39 +2119,37 @@ function ProductionBuildDetailsCard({
                     milestones: detail.milestones,
                     plannedDraws:
                       detail.plannedDraws ??
-                      detail.draws.filter(
-                        (draw) => draw.status === "planned"
-                      ),
+                      detail.draws.filter((draw) => draw.status === "planned"),
                     requests: detail.draws.filter(
                       (
-                        draw
+                        draw,
                       ): draw is ProductionDraw & {
                         status: Exclude<ProductionDrawStatus, "planned">;
-                      } => draw.status !== "planned"
+                      } => draw.status !== "planned",
                     ),
                     startDate: detail.build.startDate,
                   })}
                   onApproveDraw={fundingRequestAction(
                     detail.draws,
-                    actions?.approveDraw
+                    actions?.approveDraw,
                   )}
                   onOpenMilestone={onOpenMilestone}
                   onRejectDraw={fundingRejectAction(
                     detail.draws,
-                    actions?.rejectDraw
+                    actions?.rejectDraw,
                   )}
                   onReleaseDraw={fundingRequestAction(
                     detail.draws,
-                    actions?.releaseDraw
+                    actions?.releaseDraw,
                   )}
                   onRequestDraw={actions?.requestDrawAmount}
                   onStartDrawReview={fundingRequestAction(
                     detail.draws,
-                    actions?.startDrawReview
+                    actions?.startDrawReview,
                   )}
                   onSubmitDrawForAdmin={fundingRequestAction(
                     detail.draws,
-                    actions?.submitDrawForAdmin
+                    actions?.submitDrawForAdmin,
                   )}
                   onWithdrawDraw={
                     actions?.withdrawDraw
@@ -2127,20 +2250,20 @@ function CurrentBuildOverviewPanel({
             draw.status === "requested" ||
             draw.status === "in_review" ||
             draw.status === "ready_for_admin" ||
-            draw.status === "approved_for_release"
+            draw.status === "approved_for_release",
         )
         .slice()
         .sort(compareDrawsMostRecentFirst),
-    [projection.draws]
+    [projection.draws],
   );
   const [pendingDrawAction, setPendingDrawAction] = useState<string | null>(
-    null
+    null,
   );
   const [drawActionError, setDrawActionError] = useState("");
   const runDrawAction = async (
     actionKey: string,
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => {
     if (!fn || pendingDrawAction) {
       return false;
@@ -2152,7 +2275,7 @@ function CurrentBuildOverviewPanel({
       return true;
     } catch (cause) {
       setDrawActionError(
-        cause instanceof Error ? cause.message : "Unable to update draw."
+        cause instanceof Error ? cause.message : "Unable to update draw.",
       );
       return false;
     } finally {
@@ -2247,7 +2370,7 @@ function CurrentActiveDrawRequestsSection({
   onRunAction: (
     actionKey: string,
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => Promise<boolean>;
   pendingActionKey: string | null;
   viewerRole: "builder" | "lender";
@@ -2258,7 +2381,7 @@ function CurrentActiveDrawRequestsSection({
         className={cn(
           "p-3 sm:p-4",
           activeDrawRequests.length > 0 &&
-            "border-primary/25 bg-primary/[0.035]"
+            "border-primary/25 bg-primary/[0.035]",
         )}
       >
         <div className="flex items-start justify-between gap-3">
@@ -2266,7 +2389,7 @@ function CurrentActiveDrawRequestsSection({
             <span
               className={cn(
                 "grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground",
-                activeDrawRequests.length > 0 && "bg-primary/12 text-primary"
+                activeDrawRequests.length > 0 && "bg-primary/12 text-primary",
               )}
             >
               <Banknote aria-hidden="true" className="size-3.5" />
@@ -2361,7 +2484,7 @@ function CurrentMilestoneHorizonSection({
         "p-3 sm:p-4",
         lane === "behind-schedule" &&
           "border-destructive/25 bg-destructive/[0.035]",
-        lane === "current" && "border-primary/25 bg-primary/[0.035]"
+        lane === "current" && "border-primary/25 bg-primary/[0.035]",
       )}
       data-testid={sectionTestId}
     >
@@ -2372,7 +2495,7 @@ function CurrentMilestoneHorizonSection({
               "grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground",
               lane === "behind-schedule" &&
                 "bg-destructive/10 text-destructive",
-              lane === "current" && "bg-primary/12 text-primary"
+              lane === "current" && "bg-primary/12 text-primary",
             )}
           >
             {lane === "behind-schedule" ? (
@@ -2505,14 +2628,14 @@ function CurrentMilestoneHorizonItem({
           label="Planned start"
           truncateValue={false}
           value={formatDate(
-            addDaysSafe(detail.build.startDate, milestone.dayStart)
+            addDaysSafe(detail.build.startDate, milestone.dayStart),
           )}
         />
         <OverviewMetric
           label="Planned end"
           truncateValue={false}
           value={formatDate(
-            addDaysSafe(detail.build.startDate, milestone.dayEnd)
+            addDaysSafe(detail.build.startDate, milestone.dayEnd),
           )}
         />
         <OverviewMetric
@@ -2669,7 +2792,7 @@ function DrawOverviewPanel({
   viewerRole: "builder" | "lender";
 }) {
   const [pendingDrawAction, setPendingDrawAction] = useState<string | null>(
-    null
+    null,
   );
   const [drawActionError, setDrawActionError] = useState("");
   const canRequestDraw =
@@ -2684,7 +2807,7 @@ function DrawOverviewPanel({
         draw.status === "requested" ||
         draw.status === "in_review" ||
         draw.status === "ready_for_admin" ||
-        draw.status === "approved_for_release"
+        draw.status === "approved_for_release",
     )
     .slice()
     .sort(compareDrawsMostRecentFirst);
@@ -2693,7 +2816,7 @@ function DrawOverviewPanel({
       draw.status === "requested" ||
       draw.status === "in_review" ||
       draw.status === "ready_for_admin" ||
-      draw.status === "approved_for_release"
+      draw.status === "approved_for_release",
   );
   const pastDraws = projection.draws
     .filter((draw) => draw.status === "released")
@@ -2705,12 +2828,12 @@ function DrawOverviewPanel({
     .sort(compareDrawsScheduleFirst);
   const remainingFacilityCents = Math.max(
     0,
-    currentOverview.totalApprovedCents - currentOverview.committedDrawCents
+    currentOverview.totalApprovedCents - currentOverview.committedDrawCents,
   );
   const runDrawAction = async (
     actionKey: string,
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => {
     if (!fn || pendingDrawAction) {
       return false;
@@ -2722,7 +2845,7 @@ function DrawOverviewPanel({
       return true;
     } catch (cause) {
       setDrawActionError(
-        cause instanceof Error ? cause.message : "Unable to update draw."
+        cause instanceof Error ? cause.message : "Unable to update draw.",
       );
       return false;
     } finally {
@@ -2745,7 +2868,7 @@ function DrawOverviewPanel({
         ...upcomingDraw,
         amountCents: currentOverview.requestableAmountCents,
       },
-      requestDraw
+      requestDraw,
     );
   };
 
@@ -2817,8 +2940,8 @@ function DrawOverviewPanel({
                   {formatDate(
                     addDaysSafe(
                       detail.build.startDate,
-                      currentOverview.upcomingDraw.timingDay
-                    )
+                      currentOverview.upcomingDraw.timingDay,
+                    ),
                   )}{" "}
                   · planned amount{" "}
                   {formatCents(currentOverview.upcomingDraw.amountCents)}
@@ -2929,7 +3052,7 @@ function DrawSummaryList({
   onRunAction?: (
     actionKey: string,
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => Promise<boolean>;
   pendingActionKey?: string | null;
   testId: string;
@@ -2986,7 +3109,7 @@ function DrawSummaryItem({
   onRunAction?: (
     actionKey: string,
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => Promise<boolean>;
   pendingActionKey?: string | null;
   viewerRole?: "builder" | "lender";
@@ -2995,7 +3118,7 @@ function DrawSummaryItem({
     draw.milestoneKey === undefined
       ? null
       : (detail.milestones.find(
-          (milestone) => milestone.key === draw.milestoneKey
+          (milestone) => milestone.key === draw.milestoneKey,
         )?.name ?? null);
   const plannedDate = addDaysSafe(detail.build.startDate, draw.timingDay);
   const releasedAt = draw.releasedAt ?? draw.releaseDate;
@@ -3065,7 +3188,7 @@ function DrawActionGroup({
   onRunAction: (
     actionKey: string,
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => Promise<boolean>;
   pendingActionKey?: string | null;
 }) {
@@ -3110,7 +3233,7 @@ function DrawActionGroup({
           loading={isPending("reject")}
           onReject={(reason) =>
             onRunAction("reject", draw, (targetDraw) =>
-              actions?.rejectDraw?.({ draw: targetDraw, reason })
+              actions?.rejectDraw?.({ draw: targetDraw, reason }),
             )
           }
           requestKey={draw.drawKey}
@@ -3227,7 +3350,7 @@ function LoanMetadataPanel({
           {detail.loanFacility?.paybackDate
             ? formatDate(detail.loanFacility.paybackDate)
             : formatDate(
-                addDaysSafe(detail.build.startDate, projection.maxDay)
+                addDaysSafe(detail.build.startDate, projection.maxDay),
               )}
         </span>
         <Label>Draw availability</Label>
@@ -3270,7 +3393,7 @@ function OverviewMetric({
       <p
         className={cn(
           "break-words font-semibold text-sm tabular-nums",
-          truncateValue && "truncate"
+          truncateValue && "truncate",
         )}
       >
         {value}
@@ -3310,23 +3433,23 @@ function MilestoneCompletionReviewSheet({
   const builderRows = useMemo(
     () =>
       buildBuilderEvidenceRows(detail, projection).filter(
-        (row) => row.milestoneKey === milestone.key
+        (row) => row.milestoneKey === milestone.key,
       ),
-    [detail, milestone.key, projection]
+    [detail, milestone.key, projection],
   );
   const siteVisitRows = useMemo(
     () =>
       buildCompletedSiteVisitRows(detail, projection).filter(
-        (row) => row.milestoneKey === milestone.key
+        (row) => row.milestoneKey === milestone.key,
       ),
-    [detail, milestone.key, projection]
+    [detail, milestone.key, projection],
   );
   const siteVisits = useMemo(
     () =>
       siteVisitsForMilestone(detail, milestone).filter(
-        (visit) => !locallyCancelledVisitIds.has(siteVisitIdentity(visit))
+        (visit) => !locallyCancelledVisitIds.has(siteVisitIdentity(visit)),
       ),
-    [detail, locallyCancelledVisitIds, milestone]
+    [detail, locallyCancelledVisitIds, milestone],
   );
   const latestVisit = siteVisits[0] ?? null;
   const scopeRows = useMemo(
@@ -3334,21 +3457,21 @@ function MilestoneCompletionReviewSheet({
       detail.submilestones
         .filter((row) => row.milestoneKey === milestone.key)
         .sort((a, b) => a.order - b.order),
-    [detail.submilestones, milestone.key]
+    [detail.submilestones, milestone.key],
   );
   const contractorRows = useMemo(
     () => contractorAssignmentsForMilestone(detail, milestone.key),
-    [detail, milestone.key]
+    [detail, milestone.key],
   );
   const materialRows = useMemo(
     () =>
       (detail.costItems ?? []).filter(
-        (item) => item.milestoneKey === milestone.key
+        (item) => item.milestoneKey === milestone.key,
       ),
-    [detail.costItems, milestone.key]
+    [detail.costItems, milestone.key],
   );
   const completedScopeCount = scopeRows.filter(
-    (row) => row.status === "complete"
+    (row) => row.status === "complete",
   ).length;
   const milestoneApproved = isMilestoneApprovedForDrawAvailability(milestone);
   const builderEvidenceAccepted =
@@ -3380,11 +3503,11 @@ function MilestoneCompletionReviewSheet({
   const approvalNoteRequired = approvalExceptions.length > 0;
   const claimSubmittedAt = stringFromRecord(
     milestone.completionClaim,
-    "submittedAt"
+    "submittedAt",
   );
   const completedDay = numberFromRecord(
     milestone.completionClaim,
-    "completedDay"
+    "completedDay",
   );
   const completionDate =
     completedDay === undefined
@@ -3409,7 +3532,7 @@ function MilestoneCompletionReviewSheet({
   async function runReviewAction(
     actionKey: string,
     fallbackError: string,
-    action: () => Promise<unknown> | unknown
+    action: () => Promise<unknown> | unknown,
   ) {
     if (pendingAction) {
       return false;
@@ -3426,7 +3549,7 @@ function MilestoneCompletionReviewSheet({
             ? "Builder evidence approved."
             : actionKey === "request-info"
               ? "More information requested from the builder."
-              : ""
+              : "",
       );
       return true;
     } catch (cause) {
@@ -3449,7 +3572,7 @@ function MilestoneCompletionReviewSheet({
         actions?.approveMilestone?.({
           milestoneKey: milestone.key,
           note: decisionNote || "Approved from milestone completion review.",
-        })
+        }),
     );
   };
   const requestInfo = () => {
@@ -3470,7 +3593,7 @@ function MilestoneCompletionReviewSheet({
               accepted: false,
               milestoneKey: milestone.key,
               note: decisionNote,
-            })
+            }),
     );
   };
   const approveBuilderEvidence = () =>
@@ -3484,13 +3607,13 @@ function MilestoneCompletionReviewSheet({
           note:
             note.trim() ||
             "Builder evidence approved from milestone completion review.",
-        })
+        }),
     );
   const regenerateSiteVisitToken = () =>
     runReviewAction(
       "regenerate-site-visit-token",
       "Unable to regenerate site visit token.",
-      () => actions?.assignSiteVisit?.({ milestoneKey: milestone.key })
+      () => actions?.assignSiteVisit?.({ milestoneKey: milestone.key }),
     );
   const cancelSiteVisit = async (visit: ProductionSiteVisit) => {
     const cancelled = await runReviewAction(
@@ -3500,7 +3623,7 @@ function MilestoneCompletionReviewSheet({
         actions?.cancelSiteVisit?.({
           reason: note.trim() || "Cancelled from milestone completion review.",
           visitId: visit.visitId,
-        })
+        }),
     );
     if (cancelled) {
       setLocallyCancelledVisitIds((current) => {
@@ -4057,7 +4180,7 @@ function SiteVisitReviewState({
   const tokenUrl = visit.url;
   const tokenValue = visit.visitId;
   const tokenExpired = Boolean(
-    visit.tokenExpiresAt && visit.tokenExpiresAt <= Date.now()
+    visit.tokenExpiresAt && visit.tokenExpiresAt <= Date.now(),
   );
   const canOperateOnToken =
     visit.status !== "complete" &&
@@ -4261,13 +4384,13 @@ function BuildNonFinancialDetailsSheet({
   const [buildName, setBuildName] = useState(detail.build.buildName);
   const [location, setLocation] = useState(detail.build.location);
   const [locationLatitude, setLocationLatitude] = useState<number | null>(
-    detail.build.locationLatitude ?? null
+    detail.build.locationLatitude ?? null,
   );
   const [locationLongitude, setLocationLongitude] = useState<number | null>(
-    detail.build.locationLongitude ?? null
+    detail.build.locationLongitude ?? null,
   );
   const [locationPlaceId, setLocationPlaceId] = useState<string | null>(
-    detail.build.locationPlaceId ?? null
+    detail.build.locationPlaceId ?? null,
   );
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -4307,7 +4430,7 @@ function BuildNonFinancialDetailsSheet({
         size: "640x360",
         zoom: 19,
       }),
-    [location, locationLatitude, locationLongitude]
+    [location, locationLatitude, locationLongitude],
   );
 
   const canSave =
@@ -4341,7 +4464,9 @@ function BuildNonFinancialDetailsSheet({
       onOpenChange(false);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Unable to save build details."
+        cause instanceof Error
+          ? cause.message
+          : "Unable to save build details.",
       );
     } finally {
       setSaving(false);
@@ -4382,7 +4507,7 @@ function BuildNonFinancialDetailsSheet({
                 onPlaceSelect={(_suggestion, details) => {
                   if (!details) {
                     setLocationResolutionError(
-                      "Google did not return coordinates for that address."
+                      "Google did not return coordinates for that address.",
                     );
                     return;
                   }
@@ -4546,7 +4671,7 @@ export function ProductionDrawsTable({
 
   const run = async (
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => {
     if (!fn || pendingDraw) {
       return false;
@@ -4611,7 +4736,7 @@ export function ProductionDrawsTable({
                     </Td>
                     <Td>
                       {formatDate(
-                        addDaysSafe(detail.build.startDate, draw.timingDay)
+                        addDaysSafe(detail.build.startDate, draw.timingDay),
                       )}
                     </Td>
                     <Td>
@@ -4673,7 +4798,7 @@ export function ProductionDrawsTable({
                                   actions?.rejectDraw?.({
                                     draw: targetDraw,
                                     reason,
-                                  })
+                                  }),
                                 )
                               }
                               requestKey={draw.drawKey}
@@ -4767,10 +4892,10 @@ function FacilityChangeRequestsCard({
   detail: ProductionBuildDetail;
 }) {
   const [principalText, setPrincipalText] = useState(
-    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100))
+    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100)),
   );
   const [paybackDate, setPaybackDate] = useState(
-    detail.loanFacility?.paybackDate ?? detail.build.startDate
+    detail.loanFacility?.paybackDate ?? detail.build.startDate,
   );
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
@@ -4778,7 +4903,7 @@ function FacilityChangeRequestsCard({
   const [error, setError] = useState("");
   const requests = detail.facilityChangeRequests ?? [];
   const pendingRequests = requests.filter(
-    (request) => request.status === "requested"
+    (request) => request.status === "requested",
   );
 
   const run = async (key: string, fn?: () => Promise<unknown> | unknown) => {
@@ -4805,7 +4930,7 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPrincipalCents: Math.round(Number(principalText) * 100),
         requestType: "principalIncrease",
-      })
+      }),
     );
   const requestPayback = () =>
     run("request-payback", () =>
@@ -4813,18 +4938,18 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPaybackDate: paybackDate,
         requestType: "paybackExtension",
-      })
+      }),
     );
   const review = (
     request: ProductionFacilityChangeRequest,
-    status: "approved" | "rejected"
+    status: "approved" | "rejected",
   ) =>
     run(`${status}-${request._id}`, () =>
       actions?.reviewFacilityChangeRequest?.({
         note: reviewNote.trim() || undefined,
         requestId: request._id,
         status,
-      })
+      }),
     );
 
   return (
@@ -5001,16 +5126,16 @@ function BudgetRevisionCard({
   const current = detail.capitalPlan;
   const requests = detail.budgetRevisionRequests ?? [];
   const pendingRequest = requests.find(
-    (request) => request.status === "requested"
+    (request) => request.status === "requested",
   );
   const [workingCapital, setWorkingCapital] = useState(
-    String(Math.round((current?.borrowerStartingCashCents ?? 0) / 100))
+    String(Math.round((current?.borrowerStartingCashCents ?? 0) / 100)),
   );
   const [policyLimit, setPolicyLimit] = useState(
-    String(Math.round((current?.lenderDrawPolicyLimitCents ?? 0) / 100))
+    String(Math.round((current?.lenderDrawPolicyLimitCents ?? 0) / 100)),
   );
   const [loanPercentage, setLoanPercentage] = useState(
-    String((10_000 - (current?.borrowerCoPayBps ?? 0)) / 100)
+    String((10_000 - (current?.borrowerCoPayBps ?? 0)) / 100),
   );
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
@@ -5040,7 +5165,7 @@ function BudgetRevisionCard({
         borrowerStartingCashCents: Math.round(Number(workingCapital) * 100),
         lenderDrawPolicyLimitCents: Math.round(Number(policyLimit) * 100),
         reason: reason.trim(),
-      })
+      }),
     );
   const reviewRevision = (status: "approved" | "rejected") => {
     if (!pendingRequest) {
@@ -5051,7 +5176,7 @@ function BudgetRevisionCard({
         note: reviewNote.trim(),
         requestId: pendingRequest._id,
         status,
-      })
+      }),
     );
   };
 
@@ -5225,11 +5350,11 @@ function BudgetRevisionCard({
 function facilityRequestLabel(request: ProductionFacilityChangeRequest) {
   if (request.requestType === "principalIncrease") {
     return `Principal increase to ${formatCents(
-      request.requestedPayload.requestedPrincipalCents ?? 0
+      request.requestedPayload.requestedPrincipalCents ?? 0,
     )}`;
   }
   return `Payback extension to ${formatDate(
-    request.requestedPayload.requestedPaybackDate ?? ""
+    request.requestedPayload.requestedPaybackDate ?? "",
   )}`;
 }
 
@@ -5270,7 +5395,7 @@ function ProductionDocumentsCard({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"permit" | "budget" | "plan" | "supporting">(
-    "supporting"
+    "supporting",
   );
   const [supersedesDocumentId, setSupersedesDocumentId] = useState("");
   const [pending, setPending] = useState(false);
@@ -5340,7 +5465,7 @@ function ProductionDocumentsCard({
               const documentId = event.target.value;
               setSupersedesDocumentId(documentId);
               const selected = documents.find(
-                (document) => document._id === documentId
+                (document) => document._id === documentId,
               );
               const selectedType = selected?.documentType ?? selected?.kind;
               if (
@@ -5449,7 +5574,7 @@ function ProductionMilestonesTab({
   const [showCompletedKanban, setShowCompletedKanban] = useState(false);
   const kanbanCards = useMemo(
     () => buildProductionKanbanCards(detail, projection, currentDay),
-    [currentDay, detail, projection]
+    [currentDay, detail, projection],
   );
 
   return (
@@ -5499,11 +5624,11 @@ function ProductionContractorsTab({
 }) {
   const planning = useMemo(
     () => contractorPlanningFromProductionDetail(detail),
-    [detail]
+    [detail],
   );
   const milestones = useMemo(
     () => productionBuildMilestonesForContractors(detail),
-    [detail]
+    [detail],
   );
 
   return (
@@ -5521,7 +5646,7 @@ function ProductionContractorsTab({
             actions?.removeContractorFromMilestone ||
             actions?.attachAndInviteContractor ||
             actions?.attachContractor ||
-            actions?.createAndAttachContractor
+            actions?.createAndAttachContractor,
         )}
         milestones={milestones}
         onAssignToMilestone={
@@ -5591,7 +5716,7 @@ function ProductionContractorsTab({
 }
 
 function productionBuildMilestonesForContractors(
-  detail: ProductionBuildDetail
+  detail: ProductionBuildDetail,
 ): ContractorPlanningMilestone[] {
   return [...detail.milestones]
     .sort((a, b) => a.order - b.order)
@@ -5709,14 +5834,14 @@ function ProductionEvidenceTab({
 }) {
   const builderEvidence = useMemo(
     () => buildBuilderEvidenceRows(detail, projection),
-    [detail, projection]
+    [detail, projection],
   );
   const completedSiteVisits = useMemo(
     () => buildCompletedSiteVisitRows(detail, projection),
-    [detail, projection]
+    [detail, projection],
   );
   const locationUnverifiedCount = builderEvidence.filter(
-    (row) => row.locationState === "unverified"
+    (row) => row.locationState === "unverified",
   ).length;
   const totalEvidence = builderEvidence.length + completedSiteVisits.length;
 
@@ -5821,7 +5946,7 @@ function EvidenceSourcePanel({
   title: string;
 }) {
   const [expandedRowId, setExpandedRowId] = useState<string | null>(
-    rows[0]?.id ?? null
+    rows[0]?.id ?? null,
   );
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
@@ -5840,8 +5965,8 @@ function EvidenceSourcePanel({
       row.assets.some(
         (asset) =>
           focusedReference === `evidenceAsset:${asset._id}` ||
-          focusedReference === `evidencePackage:${asset.evidenceKey}`
-      )
+          focusedReference === `evidencePackage:${asset.evidenceKey}`,
+      ),
     );
     if (focusedRow) {
       setExpandedRowId(focusedRow.id);
@@ -5850,7 +5975,7 @@ function EvidenceSourcePanel({
 
   const reviewEvidence = async (
     row: ProductionEvidenceRow,
-    accepted: boolean
+    accepted: boolean,
   ) => {
     if (!actions?.reviewEvidence || pendingAction) {
       return;
@@ -5894,7 +6019,7 @@ function EvidenceSourcePanel({
                 onReviewEvidence={reviewEvidence}
                 onToggleExpanded={() =>
                   setExpandedRowId((current) =>
-                    current === row.id ? null : row.id
+                    current === row.id ? null : row.id,
                   )
                 }
                 pendingAction={pendingAction}
@@ -5922,7 +6047,7 @@ function EvidenceRowItem({
   onOpenMilestone: (milestoneKey: string) => void;
   onReviewEvidence: (
     row: ProductionEvidenceRow,
-    accepted: boolean
+    accepted: boolean,
   ) => Promise<void>;
   onToggleExpanded: () => void;
   pendingAction: string | null;
@@ -6014,7 +6139,7 @@ function EvidenceRowItem({
               aria-hidden="true"
               className={cn(
                 "size-4 transition-transform",
-                expanded && "rotate-180"
+                expanded && "rotate-180",
               )}
             />
             {expanded ? "Hide evidence" : "View evidence"}
@@ -6177,7 +6302,7 @@ function EvidenceAssetPreview({
   const [imageFailed, setImageFailed] = useState(false);
   const [imageLoading, setImageLoading] = useState(shouldAutoPrepareHeic);
   const [heicPreviewRequested, setHeicPreviewRequested] = useState(
-    shouldAutoPrepareHeic
+    shouldAutoPrepareHeic,
   );
   const [heicPreviewUrl, setHeicPreviewUrl] = useState<string | null>(null);
   const heicPreviewAbortRef = useRef<AbortController | null>(null);
@@ -6196,7 +6321,7 @@ function EvidenceAssetPreview({
         URL.revokeObjectURL(heicObjectUrlRef.current);
       }
     },
-    []
+    [],
   );
 
   const requestHeicPreview = useCallback(async () => {
@@ -6225,7 +6350,7 @@ function EvidenceAssetPreview({
       }
       const jpegBlob = await convertHeicEvidenceBlobToJpeg(
         await response.blob(),
-        asset.fileName
+        asset.fileName,
       );
       if (controller.signal.aborted) {
         return;
@@ -6301,7 +6426,7 @@ function EvidenceAssetPreview({
           alt={asset.label}
           className={cn(
             "h-full w-full object-cover transition-opacity",
-            imageLoading && "opacity-0"
+            imageLoading && "opacity-0",
           )}
           decoding="async"
           loading="lazy"
@@ -6436,7 +6561,7 @@ function ProductionCalendarTab({
 }) {
   const drawByKey = useMemo(
     () => new Map(detail.draws.map((draw) => [draw.drawKey, draw])),
-    [detail.draws]
+    [detail.draws],
   );
   const adapterActions = useMemo<ActiveBuildCalendarAdapterActions>(
     () => ({
@@ -6516,7 +6641,7 @@ function ProductionCalendarTab({
           }
         : {}),
     }),
-    [actions, drawByKey, onRequestSiteVisit, onStartWork]
+    [actions, drawByKey, onRequestSiteVisit, onStartWork],
   );
   const effectiveWorkspace = useMemo(
     () =>
@@ -6524,7 +6649,7 @@ function ProductionCalendarTab({
       buildActiveBuildCalendarWorkspaceFromDetail(detail, {
         organizationId: workosOrganizationId,
       }),
-    [calendarWorkspace, detail, workosOrganizationId]
+    [calendarWorkspace, detail, workosOrganizationId],
   );
   const focusedSiteVisitEventId = useMemo(() => {
     if (!focusedReference?.startsWith("siteVisit:")) {
@@ -6532,7 +6657,7 @@ function ProductionCalendarTab({
     }
     const siteVisitId = focusedReference.slice("siteVisit:".length);
     const visit = detail.siteVisits?.find(
-      (candidate) => candidate._id === siteVisitId
+      (candidate) => candidate._id === siteVisitId,
     );
     return visit ? `activeBuild:siteVisit:${visit.visitId}` : undefined;
   }, [detail.siteVisits, focusedReference]);
@@ -6541,7 +6666,7 @@ function ProductionCalendarTab({
       buildActiveBuildCalendarActions(adapterActions, {
         baseDate: detail.build.startDate,
       }),
-    [adapterActions, detail.build.startDate]
+    [adapterActions, detail.build.startDate],
   );
   const commitEdit = useMemo(
     () =>
@@ -6549,7 +6674,7 @@ function ProductionCalendarTab({
         actions: adapterActions,
         baseDate: detail.build.startDate,
       }),
-    [adapterActions, detail.build.startDate]
+    [adapterActions, detail.build.startDate],
   );
 
   return (
@@ -6634,12 +6759,12 @@ function ProductionGanttTab({
 function buildProductionKanbanCards(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
-  currentDay: number
+  currentDay: number,
 ): KanbanCardData[] {
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw])
+      .map((draw) => [draw.milestoneKey as string, draw]),
   );
   return projection.milestones.map((milestone) => {
     const draw = drawByMilestone.get(milestone.key);
@@ -6652,7 +6777,7 @@ function buildProductionKanbanCards(
           ? Math.round(
               (submilestones.filter((sub) => sub.status === "complete").length /
                 submilestones.length) *
-                100
+                100,
             )
           : typeof milestone.progressPercent === "number"
             ? clampPercent(milestone.progressPercent)
@@ -6675,14 +6800,14 @@ function buildProductionKanbanCards(
         (contractor) => ({
           initials: initialsFor(contractor.name),
           name: contractor.name,
-        })
+        }),
       ),
       drawGroupKey: draw?.drawKey ?? milestone.key,
       evidenceReviewStatus: milestone.evidenceState,
       forecastEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
       forecastStartDate: addDaysSafe(
         detail.build.startDate,
-        milestone.dayStart
+        milestone.dayStart,
       ),
       milestoneId: milestone._id,
       milestoneKey: milestone.key,
@@ -6762,7 +6887,7 @@ function resolveProductionMilestoneKanbanState({
   }
   const dependenciesReady = productionMilestoneDependenciesSatisfied(
     milestone,
-    projection
+    projection,
   );
   const hasStarted = productionMilestoneHasStartedWorkflow(milestone, draw);
   const isPastEnd = currentDay > milestone.dayEnd;
@@ -6799,17 +6924,17 @@ function resolveProductionMilestoneKanbanState({
 
 function productionMilestoneDependenciesSatisfied(
   milestone: ProductionMilestone,
-  projection: ProductionBuildProjection
+  projection: ProductionBuildProjection,
 ) {
   const byKey = new Map(projection.milestones.map((row) => [row.key, row]));
   return (milestone.dependencyKeys ?? []).every(
-    (key) => byKey.get(key)?.status === "complete"
+    (key) => byKey.get(key)?.status === "complete",
   );
 }
 
 function productionMilestoneHasStartedWorkflow(
   milestone: ProductionMilestone,
-  draw?: ProductionDraw
+  draw?: ProductionDraw,
 ) {
   if (milestone.status === "in_progress") {
     return true;
@@ -6821,16 +6946,16 @@ function buildMilestoneSheetData(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
   milestoneKey: string,
-  currentDay: number
+  currentDay: number,
 ): MilestoneSheetData | null {
   const milestone = projection.milestones.find(
-    (row) => row.key === milestoneKey
+    (row) => row.key === milestoneKey,
   );
   if (!milestone) {
     return null;
   }
   const draw = projection.draws.find(
-    (row) => row.milestoneKey === milestoneKey
+    (row) => row.milestoneKey === milestoneKey,
   );
   const state = resolveProductionMilestoneKanbanState({
     currentDay,
@@ -6841,8 +6966,8 @@ function buildMilestoneSheetData(
   const events = (detail.auditEvents ?? [])
     .filter((event) =>
       ["milestone", "evidence", "site_visit"].some((scope) =>
-        event.eventType.includes(scope)
-      )
+        event.eventType.includes(scope),
+      ),
     )
     .slice(0, 6)
     .map((event) => ({
@@ -6854,18 +6979,18 @@ function buildMilestoneSheetData(
   const reviewStatus = stringFromRecord(milestone.completionReview, "status");
   const reviewNote = stringFromRecord(
     milestone.completionReview,
-    "note"
+    "note",
   )?.trim();
   const reviewRequestedAt = stringFromRecord(
     milestone.completionReview,
-    "reviewedAt"
+    "reviewedAt",
   );
   const parsedReviewRequestedAt = reviewRequestedAt
     ? Date.parse(reviewRequestedAt)
     : Number.NaN;
   const completionSubmittedAt = stringFromRecord(
     milestone.completionClaim,
-    "submittedAt"
+    "submittedAt",
   );
   const parsedSubmittedAt = completionSubmittedAt
     ? Date.parse(completionSubmittedAt)
@@ -6875,14 +7000,14 @@ function buildMilestoneSheetData(
     .sort((left, right) => left.order - right.order);
   const explicitBudgetCents = sourceSubmilestones.reduce(
     (sum, row) => sum + Math.max(0, row.budgetCents ?? 0),
-    0
+    0,
   );
   const missingBudgetCount = sourceSubmilestones.filter(
-    (row) => !row.budgetCents || row.budgetCents <= 0
+    (row) => !row.budgetCents || row.budgetCents <= 0,
   ).length;
   const distributedBudgetCents = Math.round(
     Math.max(0, milestone.budgetCents - explicitBudgetCents) /
-      Math.max(1, missingBudgetCount)
+      Math.max(1, missingBudgetCount),
   );
   return {
     actualStartedAt: milestone.actualStartedAt,
@@ -6893,7 +7018,7 @@ function buildMilestoneSheetData(
         initials: initialsFor(contractor.name),
         name: contractor.name,
         role: contractor.role,
-      })
+      }),
     ),
     drawGroupKey: draw?.drawKey ?? milestone.key,
     currentDay,
@@ -6929,7 +7054,7 @@ function buildMilestoneSheetData(
         .filter(
           (assignment) =>
             assignment.milestoneKey === milestone.key &&
-            assignment.submilestoneKey === submilestone.key
+            assignment.submilestoneKey === submilestone.key,
         )
         .map((assignment) => ({
           actualCostCents: assignment.actualCostCents,
@@ -6946,7 +7071,7 @@ function buildMilestoneSheetData(
         }));
       const materials = (detail.costItems ?? [])
         .filter((item) =>
-          item.relevantSubmilestoneKeys.includes(submilestone.key)
+          item.relevantSubmilestoneKeys.includes(submilestone.key),
         )
         .map((item) => ({
           description: item.description,
@@ -6961,7 +7086,7 @@ function buildMilestoneSheetData(
         .filter(
           (asset) =>
             asset.milestoneKey === milestone.key &&
-            asset.submilestoneKey === submilestone.key
+            asset.submilestoneKey === submilestone.key,
         )
         .map((asset) => ({
           createdAt: asset.createdAt,
@@ -6979,7 +7104,7 @@ function buildMilestoneSheetData(
         .filter(
           (visit) =>
             visit.milestoneKey === milestone.key &&
-            (visit.submilestoneKeys ?? []).includes(submilestone.key)
+            (visit.submilestoneKeys ?? []).includes(submilestone.key),
         )
         .map((visit) => ({
           completedAt: visit.completedAt,
@@ -7000,22 +7125,25 @@ function buildMilestoneSheetData(
             : distributedBudgetCents,
         completedAt: submilestone.completedAt,
         completedByWorkosUserId: submilestone.completedByWorkosUserId,
-        description:
-          materials.find((item) => item.description)?.description ??
-          `Complete and document the ${submilestone.name.toLowerCase()} scope against the approved construction roadmap.`,
         endDate: addDaysSafe(
           detail.build.startDate,
-          startDay + durationDays - 1
+          startDay + durationDays - 1,
         ),
         evidence,
         fieldNote: submilestone.fieldNote,
+        buildSubmilestoneId: submilestone._id,
         key: submilestone.key,
         materials,
         name: submilestone.name,
         order: submilestone.order,
+        proposalSubmilestoneId: submilestone.proposalSubmilestoneId,
         siteVisits,
         startDate: addDaysSafe(detail.build.startDate, startDay),
         status: submilestone.status,
+        // Convex treats a legacy sub-milestone row without workflowRevision as
+        // canonical revision 0. Preserve that row-scoped token for governed
+        // lifecycle commands instead of borrowing the parent revision.
+        workflowRevision: submilestone.workflowRevision ?? 0,
       };
     }),
   };
@@ -7023,7 +7151,7 @@ function buildMilestoneSheetData(
 
 function resolveProductionCurrentDay(
   detail: ProductionBuildDetail,
-  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null,
 ) {
   const timelineDay = timelineWorkspace?.plan?.currentDay;
   if (typeof timelineDay === "number" && Number.isFinite(timelineDay)) {
@@ -7031,7 +7159,7 @@ function resolveProductionCurrentDay(
   }
   return daysBetweenProductionDates(
     detail.build.startDate,
-    new Date().toISOString()
+    new Date().toISOString(),
   );
 }
 
@@ -7043,7 +7171,7 @@ function daysBetweenProductionDates(startIso: string, endIso: string) {
   };
   return Math.max(
     0,
-    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000)
+    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000),
   );
 }
 
@@ -7052,12 +7180,12 @@ function clampPercent(value: number) {
 }
 
 function buildProductionBuildProjection(
-  detail: ProductionBuildDetail
+  detail: ProductionBuildDetail,
 ): ProductionBuildProjection {
   const milestones = [...detail.milestones].sort((a, b) => a.order - b.order);
   const draws = [...detail.draws].sort((a, b) => a.order - b.order);
   const submilestones = [...detail.submilestones].sort(
-    (a, b) => a.order - b.order
+    (a, b) => a.order - b.order,
   );
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of submilestones) {
@@ -7068,12 +7196,12 @@ function buildProductionBuildProjection(
   const maxDay = Math.max(
     60,
     ...milestones.map((milestone) => milestone.dayEnd + 14),
-    ...draws.map((draw) => draw.timingDay + 14)
+    ...draws.map((draw) => draw.timingDay + 14),
   );
   const calendarIsoDates = new Set<string>();
   for (const milestone of milestones) {
     calendarIsoDates.add(
-      addDaysSafe(detail.build.startDate, milestone.dayStart)
+      addDaysSafe(detail.build.startDate, milestone.dayStart),
     );
     calendarIsoDates.add(addDaysSafe(detail.build.startDate, milestone.dayEnd));
   }
@@ -7093,22 +7221,22 @@ function buildProductionBuildProjection(
 function buildCurrentBuildOverview(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
-  currentDay: number
+  currentDay: number,
 ): CurrentBuildOverview {
   const incompleteMilestones = projection.milestones.filter(
-    (milestone) => !isMilestoneApprovedForDrawAvailability(milestone)
+    (milestone) => !isMilestoneApprovedForDrawAvailability(milestone),
   );
   const behindSchedule = incompleteMilestones
     .filter((milestone) => currentDay > milestone.dayEnd)
     .sort(compareMilestonesMostOverdueFirst);
   const behindScheduleKeys = new Set(
-    behindSchedule.map((milestone) => milestone.key)
+    behindSchedule.map((milestone) => milestone.key),
   );
   const current = incompleteMilestones
     .filter(
       (milestone) =>
         !behindScheduleKeys.has(milestone.key) &&
-        isCurrentActiveMilestone(milestone)
+        isCurrentActiveMilestone(milestone),
     )
     .sort(compareMilestonesMostRecentFirst);
   const currentKeys = new Set(current.map((milestone) => milestone.key));
@@ -7119,7 +7247,7 @@ function buildCurrentBuildOverview(
           !(
             behindScheduleKeys.has(milestone.key) ||
             currentKeys.has(milestone.key)
-          )
+          ),
       )
       .sort(compareMilestonesScheduleFirst)[0] ?? null;
   const approvedMilestoneAvailabilityCents = projection.milestones
@@ -7133,7 +7261,7 @@ function buildCurrentBuildOverview(
     .reduce((sum, draw) => sum + draw.amountCents, 0);
   const currentAvailabilityCents = Math.max(
     0,
-    approvedMilestoneAvailabilityCents - committedDrawCents
+    approvedMilestoneAvailabilityCents - committedDrawCents,
   );
   const totalApprovedCents =
     detail.loanFacility?.principalCents ??
@@ -7163,21 +7291,21 @@ function buildCurrentBuildOverview(
 
 function compareMilestonesMostOverdueFirst(
   left: ProductionMilestone,
-  right: ProductionMilestone
+  right: ProductionMilestone,
 ): number {
   return left.dayEnd - right.dayEnd || left.order - right.order;
 }
 
 function compareMilestonesScheduleFirst(
   left: ProductionMilestone,
-  right: ProductionMilestone
+  right: ProductionMilestone,
 ): number {
   return left.dayStart - right.dayStart || left.order - right.order;
 }
 
 function compareMilestonesMostRecentFirst(
   left: ProductionMilestone,
-  right: ProductionMilestone
+  right: ProductionMilestone,
 ): number {
   const scoreDelta =
     milestoneRecentActivityScore(right) - milestoneRecentActivityScore(left);
@@ -7190,7 +7318,7 @@ function compareMilestonesMostRecentFirst(
 function milestoneRecentActivityScore(milestone: ProductionMilestone): number {
   const submittedAt = stringFromRecord(
     milestone.completionClaim,
-    "submittedAt"
+    "submittedAt",
   );
   const reviewedAt = stringFromRecord(milestone.completionReview, "reviewedAt");
   const parsedDates = [submittedAt, reviewedAt]
@@ -7213,7 +7341,7 @@ function isCurrentActiveMilestone(milestone: ProductionMilestone): boolean {
 }
 
 function milestoneHasPendingCompletionClaim(
-  milestone: ProductionMilestone
+  milestone: ProductionMilestone,
 ): boolean {
   const reviewStatus = stringFromRecord(milestone.completionReview, "status");
   return (
@@ -7224,7 +7352,7 @@ function milestoneHasPendingCompletionClaim(
 }
 
 function isMilestoneApprovedForDrawAvailability(
-  milestone: ProductionMilestone
+  milestone: ProductionMilestone,
 ): boolean {
   return (
     milestone.status === "complete" ||
@@ -7243,7 +7371,7 @@ function isCommittedDrawStatus(status: ProductionDrawStatus): boolean {
 }
 
 function isRequestableDrawStatus(
-  status: ProductionDrawStatus | undefined
+  status: ProductionDrawStatus | undefined,
 ): boolean {
   return status === "planned" || status === "rejected";
 }
@@ -7252,7 +7380,7 @@ function resolveUpcomingDraw(draws: ProductionDraw[]): ProductionDraw | null {
   return (
     draws
       .filter(
-        (draw) => draw.status !== "released" && draw.status !== "cancelled"
+        (draw) => draw.status !== "released" && draw.status !== "cancelled",
       )
       .slice()
       .sort((a, b) => {
@@ -7272,7 +7400,7 @@ function resolveUpcomingDraw(draws: ProductionDraw[]): ProductionDraw | null {
 
 function compareDrawsMostRecentFirst(
   left: ProductionDraw,
-  right: ProductionDraw
+  right: ProductionDraw,
 ): number {
   const scoreDelta =
     drawRecentActivityScore(right) - drawRecentActivityScore(left);
@@ -7299,7 +7427,7 @@ function drawRecentActivityScore(draw: ProductionDraw): number {
 
 function compareDrawsScheduleFirst(
   left: ProductionDraw,
-  right: ProductionDraw
+  right: ProductionDraw,
 ): number {
   if (left.order !== right.order) {
     return left.order - right.order;
@@ -7309,13 +7437,13 @@ function compareDrawsScheduleFirst(
 
 function siteVisitsForMilestone(
   detail: ProductionBuildDetail,
-  milestone: ProductionMilestone
+  milestone: ProductionMilestone,
 ): ProductionSiteVisit[] {
   const visits = (detail.siteVisits ?? []).filter(
-    (visit) => visit.milestoneKey === milestone.key
+    (visit) => visit.milestoneKey === milestone.key,
   );
   const reviewedVisit = siteVisitFromCompletionReview(
-    milestone.completionReview
+    milestone.completionReview,
   );
   const merged = new Map<string, ProductionSiteVisit>();
   if (reviewedVisit) {
@@ -7362,7 +7490,7 @@ function siteVisitsForMilestone(
     .filter((visit) => visit.status !== "cancelled")
     .sort(
       (a, b) =>
-        siteVisitRecentActivityScore(b) - siteVisitRecentActivityScore(a)
+        siteVisitRecentActivityScore(b) - siteVisitRecentActivityScore(a),
     );
 }
 
@@ -7434,7 +7562,7 @@ function formatSiteVisitDateTime(value?: string | number): string {
 }
 
 function siteVisitBadgeVariant(
-  visit: ProductionSiteVisit
+  visit: ProductionSiteVisit,
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (visit.status === "complete") {
     return "success";
@@ -7466,7 +7594,7 @@ function upcomingDrawStatusPriority(status: ProductionDrawStatus): number {
 
 function buildPercentComplete(milestones: ProductionMilestone[]): number {
   const completed = milestones.filter(
-    (milestone) => milestone.status === "complete"
+    (milestone) => milestone.status === "complete",
   ).length;
   return milestones.length > 0
     ? Math.round((completed / milestones.length) * 100)
@@ -7475,7 +7603,7 @@ function buildPercentComplete(milestones: ProductionMilestone[]): number {
 
 function milestoneProgressPercent(
   milestone: ProductionMilestone,
-  submilestones: ProductionSubmilestone[]
+  submilestones: ProductionSubmilestone[],
 ): number {
   if (typeof milestone.normalizedProgressPercent === "number") {
     return clampPercent(milestone.normalizedProgressPercent);
@@ -7486,10 +7614,10 @@ function milestoneProgressPercent(
   if (submilestones.length > 0) {
     return clampPercent(
       (submilestones.filter(
-        (submilestone) => submilestone.status === "complete"
+        (submilestone) => submilestone.status === "complete",
       ).length /
         submilestones.length) *
-        100
+        100,
     );
   }
   if (milestone.status === "complete") {
@@ -7543,16 +7671,16 @@ function drawStatusLabel(status: ProductionDrawStatus): string {
 
 function buildBuilderEvidenceRows(
   detail: ProductionBuildDetail,
-  projection: ProductionBuildProjection
+  projection: ProductionBuildProjection,
 ): ProductionEvidenceRow[] {
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw])
+      .map((draw) => [draw.milestoneKey as string, draw]),
   );
   return projection.milestones.flatMap((milestone) => {
     const assets = evidenceAssetsForMilestone(detail, milestone.key).filter(
-      (asset) => !isSiteVisitEvidenceAsset(asset)
+      (asset) => !isSiteVisitEvidenceAsset(asset),
     );
     if (!hasBuilderSubmittedEvidence(milestone) && assets.length === 0) {
       return [];
@@ -7602,15 +7730,15 @@ function buildBuilderEvidenceRows(
 
 function buildCompletedSiteVisitRows(
   detail: ProductionBuildDetail,
-  projection: ProductionBuildProjection
+  projection: ProductionBuildProjection,
 ): ProductionEvidenceRow[] {
   const milestoneByKey = new Map(
-    projection.milestones.map((milestone) => [milestone.key, milestone])
+    projection.milestones.map((milestone) => [milestone.key, milestone]),
   );
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw])
+      .map((draw) => [draw.milestoneKey as string, draw]),
   );
   const rows = new Map<string, ProductionEvidenceRow>();
   const addVisit = (visit: ProductionSiteVisit) => {
@@ -7666,8 +7794,8 @@ function buildCompletedSiteVisitRows(
   }
   return [...rows.values()].sort((a, b) =>
     (b.completedAt ?? b.submittedAt ?? "").localeCompare(
-      a.completedAt ?? a.submittedAt ?? ""
-    )
+      a.completedAt ?? a.submittedAt ?? "",
+    ),
   );
 }
 
@@ -7685,7 +7813,7 @@ function hasBuilderSubmittedEvidence(milestone: ProductionMilestone) {
 function evidenceLocationState(
   detail: ProductionBuildDetail,
   milestoneKey: string,
-  scopedAssets = evidenceAssetsForMilestone(detail, milestoneKey)
+  scopedAssets = evidenceAssetsForMilestone(detail, milestoneKey),
 ): ProductionEvidenceRow["locationState"] {
   if (scopedAssets.some((asset) => asset.locationVerified === false)) {
     return "unverified";
@@ -7697,8 +7825,8 @@ function evidenceLocationState(
     [photo.caption, photo.evidenceKey]
       .filter(Boolean)
       .some((value) =>
-        String(value).toLowerCase().includes(milestoneKey.toLowerCase())
-      )
+        String(value).toLowerCase().includes(milestoneKey.toLowerCase()),
+      ),
   );
   if (relatedPhotos.some((photo) => photo.locationVerified === false)) {
     return "unverified";
@@ -7711,20 +7839,20 @@ function evidenceLocationState(
 
 function evidenceAssetsForMilestone(
   detail: ProductionBuildDetail,
-  milestoneKey: string
+  milestoneKey: string,
 ) {
   return (detail.evidenceAssets ?? []).filter(
-    (asset) => asset.milestoneKey === milestoneKey
+    (asset) => asset.milestoneKey === milestoneKey,
   );
 }
 
 function siteVisitEvidenceAssetsForVisit(
   detail: ProductionBuildDetail,
-  visit: ProductionSiteVisit
+  visit: ProductionSiteVisit,
 ) {
   const milestoneAssets = evidenceAssetsForMilestone(
     detail,
-    visit.milestoneKey
+    visit.milestoneKey,
   );
   const visitId = visit.visitId ?? visit._id;
   const visitAssets = milestoneAssets.filter((asset) => {
@@ -7785,7 +7913,7 @@ function formatBytes(bytes: number) {
   const units = ["B", "KB", "MB", "GB"] as const;
   const exponent = Math.min(
     Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1
+    units.length - 1,
   );
   const value = bytes / 1024 ** exponent;
   return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${units[exponent]}`;
@@ -7802,7 +7930,7 @@ function evidenceStatusLabel(status: string): string {
 }
 
 function evidenceStatusVariant(
-  status: string
+  status: string,
 ): React.ComponentProps<typeof Badge>["variant"] {
   const normalized = status.toLowerCase();
   if (
@@ -7844,7 +7972,7 @@ function evidenceStatusIsAccepted(status: string): boolean {
 
 function stringFromRecord(
   value: Record<string, unknown> | undefined,
-  key: string
+  key: string,
 ) {
   const raw = value?.[key];
   return typeof raw === "string" && raw.trim() ? raw : undefined;
@@ -7852,21 +7980,31 @@ function stringFromRecord(
 
 function numberFromRecord(
   value: Record<string, unknown> | undefined,
-  key: string
+  key: string,
 ) {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
 }
 
+function commandResultRevision(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const revision = (value as { revision?: unknown }).revision;
+  return typeof revision === "number" && Number.isSafeInteger(revision)
+    ? revision
+    : undefined;
+}
+
 function siteVisitFromCompletionReview(
-  review: Record<string, any> | undefined
+  review: Record<string, any> | undefined,
 ): Partial<ProductionSiteVisit> | null {
   const raw = review?.siteVisit;
   return raw && typeof raw === "object" ? raw : null;
 }
 
 function statusBadgeVariant(
-  status: ProductionBuildStatus
+  status: ProductionBuildStatus,
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "completed") {
     return "success";
@@ -7878,7 +8016,7 @@ function statusBadgeVariant(
 }
 
 function drawBadgeVariant(
-  status: ProductionDrawStatus
+  status: ProductionDrawStatus,
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "released") {
     return "success";
@@ -7900,7 +8038,7 @@ function drawBadgeVariant(
 
 function contractorAssignmentsForMilestone(
   detail: ProductionBuildDetail,
-  milestoneKey: string
+  milestoneKey: string,
 ) {
   const profileById = new Map<string, { name: string; trades?: string[] }>();
   for (const contractor of detail.contractors ?? []) {
@@ -7931,13 +8069,13 @@ function contractorAssignmentsForMilestone(
 function submilestoneNameFor(
   detail: ProductionBuildDetail,
   milestoneKey: string,
-  submilestoneKey: string
+  submilestoneKey: string,
 ) {
   return (
     detail.submilestones.find(
       (submilestone) =>
         submilestone.milestoneKey === milestoneKey &&
-        submilestone.key === submilestoneKey
+        submilestone.key === submilestoneKey,
     )?.name ?? submilestoneKey
   );
 }

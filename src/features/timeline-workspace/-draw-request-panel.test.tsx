@@ -3,7 +3,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
-import { DrawRequestPanel, LenderDrawReviewPanel } from "./index.tsx";
+import {
+  DrawRequestPanel,
+  LenderDrawReviewPanel,
+} from "./TimelineWorkspace.tsx";
 import type { DemoDraw, DemoMilestone } from "./-timeline-share-snapshot.ts";
 
 afterEach(() => cleanup());

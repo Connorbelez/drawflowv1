@@ -293,6 +293,7 @@ export const drawFlowAssistantMutationToolDefinitions =
               actualStartedAt: z.number().int().positive(),
               buildId: z.string().min(1),
               dependencyOverrideReason: z.string().min(3).optional(),
+              expectedRevision: z.number().int().nonnegative(),
               idempotencyKey: z.string().min(8),
               milestoneKey: z.string().min(1),
               startParent: z.boolean().optional(),
@@ -3380,6 +3381,10 @@ async function buildMutationPreviewItem(
         action.input.actualStartedAt,
         "actualStartedAt"
       );
+      const expectedRevision = requiredNumber(
+        action.input.expectedRevision,
+        "expectedRevision",
+      );
       if (actualStartedAt > Date.now()) {
         throw new Error("Actual start must be now or earlier.");
       }
@@ -3403,6 +3408,7 @@ async function buildMutationPreviewItem(
       return previewItem(action, {
         after: {
           actualStartedAt,
+          expectedRevision,
           dependencyOverrideReason: optionalString(
             action.input.dependencyOverrideReason
           ),
@@ -4993,6 +4999,10 @@ async function applyCatalogDomainMutation(
         buildId: input.buildId,
         dependencyOverrideReason: optionalString(
           input.dependencyOverrideReason
+        ),
+        expectedRevision: requiredNumber(
+          input.expectedRevision,
+          "expectedRevision",
         ),
         idempotencyKey: requiredString(
           input.idempotencyKey,

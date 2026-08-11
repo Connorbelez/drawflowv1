@@ -15,7 +15,16 @@ import {
   Play,
   UserPlus,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "#/components/ui/alert-dialog.tsx";
 import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
@@ -42,6 +51,9 @@ import {
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
+import { ActiveBuildSubmilestoneGuidanceController } from "../submilestone-guidance/ActiveBuildSubmilestoneGuidanceController.tsx";
+import { ProposalSubmilestoneScopeController } from "../submilestone-scope/ProposalSubmilestoneScopeController.tsx";
 import {
   formatCentsExact,
   formatDate,
@@ -52,6 +64,12 @@ import {
 type WorkState = "planned" | "in_progress" | "complete";
 type SheetView = "detail" | "guided" | "ledger";
 type DetailTab = "evidence" | "materials" | "notes" | "overview" | "people";
+type CanonicalDirtySection = "guidance" | "scope";
+
+interface PendingCanonicalNavigation {
+  action: () => void;
+  label: string;
+}
 
 export interface MilestoneSheetSubmilestone {
   actualStartedAt?: number;
@@ -72,7 +90,6 @@ export interface MilestoneSheetSubmilestone {
   budgetCents: number;
   completedAt?: number;
   completedByWorkosUserId?: string;
-  description: string;
   endDate: string;
   evidence: Array<{
     createdAt?: number;
@@ -87,6 +104,10 @@ export interface MilestoneSheetSubmilestone {
     tag: string;
   }>;
   fieldNote?: string;
+  /** Optional execution-only context; never treated as contractual Scope. */
+  executionSummary?: string;
+  buildSubmilestoneId?: string;
+  proposalSubmilestoneId?: string;
   key: string;
   materials: Array<{
     description?: string;
@@ -110,6 +131,7 @@ export interface MilestoneSheetSubmilestone {
   }>;
   startDate: string;
   status: WorkState;
+  workflowRevision?: number;
 }
 
 export interface MilestoneSheetData {
@@ -144,6 +166,7 @@ interface SubmilestoneUpdateInput {
   actualCostCents?: number | null;
   actualStartedAt?: number;
   dependencyOverrideReason?: string;
+  expectedRevision: number;
   fieldNote?: string | null;
   idempotencyKey?: string;
   milestoneKey: string;
@@ -159,6 +182,12 @@ interface MilestoneDetailSheetProps {
   eventsSourceLabel?: string;
   focusedSubmilestoneId?: string;
   focusedSubmilestoneKey?: string;
+  /** Identity fallbacks for single-row or focused legacy sheet callers. */
+  buildSubmilestoneId?: string;
+  proposalSubmilestoneId?: string;
+  readOnly?: boolean;
+  viewerCapacity?: BuildCollaborationRole;
+  workosOrganizationId?: string;
   onApprove?: (milestoneKey: string, note?: string) => Promise<void> | void;
   onAmendStart?: (
     action: "correct" | "retract",
@@ -198,6 +227,83 @@ interface MilestoneDetailSheetProps {
   prototypeSubmilestoneStartTrigger?: boolean;
 }
 
+interface CanonicalSubmilestoneIdentity {
+  buildSubmilestoneId?: string;
+  proposalSubmilestoneId?: string;
+}
+
+function CanonicalWorkItemContext({
+  identity,
+  item,
+  onDirtyChange,
+  readOnly,
+  viewerCapacity,
+  workosOrganizationId,
+}: {
+  identity: CanonicalSubmilestoneIdentity;
+  item: MilestoneSheetSubmilestone;
+  onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
+  readOnly: boolean;
+  viewerCapacity?: BuildCollaborationRole;
+  workosOrganizationId?: string;
+}) {
+  useEffect(
+    () => () => {
+      onDirtyChange?.("scope", false);
+      onDirtyChange?.("guidance", false);
+    },
+    [onDirtyChange],
+  );
+
+  if (
+    !(
+      identity.buildSubmilestoneId &&
+      identity.proposalSubmilestoneId &&
+      workosOrganizationId
+    )
+  ) {
+    return null;
+  }
+  return (
+    <div className="grid gap-4" data-testid="canonical-work-item-context">
+      <ProposalSubmilestoneScopeController
+        onDirtyChange={(dirty) => onDirtyChange?.("scope", dirty)}
+        proposalSubmilestoneId={identity.proposalSubmilestoneId}
+        readOnly={readOnly}
+        scopeRoute="active-build"
+        viewerCapacity={viewerCapacity}
+        workosOrganizationId={workosOrganizationId}
+      />
+      <ActiveBuildSubmilestoneGuidanceController
+        buildSubmilestoneId={identity.buildSubmilestoneId}
+        onDirtyChange={(dirty) => onDirtyChange?.("guidance", dirty)}
+        proposalSubmilestoneId={identity.proposalSubmilestoneId}
+        readOnly={readOnly}
+        rowName={item.name}
+        subMilestoneName={item.name}
+        viewerCapacity={viewerCapacity}
+        workosOrganizationId={workosOrganizationId}
+      />
+    </div>
+  );
+}
+
+function ExecutionSummary({ item }: { item: MilestoneSheetSubmilestone }) {
+  if (!item.executionSummary?.trim()) {
+    return null;
+  }
+  return (
+    <Frame data-testid="execution-summary">
+      <FramePanel className="grid gap-1 p-3">
+        <p className="text-muted-foreground text-xs uppercase tracking-wider">
+          Execution summary
+        </p>
+        <p className="text-sm leading-relaxed">{item.executionSummary}</p>
+      </FramePanel>
+    </Frame>
+  );
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This controller intentionally coordinates the ledger, nested detail, and guided escape hatch as one transactional sheet.
 export function MilestoneDetailSheet({
   assignmentsSourceLabel,
@@ -206,6 +312,11 @@ export function MilestoneDetailSheet({
   eventsSourceLabel,
   focusedSubmilestoneId,
   focusedSubmilestoneKey,
+  buildSubmilestoneId,
+  proposalSubmilestoneId,
+  readOnly = false,
+  viewerCapacity,
+  workosOrganizationId,
   onApprove,
   onAmendStart,
   onAssignContractor,
@@ -232,6 +343,62 @@ export function MilestoneDetailSheet({
   const [overrides, setOverrides] = useState<
     Record<string, Partial<MilestoneSheetSubmilestone>>
   >({});
+  const [dirtySections, setDirtySections] = useState<
+    Record<CanonicalDirtySection, boolean>
+  >({
+    guidance: false,
+    scope: false,
+  });
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingCanonicalNavigation | null>(null);
+  const hasUnsavedCanonicalChanges =
+    dirtySections.scope || dirtySections.guidance;
+  const onCanonicalDirtyChange = useCallback(
+    (section: CanonicalDirtySection, dirty: boolean) => {
+      setDirtySections((current) =>
+        current[section] === dirty ? current : { ...current, [section]: dirty },
+      );
+    },
+    [],
+  );
+  const requestNavigation = (action: () => void, label: string) => {
+    if (!hasUnsavedCanonicalChanges) {
+      action();
+      return;
+    }
+    setPendingNavigation({ action, label });
+  };
+  const discardCanonicalChangesAndContinue = () => {
+    const action = pendingNavigation?.action;
+    setPendingNavigation(null);
+    setDirtySections({ guidance: false, scope: false });
+    action?.();
+  };
+  const handleClose = () =>
+    requestNavigation(onClose, "close this milestone detail");
+  const handleDetailTabChange = (nextTab: DetailTab) => {
+    if (nextTab === detailTab) {
+      return;
+    }
+    requestNavigation(() => setDetailTab(nextTab), "leave the Overview draft");
+  };
+  const handleBackToLedger = () =>
+    requestNavigation(() => setView("ledger"), "return to the milestone ledger");
+  const handleGuidedSelect = (key: string) => {
+    if (key === selectedKey) {
+      return;
+    }
+    requestNavigation(() => {
+      setSelectedKey(key);
+      setGuidedStep(0);
+    }, "open another guided work item");
+  };
+  const handleGuidedStepChange = (step: number) => {
+    if (step === guidedStep) {
+      return;
+    }
+    requestNavigation(() => setGuidedStep(step), "move to another guided step");
+  };
 
   const rows = useMemo(
     () =>
@@ -243,6 +410,32 @@ export function MilestoneDetailSheet({
   );
   const selected =
     rows.find((row) => row.key === selectedKey) ?? rows[0] ?? null;
+  const canonicalIdentityFor = (item: MilestoneSheetSubmilestone) => {
+    // Treat the two canonical IDs as one lineage pair.  A row that carries
+    // either side is authoritative, even when the other side is absent; do
+    // not silently combine it with a sheet-level fallback from another
+    // source.  The sheet fallback is only eligible when the row carries no
+    // canonical identity at all.
+    const rowSuppliesCanonicalIdentity =
+      item.buildSubmilestoneId !== undefined ||
+      item.proposalSubmilestoneId !== undefined;
+    const canUseSheetIdentity =
+      !rowSuppliesCanonicalIdentity &&
+      ((focusedSubmilestoneKey !== undefined &&
+        focusedSubmilestoneKey === item.key) ||
+        rows.length === 1);
+    const sheetIdentity = canUseSheetIdentity
+      ? { buildSubmilestoneId, proposalSubmilestoneId }
+      : { buildSubmilestoneId: undefined, proposalSubmilestoneId: undefined };
+    return {
+      buildSubmilestoneId: rowSuppliesCanonicalIdentity
+        ? item.buildSubmilestoneId
+        : sheetIdentity.buildSubmilestoneId,
+      proposalSubmilestoneId: rowSuppliesCanonicalIdentity
+        ? item.proposalSubmilestoneId
+        : sheetIdentity.proposalSubmilestoneId,
+    };
+  };
   useEffect(() => {
     if (
       focusedSubmilestoneKey &&
@@ -256,22 +449,56 @@ export function MilestoneDetailSheet({
   const incomplete = rows.filter((row) => row.status !== "complete");
   const completedCount = rows.length - incomplete.length;
   const eligible = rows.length === 0 || incomplete.length === 0;
+  const lifecycleCommandKeys = useRef(new Map<string, string>());
 
   if (!data) {
     return null;
   }
 
   const updateSubmilestone = async (
-    input: Omit<SubmilestoneUpdateInput, "milestoneKey">,
+    input: Omit<SubmilestoneUpdateInput, "expectedRevision" | "milestoneKey">,
     optimistic: Partial<MilestoneSheetSubmilestone>
   ) => {
-    if (!onUpdateSubmilestone) {
+    if (readOnly || !onUpdateSubmilestone) {
       return;
     }
     setPendingKey(input.submilestoneKey);
     setLocalError(null);
+    const target = rows.find((row) => row.key === input.submilestoneKey);
+    const expectedRevision = target?.workflowRevision;
+    if (expectedRevision === undefined) {
+      const error = new Error(
+        "Refresh this Build detail before changing Sub-milestone work; the canonical workflow revision is unavailable."
+      );
+      setLocalError(error.message);
+      setPendingKey(null);
+      throw error;
+    }
+    const lifecycleIntent =
+      input.status === "complete" ||
+      (target.status === "complete" &&
+        input.status !== undefined &&
+        input.status !== "complete")
+        ? `${input.submilestoneKey}:${input.status ?? "reopen"}`
+        : undefined;
+    const idempotencyKey = lifecycleIntent
+      ? (input.idempotencyKey ??
+        lifecycleCommandKeys.current.get(lifecycleIntent) ??
+        crypto.randomUUID())
+      : input.idempotencyKey;
+    if (lifecycleIntent && idempotencyKey) {
+      lifecycleCommandKeys.current.set(lifecycleIntent, idempotencyKey);
+    }
     try {
-      await onUpdateSubmilestone({ ...input, milestoneKey: data.milestoneKey });
+      await onUpdateSubmilestone({
+        ...input,
+        expectedRevision,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+        milestoneKey: data.milestoneKey,
+      });
+      if (lifecycleIntent) {
+        lifecycleCommandKeys.current.delete(lifecycleIntent);
+      }
       setOverrides((current) => ({
         ...current,
         [input.submilestoneKey]: {
@@ -288,16 +515,20 @@ export function MilestoneDetailSheet({
   };
 
   const openGuidedCompletion = () => {
-    const firstIncomplete = incomplete[0];
-    if (firstIncomplete) {
-      setSelectedKey(firstIncomplete.key);
-    }
-    setGuidedStep(0);
-    setView("guided");
+    requestNavigation(() => {
+      const firstIncomplete = incomplete[0];
+      if (firstIncomplete) {
+        setSelectedKey(firstIncomplete.key);
+      }
+      setGuidedStep(0);
+      setView("guided");
+    }, "open Guided completion");
   };
 
-  const completeAndAdvance = async () => {
-    if (!selected) {
+  const completeAndAdvanceInternal = async (
+    navigationAlreadyConfirmed = false,
+  ) => {
+    if (readOnly || !selected || !onUpdateSubmilestone) {
       return;
     }
     await updateSubmilestone(
@@ -307,16 +538,39 @@ export function MilestoneDetailSheet({
     const next = rows.find(
       (row) => row.key !== selected.key && row.status !== "complete"
     );
-    if (next) {
-      setSelectedKey(next.key);
-      setGuidedStep(0);
+    const continueAction = () => {
+      if (next) {
+        setSelectedKey(next.key);
+        setGuidedStep(0);
+      } else {
+        setView("ledger");
+      }
+    };
+    if (navigationAlreadyConfirmed) {
+      continueAction();
     } else {
-      setView("ledger");
+      requestNavigation(
+        continueAction,
+        next ? "open the next guided work item" : "return to the milestone ledger",
+      );
     }
   };
 
+  const completeAndAdvance = () => {
+    if (!hasUnsavedCanonicalChanges) {
+      return completeAndAdvanceInternal();
+    }
+    requestNavigation(
+      () => {
+        completeAndAdvanceInternal(true).catch(ignoreHandledMutationError);
+      },
+      "complete this work item",
+    );
+    return Promise.resolve();
+  };
+
   const submitCompletion = async () => {
-    if (!(eligible && onSubmitCompletion) || data.submittedAt) {
+    if (readOnly || !(eligible && onSubmitCompletion) || data.submittedAt) {
       return;
     }
     setPendingKey("milestone-submit");
@@ -347,21 +601,29 @@ export function MilestoneDetailSheet({
   };
 
   return (
-    <Sheet onOpenChange={(open) => !open && onClose()} open>
-      <SheetPopup
-        className={cn(
-          "w-full sm:max-w-[720px]",
-          view === "guided" && "sm:max-w-[900px]"
-        )}
-        closeProps={{ "data-testid": "milestone-detail-sheet-close" }}
-        data-collaboration-focus={
-          focusedSubmilestoneId
-            ? `submilestone:${focusedSubmilestoneId}`
-            : undefined
-        }
-        data-testid="milestone-detail-sheet-panel"
-        side="right"
+    <>
+      <Sheet
+        onOpenChange={(open) => {
+          if (!open) {
+            handleClose();
+          }
+        }}
+        open
       >
+        <SheetPopup
+          className={cn(
+            "w-full sm:max-w-[720px]",
+            view === "guided" && "sm:max-w-[900px]"
+          )}
+          closeProps={{ "data-testid": "milestone-detail-sheet-close" }}
+          data-collaboration-focus={
+            focusedSubmilestoneId
+              ? `submilestone:${focusedSubmilestoneId}`
+              : undefined
+          }
+          data-testid="milestone-detail-sheet-panel"
+          side="right"
+        >
         <SheetHeader
           className="border-b px-4 py-4 sm:px-6"
           data-testid="milestone-detail-sheet"
@@ -391,7 +653,7 @@ export function MilestoneDetailSheet({
                   <CheckCircle2 />
                   {eligible
                     ? "Submitted for lender review"
-                    : "Claim submitted · scope incomplete"}
+                    : "Claim submitted · work incomplete"}
                 </Badge>
               ) : null}
               {data.actualStartedAt ? (
@@ -425,6 +687,7 @@ export function MilestoneDetailSheet({
               onStartSubmilestone={onStartSubmilestone}
               onUploadEvidence={onUploadEvidence}
               pendingKey={pendingKey}
+              readOnly={readOnly}
               rows={rows}
             />
           ) : null}
@@ -442,12 +705,17 @@ export function MilestoneDetailSheet({
                 item={selected}
                 onAssignContractor={onAssignContractor}
                 onAmendStart={onAmendStart}
-                onBack={() => setView("ledger")}
-                onTabChange={setDetailTab}
+                onBack={handleBackToLedger}
+                onDirtyChange={onCanonicalDirtyChange}
+                onTabChange={handleDetailTabChange}
                 onStartSubmilestone={onStartSubmilestone}
                 onUpdate={updateSubmilestone}
                 onUploadEvidence={onUploadEvidence}
                 pendingKey={pendingKey}
+                canonicalIdentity={canonicalIdentityFor(selected)}
+                readOnly={readOnly}
+                viewerCapacity={viewerCapacity}
+                workosOrganizationId={workosOrganizationId}
               />
             </div>
           ) : null}
@@ -456,19 +724,21 @@ export function MilestoneDetailSheet({
               data={data}
               item={selected}
               onAssignContractor={onAssignContractor}
-              onBackToLedger={() => setView("ledger")}
               onCompleteAndAdvance={completeAndAdvance}
-              onSelect={(key) => {
-                setSelectedKey(key);
-                setGuidedStep(0);
-              }}
-              onStepChange={setGuidedStep}
+              onDirtyChange={onCanonicalDirtyChange}
+              onBackToLedger={handleBackToLedger}
+              onSelect={handleGuidedSelect}
+              onStepChange={handleGuidedStepChange}
               onUpdate={updateSubmilestone}
               onStartSubmilestone={onStartSubmilestone}
               onUploadEvidence={onUploadEvidence}
               pendingKey={pendingKey}
               rows={rows}
               step={guidedStep}
+              canonicalIdentity={canonicalIdentityFor(selected)}
+              readOnly={readOnly}
+              viewerCapacity={viewerCapacity}
+              workosOrganizationId={workosOrganizationId}
             />
           ) : null}
           {localError || errorMessage ? (
@@ -507,7 +777,7 @@ export function MilestoneDetailSheet({
                 : `Guided completion will walk through: ${incomplete.map((row) => row.name).join(" · ")}`}
             </p>
           </div>
-          {data.canStartWork && onStartWork ? (
+          {!readOnly && data.canStartWork && onStartWork ? (
             <Button
               data-testid="milestone-detail-sheet-start-work"
               disabled={Boolean(externalPending || pendingKey)}
@@ -522,7 +792,7 @@ export function MilestoneDetailSheet({
               <Play /> Start work
             </Button>
           ) : null}
-          {data.actualStartedAt && onAmendStart ? (
+          {!readOnly && data.actualStartedAt && onAmendStart ? (
             <>
               <Button
                 onClick={() => onAmendStart("correct", data.milestoneKey)}
@@ -544,7 +814,10 @@ export function MilestoneDetailSheet({
             aria-describedby="milestone-completion-blockers"
             data-testid="milestone-primary-completion-action"
             disabled={Boolean(
-              (eligible && data.submittedAt) || externalPending || pendingKey
+              readOnly ||
+                (eligible && data.submittedAt) ||
+                externalPending ||
+                pendingKey
             )}
             loading={pendingKey === "milestone-submit"}
             onClick={eligible ? submitCompletion : openGuidedCompletion}
@@ -556,9 +829,10 @@ export function MilestoneDetailSheet({
                 : eligible
                   ? "Submit milestone completion"
                   : null
-              : "Complete remaining scope"}
+              : "Complete remaining work"}
           </Button>
-          {onApprove || onRequestInfo || onAssignVisit || onReject ? (
+          {!readOnly &&
+          (onApprove || onRequestInfo || onAssignVisit || onReject) ? (
             <LegacyReviewActions
               data={data}
               note={milestoneNote}
@@ -569,8 +843,41 @@ export function MilestoneDetailSheet({
             />
           ) : null}
         </SheetFooter>
-      </SheetPopup>
-    </Sheet>
+        </SheetPopup>
+      </Sheet>
+      <AlertDialog
+        onOpenChange={(dialogOpen) => {
+          if (!dialogOpen) {
+            setPendingNavigation(null);
+          }
+        }}
+        open={pendingNavigation !== null}
+      >
+        <AlertDialogContent data-testid="milestone-detail-unsaved-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Discard unsaved Scope and Field Guidance changes?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Your Scope or Field Guidance edits have not been saved. Continue
+              to {pendingNavigation?.label} and discard them?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="outline">Keep editing</Button>}
+            />
+            <Button
+              data-testid="milestone-detail-unsaved-discard"
+              onClick={discardCanonicalChangesAndContinue}
+              variant="destructive"
+            >
+              Discard changes
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -582,6 +889,7 @@ function LedgerView({
   onUpdate,
   onUploadEvidence,
   pendingKey,
+  readOnly,
   rows,
 }: {
   data: MilestoneSheetData;
@@ -594,6 +902,7 @@ function LedgerView({
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
+  readOnly: boolean;
   rows: MilestoneSheetSubmilestone[];
 }) {
   const completed = rows.filter((row) => row.status === "complete").length;
@@ -657,7 +966,7 @@ function LedgerView({
                 >
                   <span className="min-w-0">
                     <span className="block text-[10px] text-muted-foreground uppercase tracking-wider">
-                      Scope {index + 1}
+                      Work item {index + 1}
                     </span>
                     <span className="block truncate font-semibold text-sm">
                       {item.name}
@@ -691,8 +1000,10 @@ function LedgerView({
               <div className="grid gap-3 sm:grid-cols-2">
                 <ContractorSummary
                   item={item}
-                  onAssign={() =>
-                    onAssignContractor?.(data.milestoneKey, item.key)
+                  onAssign={
+                    readOnly
+                      ? undefined
+                      : () => onAssignContractor?.(data.milestoneKey, item.key)
                   }
                   onOpen={() => onOpenDetail(item.key, "people")}
                 />
@@ -703,6 +1014,7 @@ function LedgerView({
               </div>
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                 <ActualCostEditor
+                  disabled={readOnly}
                   item={item}
                   onSave={(actualCostCents) =>
                     onUpdate(
@@ -712,7 +1024,7 @@ function LedgerView({
                   }
                 />
                 <div className="flex flex-wrap gap-2">
-                  {onStartSubmilestone && item.status === "planned" ? (
+                  {!readOnly && onStartSubmilestone && item.status === "planned" ? (
                     <Button
                       data-testid={`submilestone-start-work-${item.key}`}
                       disabled={pendingKey === item.key || !onUpdate}
@@ -733,10 +1045,11 @@ function LedgerView({
                   <EvidenceUploader
                     compact
                     data={data}
+                    disabled={readOnly}
                     item={item}
-                    onUpload={onUploadEvidence}
+                    onUpload={readOnly ? undefined : onUploadEvidence}
                   />
-                  <Button
+                  {readOnly ? null : <Button
                     disabled={pendingKey === item.key || !onUpdate}
                     loading={pendingKey === item.key}
                     onClick={() => {
@@ -767,7 +1080,7 @@ function LedgerView({
                   >
                     <Check />
                     {item.status === "complete" ? "Reopen" : "Mark complete"}
-                  </Button>
+                  </Button>}
                 </div>
               </div>
               {item.evidence.some((asset) => !asset.locationVerified) ? (
@@ -790,23 +1103,30 @@ function LedgerView({
 
 function DetailView({
   activeTab,
+  canonicalIdentity,
   data,
   item,
   onAssignContractor,
   onAmendStart,
   onBack,
+  onDirtyChange,
   onTabChange,
   onStartSubmilestone,
   onUpdate,
   onUploadEvidence,
   pendingKey,
+  readOnly,
+  viewerCapacity,
+  workosOrganizationId,
 }: {
   activeTab: DetailTab;
+  canonicalIdentity: CanonicalSubmilestoneIdentity;
   data: MilestoneSheetData;
   item: MilestoneSheetSubmilestone;
   onAssignContractor?: MilestoneDetailSheetProps["onAssignContractor"];
   onAmendStart?: MilestoneDetailSheetProps["onAmendStart"];
   onBack: () => void;
+  onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
   onTabChange: (tab: DetailTab) => void;
   onStartSubmilestone?: MilestoneDetailSheetProps["onStartSubmilestone"];
   onUpdate: (
@@ -815,6 +1135,9 @@ function DetailView({
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
+  readOnly: boolean;
+  viewerCapacity?: BuildCollaborationRole;
+  workosOrganizationId?: string;
 }) {
   return (
     <div className="grid gap-3">
@@ -829,7 +1152,7 @@ function DetailView({
           <h3 className="font-semibold text-xl">{item.name}</h3>
           <StatusBadge status={item.status} />
         </div>
-        {onStartSubmilestone && item.status === "planned" ? (
+        {!readOnly && onStartSubmilestone && item.status === "planned" ? (
           <Button
             data-testid={`submilestone-detail-start-work-${item.key}`}
             disabled={pendingKey === item.key}
@@ -846,7 +1169,7 @@ function DetailView({
           >
             <Play /> Start work
           </Button>
-        ) : item.actualStartedAt && onAmendStart ? (
+        ) : !readOnly && item.actualStartedAt && onAmendStart ? (
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={() =>
@@ -881,7 +1204,15 @@ function DetailView({
           <TabsTab value="notes">Notes & history</TabsTab>
         </TabsList>
         <TabsPanel className="grid gap-3 pt-3" value="overview">
-          <p className="text-sm leading-relaxed">{item.description}</p>
+          <CanonicalWorkItemContext
+            identity={canonicalIdentity}
+            item={item}
+            onDirtyChange={onDirtyChange}
+            readOnly={readOnly}
+            viewerCapacity={viewerCapacity}
+            workosOrganizationId={workosOrganizationId}
+          />
+          <ExecutionSummary item={item} />
           <Frame>
             <FramePanel className="grid gap-3 p-3 sm:grid-cols-3">
               <Metric
@@ -900,6 +1231,7 @@ function DetailView({
             </FramePanel>
           </Frame>
           <ActualCostEditor
+            disabled={readOnly}
             item={item}
             onSave={(actualCostCents) =>
               onUpdate(
@@ -912,15 +1244,20 @@ function DetailView({
         <TabsPanel className="grid gap-3 pt-3" value="evidence">
           <EvidenceUploader
             data={data}
+            disabled={readOnly}
             item={item}
-            onUpload={onUploadEvidence}
+            onUpload={readOnly ? undefined : onUploadEvidence}
           />
           <EvidenceList item={item} />
         </TabsPanel>
         <TabsPanel className="grid gap-3 pt-3" value="people">
           <ContractorDetail
             item={item}
-            onAssign={() => onAssignContractor?.(data.milestoneKey, item.key)}
+            onAssign={
+              readOnly
+                ? undefined
+                : () => onAssignContractor?.(data.milestoneKey, item.key)
+            }
           />
         </TabsPanel>
         <TabsPanel className="grid gap-3 pt-3" value="materials">
@@ -928,6 +1265,7 @@ function DetailView({
         </TabsPanel>
         <TabsPanel className="grid gap-3 pt-3" value="notes">
           <FieldNoteEditor
+            disabled={readOnly}
             item={item}
             onSave={(fieldNote) =>
               onUpdate(
@@ -946,11 +1284,13 @@ function DetailView({
 }
 
 function GuidedView({
+  canonicalIdentity,
   data,
   item,
   onAssignContractor,
   onBackToLedger,
   onCompleteAndAdvance,
+  onDirtyChange,
   onSelect,
   onStepChange,
   onStartSubmilestone,
@@ -959,12 +1299,17 @@ function GuidedView({
   pendingKey,
   rows,
   step,
+  readOnly,
+  viewerCapacity,
+  workosOrganizationId,
 }: {
+  canonicalIdentity: CanonicalSubmilestoneIdentity;
   data: MilestoneSheetData;
   item: MilestoneSheetSubmilestone;
   onAssignContractor?: MilestoneDetailSheetProps["onAssignContractor"];
   onBackToLedger: () => void;
   onCompleteAndAdvance: () => Promise<void>;
+  onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
   onSelect: (key: string) => void;
   onStepChange: (step: number) => void;
   onStartSubmilestone?: MilestoneDetailSheetProps["onStartSubmilestone"];
@@ -976,8 +1321,11 @@ function GuidedView({
   pendingKey: string | null;
   rows: MilestoneSheetSubmilestone[];
   step: number;
+  readOnly: boolean;
+  viewerCapacity?: BuildCollaborationRole;
+  workosOrganizationId?: string;
 }) {
-  const steps = ["Scope", "People", "Capture", "Cost", "Review"];
+  const steps = ["Work item", "People", "Capture", "Cost", "Review"];
   return (
     <div className="grid gap-3 lg:grid-cols-[16rem_minmax(0,1fr)]">
       <Frame className="hidden lg:block">
@@ -1013,7 +1361,7 @@ function GuidedView({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {onStartSubmilestone && item.status === "planned" ? (
+              {!readOnly && onStartSubmilestone && item.status === "planned" ? (
                 <Button
                   data-testid={`submilestone-guided-start-work-${item.key}`}
                   disabled={pendingKey === item.key}
@@ -1062,8 +1410,16 @@ function GuidedView({
           {step === 0 ? (
             <div className="grid gap-3">
               <StepHeading
-                copy="Confirm the approved scope and plan before recording field work."
-                title="Scope and plan"
+                copy="Confirm the approved work item and plan before recording field work."
+                title="Work item and plan"
+              />
+              <CanonicalWorkItemContext
+                identity={canonicalIdentity}
+                item={item}
+                onDirtyChange={onDirtyChange}
+                readOnly={readOnly}
+                viewerCapacity={viewerCapacity}
+                workosOrganizationId={workosOrganizationId}
               />
               <Frame>
                 <FramePanel className="grid gap-3 p-3 sm:grid-cols-3">
@@ -1084,7 +1440,7 @@ function GuidedView({
                   <Metric label="End" value={formatShortDate(item.endDate)} />
                 </FramePanel>
               </Frame>
-              <p className="text-sm">{item.description}</p>
+              <ExecutionSummary item={item} />
               <MaterialSummary item={item} />
             </div>
           ) : null}
@@ -1102,11 +1458,13 @@ function GuidedView({
               />
               <EvidenceUploader
                 data={data}
+                disabled={readOnly}
                 item={item}
-                onUpload={onUploadEvidence}
+                onUpload={readOnly ? undefined : onUploadEvidence}
               />
               <EvidenceList item={item} />
               <FieldNoteEditor
+                disabled={readOnly}
                 item={item}
                 onSave={(fieldNote) =>
                   onUpdate(
@@ -1125,6 +1483,7 @@ function GuidedView({
                 title="Actual realized cost"
               />
               <ActualCostEditor
+                disabled={readOnly}
                 item={item}
                 onSave={(actualCostCents) =>
                   onUpdate(
@@ -1186,7 +1545,9 @@ function GuidedView({
               </Button>
             ) : (
               <Button
-                disabled={pendingKey === item.key || !onUpdate}
+                disabled={
+                  readOnly || pendingKey === item.key || !onUpdate
+                }
                 loading={pendingKey === item.key}
                 onClick={() => {
                   onCompleteAndAdvance().catch(ignoreHandledMutationError);
@@ -1450,11 +1811,13 @@ export interface EvidenceUploaderUploadInput {
 export function EvidenceUploader({
   compact = false,
   data,
+  disabled = false,
   item,
   onUpload,
 }: {
   compact?: boolean;
   data: Pick<MilestoneSheetData, "milestoneKey">;
+  disabled?: boolean;
   item: Pick<MilestoneSheetSubmilestone, "evidence" | "key">;
   onUpload?: (input: EvidenceUploaderUploadInput) => Promise<unknown> | unknown;
 }) {
@@ -1462,7 +1825,7 @@ export function EvidenceUploader({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const id = `milestone-evidence-${item.key}-${compact ? "compact" : "detail"}`;
   const hasCanonicalKeys = Boolean(data.milestoneKey.trim() && item.key.trim());
-  const canUpload = Boolean(onUpload && hasCanonicalKeys);
+  const canUpload = Boolean(!disabled && onUpload && hasCanonicalKeys);
   return (
     <div className={cn(!compact && "grid gap-2 text-center")}>
       {compact ? null : (
@@ -1579,9 +1942,11 @@ function EvidenceList({ item }: { item: MilestoneSheetSubmilestone }) {
 }
 
 function ActualCostEditor({
+  disabled = false,
   item,
   onSave,
 }: {
+  disabled?: boolean;
   item: MilestoneSheetSubmilestone;
   onSave: (actualCostCents: number | null) => Promise<void>;
 }) {
@@ -1609,12 +1974,19 @@ function ActualCostEditor({
         </span>
         <Input
           className="pl-7 tabular-nums"
+          disabled={disabled}
           id={`actual-cost-${item.key}`}
           inputMode="decimal"
           onBlur={() => {
-            onSave(parseMoneyCents(draft)).catch(ignoreHandledMutationError);
+            if (!disabled) {
+              onSave(parseMoneyCents(draft)).catch(ignoreHandledMutationError);
+            }
           }}
-          onChange={(event) => setDraft(event.currentTarget.value)}
+          onChange={(event) => {
+            if (!disabled) {
+              setDraft(event.currentTarget.value);
+            }
+          }}
           placeholder="Not reported"
           value={draft}
         />
@@ -1624,10 +1996,12 @@ function ActualCostEditor({
 }
 
 function FieldNoteEditor({
+  disabled = false,
   item,
   onSave,
   pending,
 }: {
+  disabled?: boolean;
   item: MilestoneSheetSubmilestone;
   onSave: (fieldNote: string | null) => Promise<void>;
   pending: boolean;
@@ -1643,18 +2017,25 @@ function FieldNoteEditor({
       >
         Field note
         <Textarea
+          disabled={disabled}
           id={`field-note-${item.key}`}
-          onChange={(event) => setDraft(event.currentTarget.value)}
+          onChange={(event) => {
+            if (!disabled) {
+              setDraft(event.currentTarget.value);
+            }
+          }}
           placeholder="What was completed, observed, or blocked?"
           value={draft}
         />
       </label>
       <Button
         className="w-fit"
-        disabled={pending}
+        disabled={disabled || pending}
         loading={pending}
         onClick={() => {
-          onSave(draft.trim() || null).catch(ignoreHandledMutationError);
+          if (!disabled) {
+            onSave(draft.trim() || null).catch(ignoreHandledMutationError);
+          }
         }}
         size="sm"
         variant="outline"

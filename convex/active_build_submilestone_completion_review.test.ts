@@ -156,6 +156,7 @@ async function startForms(fixture: Awaited<ReturnType<typeof seedFixture>>) {
     {
       actualStartedAt: Date.parse("2026-05-03T14:30:00.000Z"),
       buildId: fixture.closing.buildId,
+      expectedRevision: 0,
       idempotencyKey: "completion-review-forms-start",
       milestoneKey: "foundation",
       source: "milestone_detail",
@@ -233,6 +234,7 @@ async function submitReviewPackage(
     {
       buildId: fixture.closing.buildId,
       expectedRevision: afterEvidence.submilestone.workflowRevision,
+      idempotencyKey: `${key}-freeze`,
       milestoneKey: "foundation",
       packageRevisionId: evidence.evidencePackageRevisionId,
       submilestoneKey: "forms",
@@ -1150,6 +1152,7 @@ describe("canonical Sub-milestone completion review", () => {
       {
         buildId: fixture.closing.buildId,
         expectedRevision: evidence.revision,
+        idempotencyKey: "completion-review-forms-freeze",
         milestoneKey: "foundation",
         packageRevisionId: evidence.evidencePackageRevisionId,
         submilestoneKey: "forms",
@@ -1267,7 +1270,10 @@ describe("canonical Sub-milestone completion review", () => {
         (api as any).production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
         {
           buildId: fixture.closing.buildId,
-          expectedRevision: replayed.revision,
+          expectedRevision:
+            (await submilestoneState(fixture)).submilestone.workflowRevision ??
+            0,
+          idempotencyKey: "completion-review-forms-freeze-stale",
           milestoneKey: "foundation",
           packageRevisionId: stalePackageRevisionId,
           submilestoneKey: "forms",
@@ -1286,7 +1292,8 @@ describe("canonical Sub-milestone completion review", () => {
           sizeBytes: 2048,
           storageId: await storeEvidence(fixture, "forms-photo-replacement"),
         },
-        expectedRevision: replayed.revision,
+        expectedRevision:
+          (await submilestoneState(fixture)).submilestone.workflowRevision ?? 0,
         idempotencyKey: "completion-review-forms-evidence-replacement",
         milestoneKey: "foundation",
         submilestoneKey: "forms",
@@ -1492,49 +1499,40 @@ describe("canonical Sub-milestone completion review", () => {
       if (!build) {
         throw new Error("Review fixture Build is unavailable.");
       }
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", build._id).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = milestone
+        ? await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (query: any) =>
+              query.eq("buildMilestoneId", milestone._id),
+            )
+            .filter((query: any) => query.eq(query.field("key"), "forms"))
+            .unique()
+        : null;
+      const companion = submilestone
+        ? await ctx.db
+            .query("buildActionItems")
+            .withIndex(
+              "by_canonicalBuildSubmilestoneId_and_systemMode",
+              (query: any) =>
+                query
+                  .eq("canonicalBuildSubmilestoneId", submilestone._id)
+                  .eq("systemMode", "generated_milestone_submilestone"),
+            )
+            .unique()
+        : null;
+      const companionPost = companion
+        ? await ctx.db.get(companion.originatingPostId)
+        : null;
+      if (!companion || !companionPost) {
+        throw new Error("Generated Forms companion is unavailable.");
+      }
       const now = Date.now();
-      const postId = await ctx.db.insert("buildCollaborationPosts", {
-        acknowledgementRequired: false,
-        agentDrafted: false,
-        audienceFloorTier: 0,
-        audienceMode: "build_wide",
-        authorDisplayNameSnapshot: "Builder",
-        authorRolesSnapshot: ["builder"],
-        authorRole: "builder",
-        authorWorkosUserId: "user_builder",
-        brokerageId: build.brokerageId,
-        buildId: build._id,
-        commentCount: 0,
-        contentState: "active",
-        createdAt: now,
-        lastMeaningfulActivityAt: now,
-        openActionItemCount: 0,
-        organizationId: ORG,
-        postType: "update",
-        readRevision: 1,
-        revision: 1,
-        source: "human",
-        threadRevision: 0,
-        threadState: "open",
-        updatedAt: now,
-      });
-      const postRevisionId = await ctx.db.insert(
-        "buildCollaborationPostRevisions",
-        {
-          authorRole: "builder",
-          authorWorkosUserId: "user_builder",
-          brokerageId: build.brokerageId,
-          buildId: build._id,
-          contentHash: "forms-photo-content-hash",
-          createdAt: now,
-          organizationId: ORG,
-          plainText: "Forms photo attached.",
-          postId,
-          revision: 1,
-          tiptapJson: JSON.stringify({ content: [], type: "doc" }),
-        },
-      );
-      await ctx.db.patch(postId, { currentRevisionId: postRevisionId });
       const storageId = await ctx.storage.store(
         new Blob(["forms photo"], { type: "image/jpeg" }),
       );
@@ -1546,14 +1544,19 @@ describe("canonical Sub-milestone completion review", () => {
         contentHashSha256: "forms-photo-sha256",
         createdAt: now,
         fileName: "forms-discussion.jpg",
-        maximumAudienceMode: "build_wide",
+        maximumAudienceMode: companionPost.audienceMode,
         mimeType: "image/jpeg",
         organizationId: ORG,
-        originatingPostId: postId,
+        originatingPostId: companionPost._id,
         publishedAt,
-        publishedOwnerKind: "postRevision",
-        publishedOwnerRecordId: postRevisionId,
-        readerWorkosUserIds: ["user_builder", "user_broker"],
+        publishedOwnerKind: "actionItem",
+        publishedOwnerRecordId: companion._id,
+        readerWorkosUserIds: [
+          "user_admin",
+          "user_builder",
+          "user_broker",
+          "user_contractor",
+        ],
         scanCompletedAt: now,
         scanState: "clean",
         sizeBytes: 11,
@@ -1564,7 +1567,13 @@ describe("canonical Sub-milestone completion review", () => {
         uploadedByWorkosUserId: "user_builder",
         version: 3,
       });
-      return { assetId, postId, postRevisionId, publishedAt, sourceCapturedAt };
+      return {
+        assetId,
+        companionId: companion._id,
+        postId: companionPost._id,
+        publishedAt,
+        sourceCapturedAt,
+      };
     });
     await expect(
       fixture.builder.mutation(
@@ -1573,7 +1582,12 @@ describe("canonical Sub-milestone completion review", () => {
           assetId: source.assetId,
           buildId: fixture.closing.buildId,
           evidenceKey: "forms-discussion-missing-attachment",
+          expectedRevision: 1,
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          idempotencyKey: "forms-discussion-missing-attachment",
           milestoneKey: "foundation",
+          requirementKey: "forms-photo",
           submilestoneKey: "forms",
           workosOrganizationId: ORG,
         },
@@ -1592,9 +1606,41 @@ describe("canonical Sub-milestone completion review", () => {
         createdAt: Date.now(),
         createdByWorkosUserId: "user_builder",
         organizationId: ORG,
-        ownerKind: "postRevision",
-        ownerRecordId: source.postRevisionId,
+        ownerKind: "actionItem",
+        ownerRecordId: source.companionId,
       });
+    });
+    const beforeNegativeAttempts = await fixture.base.run(async (ctx: any) => {
+      const target = await ctx.db
+        .query("buildSubmilestones")
+        .filter((query: any) =>
+          query.eq(query.field("key"), "forms"),
+        )
+        .first();
+      const packageRows = target
+        ? await ctx.db
+            .query("buildSubmilestoneEvidencePackageRevisions")
+            .withIndex("by_submilestone_revision", (query: any) =>
+              query.eq("buildSubmilestoneId", target._id),
+            )
+            .collect()
+        : [];
+      const evidenceRows = target
+        ? await ctx.db
+            .query("buildEvidenceAssets")
+            .withIndex("by_build_milestone_submilestone", (query: any) =>
+              query
+                .eq("buildId", fixture.closing.buildId)
+                .eq("milestoneKey", "foundation")
+                .eq("submilestoneKey", "forms"),
+            )
+            .collect()
+        : [];
+      return {
+        evidenceRows,
+        packageRows,
+        target,
+      };
     });
     await expect(
       fixture.builder.mutation(
@@ -1602,19 +1648,274 @@ describe("canonical Sub-milestone completion review", () => {
         {
           assetId: source.assetId,
           buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-blank-key",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "   ",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/non-empty idempotency/i);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-stale-workflow",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 999,
+          idempotencyKey: "forms-discussion-stale-workflow",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/stale.*revision/i);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-stale-package",
+          expectedPackageRevision: 999,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-stale-package",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/package.*revision/i);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-stale-round",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 999,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-stale-round",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/review round/i);
+    await expect(
+      fixture.lender.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-lender-denied",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-lender-denied",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/lender.*execute|review-only/i);
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-unassigned-contractor",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-unassigned-contractor",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/assignment required/i);
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, { scanState: "rejected" }),
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-quarantined",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-quarantined",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/clean.*asset|scan/i);
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, { scanState: "clean" }),
+    );
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, { state: "superseded" }),
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-superseded-source",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-superseded-source",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/published|available|superseded/i);
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, { state: "available" }),
+    );
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, { maximumAudienceMode: "custom" }),
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-audience-mismatch",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-audience-mismatch",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/audience|published/i);
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, { maximumAudienceMode: "build_wide" }),
+    );
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, {
+        publishedOwnerRecordId: "wrong-generated-companion",
+      }),
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-wrong-owner",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-wrong-owner",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/attachment|publication|owner/i);
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(source.assetId, { publishedOwnerRecordId: source.companionId }),
+    );
+    const afterNegativeAttempts = await fixture.base.run(async (ctx: any) => {
+      const target = await ctx.db
+        .query("buildSubmilestones")
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .first();
+      const packageRows = target
+        ? await ctx.db
+            .query("buildSubmilestoneEvidencePackageRevisions")
+            .withIndex("by_submilestone_revision", (query: any) =>
+              query.eq("buildSubmilestoneId", target._id),
+            )
+            .collect()
+        : [];
+      const evidenceRows = target
+        ? await ctx.db
+            .query("buildEvidenceAssets")
+            .withIndex("by_build_milestone_submilestone", (query: any) =>
+              query
+                .eq("buildId", fixture.closing.buildId)
+                .eq("milestoneKey", "foundation")
+                .eq("submilestoneKey", "forms"),
+            )
+            .collect()
+        : [];
+      return { evidenceRows, packageRows, target };
+    });
+    expect(afterNegativeAttempts.packageRows).toHaveLength(
+      beforeNegativeAttempts.packageRows.length,
+    );
+    expect(afterNegativeAttempts.evidenceRows).toHaveLength(
+      beforeNegativeAttempts.evidenceRows.length,
+    );
+    expect(afterNegativeAttempts.target?.evidencePackageRevisionId).toBe(
+      beforeNegativeAttempts.target?.evidencePackageRevisionId,
+    );
+    expect(afterNegativeAttempts.target?.evidenceReviewState).toBe(
+      beforeNegativeAttempts.target?.evidenceReviewState,
+    );
+    expect(afterNegativeAttempts.target?.workflowRevision).toBe(
+      beforeNegativeAttempts.target?.workflowRevision,
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
           evidenceKey: "forms-discussion-ambiguous",
+          expectedRevision: 1,
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          idempotencyKey: "forms-discussion-ambiguous",
           milestoneKey: "foundation",
           submilestoneKey: "forms",
           workosOrganizationId: ORG,
         },
       ),
-    ).rejects.toThrow(/multiple evidence requirements/i);
+    ).rejects.toThrow(/requirementKey/i);
     const promotion = await fixture.builder.mutation(
       (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
       {
         assetId: source.assetId,
         buildId: fixture.closing.buildId,
         evidenceKey: "forms-discussion-promoted",
+        expectedRevision: 1,
+        expectedPackageRevision: 0,
+        expectedReviewRound: 0,
+        idempotencyKey: "forms-discussion-promoted",
         milestoneKey: "foundation",
         requirementKey: "forms-photo",
         submilestoneKey: "forms",
@@ -1649,6 +1950,85 @@ describe("canonical Sub-milestone completion review", () => {
         sourceUploaderWorkosUserId: "user_builder",
       }),
     );
+    const replay = await fixture.builder.mutation(
+      (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+      {
+        assetId: source.assetId,
+        buildId: fixture.closing.buildId,
+        evidenceKey: "forms-discussion-promoted",
+        // The original command receipt must replay before these stale checks.
+        expectedPackageRevision: 999,
+        expectedReviewRound: 999,
+        expectedRevision: 999,
+        idempotencyKey: "forms-discussion-promoted",
+        milestoneKey: "foundation",
+        requirementKey: "forms-photo",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toMatchObject({
+      assetId: promotion.assetId,
+      evidencePackageRevisionId: promotion.evidencePackageRevisionId,
+      replayed: true,
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-collision",
+          expectedPackageRevision: 0,
+          expectedReviewRound: 0,
+          expectedRevision: 1,
+          idempotencyKey: "forms-discussion-promoted",
+          milestoneKey: "foundation",
+          requirementKey: "forms-photo",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/idempotency key/i);
+    const counts = await fixture.base.run(async (ctx: any) => {
+      const packageItems = await ctx.db
+        .query("buildSubmilestoneEvidencePackageItems")
+        .withIndex("by_package_revision", (query: any) =>
+          query.eq("packageRevisionId", promotion.evidencePackageRevisionId),
+        )
+        .collect();
+      const promotions = await ctx.db
+        .query("buildSubmilestoneEvidencePromotions")
+        .withIndex("by_source_asset", (query: any) =>
+          query.eq("sourceDiscussionAssetId", source.assetId),
+        )
+        .collect();
+      const events = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(fixture.closing.buildId)),
+        )
+        .filter((query: any) =>
+          query.eq(
+            query.field("command"),
+            "promoteActiveBuildDiscussionAttachmentToEvidence",
+          ),
+        )
+        .collect();
+      return { events, packageItems, promotions };
+    });
+    expect(counts.packageItems).toHaveLength(1);
+    expect(counts.promotions).toHaveLength(1);
+    expect(counts.events).toHaveLength(1);
+    expect(counts.promotions[0]).toMatchObject({
+      fingerprint: expect.any(String),
+      idempotencyKey: "forms-discussion-promoted",
+      requirementKey: "forms-photo",
+      reviewRound: 0,
+      workflowRevision: promotion.revision,
+    });
   });
 
   test("preserves location-unverified evidence and creates a lender remediation event", async () => {
@@ -1724,6 +2104,29 @@ describe("canonical Sub-milestone completion review", () => {
         workosOrganizationId: ORG,
       },
     );
+    const reviewTarget = await submilestoneState(fixture);
+    const staffWorkspace = await fixture.lender.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.closing.buildId,
+        buildSubmilestoneId: reviewTarget.submilestone._id,
+        organizationId: ORG,
+      },
+    );
+    expect(staffWorkspace).toMatchObject({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: false },
+          retractChildApproval: { allowed: false },
+          waiveSiteVisit: { allowed: false },
+        },
+        review: {
+          recommend: { allowed: true },
+          requestChanges: { allowed: true },
+        },
+      },
+    });
     const recommendation = await fixture.lender.mutation(
       (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
       {
@@ -1863,6 +2266,25 @@ describe("canonical Sub-milestone completion review", () => {
       },
     );
     expect(waived.status).toBe("waived");
+    const waivedTarget = await submilestoneState(fixture);
+    const adminWorkspace = await fixture.admin.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.closing.buildId,
+        buildSubmilestoneId: waivedTarget.submilestone._id,
+        organizationId: ORG,
+      },
+    );
+    expect(adminWorkspace).toMatchObject({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: true },
+          retractChildApproval: { allowed: false },
+          waiveSiteVisit: { allowed: false },
+        },
+      },
+    });
     const approved = await fixture.admin.mutation(
       (api as any).build_submilestone_review.approveActiveBuildSubmilestone,
       {
@@ -1886,7 +2308,7 @@ describe("canonical Sub-milestone completion review", () => {
     );
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({
-      actorRoles: ["admin"],
+      actorRoles: expect.arrayContaining(["admin"]),
       reason: "Admin accepted the preserved location-unverified evidence.",
       warnings: expect.any(Array),
     });

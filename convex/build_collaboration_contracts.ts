@@ -31,7 +31,7 @@ const drawFactStatusValidator = v.union(
   v.literal("rejected"),
   v.literal("withdrawn"),
   v.literal("cancelled"),
-  v.literal("released"),
+  v.literal("released")
 );
 
 const drawFactDispositionValidator = v.object({
@@ -40,7 +40,7 @@ const drawFactDispositionValidator = v.object({
     v.literal("withdrawal"),
     v.literal("cancellation"),
     v.literal("final_decline"),
-    v.literal("released"),
+    v.literal("released")
   ),
   note: v.optional(v.string()),
 });
@@ -56,7 +56,7 @@ export const systemDrawFactsValidator = v.object({
       v.literal("final_decline"),
       v.literal("withdrawn"),
       v.literal("cancelled"),
-      v.literal("released"),
+      v.literal("released")
     ),
   }),
   disposition: v.optional(drawFactDispositionValidator),
@@ -68,7 +68,7 @@ export const systemDrawFactsValidator = v.object({
       v.literal("submitted"),
       v.literal("location_unverified"),
       v.literal("approved"),
-      v.literal("changes_requested"),
+      v.literal("changes_requested")
     ),
   }),
   generatedActionItems: v.number(),
@@ -83,7 +83,7 @@ export const systemDrawFactsValidator = v.object({
       scheduledDate: v.optional(v.string()),
       status: drawFactStatusValidator,
       timingDay: v.number(),
-    }),
+    })
   ),
   release: v.object({
     releasedAt: v.optional(v.string()),
@@ -95,7 +95,7 @@ export const systemDrawFactsValidator = v.object({
       v.literal("released"),
       v.literal("withdrawn"),
       v.literal("cancelled"),
-      v.literal("final_decline"),
+      v.literal("final_decline")
     ),
   }),
   request: v.optional(
@@ -107,7 +107,7 @@ export const systemDrawFactsValidator = v.object({
       requestedAt: v.string(),
       requestKey: v.string(),
       status: drawFactStatusValidator,
-    }),
+    })
   ),
   review: v.object({
     operationsReviewStartedAt: v.optional(v.string()),
@@ -121,7 +121,7 @@ export const systemDrawFactsValidator = v.object({
       v.literal("final_decline"),
       v.literal("withdrawn"),
       v.literal("cancelled"),
-      v.literal("released"),
+      v.literal("released")
     ),
     note: v.optional(v.string()),
   }),
@@ -149,7 +149,7 @@ const historicalBackfillUnknownFactValidator = v.union(
   v.literal("evidence"),
   v.literal("review"),
   v.literal("approval"),
-  v.literal("disposition"),
+  v.literal("disposition")
 );
 
 const historicalBackfillValidator = v.object({
@@ -330,9 +330,11 @@ export const systemActionItemPresentationValidator = v.object({
           v.literal("permission_denied")
         )
       ),
+      buildSubmilestoneId: v.id("buildSubmilestones"),
       milestoneKey: v.string(),
       milestoneName: v.string(),
       plannedStartDate: v.string(),
+      proposalSubmilestoneId: v.id("proposalSubmilestones"),
       scope: v.literal("submilestone"),
       source: v.literal("submilestone_detail"),
       submilestoneKey: v.string(),
@@ -415,6 +417,19 @@ export const collaborationActionItemSummaryValidator = v.object({
   canonicalPlanningState: v.optional(
     v.union(v.literal("active"), v.literal("superseded"))
   ),
+  historicalCanonicalBuildSubmilestoneId: v.optional(
+    v.id("buildSubmilestones")
+  ),
+  canonicalCompanionDisposition: v.optional(
+    v.union(
+      v.literal("active"),
+      v.literal("historical"),
+      v.literal("historical_duplicate"),
+      v.literal("quarantined")
+    )
+  ),
+  canonicalCompanionSurvivorId: v.optional(v.id("buildActionItems")),
+  canonicalCompanionSupersededAt: v.optional(v.number()),
   title: v.string(),
   unblocksCount: v.number(),
   unreadCommentCount: v.number(),
@@ -664,6 +679,19 @@ export const buildActionItemValidator = v.object({
   canonicalPlanningState: v.optional(
     v.union(v.literal("active"), v.literal("superseded"))
   ),
+  historicalCanonicalBuildSubmilestoneId: v.optional(
+    v.id("buildSubmilestones")
+  ),
+  canonicalCompanionDisposition: v.optional(
+    v.union(
+      v.literal("active"),
+      v.literal("historical"),
+      v.literal("historical_duplicate"),
+      v.literal("quarantined")
+    )
+  ),
+  canonicalCompanionSurvivorId: v.optional(v.id("buildActionItems")),
+  canonicalCompanionSupersededAt: v.optional(v.number()),
   title: v.string(),
   updatedAt: v.number(),
   unassignmentReason: v.optional(v.literal("participant_removed")),

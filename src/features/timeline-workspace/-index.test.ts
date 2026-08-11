@@ -28,7 +28,7 @@ import {
   resolveDemoLiveBuildHref,
   resolveMilestoneCumulativeDrawPosition,
   resolveSelectedDrawDate,
-} from "./index.tsx";
+} from "./TimelineWorkspace.tsx";
 import { DEFAULT_DRAW_REVIEW_LAG_DAYS } from "./-timeline-milestone-schedule.ts";
 import type {
   DemoCapitalSpike,

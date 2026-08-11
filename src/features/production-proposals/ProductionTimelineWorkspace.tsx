@@ -1278,7 +1278,7 @@ function normalizeProductionMilestonePatch(input: any) {
   };
 }
 
-function normalizeSubmilestoneInput(input: any, index: number) {
+export function normalizeSubmilestoneInput(input: any, index: number) {
   return {
     ...(input.budgetCents === undefined
       ? {}
@@ -1286,9 +1286,22 @@ function normalizeSubmilestoneInput(input: any, index: number) {
     ...(input.durationDays === undefined
       ? {}
       : { durationDays: Math.max(1, Math.round(input.durationDays)) }),
+    ...(input.fieldGuidance === undefined
+      ? {}
+      : {
+          fieldGuidance: {
+            cameraAnglesTiptapJson:
+              input.fieldGuidance.cameraAnglesTiptapJson ?? "",
+            whatToVerifyTiptapJson:
+              input.fieldGuidance.whatToVerifyTiptapJson ?? "",
+          },
+        }),
     key: input.key ?? `sub-${index + 1}`,
     name: input.name ?? "Submilestone",
     order: Math.max(1, Math.round(input.order ?? index + 1)),
+    ...(input.scopeOfWorkTiptapJson === undefined
+      ? {}
+      : { scopeOfWorkTiptapJson: input.scopeOfWorkTiptapJson }),
     ...(input.startDay === undefined
       ? {}
       : { startDay: Math.max(0, Math.round(input.startDay)) }),

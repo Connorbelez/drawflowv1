@@ -69,7 +69,10 @@ import {
   type TimelineScheduleDisplayMode,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
 import { getMilestoneEndX } from "./-timeline-milestone-schedule.ts";
-import { mapSubmilestoneSnapshotRows } from "./-timeline-milestone-submilestones.ts";
+import {
+  mapSubmilestoneSnapshotRows,
+  type TimelineSubmilestoneFieldGuidance,
+} from "./-timeline-milestone-submilestones.ts";
 import type {
   DemoMilestone,
   IsometricIconKey,
@@ -583,10 +586,12 @@ export interface TimelineSetupPreset {
 export interface TimelineSetupPresetSubMilestone {
   description?: string;
   durationDays?: number;
+  fieldGuidance?: TimelineSubmilestoneFieldGuidance;
   key?: string;
   name: string;
   order?: number;
   percentageBps?: number;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
 }
 
@@ -605,8 +610,10 @@ export interface TimelineSetupSubMilestone {
   budgetText: string;
   description: string;
   durationText: string;
+  fieldGuidance?: TimelineSubmilestoneFieldGuidance;
   id: string;
   name: string;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
 }
 
@@ -974,9 +981,15 @@ function buildSubMilestoneDetails(
         preset.description ??
         subMilestoneDescriptions[index % subMilestoneDescriptions.length],
       durationText: String(normalizedDuration),
+      ...(preset.fieldGuidance === undefined
+        ? {}
+        : { fieldGuidance: preset.fieldGuidance }),
       id:
         preset.key ?? `${row.key}-${slugifySubMilestone(preset.name)}-${index}`,
       name: preset.name,
+      ...(preset.scopeOfWorkTiptapJson === undefined
+        ? {}
+        : { scopeOfWorkTiptapJson: preset.scopeOfWorkTiptapJson }),
       startDay,
     };
   });
@@ -1378,9 +1391,11 @@ export function buildTimelineItemsFromSetupRows(
                 ? Math.max(1, Math.round(parsed))
                 : undefined;
             })(),
+            fieldGuidance: detail.fieldGuidance,
             key: detail.id,
             name: detail.name,
             order: index + 1,
+            scopeOfWorkTiptapJson: detail.scopeOfWorkTiptapJson,
             startDay: Number.isFinite(detail.startDay)
               ? Math.round(detail.startDay ?? startDay)
               : startDay,

@@ -38,6 +38,7 @@ const PREVIEW_BASE_CLASSES = cn(
 export interface FieldRichTextEditorProps {
   ariaLabel: string;
   className?: string;
+  editable?: boolean;
   editorMinHeightClass?: string;
   extensions?: EditorProviderProps["extensions"];
   id?: string;
@@ -52,6 +53,7 @@ export interface FieldRichTextEditorProps {
 export function FieldRichTextEditor({
   ariaLabel,
   className,
+  editable = true,
   editorMinHeightClass = "[&_.ProseMirror]:min-h-32",
   extensions,
   id,
@@ -72,6 +74,7 @@ export function FieldRichTextEditor({
         className
       )}
       content={value || "<p></p>"}
+      editable={editable}
       editorContainerProps={{
         "aria-label": ariaLabel,
         className: "field-rich-text-editor-content",
@@ -85,11 +88,27 @@ export function FieldRichTextEditor({
         onDocumentChange?.(editor.getJSON(), html);
       }}
       placeholder={placeholder}
-      slotBefore={<FieldRichTextToolbar />}
+      slotBefore={
+        <FieldRichTextToolbar
+          className={editable ? undefined : "pointer-events-none opacity-60"}
+          disabled={!editable}
+        />
+      }
     >
+      <FieldRichTextEditableSync editable={editable} />
       <FieldRichTextValueSync value={value} />
     </EditorProvider>
   );
+}
+
+function FieldRichTextEditableSync({ editable }: { editable: boolean }) {
+  const { editor } = useCurrentEditor();
+
+  useEffect(() => {
+    editor?.setEditable(editable);
+  }, [editor, editable]);
+
+  return null;
 }
 
 function FieldRichTextValueSync({ value }: { value: string | JSONContent }) {
@@ -149,12 +168,46 @@ export function FieldRichTextPreview({
   );
 }
 
-function FieldRichTextToolbar() {
+function FieldRichTextToolbar({
+  className,
+  disabled,
+}: {
+  className?: string;
+  disabled: boolean;
+}) {
   const [imageOpen, setImageOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
 
+  useEffect(() => {
+    if (disabled) {
+      setImageOpen(false);
+      setLinkOpen(false);
+    }
+  }, [disabled]);
+
   return (
-    <div className="flex flex-wrap items-center gap-px border-b bg-muted/30 p-1">
+    <div
+      aria-disabled={disabled || undefined}
+      className={cn(
+        "flex flex-wrap items-center gap-px border-b bg-muted/30 p-1",
+        className
+      )}
+      inert={disabled}
+      onClickCapture={(event) => {
+        if (disabled) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      onKeyDownCapture={(event) => {
+        if (disabled) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      role="toolbar"
+      tabIndex={disabled ? -1 : undefined}
+    >
       <EditorFormatBold hideName />
       <EditorFormatItalic hideName />
       <EditorNodeHeading1 hideName />
@@ -164,8 +217,22 @@ function FieldRichTextToolbar() {
       <EditorNodeOrderedList hideName />
       <EditorNodeTaskList hideName />
       <EditorNodeTable hideName />
-      <EditorLinkSelector onOpenChange={setLinkOpen} open={linkOpen} />
-      <EditorImageSelector onOpenChange={setImageOpen} open={imageOpen} />
+      <EditorLinkSelector
+        onOpenChange={(open) => {
+          if (!disabled) {
+            setLinkOpen(open);
+          }
+        }}
+        open={linkOpen}
+      />
+      <EditorImageSelector
+        onOpenChange={(open) => {
+          if (!disabled) {
+            setImageOpen(open);
+          }
+        }}
+        open={imageOpen}
+      />
       <EditorClearFormatting hideName />
     </div>
   );

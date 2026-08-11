@@ -135,6 +135,12 @@ const quoteDraftProjectionValidator = v.object({
   attachments: v.array(quoteDraftAttachmentProjectionValidator),
   commentsHtml: v.optional(v.string()),
   completedPricingLineCount: v.number(),
+  copiedFromQuotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+  copiedValuesConfirmationState: v.optional(
+    v.union(v.literal("pending"), v.literal("confirmed"))
+  ),
+  copiedValuesConfirmedAt: v.optional(v.number()),
+  copiedValuesConfirmedByWorkosUserId: v.optional(v.string()),
   createdAt: v.number(),
   lineItems: v.array(quoteDraftLineProjectionValidator),
   responses: v.array(quoteDraftAnswerProjectionValidator),
@@ -166,6 +172,22 @@ const quoteDraftSaveResultValidator = v.union(
   // a new Draft. Autosave must not silently create a revision Draft from a
   // stale Field Ledger view.
   v.object({ status: v.literal("revision_required") }),
+  v.object({ status: v.literal("acknowledgement_required") }),
+  v.object({ status: v.literal("read_only") }),
+  v.object({ status: v.literal("superseded") }),
+  v.object({ status: v.literal("unavailable") })
+);
+
+const copiedValuesConfirmationResultValidator = v.union(
+  v.object({
+    draft: quoteDraftProjectionValidator,
+    status: v.literal("confirmed"),
+  }),
+  v.object({
+    draft: v.union(quoteDraftProjectionValidator, v.null()),
+    status: v.literal("conflict"),
+  }),
+  v.object({ status: v.literal("not_required") }),
   v.object({ status: v.literal("acknowledgement_required") }),
   v.object({ status: v.literal("read_only") }),
   v.object({ status: v.literal("superseded") }),
@@ -302,6 +324,37 @@ export const saveClaimedQuoteInvitationResponseDraft = authenticatedMutation
     return await saveDraftForAccess(ctx, access, args);
   })
   .public();
+
+export const confirmCopiedQuoteInvitationResponseDraftValues = publicMutation
+  .input({
+    expectedVersion: v.number(),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    sessionToken: v.string(),
+  })
+  .returns(copiedValuesConfirmationResultValidator)
+  .handler(async (ctx, args) => {
+    const access = await resolveQuoteInvitationBrowserWriteAccess(ctx, args);
+    return await confirmCopiedValuesForAccess(ctx, access, args);
+  })
+  .public();
+
+export const confirmCopiedClaimedQuoteInvitationResponseDraftValues =
+  authenticatedMutation
+    .input({
+      expectedVersion: v.number(),
+      quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    })
+    .returns(copiedValuesConfirmationResultValidator)
+    .handler(async (ctx, args) => {
+      const access = await resolveQuoteInvitationClaimedWriteAccess(ctx, {
+        quoteRoundInvitationId: args.quoteRoundInvitationId,
+        workosUserId: ctx.viewer.subject,
+      });
+      return await confirmCopiedValuesForAccess(ctx, access, args, {
+        confirmedByWorkosUserId: ctx.viewer.subject,
+      });
+    })
+    .public();
 
 // Reserve one invitation-scoped slot before issuing a short-lived upload
 // secret. The custom HTTP endpoint stores and binds the object in one request,
@@ -581,6 +634,99 @@ async function saveDraftForAccess(
     draft: await quoteDraftProjection(ctx, access.scope, updated),
     status: "saved",
   } as const;
+}
+
+async function confirmCopiedValuesForAccess(
+  ctx: MutationCtx,
+  access:
+    | Awaited<ReturnType<typeof resolveQuoteInvitationBrowserWriteAccess>>
+    | Awaited<ReturnType<typeof resolveQuoteInvitationClaimedWriteAccess>>,
+  args: { expectedVersion: number },
+  options?: { confirmedByWorkosUserId?: string }
+) {
+  if (access.status !== "available") {
+    return { status: access.status } as const;
+  }
+  await assertOrganizationRetentionWritable(
+    ctx,
+    access.scope.invitation.organizationId
+  );
+  const acknowledgementRequired = await requireAcknowledgedPackageRevision(
+    ctx,
+    access.scope
+  );
+  if (acknowledgementRequired) {
+    return acknowledgementRequired;
+  }
+  assertExpectedVersion(args.expectedVersion);
+  const draft = await findDraft(ctx, access.scope);
+  if (!draft || draft.copiedValuesConfirmationState !== "pending") {
+    return { status: "not_required" as const };
+  }
+  if (draft.version !== args.expectedVersion) {
+    return {
+      draft: await quoteDraftProjection(ctx, access.scope, draft),
+      status: "conflict" as const,
+    };
+  }
+  const now = Date.now();
+  await ctx.db.patch(draft._id, {
+    copiedValuesConfirmationState: "confirmed",
+    copiedValuesConfirmedAt: now,
+    copiedValuesConfirmedByWorkosUserId: options?.confirmedByWorkosUserId,
+    updatedAt: now,
+    version: draft.version + 1,
+  });
+  const actorWorkosUserId =
+    options?.confirmedByWorkosUserId ??
+    ("session" in access
+      ? `quote-session:${String(access.session._id)}`
+      : `quote-recipient:${String(access.scope.profile._id)}`);
+  await ctx.db.insert("auditEvents", {
+    actorKind: "human",
+    actorRoles: ["quote-recipient"],
+    actorWorkosUserId,
+    brokerageId: access.scope.invitation.brokerageId,
+    buildId: access.scope.invitation.buildId,
+    command: "confirmCopiedQuoteInvitationResponseDraftValues",
+    createdAt: now,
+    entityId: String(draft._id),
+    entityType: "quoteInvitationResponseDraft",
+    eventType: "quote_response.copied_values_confirmed",
+    newState: JSON.stringify({
+      copiedFromQuotePackageRevisionId: draft.copiedFromQuotePackageRevisionId,
+      copiedValuesConfirmationState: "confirmed",
+      version: draft.version + 1,
+    }),
+    organizationId: access.scope.invitation.organizationId,
+    priorState: JSON.stringify({
+      copiedFromQuotePackageRevisionId: draft.copiedFromQuotePackageRevisionId,
+      copiedValuesConfirmationState: "pending",
+      version: draft.version,
+    }),
+    reason: "Recipient confirmed copied response values and pricing.",
+    targetRevisions: [
+      {
+        entityId: String(draft._id),
+        entityType: "quoteInvitationResponseDraft",
+        revision: draft.version + 1,
+      },
+      {
+        entityId: String(access.scope.packageRevision._id),
+        entityType: "quotePackageRevision",
+        revision: access.scope.packageRevision.revision,
+      },
+    ],
+    warnings: [],
+  });
+  const confirmed = await ctx.db.get(draft._id);
+  if (!confirmed) {
+    throw new ConvexError("Confirmed Quote response Draft is unavailable.");
+  }
+  return {
+    draft: await quoteDraftProjection(ctx, access.scope, confirmed),
+    status: "confirmed" as const,
+  };
 }
 
 async function beginDraftAttachmentUploadForAccess(
@@ -1162,6 +1308,19 @@ async function findDraft(ctx: QueryCtx | MutationCtx, scope: InvitationScope) {
   return draft;
 }
 
+function priorResponseMigrationSource(
+  draft: Doc<"quoteInvitationResponseDrafts"> | null,
+  submission: Doc<"quoteInvitationResponseSubmissionRevisions"> | null
+) {
+  if (draft) {
+    return { draft, kind: "draft" as const };
+  }
+  if (submission) {
+    return { kind: "submission" as const, submission };
+  }
+  return null;
+}
+
 /**
  * Reopen keeps Invitation identity while advancing its current Package
  * Revision. A recipient's mutable Draft remains attached to the prior
@@ -1221,7 +1380,14 @@ export async function migratePriorRevisionDraftForAccess(
     packageRevision: previousPackageRevision,
   };
   const previousDraft = await findDraft(ctx, previousScope);
-  if (!previousDraft) {
+  const previousSubmission = previousDraft
+    ? null
+    : await activeSubmissionForDraftMigration(ctx, previousScope);
+  const migrationSource = priorResponseMigrationSource(
+    previousDraft,
+    previousSubmission
+  );
+  if (!migrationSource) {
     return null;
   }
 
@@ -1239,9 +1405,15 @@ export async function migratePriorRevisionDraftForAccess(
     packageLabourLinesForMigration(ctx, previousPackageRevision._id),
     packageMaterialLinesForMigration(ctx, previousPackageRevision._id),
     packageResponseFieldsForMigration(ctx, previousPackageRevision._id),
-    draftLineItemsForMigration(ctx, previousDraft._id),
-    draftAnswersForMigration(ctx, previousDraft._id),
-    draftAttachmentsForMigration(ctx, previousDraft._id),
+    migrationSource.kind === "draft"
+      ? draftLineItemsForMigration(ctx, migrationSource.draft._id)
+      : submissionLineItemsForMigration(ctx, migrationSource.submission._id),
+    migrationSource.kind === "draft"
+      ? draftAnswersForMigration(ctx, migrationSource.draft._id)
+      : submissionAnswersForMigration(ctx, migrationSource.submission._id),
+    migrationSource.kind === "draft"
+      ? draftAttachmentsForMigration(ctx, migrationSource.draft._id)
+      : submissionAttachmentsForMigration(ctx, migrationSource.submission._id),
     packageLabourLinesForMigration(ctx, scope.packageRevision._id),
     packageMaterialLinesForMigration(ctx, scope.packageRevision._id),
     packageResponseFieldsForMigration(ctx, scope.packageRevision._id),
@@ -1263,11 +1435,25 @@ export async function migratePriorRevisionDraftForAccess(
       "Quote Package Revision exceeds Draft migration limits."
     );
   }
-  assertDraftRowsScope(previousScope, previousDraft, {
-    answers: previousAnswers,
-    attachments: previousAttachments,
-    lineItems: previousLineItems,
-  });
+  if (migrationSource.kind === "draft") {
+    assertDraftRowsScope(previousScope, migrationSource.draft, {
+      answers: previousAnswers as Doc<"quoteInvitationResponseDraftAnswers">[],
+      attachments:
+        previousAttachments as Doc<"quoteInvitationResponseDraftAttachments">[],
+      lineItems:
+        previousLineItems as Doc<"quoteInvitationResponseDraftLineItems">[],
+    });
+  } else {
+    assertSubmissionRowsForDraftMigration(
+      previousScope,
+      migrationSource.submission,
+      {
+        answers: previousAnswers,
+        attachments: previousAttachments,
+        lineItems: previousLineItems,
+      }
+    );
+  }
 
   const previousLabourById = new Map(
     previousLabourLines.map((line) => [line._id, line])
@@ -1296,7 +1482,23 @@ export async function migratePriorRevisionDraftForAccess(
     return currentDraftAfterRead;
   }
   const now = Date.now();
-  const draft = await createMigratedDraft(ctx, scope, previousDraft, now);
+  const draft = await createMigratedDraft(
+    ctx,
+    scope,
+    migrationSource.kind === "draft"
+      ? {
+          commentsHtml: migrationSource.draft.commentsHtml,
+          createdAt: migrationSource.draft.createdAt,
+          version: migrationSource.draft.version,
+        }
+      : {
+          commentsHtml: migrationSource.submission.commentsHtml,
+          createdAt: migrationSource.submission.createdAt,
+          version: migrationSource.submission.sourceDraftVersion,
+        },
+    previousPackageRevision._id,
+    now
+  );
   await copyMigratedDraftRows(
     ctx,
     scope,
@@ -1329,8 +1531,14 @@ interface DraftMigrationRows {
     string,
     Doc<"quotePackageRevisionMaterialLines">
   >;
-  previousAnswers: Doc<"quoteInvitationResponseDraftAnswers">[];
-  previousAttachments: Doc<"quoteInvitationResponseDraftAttachments">[];
+  previousAnswers: (
+    | Doc<"quoteInvitationResponseDraftAnswers">
+    | Doc<"quoteInvitationResponseSubmissionAnswers">
+  )[];
+  previousAttachments: (
+    | Doc<"quoteInvitationResponseDraftAttachments">
+    | Doc<"quoteInvitationResponseSubmissionAttachments">
+  )[];
   previousFieldById: Map<
     Id<"quotePackageRevisionResponseFields">,
     Doc<"quotePackageRevisionResponseFields">
@@ -1339,7 +1547,10 @@ interface DraftMigrationRows {
     Id<"quotePackageRevisionLabourLines">,
     Doc<"quotePackageRevisionLabourLines">
   >;
-  previousLineItems: Doc<"quoteInvitationResponseDraftLineItems">[];
+  previousLineItems: (
+    | Doc<"quoteInvitationResponseDraftLineItems">
+    | Doc<"quoteInvitationResponseSubmissionLineItems">
+  )[];
   previousMaterialById: Map<
     Id<"quotePackageRevisionMaterialLines">,
     Doc<"quotePackageRevisionMaterialLines">
@@ -1349,7 +1560,12 @@ interface DraftMigrationRows {
 async function createMigratedDraft(
   ctx: MutationCtx,
   scope: InvitationScope,
-  previousDraft: Doc<"quoteInvitationResponseDrafts">,
+  previousResponse: {
+    commentsHtml?: string;
+    createdAt: number;
+    version: number;
+  },
+  previousPackageRevisionId: Id<"quotePackageRevisions">,
   now: number
 ) {
   const draftId = await ctx.db.insert("quoteInvitationResponseDrafts", {
@@ -1357,9 +1573,11 @@ async function createMigratedDraft(
     attachmentCount: 0,
     brokerageId: scope.invitation.brokerageId,
     buildId: scope.invitation.buildId,
-    commentsHtml: previousDraft.commentsHtml,
+    commentsHtml: previousResponse.commentsHtml,
     completedPricingLineCount: 0,
-    createdAt: previousDraft.createdAt,
+    copiedFromQuotePackageRevisionId: previousPackageRevisionId,
+    copiedValuesConfirmationState: "pending",
+    createdAt: previousResponse.createdAt,
     organizationId: scope.invitation.organizationId,
     quotePackageRevisionId: scope.packageRevision._id,
     quoteRoundId: scope.invitation.quoteRoundId,
@@ -1367,7 +1585,7 @@ async function createMigratedDraft(
     retentionNextCheckAt: now,
     retentionState: "active",
     updatedAt: now,
-    version: previousDraft.version,
+    version: previousResponse.version,
   });
   const draft = await ctx.db.get(draftId);
   if (!draft) {
@@ -1555,6 +1773,126 @@ async function draftAttachmentsForMigration(
     .take(MAX_DRAFT_ATTACHMENTS + 1);
 }
 
+async function activeSubmissionForDraftMigration(
+  ctx: MutationCtx,
+  scope: InvitationScope
+) {
+  const state = await ctx.db
+    .query("quoteInvitationResponseSubmissionStates")
+    .withIndex(
+      "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+      (query) =>
+        query
+          .eq("quoteRoundInvitationId", scope.invitation._id)
+          .eq("quotePackageRevisionId", scope.packageRevision._id)
+    )
+    .unique();
+  if (!state?.activeSubmissionRevisionId) {
+    return null;
+  }
+  if (
+    state.brokerageId !== scope.invitation.brokerageId ||
+    state.organizationId !== scope.invitation.organizationId ||
+    state.buildId !== scope.invitation.buildId ||
+    state.quoteRoundId !== scope.invitation.quoteRoundId
+  ) {
+    throw new ConvexError(
+      "Prior Quote response state crosses its invitation scope."
+    );
+  }
+  const submission = await ctx.db.get(state.activeSubmissionRevisionId);
+  if (!submission) {
+    throw new ConvexError("Prior Quote response is unavailable for migration.");
+  }
+  if (
+    submission.brokerageId !== scope.invitation.brokerageId ||
+    submission.organizationId !== scope.invitation.organizationId ||
+    submission.buildId !== scope.invitation.buildId ||
+    submission.quoteRoundId !== scope.invitation.quoteRoundId ||
+    submission.quoteRoundInvitationId !== scope.invitation._id ||
+    submission.quotePackageRevisionId !== scope.packageRevision._id
+  ) {
+    throw new ConvexError("Prior Quote response crosses its invitation scope.");
+  }
+  return submission;
+}
+
+async function submissionLineItemsForMigration(
+  ctx: MutationCtx,
+  submissionId: Id<"quoteInvitationResponseSubmissionRevisions">
+) {
+  return await ctx.db
+    .query("quoteInvitationResponseSubmissionLineItems")
+    .withIndex(
+      "by_quoteInvitationResponseSubmissionRevisionId_and_createdAt",
+      (query) =>
+        query.eq("quoteInvitationResponseSubmissionRevisionId", submissionId)
+    )
+    .take(MAX_DRAFT_LINE_ITEMS + 1);
+}
+
+async function submissionAnswersForMigration(
+  ctx: MutationCtx,
+  submissionId: Id<"quoteInvitationResponseSubmissionRevisions">
+) {
+  return await ctx.db
+    .query("quoteInvitationResponseSubmissionAnswers")
+    .withIndex("by_quoteInvitationResponseSubmissionRevisionId", (query) =>
+      query.eq("quoteInvitationResponseSubmissionRevisionId", submissionId)
+    )
+    .take(MAX_DRAFT_ANSWERS + 1);
+}
+
+async function submissionAttachmentsForMigration(
+  ctx: MutationCtx,
+  submissionId: Id<"quoteInvitationResponseSubmissionRevisions">
+) {
+  return await ctx.db
+    .query("quoteInvitationResponseSubmissionAttachments")
+    .withIndex(
+      "by_quoteInvitationResponseSubmissionRevisionId_and_createdAt",
+      (query) =>
+        query.eq("quoteInvitationResponseSubmissionRevisionId", submissionId)
+    )
+    .take(MAX_DRAFT_ATTACHMENTS + 1);
+}
+
+function assertSubmissionRowsForDraftMigration(
+  scope: InvitationScope,
+  submission: Doc<"quoteInvitationResponseSubmissionRevisions">,
+  rows: {
+    attachments: (
+      | Doc<"quoteInvitationResponseDraftAttachments">
+      | Doc<"quoteInvitationResponseSubmissionAttachments">
+    )[];
+    answers: (
+      | Doc<"quoteInvitationResponseDraftAnswers">
+      | Doc<"quoteInvitationResponseSubmissionAnswers">
+    )[];
+    lineItems: (
+      | Doc<"quoteInvitationResponseDraftLineItems">
+      | Doc<"quoteInvitationResponseSubmissionLineItems">
+    )[];
+  }
+) {
+  for (const row of [...rows.lineItems, ...rows.answers, ...rows.attachments]) {
+    if (
+      !("quoteInvitationResponseSubmissionRevisionId" in row) ||
+      row.quoteInvitationResponseSubmissionRevisionId !== submission._id ||
+      row.brokerageId !== scope.invitation.brokerageId ||
+      row.organizationId !== scope.invitation.organizationId ||
+      row.buildId !== scope.invitation.buildId ||
+      row.quoteRoundId !== scope.invitation.quoteRoundId ||
+      row.quoteRoundInvitationId !== scope.invitation._id ||
+      row.quotePackageRevisionId !== scope.packageRevision._id
+    ) {
+      throw new ConvexError(
+        "Prior Quote response row crosses its invitation scope."
+      );
+    }
+  }
+}
+
 function matchesPackageRevisionScope(
   packageRevision: Doc<"quotePackageRevisions">,
   scope: InvitationScope
@@ -1594,7 +1932,9 @@ function materialMigrationIdentity(
 }
 
 function migratedLineIdentity(
-  line: Doc<"quoteInvitationResponseDraftLineItems">,
+  line:
+    | Doc<"quoteInvitationResponseDraftLineItems">
+    | Doc<"quoteInvitationResponseSubmissionLineItems">,
   previousLabourById: Map<
     Id<"quotePackageRevisionLabourLines">,
     Doc<"quotePackageRevisionLabourLines">
@@ -2143,6 +2483,11 @@ async function quoteDraftProjection(
     })),
     commentsHtml: draft.commentsHtml,
     completedPricingLineCount: draft.completedPricingLineCount,
+    copiedFromQuotePackageRevisionId: draft.copiedFromQuotePackageRevisionId,
+    copiedValuesConfirmationState: draft.copiedValuesConfirmationState,
+    copiedValuesConfirmedAt: draft.copiedValuesConfirmedAt,
+    copiedValuesConfirmedByWorkosUserId:
+      draft.copiedValuesConfirmedByWorkosUserId,
     createdAt: draft.createdAt,
     lineItems: lineItems.map((line) => ({
       lineKey: line.lineKey,

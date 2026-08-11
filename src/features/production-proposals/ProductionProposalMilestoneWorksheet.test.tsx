@@ -1,7 +1,23 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+const scopeControllerPropsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("#/features/submilestone-scope/ProposalSubmilestoneScopeController.tsx", () => ({
+  ProposalSubmilestoneScopeController: (props: Record<string, unknown>) => {
+    scopeControllerPropsMock(props);
+    return <output data-testid="proposal-scope-revision-controller">revision</output>;
+  },
+}));
 
 import {
   PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS,
@@ -88,16 +104,17 @@ describe("ProductionProposalMilestoneWorksheet", () => {
       />
     );
 
-    const budgetInput = screen.getByTestId(
-      "timeline-setup-submilestone-budget-dc-ed"
-    );
+    const budgetInput = screen
+      .getAllByTestId("timeline-setup-submilestone-budget-dc-ed")
+      .find((element) => element.getAttribute("aria-hidden") !== "true");
+    expect(budgetInput).toBeDefined();
 
-    fireEvent.change(budgetInput, { target: { value: "$95,000" } });
+    fireEvent.change(budgetInput!, { target: { value: "$95,000" } });
     vi.advanceTimersByTime(PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS + 1);
 
     expect(onPersistRows).not.toHaveBeenCalled();
 
-    fireEvent.blur(budgetInput);
+    fireEvent.blur(budgetInput!);
     vi.advanceTimersByTime(PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS - 1);
 
     expect(onPersistRows).not.toHaveBeenCalled();
@@ -105,6 +122,88 @@ describe("ProductionProposalMilestoneWorksheet", () => {
     vi.advanceTimersByTime(1);
 
     expect(onPersistRows).toHaveBeenCalledTimes(1);
+  });
+
+  test("persists an explicit Scope save immediately and disables it while saving", async () => {
+    let resolvePersist!: () => void;
+    const persistence = new Promise<void>((resolve) => {
+      resolvePersist = resolve;
+    });
+    const onPersistRows = vi.fn(() => persistence);
+
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={detail}
+        onPersistRows={onPersistRows}
+        templateTitle="4-plex Proposal"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-details-four-plex-draw-01")
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-four-plex-draw-01"
+    );
+    const scopeEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-description-dc-ed"
+    );
+    fireEvent.change(scopeEditor, { target: { value: "Issued footing scope" } });
+    const saveButton = within(sheet).getByTestId(
+      "timeline-setup-submilestone-scope-save-dc-ed"
+    );
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(onPersistRows).toHaveBeenCalledTimes(1));
+    expect((saveButton as HTMLButtonElement).disabled).toBe(true);
+
+    resolvePersist();
+  });
+
+  test("keeps a failed explicit Scope draft local and retryable", async () => {
+    const onPersistRows = vi
+      .fn()
+      .mockRejectedValue(new Error("Scope save failed."));
+
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={detail}
+        onPersistRows={onPersistRows}
+        templateTitle="4-plex Proposal"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-details-four-plex-draw-01")
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-four-plex-draw-01"
+    );
+    const scopeEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-description-dc-ed"
+    );
+    fireEvent.change(scopeEditor, { target: { value: "Issued footing scope" } });
+    const saveButton = within(sheet).getByTestId(
+      "timeline-setup-submilestone-scope-save-dc-ed"
+    );
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(onPersistRows).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Scope save failed."
+      )
+    );
+    expect(
+      (
+        within(sheet).getByTestId(
+          "timeline-setup-submilestone-scope-save-dc-ed"
+        ) as HTMLButtonElement
+      ).disabled
+    ).toBe(false);
+    expect((scopeEditor as HTMLTextAreaElement).value).toBe(
+      "Issued footing scope"
+    );
   });
 
   test("turns cascade on when the cascade toggle is clicked", () => {
@@ -124,5 +223,62 @@ describe("ProductionProposalMilestoneWorksheet", () => {
 
     expect(toggle.textContent).toContain("Cascade: On");
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("uses the shared Scope revision controller after first submission", () => {
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={{
+          ...detail,
+          proposal: { ...detail.proposal, status: "submitted", submittedAt: 123 },
+          submilestones: detail.submilestones?.map((submilestone) => ({
+            ...submilestone,
+            _id: "proposal-submilestone-1",
+          })),
+        }}
+        scopeRoute="backoffice-proposal"
+        scopeWorkosOrganizationId="org-1"
+        templateTitle="4-plex Proposal"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-details-four-plex-draw-01")
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-four-plex-draw-01"
+    );
+    expect(
+      within(sheet).getByTestId("proposal-scope-revision-controller")
+    ).toBeTruthy();
+    expect(scopeControllerPropsMock.mock.calls.some(([props]) =>
+      props.proposalSubmilestoneId === "proposal-submilestone-1" &&
+      props.scopeRoute === "backoffice-proposal" &&
+      props.workosOrganizationId === "org-1"
+    )).toBe(true);
+  });
+
+  test("keeps the legacy v1 Scope editor before first submission", () => {
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={detail}
+        scopeRoute="backoffice-proposal"
+        scopeWorkosOrganizationId="org-1"
+        templateTitle="4-plex Proposal"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-details-four-plex-draw-01")
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-four-plex-draw-01"
+    );
+    expect(
+      within(sheet).getByTestId("timeline-setup-submilestone-description-dc-ed")
+    ).toBeTruthy();
+    expect(
+      within(sheet).queryByTestId("proposal-scope-revision-controller")
+    ).toBeNull();
   });
 });

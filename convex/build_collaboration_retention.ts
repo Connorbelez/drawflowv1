@@ -1277,10 +1277,12 @@ async function assertBuildCollaborationResidueRemoved(
   const checks = [
     [
       "posts",
+      // Legacy system posts predate systemPostKind and are intentionally
+      // retained; only human-authored posts must be gone before finalizing.
       await ctx.db
         .query("buildCollaborationPosts")
-        .withIndex("by_buildId_and_systemPostKind", (query) =>
-          query.eq("buildId", buildId).eq("systemPostKind", undefined)
+        .withIndex("by_buildId_and_source_and_createdAt", (query) =>
+          query.eq("buildId", buildId).eq("source", "human")
         )
         .first(),
     ],

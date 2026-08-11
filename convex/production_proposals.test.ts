@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import { operationalRequestFingerprint } from "./build_operational_idempotency";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -19,6 +20,23 @@ const APP_PERMISSION_RESOURCES = [
   "capitalEvent",
   "reminder",
 ] as const;
+
+function tiptapDocument(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
+
+const EMPTY_TIPTAP_DOCUMENT = JSON.stringify({
+  content: [{ type: "paragraph" }],
+  type: "doc",
+});
 
 function asIdentity(
   roles: string[],
@@ -69,6 +87,71 @@ function withIdentityEmail(
     subject,
     tokenIdentifier: `https://api.workos.com/|${subject}`,
   } as any);
+}
+
+async function directAdminProposalFixture(
+  buildName: string,
+  location: string,
+) {
+  const base = convexTest(schema, modules);
+  const t = withIdentity(base, ["admin"], "user_admin", ORG);
+  const fixture = await base.run(async (ctx: any) => {
+    const now = Date.now();
+    const brokerageId = await ctx.db.insert("brokerages", {
+      createdAt: now,
+      displayName: "Production Proposal Test Brokerage",
+      legalName: "Production Proposal Test Brokerage Inc.",
+      status: "active",
+      updatedAt: now,
+      workosOrganizationId: ORG,
+    });
+    const builderProfileId = await ctx.db.insert("builderProfiles", {
+      brokerageId,
+      createdAt: now,
+      displayName: "Production Proposal Test Builder",
+      legalName: "Production Proposal Test Builder Inc.",
+      organizationId: ORG,
+      status: "active",
+      updatedAt: now,
+    });
+    const proposalId = await ctx.db.insert("buildProposals", {
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      borrowerWorkingCapitalLimitCents: 40_000_000,
+      brokerageId,
+      buildName,
+      builderProfileId,
+      createdAt: now,
+      createdByWorkosUserId: "user_admin",
+      interestAnnualBps: 925,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      location,
+      organizationId: ORG,
+      reviewOutcome: "none",
+      status: "draft",
+      totalBudgetCents: 0,
+      updatedAt: now,
+      updatedByWorkosUserId: "user_admin",
+    });
+    await ctx.db.insert("workflowRules", {
+      allowPermitWaiverByRoles: ["admin", "principle-broker"],
+      brokerageId,
+      createdAt: now,
+      organizationId: ORG,
+      proposalStates: ["draft", "submitted", "approved", "closed"],
+      requirePermitForApproval: true,
+      ruleKey: "proposal-foundation-v1",
+      settings: {
+        interestStartsOn: "funds_released",
+        reimbursementOnly: true,
+      },
+      status: "active",
+      updatedAt: now,
+      version: 1,
+    });
+    return { brokerageId, builderProfileId, proposalId };
+  });
+  return { ...fixture, base, t };
 }
 
 async function seeded(roles: string[], subject?: string, organizationId = ORG) {
@@ -174,15 +257,24 @@ function productionTemplateSettingsArgs(
       order: index,
       percentageBps: milestone.percentageBps,
       siteVisitGuidance: milestone.siteVisitGuidance,
-      submilestones: milestone.submilestones.map(
-        (submilestone: any, subIndex: number) => ({
-          description: submilestone.description,
-          durationDays: submilestone.durationDays,
-          name: submilestone.name,
-          order: subIndex,
-          percentageBps: submilestone.percentageBps,
-          submilestoneKey: submilestone.key,
-        }),
+        submilestones: milestone.submilestones.map(
+          (submilestone: any, subIndex: number) => ({
+            description: submilestone.description,
+            durationDays: submilestone.durationDays,
+            ...(submilestone.fieldGuidance === undefined
+              ? {}
+              : { fieldGuidance: submilestone.fieldGuidance }),
+            name: submilestone.name,
+            order: subIndex,
+            percentageBps: submilestone.percentageBps,
+            ...(submilestone.scopeOfWorkTiptapJson === undefined
+              ? {}
+              : {
+                  scopeOfWorkTiptapJson:
+                    submilestone.scopeOfWorkTiptapJson,
+                }),
+            submilestoneKey: submilestone.key,
+          }),
       ),
       type: milestone.archetypeKey,
     })),
@@ -315,6 +407,34 @@ async function createClosedSingleMilestoneBuild(
   );
 }
 
+async function seedCanonicalSiteVisitGuidanceForBuild(
+  t: any,
+  buildId: any,
+  workosOrganizationId = ORG,
+) {
+  const rows = await t.run(async (ctx: any) =>
+    ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_build", (query: any) => query.eq("buildId", buildId))
+      .collect(),
+  );
+  for (const row of rows) {
+    await t.mutation(
+      (api as any).submilestone_field_guidance.saveSubmilestoneFieldGuidance,
+      {
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+        whatToVerifyTiptapJson: tiptapDocument(
+          `Verify ${row.name} before the Site Visit.`,
+        ),
+        cameraAnglesTiptapJson: tiptapDocument(
+          `Capture ${row.name} from the primary inspection angle.`,
+        ),
+        workosOrganizationId,
+      },
+    );
+  }
+}
+
 async function seedUnassignedSiteVisitEvidence(
   t: any,
   seed: any,
@@ -326,10 +446,12 @@ async function seedUnassignedSiteVisitEvidence(
       { key: "excavation", name: "Excavation", order: 1 },
     ],
   });
+  await seedCanonicalSiteVisitGuidanceForBuild(t, closing.buildId);
   const visit = await t.mutation(
     (api as any).production_proposals.assignActiveBuildSiteVisit,
     {
       buildId: closing.buildId,
+      idempotencyKey: "assign-site-visit-unassigned-evidence",
       milestoneKey: "foundation",
       note: "Inspect the stale target evidence.",
       requestedDay: 21,
@@ -1281,6 +1403,254 @@ describe("production proposal foundation", () => {
     );
     expect(buildDetailAfterDelete.costItems).toHaveLength(1);
     expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(40_000_000);
+  });
+
+  test("scopes active-build material commands to canonical revisions and receipts", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Scoped material command build",
+      location: "18 Scoped Material Lane",
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+
+    const submilestoneId = await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query: any) =>
+          query.eq("buildMilestoneId", milestone._id),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .unique();
+      return submilestone._id;
+    });
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("buildSubmilestoneCommandReceipts", {
+        buildId: closing.buildId,
+        buildSubmilestoneId: submilestoneId,
+        command: "createActiveBuildCostItem",
+        createdAt: Date.now(),
+        idempotencyKey: "scoped-material-legacy-receipt",
+        organizationId: ORG,
+        resultJson: JSON.stringify({
+          itemId: "legacy-material-item",
+          revision: 1,
+        }),
+      });
+    });
+
+    const createArgs = {
+      buildId: closing.buildId,
+      costCents: 1_500_000,
+      expectedRevision: 0,
+      idempotencyKey: "scoped-material-create-001",
+      itemType: "material" as const,
+      milestoneKey: "foundation",
+      quantity: 1,
+      relevantSubmilestoneKeys: ["forms"],
+      submilestoneKey: "forms",
+      supplier: "Scoped Supply",
+      title: "Scoped forms package",
+      workosOrganizationId: ORG,
+    };
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.createActiveBuildCostItem,
+        {
+          ...createArgs,
+          idempotencyKey: "scoped-material-blank-key",
+          submilestoneKey: "   ",
+        },
+      ),
+    ).rejects.toThrow(/SUBMILESTONE_NOT_FOUND|non-empty Sub-milestone key/i);
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.createActiveBuildCostItem,
+        {
+          ...createArgs,
+          idempotencyKey: "scoped-material-legacy-receipt",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|different canonical command/i);
+
+    const created = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      createArgs,
+    );
+    expect(created).toMatchObject({
+      replayed: false,
+      revision: 1,
+    });
+    const createdItemId = (created as any).itemId;
+
+    const replayedCreate = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      createArgs,
+    );
+    expect(replayedCreate).toMatchObject({
+      itemId: createdItemId,
+      replayed: true,
+      revision: 1,
+    });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.createActiveBuildCostItem,
+        {
+          ...createArgs,
+          title: "Different scoped forms package",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|different canonical command/i);
+
+    const updated = await admin.mutation(
+      (api as any).production_proposals.updateActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        costCents: 1_750_000,
+        expectedRevision: 1,
+        idempotencyKey: "scoped-material-update-001",
+        itemId: createdItemId,
+        reason: "Scoped material quote revised.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(updated).toMatchObject({ replayed: false, revision: 2 });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.updateActiveBuildCostItem,
+        {
+          buildId: closing.buildId,
+          costCents: 2_000_000,
+          expectedRevision: 1,
+          idempotencyKey: "scoped-material-update-stale-001",
+          itemId: createdItemId,
+          reason: "Stale scoped material write.",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/STALE_SUBMILESTONE_REVISION|Sub-milestone changed/i);
+
+    const deleted = await admin.mutation(
+      (api as any).production_proposals.deleteActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        expectedRevision: 2,
+        idempotencyKey: "scoped-material-delete-001",
+        itemId: createdItemId,
+        milestoneKey: "foundation",
+        reason: "Scoped material removed.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(deleted).toMatchObject({ replayed: false, revision: 3 });
+    const replayedDelete = await admin.mutation(
+      (api as any).production_proposals.deleteActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        expectedRevision: 2,
+        idempotencyKey: "scoped-material-delete-001",
+        itemId: createdItemId,
+        milestoneKey: "foundation",
+        reason: "Scoped material removed.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replayedDelete).toMatchObject({
+      itemId: createdItemId,
+      replayed: true,
+      revision: 3,
+    });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.deleteActiveBuildCostItem,
+        {
+          ...{
+            buildId: closing.buildId,
+            expectedRevision: 2,
+            idempotencyKey: "scoped-material-delete-001",
+            itemId: createdItemId,
+            reason: "Scoped material removed.",
+            submilestoneKey: "forms",
+            workosOrganizationId: ORG,
+          },
+          milestoneKey: "   ",
+        },
+      ),
+    ).rejects.toThrow(/MILESTONE_KEY_REQUIRED|non-empty Milestone key/i);
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.costItems).toHaveLength(0);
+    expect(detail.submilestones[0].workflowRevision).toBe(3);
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(submilestoneId, { workflowRevision: undefined });
+    });
+    const legacyDetail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(legacyDetail.submilestones[0].workflowRevision).toBe(0);
+  });
+
+  test("canonical scoped key sets use code-unit ordering for fingerprints", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Code-unit scoped key build",
+      location: "18 Code Unit Lane",
+      submilestones: [
+        { key: "Zeta", name: "Uppercase target", order: 1 },
+        { key: "alpha", name: "Lowercase target", order: 2 },
+      ],
+    });
+    const createArgs = {
+      buildId: closing.buildId,
+      costCents: 1_500_000,
+      expectedRevision: 0,
+      idempotencyKey: "code-unit-scoped-material-001",
+      itemType: "material" as const,
+      milestoneKey: "foundation",
+      quantity: 1,
+      relevantSubmilestoneKeys: ["alpha", "Zeta"],
+      submilestoneKey: "Zeta",
+      supplier: "Code Unit Supply",
+      title: "Code-unit scoped package",
+      workosOrganizationId: ORG,
+    };
+    const created = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      createArgs,
+    );
+    const item = await admin.run(async (ctx: any) =>
+      ctx.db.get((created as any).itemId),
+    );
+    expect(item.relevantSubmilestoneKeys).toEqual(["Zeta", "alpha"]);
+
+    const replayed = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      {
+        ...createArgs,
+        expectedRevision: 99,
+        relevantSubmilestoneKeys: ["Zeta", "alpha"],
+      },
+    );
+    expect(replayed).toMatchObject({
+      itemId: (created as any).itemId,
+      replayed: true,
+      revision: 1,
+    });
   });
 
   test("applies log-only, additive, and maintained sub-milestone cost treatments", async () => {
@@ -4613,6 +4983,67 @@ describe("production proposal foundation", () => {
     );
   });
 
+  test("persists optional submilestone scope and field guidance in production settings", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+    await t.mutation(
+      (api as any).production_proposals.seedProductionDefaultsToProd,
+      { workosOrganizationId: ORG },
+    );
+    const settings = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    const fullBuild = settings.templates.find(
+      (template: any) => template.templateKey === "single-family-full-build",
+    );
+    const args = productionTemplateSettingsArgs(fullBuild);
+    const firstSubmilestone = args.milestones[0].submilestones[0];
+    firstSubmilestone.scopeOfWorkTiptapJson = tiptapDocument(
+      "Production template scope",
+    );
+    firstSubmilestone.fieldGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Production camera angles"),
+      whatToVerifyTiptapJson: tiptapDocument("Production verification"),
+    };
+
+    await t.mutation(
+      (api as any).production_proposals
+        .saveProductionProposalTemplateConfiguration,
+      {
+        ...args,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const updated = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    const updatedSubmilestone = updated.templates
+      .find((template: any) => template.templateKey === "single-family-full-build")
+      .milestones[0].submilestones[0];
+    expect(updatedSubmilestone).toMatchObject({
+      fieldGuidance: firstSubmilestone.fieldGuidance,
+      scopeOfWorkTiptapJson: firstSubmilestone.scopeOfWorkTiptapJson,
+    });
+
+    const malformedArgs = productionTemplateSettingsArgs(fullBuild);
+    malformedArgs.milestones[0].submilestones[0].fieldGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Camera"),
+      whatToVerifyTiptapJson: 42,
+    };
+    await expect(
+      t.mutation(
+        (api as any).production_proposals
+          .saveProductionProposalTemplateConfiguration,
+        {
+          ...malformedArgs,
+          workosOrganizationId: ORG,
+        } as any,
+      ),
+    ).rejects.toThrow(/Validator error|whatToVerifyTiptapJson/i);
+  });
+
   test("allows principal brokers to create entirely new production proposal templates", async () => {
     const { base, t: admin } = await seeded(["admin"], "user_admin");
     await admin.mutation(
@@ -5067,6 +5498,11 @@ describe("production proposal foundation", () => {
 
   test("hydrates a production proposal timeline workspace from production rows", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
+    const scope = tiptapDocument("Scope bytes from the canonical draft.");
+    const guidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Camera angle bytes from the draft."),
+      whatToVerifyTiptapJson: tiptapDocument("Verification bytes from the draft."),
+    };
     const proposalId = await t.mutation(
       (api as any).production_proposals.createDraftProposal,
       {
@@ -5098,9 +5534,11 @@ describe("production proposal foundation", () => {
               {
                 budgetCents: 20_000_000,
                 durationDays: 8,
+                fieldGuidance: guidance,
                 key: "forms",
                 name: "Forms and pour",
                 order: 1,
+                scopeOfWorkTiptapJson: scope,
               },
             ],
           },
@@ -5153,14 +5591,16 @@ describe("production proposal foundation", () => {
       milestoneKey: "foundation",
       status: "ready",
       submilestoneSnapshot: [
-        {
-          budgetCents: 20_000_000,
-          durationDays: 8,
-          key: "forms",
-          name: "Forms and pour",
-          order: 1,
-        },
-      ],
+          {
+            budgetCents: 20_000_000,
+            durationDays: 8,
+            fieldGuidance: guidance,
+            key: "forms",
+            name: "Forms and pour",
+            order: 1,
+            scopeOfWorkTiptapJson: scope,
+          },
+        ],
       x: 0,
     });
     expect(workspace.draws).toEqual([
@@ -5185,6 +5625,73 @@ describe("production proposal foundation", () => {
         x: 0,
       }),
     ]);
+
+    const updatedScope = tiptapDocument("Updated Scope bytes stay exact.");
+    const updatedGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument(
+        "Updated camera angle bytes stay exact.",
+      ),
+      whatToVerifyTiptapJson: tiptapDocument(
+        "Updated verification bytes stay exact.",
+      ),
+    };
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelineMilestone,
+      {
+        milestoneKey: "foundation",
+        proposalId,
+        submilestones: [
+          {
+            budgetCents: 20_000_000,
+            durationDays: 8,
+            fieldGuidance: updatedGuidance,
+            key: "forms",
+            name: "Forms and pour",
+            order: 1,
+            scopeOfWorkTiptapJson: updatedScope,
+          },
+        ],
+        workosOrganizationId: ORG,
+      },
+    );
+    const updatedWorkspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(
+      updatedWorkspace.milestones[0].submilestoneSnapshot[0],
+    ).toMatchObject({
+      fieldGuidance: updatedGuidance,
+      key: "forms",
+      scopeOfWorkTiptapJson: updatedScope,
+    });
+    const canonicalState = await t.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .unique();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      const fieldGuidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      return { fieldGuidance, revision };
+    });
+    expect(canonicalState.revision?.scopeOfWorkTiptapJson).toBe(updatedScope);
+    expect(canonicalState.fieldGuidance).toMatchObject(updatedGuidance);
   });
 
   test("persists production timeline evidence, completion, draw review, capital events, and audit events", async () => {
@@ -6103,6 +6610,7 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await seedCanonicalSiteVisitGuidanceForBuild(t, closing.buildId);
 
     const principalRequestId = await builder.mutation(
       (api as any).production_proposals.requestActiveBuildFacilityChange,
@@ -6244,6 +6752,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId: closing.buildId,
+        idempotencyKey: "assign-site-visit-workspace-token",
         milestoneKey: "foundation",
         note: "Verify footing photo location.",
         requestedDay: 23,
@@ -6567,6 +7076,65 @@ describe("production proposal foundation", () => {
     );
   });
 
+  test("allows canonical execution fields to be explicitly cleared with null", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
+        buildId: closing.buildId,
+        expectedRevision: 0,
+        idempotencyKey: "clear-execution-start-001",
+        milestoneKey: "foundation",
+        source: "submilestone_detail",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await builder.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+      {
+        actualCostCents: 47_500_000,
+        buildId: closing.buildId,
+        completionForecastDate: "2026-06-12",
+        expectedRevision: 1,
+        fieldNote: "Initial execution note.",
+        idempotencyKey: "clear-execution-set-001",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await builder.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+      {
+        actualCostCents: null,
+        buildId: closing.buildId,
+        completionForecastDate: null,
+        expectedRevision: 2,
+        fieldNote: null,
+        idempotencyKey: "clear-execution-clear-001",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.submilestones[0]).not.toHaveProperty("actualCostCents");
+    expect(detail.submilestones[0]).not.toHaveProperty(
+      "completionForecastDate",
+    );
+    expect(detail.submilestones[0]).not.toHaveProperty("fieldNote");
+    expect(detail.submilestones[0].workflowRevision).toBe(3);
+  });
+
   test("projects build quick actions from unresolved domain state instead of audit payloads", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(admin, seed);
@@ -6579,6 +7147,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 30,
+        expectedRevision: 0,
         idempotencyKey: "quick-action-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
@@ -6652,6 +7221,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         fieldNote: "Forms stripped and dimensions verified.",
+        expectedRevision: 0,
         idempotencyKey: "summary-forms-completion-001",
         milestoneKey: "foundation",
         status: "complete",
@@ -6666,6 +7236,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 1,
         idempotencyKey: "summary-milestone-completion-001",
         milestoneKey: "foundation",
         note: "Builder submitted the foundation package.",
@@ -6733,6 +7304,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "progress-reconciliation-forms-001",
         milestoneKey: "foundation",
         progressPercent: 100,
@@ -6755,6 +7327,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: Date.parse("2026-05-03T12:00:00.000Z"),
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "progress-reconciliation-waterproofing-start-001",
         milestoneKey: "foundation",
         source: "submilestone_detail",
@@ -6817,6 +7390,7 @@ describe("production proposal foundation", () => {
       actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
       buildId: closing.buildId,
       completedDay: 20,
+      expectedRevision: 0,
       idempotencyKey: "strict-milestone-completion-001",
       milestoneKey: "foundation",
       note: "Foundation ready for review.",
@@ -6837,6 +7411,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         fieldNote: "Forms removed; footing measurements match plan.",
+        expectedRevision: 0,
         idempotencyKey: "strict-forms-completion-001",
         milestoneKey: "foundation",
         status: "complete",
@@ -6846,7 +7421,7 @@ describe("production proposal foundation", () => {
     );
     await builder.mutation(
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
-      completionArgs,
+      { ...completionArgs, expectedRevision: 1 },
     );
 
     const detail = await admin.query(
@@ -6982,6 +7557,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId: primary.buildId,
+        idempotencyKey: "assign-site-visit-primary-token",
         milestoneKey: "foundation",
         note: "Inspect the primary build only.",
         requestedDay: 21,
@@ -7342,6 +7918,7 @@ describe("production proposal foundation", () => {
     const startArgs = {
       actualStartedAt,
       buildId: closing.buildId,
+      expectedRevision: 0,
       idempotencyKey: "test-foundation-start-001",
       milestoneKey: "foundation",
       source: "milestone_detail" as const,
@@ -7353,14 +7930,14 @@ describe("production proposal foundation", () => {
     );
     const replayResult = await builder.mutation(
       (api as any).production_proposals.startActiveBuildMilestone,
-      startArgs,
+      { ...startArgs, expectedRevision: 99 },
     );
 
     const detail = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
-    expect(firstResult).toMatchObject({ replayed: false });
+    expect(firstResult).toMatchObject({ replayed: false, revision: 1 });
     expect(replayResult).toEqual({ ...firstResult, replayed: true });
     expect(detail.milestones[0]).toMatchObject({
       actualStartedAt,
@@ -7391,6 +7968,14 @@ describe("production proposal foundation", () => {
             .eq("relatedEntityId", String(closing.buildId)),
         )
         .collect();
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .collect();
       expect(startEvents).toHaveLength(1);
       expect(startEvents[0]).toMatchObject({
         actualStartedAt,
@@ -7398,12 +7983,22 @@ describe("production proposal foundation", () => {
         eventType: "started",
         milestoneKey: "foundation",
         source: "milestone_detail",
+        workflowRevision: 1,
       });
-      expect(
-        outboxEvents.filter(
-          (event: any) => event.eventType === "milestone.started",
-        ),
-      ).toHaveLength(1);
+      const startOutboxEvents = outboxEvents.filter(
+        (event: any) => event.eventType === "milestone.started",
+      );
+      expect(startOutboxEvents).toHaveLength(1);
+      expect(JSON.parse(startOutboxEvents[0].payloadPreview)).toMatchObject({
+        workflowRevision: 1,
+      });
+      const startAuditEvents = auditEvents.filter(
+        (event: any) => event.eventType === "milestone.started",
+      );
+      expect(startAuditEvents).toHaveLength(1);
+      expect(JSON.parse(startAuditEvents[0].newState)).toMatchObject({
+        workflowRevision: 1,
+      });
     });
 
     const workspace = await t.query(
@@ -7488,6 +8083,7 @@ describe("production proposal foundation", () => {
     const input = {
       actualStartedAt,
       buildId: closing.buildId,
+      expectedRevision: 0,
       idempotencyKey: "framing-dependency-start-001",
       milestoneKey: "framing",
       source: "gantt" as const,
@@ -7618,6 +8214,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt,
         buildId: closing.buildId,
+        expectedRevision: 0,
         dependencyOverrideReason:
           "Roof crew mobilized while foundation closeout was pending.",
         idempotencyKey: "roofing-dependency-fallback-001",
@@ -7651,6 +8248,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: initialStart,
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "forms-parent-child-start-001",
         milestoneKey: "foundation",
         source: "submilestone_ledger",
@@ -7670,6 +8268,7 @@ describe("production proposal foundation", () => {
         {
           actualStartedAt: initialStart,
           buildId: closing.buildId,
+          expectedRevision: 0,
           idempotencyKey: "forms-parent-child-start-001",
           milestoneKey: "foundation",
           source: "submilestone_ledger",
@@ -7686,6 +8285,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: correctedStart,
         buildId: closing.buildId,
+        expectedRevision: 1,
         idempotencyKey: "forms-start-correction-001",
         milestoneKey: "foundation",
         reason: "Crew log confirmed an earlier mobilization time.",
@@ -7699,6 +8299,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt: correctedStart,
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "forms-start-correction-001",
         milestoneKey: "foundation",
         reason: "Crew log confirmed an earlier mobilization time.",
@@ -7707,7 +8308,7 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    expect(firstCorrection).toMatchObject({ replayed: false });
+    expect(firstCorrection).toMatchObject({ replayed: false, revision: 2 });
     expect(correctionReplay).toEqual({
       ...firstCorrection,
       replayed: true,
@@ -7716,6 +8317,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.retractActiveBuildMilestoneStart,
       {
         buildId: closing.buildId,
+        expectedRevision: 2,
         idempotencyKey: "forms-start-retraction-001",
         milestoneKey: "foundation",
         reason: "The crew log was attached to the wrong work scope.",
@@ -7747,6 +8349,22 @@ describe("production proposal foundation", () => {
             .eq("submilestoneKey", "forms"),
         )
         .collect();
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .collect();
+      const outboxEvents = await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("relatedEntityType", "activeBuild")
+            .eq("relatedEntityId", String(closing.buildId)),
+        )
+        .collect();
       expect(milestone).toMatchObject({
         actualStartedAt: initialStart,
         status: "in_progress",
@@ -7760,6 +8378,27 @@ describe("production proposal foundation", () => {
       ]);
       expect(events[1].originalEventId).toBe(events[0]._id);
       expect(events[2].originalEventId).toBe(events[1]._id);
+      expect(
+        auditEvents
+          .filter((event: any) =>
+            ["milestone.start_corrected", "milestone.start_retracted"].includes(
+              event.eventType,
+            ),
+          )
+          .map((event: any) => JSON.parse(event.newState).workflowRevision),
+      ).toEqual([2, 3]);
+      expect(
+        outboxEvents
+          .filter((event: any) =>
+            ["milestone.start_corrected", "milestone.start_retracted"].includes(
+              event.eventType,
+            ),
+          )
+          .map(
+            (event: any) =>
+              JSON.parse(event.payloadPreview).workflowRevision,
+          ),
+      ).toEqual([2, 3]);
     });
   });
 
@@ -7773,6 +8412,7 @@ describe("production proposal foundation", () => {
       {
         actualStartedAt,
         buildId: closing.buildId,
+        expectedRevision: 0,
         idempotencyKey: "foundation-start-before-completion-001",
         milestoneKey: "foundation",
         source: "milestone_detail",
@@ -7792,6 +8432,7 @@ describe("production proposal foundation", () => {
     const correction = {
       actualStartedAt: actualStartedAt - 60 * 60 * 1000,
       buildId: closing.buildId,
+      expectedRevision: 1,
       idempotencyKey: "foundation-post-completion-correction-001",
       milestoneKey: "foundation",
       reason: "Daily log confirmed an earlier mobilization time.",
@@ -7832,6 +8473,7 @@ describe("production proposal foundation", () => {
     const common = {
       actualStartedAt: Date.parse("2026-05-02T15:00:00.000Z"),
       buildId: closing.buildId,
+      expectedRevision: 0,
       milestoneKey: "foundation",
       reason: "Daily log correction.",
       source: "milestone_detail" as const,
@@ -7869,6 +8511,7 @@ describe("production proposal foundation", () => {
       actualStartedAt,
       buildId: closing.buildId,
       completedDay: 12,
+      expectedRevision: 0,
       idempotencyKey: "foundation-completion-catch-up-001",
       milestoneKey: "foundation",
       note: "Completion and missing actual start confirmed together.",
@@ -8189,6 +8832,458 @@ describe("production proposal foundation", () => {
     );
     expect(removedDetail.milestoneContractorAssignments).toEqual([]);
     expect(removedDetail.milestones[0].assignmentCount).toBe(0);
+
+    const assignmentHistory = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(
+            q.field("command"),
+            "assignActiveBuildContractorToMilestone",
+          ),
+        )
+        .collect(),
+    );
+    const removalHistory = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(
+            q.field("command"),
+            "removeActiveBuildContractorFromMilestone",
+          ),
+        )
+        .collect(),
+    );
+    expect(JSON.parse(assignmentHistory.at(-1)!.newState)).toMatchObject({
+      assignments: [
+        expect.objectContaining({
+          assignmentId: assignmentIds[0],
+          contractorId,
+          role: "Foundation crew",
+          status: "active",
+        }),
+      ],
+    });
+    expect(JSON.parse(removalHistory.at(-1)!.priorState)).toEqual([
+      expect.objectContaining({
+        _id: assignmentIds[0],
+        contractorId,
+        role: "Foundation crew",
+        status: "active",
+      }),
+    ]);
+    expect(JSON.parse(removalHistory.at(-1)!.newState)).toMatchObject({
+      assignments: [
+        expect.objectContaining({
+          assignmentId: assignmentIds[0],
+          contractorId,
+          status: "removed",
+        }),
+      ],
+    });
+  });
+
+  test("sub-milestone assignment and removal use canonical revisions and replay receipts", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        {
+          budgetCents: 10_000_000,
+          durationDays: 5,
+          key: "forms",
+          name: "Forms",
+          order: 1,
+        },
+      ],
+    });
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "scoped-assignment@example.com",
+        kind: "company",
+        name: "Scoped Assignment Co",
+        trades: ["concrete"],
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.linkContractorProfileToWorkosUser,
+      {
+        contractorId,
+        workosOrganizationId: ORG,
+        workosUserId: "user_scoped_assignment_contractor",
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const assignArgs = {
+      buildId: closing.buildId,
+      contractorId,
+      expectedRevision: 0,
+      idempotencyKey: "scoped-assignment-001",
+      milestoneKey: "foundation",
+      role: "Forms crew",
+      submilestoneKeys: ["forms"],
+      workosOrganizationId: ORG,
+    };
+    const assignmentIds = await builder.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      assignArgs,
+    );
+    expect(assignmentIds).toHaveLength(1);
+    const assignedTarget = await builder.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .filter((q: any) => q.eq(q.field("key"), "forms"))
+        .unique();
+      return {
+        id: submilestone._id,
+        key: submilestone.key,
+        workflowRevision: submilestone.workflowRevision ?? 0,
+      };
+    });
+    expect(assignedTarget.workflowRevision).toBe(1);
+
+    const assignmentAuditAndReceipt = await builder.run(async (ctx: any) => {
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("command"), "assignActiveBuildContractorToMilestone"),
+        )
+        .collect();
+      const receipts = await ctx.db
+        .query("buildSubmilestoneCommandReceipts")
+        .withIndex("by_submilestone_idempotency", (q: any) =>
+          q
+            .eq("buildSubmilestoneId", assignedTarget.id)
+            .eq("idempotencyKey", assignArgs.idempotencyKey),
+        )
+        .collect();
+      return {
+        audit: JSON.parse(auditEvents.at(-1)!.newState),
+        receipt: JSON.parse(receipts[0]!.resultJson),
+      };
+    });
+    expect(assignmentAuditAndReceipt.audit.workflowRevisions).toEqual({
+      forms: 1,
+    });
+    expect(assignmentAuditAndReceipt.receipt.workflowRevisions).toEqual({
+      forms: 1,
+    });
+
+    // A replay must win before stale checking. The original revision is now
+    // stale, but the committed assignment result is still returned.
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        assignArgs,
+      ),
+    ).resolves.toEqual(assignmentIds);
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        {
+          ...assignArgs,
+          role: "Different role",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|idempotency key/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        {
+          ...assignArgs,
+          expectedRevision: 0,
+          idempotencyKey: "scoped-assignment-stale-001",
+        },
+      ),
+    ).rejects.toMatchObject({
+      data: { code: "STALE_SUBMILESTONE_REVISION" },
+    });
+
+    const removeArgs = {
+      buildId: closing.buildId,
+      contractorId,
+      expectedRevision: 1,
+      idempotencyKey: "scoped-removal-001",
+      milestoneKey: "foundation",
+      reason: "Forms scope reassigned after review.",
+      submilestoneKey: "forms",
+      workosOrganizationId: ORG,
+    };
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        {
+          ...removeArgs,
+          idempotencyKey: "scoped-removal-missing-target-001",
+          submilestoneKey: "missing",
+        },
+      ),
+    ).rejects.toThrow(/SUBMILESTONE_NOT_FOUND|Submilestone is unavailable/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        removeArgs,
+      ),
+    ).resolves.toEqual(assignmentIds);
+    const removedRevision = await builder.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .filter((q: any) => q.eq(q.field("key"), "forms"))
+        .unique();
+      const assignments = await ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_submilestone", (q: any) =>
+          q
+            .eq("buildId", closing.buildId)
+            .eq("milestoneKey", "foundation")
+            .eq("submilestoneKey", "forms"),
+        )
+        .collect();
+      const deliveries = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q: any) =>
+          q
+            .eq("organizationId", ORG)
+            .eq(
+              "recipientWorkosUserId",
+              "user_scoped_assignment_contractor",
+            ),
+        )
+        .collect();
+      return {
+        id: submilestone._id,
+        key: submilestone.key,
+        assignments,
+        deliveries,
+        workflowRevision: submilestone.workflowRevision ?? 0,
+      };
+    });
+    expect(removedRevision.workflowRevision).toBe(2);
+    expect(removedRevision.assignments).toEqual([
+      expect.objectContaining({ status: "removed" }),
+    ]);
+    expect(removedRevision.deliveries).toHaveLength(2);
+
+    const removalAuditAndReceipt = await builder.run(async (ctx: any) => {
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(
+            q.field("command"),
+            "removeActiveBuildContractorFromMilestone",
+          ),
+        )
+        .collect();
+      const receipts = await ctx.db
+        .query("buildSubmilestoneCommandReceipts")
+        .withIndex("by_submilestone_idempotency", (q: any) =>
+          q
+            .eq("buildSubmilestoneId", removedRevision.id)
+            .eq("idempotencyKey", removeArgs.idempotencyKey),
+        )
+        .collect();
+      return {
+        audit: JSON.parse(auditEvents.at(-1)!.newState),
+        receipt: JSON.parse(receipts[0]!.resultJson),
+      };
+    });
+    expect(removalAuditAndReceipt.audit.submilestoneKey).toBe("forms");
+    expect(removalAuditAndReceipt.audit.workflowRevision).toBe(2);
+    expect(removalAuditAndReceipt.receipt.workflowRevisions).toEqual({
+      forms: 2,
+    });
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        removeArgs,
+      ),
+    ).resolves.toEqual(assignmentIds);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .removeActiveBuildContractorFromMilestone,
+        {
+          ...removeArgs,
+          reason: "A different removal reason.",
+        },
+      ),
+    ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|idempotency key/i);
+  });
+
+  test("multi-target assignment canonicalizes keys and accepts per-target revisions", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { key: "forms", name: "Forms", order: 1 },
+        { key: "waterproofing", name: "Waterproofing", order: 2 },
+      ],
+    });
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "multi-target-assignment@example.com",
+        kind: "company",
+        name: "Multi Target Assignment Co",
+        trades: ["concrete"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await builder.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId: closing.buildId,
+        contractorId,
+        expectedRevision: 0,
+        idempotencyKey: "multi-target-forms-first-001",
+        milestoneKey: "foundation",
+        role: "Forms crew",
+        submilestoneKeys: ["forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .assignActiveBuildContractorToMilestone,
+        {
+          buildId: closing.buildId,
+          contractorId,
+          expectedRevision: 1,
+          idempotencyKey: "multi-target-assignment-scalar-001",
+          milestoneKey: "foundation",
+          role: "Foundation crew",
+          submilestoneKeys: ["waterproofing", "forms"],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/EXPECTED_REVISION_MAP_REQUIRED|revision map/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals
+          .assignActiveBuildContractorToMilestone,
+        {
+          buildId: closing.buildId,
+          contractorId,
+          expectedRevisions: { forms: 1 },
+          idempotencyKey: "multi-target-assignment-missing-001",
+          milestoneKey: "foundation",
+          role: "Foundation crew",
+          submilestoneKeys: ["waterproofing", "forms"],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/EXPECTED_REVISION_MAP_REQUIRED|revision map/i);
+    const assignmentIds = await builder.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId: closing.buildId,
+        contractorId,
+        expectedRevisions: { forms: 1, waterproofing: 0 },
+        idempotencyKey: "multi-target-assignment-001",
+        milestoneKey: "foundation",
+        role: "Foundation crew",
+        submilestoneKeys: ["waterproofing", "forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(assignmentIds).toHaveLength(2);
+    const revisions = await builder.run(async (ctx: any) => {
+      const rows = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .collect();
+      return Object.fromEntries(
+        rows.map((row: any) => [row.key, row.workflowRevision ?? 0]),
+      );
+    });
+    expect(revisions).toMatchObject({ forms: 2, waterproofing: 1 });
+
+    const multiTargetAuditAndReceipts = await builder.run(async (ctx: any) => {
+      const auditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("command"), "assignActiveBuildContractorToMilestone"),
+        )
+        .collect();
+      const receipts = await ctx.db
+        .query("buildSubmilestoneCommandReceipts")
+        .filter((q: any) =>
+          q.and(
+            q.eq(q.field("buildId"), closing.buildId),
+            q.eq(q.field("idempotencyKey"), "multi-target-assignment-001"),
+          ),
+        )
+        .collect();
+      return {
+        audit: JSON.parse(auditEvents.at(-1)!.newState),
+        receipts: receipts.map((receipt: any) => JSON.parse(receipt.resultJson)),
+      };
+    });
+    expect(Object.keys(multiTargetAuditAndReceipts.audit.workflowRevisions)).toEqual([
+      "forms",
+      "waterproofing",
+    ]);
+    expect(multiTargetAuditAndReceipts.audit.workflowRevisions).toEqual({
+      forms: 2,
+      waterproofing: 1,
+    });
+    expect(multiTargetAuditAndReceipts.receipts).toHaveLength(2);
+    for (const receipt of multiTargetAuditAndReceipts.receipts) {
+      expect(receipt.workflowRevisions).toEqual({ forms: 2, waterproofing: 1 });
+    }
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+        {
+          buildId: closing.buildId,
+          contractorId,
+          expectedRevisions: { waterproofing: 99, forms: 99 },
+          idempotencyKey: "multi-target-assignment-001",
+          milestoneKey: "foundation",
+          role: "Foundation crew",
+          submilestoneKeys: ["forms", "waterproofing"],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toEqual(assignmentIds);
   });
 
   test("atomic active-build attach and invite projects an invited lifecycle state", async () => {
@@ -9101,6 +10196,136 @@ describe("production proposal foundation", () => {
     expect(sortedByBudget.page.length).toBeLessThanOrEqual(15);
   });
 
+  test("keeps filtered roster pagination cursor-safe across nonmatching builds", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const matchingBuild = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Cursor-safe matching build",
+    });
+    const nonMatchingBuild = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Cursor-safe nonmatching build",
+    });
+
+    await t.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.patch(matchingBuild.buildId, { updatedAt: now - 1_000 });
+      await ctx.db.patch(nonMatchingBuild.buildId, {
+        status: "future_start",
+        updatedAt: now,
+      });
+    });
+
+    const queryArgs = {
+      paginationOpts: { cursor: null, numItems: 1 },
+      sortBy: "updatedAt",
+      sortDirection: "desc",
+      workosOrganizationId: ORG,
+    } as const;
+    const firstSearchPage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      { ...queryArgs, search: "cursor-safe matching" },
+    );
+
+    expect(firstSearchPage.page).toEqual([]);
+    expect(firstSearchPage.isDone).toBe(false);
+    expect(firstSearchPage.continueCursor).not.toBe("");
+
+    const secondSearchPage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        ...queryArgs,
+        paginationOpts: {
+          cursor: firstSearchPage.continueCursor,
+          numItems: 1,
+        },
+        search: "cursor-safe matching",
+      },
+    );
+
+    expect(secondSearchPage.page.map((row: any) => row.buildId)).toEqual([
+      matchingBuild.buildId,
+    ]);
+    expect(secondSearchPage.isDone).toBe(true);
+    const matchingPhase = secondSearchPage.page[0].phase;
+
+    const firstPhasePage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      { ...queryArgs, phase: matchingPhase },
+    );
+    expect(firstPhasePage.page).toEqual([]);
+    expect(firstPhasePage.isDone).toBe(false);
+    expect(firstPhasePage.continueCursor).not.toBe("");
+
+    const secondPhasePage = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRosterPage,
+      {
+        ...queryArgs,
+        paginationOpts: {
+          cursor: firstPhasePage.continueCursor,
+          numItems: 1,
+        },
+        phase: matchingPhase,
+      },
+    );
+
+    expect(secondPhasePage.page.map((row: any) => row.buildId)).toEqual([
+      matchingBuild.buildId,
+    ]);
+    expect(secondPhasePage.isDone).toBe(true);
+  });
+
+  test("summarizes every active build across multiple source batches", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const additionalBuildCount = 51;
+    await t.run(async (ctx: any) => {
+      const source = await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage", (query: any) =>
+          query.eq("brokerageId", seed.brokerageId),
+        )
+        .first();
+      if (!source) {
+        throw new Error("Expected the seeded active build source row.");
+      }
+
+      const {
+        _creationTime: _sourceCreationTime,
+        _id: _sourceId,
+        ...sourceFields
+      } = source;
+      for (let index = 0; index < additionalBuildCount; index += 1) {
+        await ctx.db.insert("activeBuilds", {
+          ...sourceFields,
+          buildName: `Summary batch build ${index + 1}`,
+          updatedAt: source.updatedAt + index + 1,
+        });
+      }
+    });
+
+    const expectedBuildCount = await t.run(async (ctx: any) => {
+      const builds = await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage", (query: any) =>
+          query.eq("brokerageId", seed.brokerageId),
+        )
+        .collect();
+      return builds.filter((build: any) => build.organizationId === ORG).length;
+    });
+    expect(expectedBuildCount).toBeGreaterThan(50);
+
+    const summary = await t.query(
+      (api as any).production_proposals.getBackofficeBuildRosterSummary,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(summary.total).toBe(expectedBuildCount);
+  });
+
   test("admin sees every brokerage build regardless of their own builder assignment", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const secondBuilderProfileId = await t.run(async (ctx: any) => {
@@ -9464,6 +10689,7 @@ describe("production proposal foundation", () => {
         {
           actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
           buildId,
+          expectedRevision: 0,
           idempotencyKey: `dashboard-submilestone-${submilestoneKey}`,
           milestoneKey: "foundation",
           status: "complete",
@@ -9479,6 +10705,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId,
         completedDay: 30,
+        expectedRevision: 1,
         idempotencyKey: "dashboard-milestone-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
@@ -9498,10 +10725,12 @@ describe("production proposal foundation", () => {
       }),
     ]);
 
+    await seedCanonicalSiteVisitGuidanceForBuild(t, buildId);
     await t.mutation(
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId,
+        idempotencyKey: "assign-site-visit-dashboard-queue",
         milestoneKey: "foundation",
         note: "Verify completion claim.",
         requestedDay: 31,
@@ -9543,6 +10772,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "draw-availability-completion-001",
         milestoneKey: "foundation",
         note: "Foundation complete below approved budget.",
@@ -9599,6 +10829,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "draw-approval-completion-001",
         milestoneKey: "foundation",
         note: "Foundation complete below approved budget.",
@@ -9725,6 +10956,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "staff-review-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for lender review.",
@@ -9767,6 +10999,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId: closing.buildId,
+        idempotencyKey: "assign-site-visit-staff-review",
         milestoneKey: "foundation",
         note: "Verify the accepted package on site.",
         requestedDay: 21,
@@ -9857,6 +11090,7 @@ describe("production proposal foundation", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "change-request-completion-001",
         milestoneKey: "foundation",
         note: "Signed report attached.",
@@ -11710,6 +12944,1807 @@ describe("production proposal foundation", () => {
   });
 });
 
+describe("Sub-milestone Scope and Field Guidance lineage", () => {
+  test("closing preserves canonical Scope and Guidance IDs, bytes, and active Build references", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Scope closing lineage proposal",
+      "18 Scope Closing Lane",
+    );
+    const scope = '{ "type":"doc", "content": [{"type":"paragraph","content":[{"type":"text","text":"Exact Scope bytes before closing"}]}] }';
+    const guidance = {
+      cameraAnglesTiptapJson: tiptapDocument(
+        "Capture north and east faces before the pour.",
+      ),
+      whatToVerifyTiptapJson: tiptapDocument(
+        "Verify excavation depth and form dimensions.",
+      ),
+    };
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "scope-closing-permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 128,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 50_000_000,
+                durationDays: 12,
+                fieldGuidance: guidance,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+                scopeOfWorkTiptapJson: scope,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    const before = await t.run(async (ctx: any) => {
+      const proposalSubmilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .unique();
+      const proposalMilestone = proposalSubmilestone
+        ? await ctx.db.get(proposalSubmilestone.proposalMilestoneId)
+        : null;
+      const proposalDraws = await ctx.db
+        .query("proposalDrawScheduleRows")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      const contract = proposalSubmilestone
+        ? await ctx.db
+            .query("submilestoneScopeContracts")
+            .withIndex("by_proposalSubmilestoneId", (query: any) =>
+              query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+            )
+            .unique()
+        : null;
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      const guidanceRow = proposalSubmilestone
+        ? await ctx.db
+            .query("submilestoneFieldGuidance")
+            .withIndex("by_proposalSubmilestoneId", (query: any) =>
+              query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+            )
+            .unique()
+        : null;
+      return {
+        contract,
+        guidance: guidanceRow,
+        proposalMilestone,
+        proposalDraws,
+        proposalSubmilestone,
+        revision,
+      };
+    });
+    expect(before.revision).toMatchObject({
+      scopeOfWorkTiptapJson: scope,
+      status: "draft",
+      version: 1,
+    });
+    expect(before.guidance).toMatchObject(guidance);
+
+    await t.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.patch(before.proposalSubmilestone.brokerageId, {
+        principalBrokerWorkosUserId: "user_admin",
+      });
+      await ctx.db.insert("users", {
+        authId: "user_admin",
+        createdAt: now,
+        email: "user_admin@example.com",
+        name: "Scope Closing Admin",
+        sourceEventId: "scope_closing_admin_user",
+        sourceEventType: "test.production_proposals",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_admin",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "principle-broker",
+        roleSlugs: ["principle-broker"],
+        sourceEventId: "scope_closing_admin_membership",
+        sourceEventType: "test.production_proposals",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "scope_closing_admin_membership",
+        workosOrganizationId: ORG,
+        workosUserId: "user_admin",
+      });
+    });
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Scope closing lineage is approved.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-08-20",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Close the approved Scope package.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const after = await t.run(async (ctx: any) => {
+      const contract = before.contract
+        ? await ctx.db.get(before.contract._id)
+        : null;
+      const revision = before.revision
+        ? await ctx.db.get(before.revision._id)
+        : null;
+      const guidanceRow = before.guidance
+        ? await ctx.db.get(before.guidance._id)
+        : null;
+      const buildSubmilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", before.proposalSubmilestone._id),
+        )
+        .unique();
+      const buildMilestone = buildSubmilestone
+        ? await ctx.db.get(buildSubmilestone.buildMilestoneId)
+        : null;
+      const plannedDraws = await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build", (query: any) => query.eq("buildId", closing.buildId))
+        .collect();
+      const evidenceAssets = await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (query: any) => query.eq("buildId", closing.buildId))
+        .collect();
+      return {
+        buildMilestone,
+        buildSubmilestone,
+        contract,
+        evidenceAssets,
+        guidance: guidanceRow,
+        plannedDraws,
+        revision,
+      };
+    });
+    expect(after.buildMilestone).toMatchObject({
+      budgetCents: 50_000_000,
+      dayEnd: before.proposalMilestone.dayEnd,
+      dayStart: before.proposalMilestone.dayStart,
+      durationDays: before.proposalMilestone.durationDays,
+      key: "foundation",
+      name: "Foundation",
+      planningState: "active",
+      status: "planned",
+    });
+    expect(after.buildSubmilestone).toMatchObject({
+      buildId: closing.buildId,
+      budgetCents: 50_000_000,
+      durationDays: 12,
+      key: "forms",
+      name: "Forms and pour",
+      order: 1,
+      proposalSubmilestoneId: before.proposalSubmilestone._id,
+      planningState: "active",
+      startDay: before.proposalSubmilestone.startDay,
+      status: "planned",
+    });
+    expect(after.buildSubmilestone).not.toHaveProperty(
+      "scopeOfWorkTiptapJson",
+    );
+    expect(after.buildSubmilestone).not.toHaveProperty("actualCostCents");
+    expect(after.buildSubmilestone).not.toHaveProperty("fieldNote");
+    expect(after.buildSubmilestone).not.toHaveProperty("progressPercent");
+    expect(after.buildSubmilestone).not.toHaveProperty(
+      "completionForecastDate",
+    );
+    expect(after.buildSubmilestone).not.toHaveProperty(
+      "evidencePackageRevisionId",
+    );
+    expect(after.buildSubmilestone).not.toHaveProperty("evidenceReviewState");
+    expect(after.buildSubmilestone).not.toHaveProperty("reviewDecisionState");
+    expect(after.buildSubmilestone).not.toHaveProperty("actualStartedAt");
+    expect(after.buildSubmilestone).not.toHaveProperty("completedAt");
+    expect(after.plannedDraws).toHaveLength(before.proposalDraws.length);
+    expect(after.plannedDraws).toEqual(
+      expect.arrayContaining(
+        before.proposalDraws.map((draw: any) =>
+          expect.objectContaining({
+            amountCents: draw.amountCents,
+            drawKey: draw.drawKey,
+            label: draw.label,
+            milestoneKey: draw.milestoneKey,
+            order: draw.order,
+            status: "planned",
+            timingDay: draw.timingDay,
+          }),
+        ),
+      ),
+    );
+    expect(after.evidenceAssets).toEqual([]);
+    expect(after.contract).toMatchObject({
+      _id: before.contract._id,
+      buildId: closing.buildId,
+      buildSubmilestoneId: after.buildSubmilestone._id,
+      effectiveRevisionId: before.revision._id,
+      latestVersion: 1,
+    });
+    expect(after.guidance).toMatchObject({
+      _id: before.guidance._id,
+      buildId: closing.buildId,
+      buildSubmilestoneId: after.buildSubmilestone._id,
+      ...guidance,
+    });
+    expect(after.revision).toMatchObject({
+      _id: before.revision._id,
+      scopeOfWorkTiptapJson: scope,
+      status: "published",
+      version: 1,
+    });
+  });
+
+  test("rejects legacy active-Build Scope writes in execution and planning inputs", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { budgetCents: 20_000_000, key: "forms", name: "Forms", order: 1 },
+      ],
+    });
+    const before = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals
+          .updateActiveBuildSubmilestoneExecution,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          scopeOfWorkTiptapJson: tiptapDocument(
+            "Legacy active execution Scope must be rejected.",
+          ),
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        } as any,
+      ),
+    ).rejects.toThrow(/scopeOfWorkTiptapJson|extra|validator/i);
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          submilestones: [
+            {
+              budgetCents: 20_000_000,
+              durationDays: 10,
+              key: "forms",
+              name: "Forms",
+              order: 1,
+              scopeOfWorkTiptapJson: tiptapDocument(
+                "Legacy active planning Scope must be rejected.",
+              ),
+            },
+          ],
+          workosOrganizationId: ORG,
+        } as any,
+      ),
+    ).rejects.toThrow(/scopeOfWorkTiptapJson|extra|validator/i);
+
+    const after = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+    expect(after).toEqual(before);
+  });
+
+  test("creates canonical Scope and Guidance lineage for new active-Build planning rows", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { budgetCents: 20_000_000, key: "forms", name: "Forms", order: 1 },
+      ],
+    });
+    const submilestones = [
+      {
+        budgetCents: 20_000_000,
+        durationDays: 10,
+        key: "forms",
+        name: "Forms",
+        order: 1,
+      },
+      {
+        budgetCents: 5_000_000,
+        durationDays: 3,
+        key: "drainage",
+        name: "Foundation drainage",
+        order: 2,
+      },
+    ];
+
+    for (let replay = 0; replay < 2; replay += 1) {
+      await admin.mutation(
+        (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          submilestones,
+          workosOrganizationId: ORG,
+        },
+      );
+    }
+
+    const lineage = await admin.run(async (ctx: any) => {
+      const buildSubmilestones = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      const drainage = buildSubmilestones.find(
+        (row: any) => row.key === "drainage" && row.planningState === "active",
+      );
+      if (!drainage) throw new Error("Expected active drainage Sub-milestone.");
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", drainage.proposalSubmilestoneId),
+        )
+        .unique();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", drainage.proposalSubmilestoneId),
+        )
+        .unique();
+      const revisions = contract
+        ? await ctx.db
+            .query("submilestoneScopeRevisions")
+            .withIndex("by_contractId_and_version", (query: any) =>
+              query.eq("contractId", contract._id),
+            )
+            .collect()
+        : [];
+      return { contract, drainage, guidance, revisions };
+    });
+
+    expect(lineage.contract).toMatchObject({
+      activeDraftRevisionId: lineage.revisions[0]?._id,
+      buildId: closing.buildId,
+      buildSubmilestoneId: lineage.drainage._id,
+      latestVersion: 1,
+      proposalSubmilestoneId: lineage.drainage.proposalSubmilestoneId,
+    });
+    expect(lineage.guidance).toMatchObject({
+      buildId: closing.buildId,
+      buildSubmilestoneId: lineage.drainage._id,
+      cameraAnglesTiptapJson: JSON.stringify({
+        content: [{ type: "paragraph" }],
+        type: "doc",
+      }),
+      proposalSubmilestoneId: lineage.drainage.proposalSubmilestoneId,
+      whatToVerifyTiptapJson: JSON.stringify({
+        content: [{ type: "paragraph" }],
+        type: "doc",
+      }),
+    });
+    expect(lineage.revisions).toEqual([
+      expect.objectContaining({
+        scopeOfWorkTiptapJson: JSON.stringify({
+          content: [{ type: "paragraph" }],
+          type: "doc",
+        }),
+        status: "draft",
+        version: 1,
+      }),
+    ]);
+  });
+
+  test("materializes dedicated Scope and Field Guidance owners from a draft package", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Canonical authoring proposal",
+      "17 Canonical Authoring Lane",
+    );
+    const scope = tiptapDocument("Excavate and form to the issued drawings.");
+    const guidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Capture the north and east faces."),
+      whatToVerifyTiptapJson: tiptapDocument("Verify excavation depth and forms."),
+    };
+    const saveArgs = {
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 20_000_000,
+              durationDays: 12,
+              fieldGuidance: guidance,
+              key: "forms",
+              name: "Forms and pour",
+              order: 1,
+              scopeOfWorkTiptapJson: scope,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    };
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      saveArgs,
+    );
+    const firstState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(firstState.scopes).toHaveLength(1);
+    expect(firstState.revisions).toHaveLength(1);
+    expect(firstState.revisions[0]).toMatchObject({
+      scopeOfWorkTiptapJson: scope,
+      status: "draft",
+      version: 1,
+    });
+    expect(firstState.guidance).toHaveLength(1);
+    expect(firstState.guidance[0]).toMatchObject(guidance);
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      saveArgs,
+    );
+    const secondState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(secondState.scopes).toHaveLength(1);
+    expect(secondState.revisions).toHaveLength(1);
+    expect(secondState.guidance).toHaveLength(1);
+    expect(secondState.scopes[0]._id).toBe(firstState.scopes[0]._id);
+    expect(secondState.revisions[0]._id).toBe(firstState.revisions[0]._id);
+    expect(secondState.guidance[0]._id).toBe(firstState.guidance[0]._id);
+    expect(secondState.submilestones[0]._id).toBe(
+      firstState.submilestones[0]._id,
+    );
+  });
+
+  test("publishes non-empty v1 Scope drafts atomically with submission and skips empty optional Scope", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Scope submission proposal",
+      "19 Scope Submission Lane",
+    );
+    const scope = tiptapDocument("Complete the concrete foundation work.");
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                key: "concrete",
+                name: "Concrete",
+                order: 1,
+                scopeOfWorkTiptapJson: scope,
+              },
+              {
+                key: "inspection",
+                name: "Inspection",
+                order: 2,
+                scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              },
+              {
+                key: "cleanup",
+                name: "Cleanup",
+                order: 3,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const snapshotId = await submitProposalForTest(t, proposalId);
+    expect(snapshotId).toBeTruthy();
+    const state = await t.run(async (ctx: any) => ({
+      audits: await ctx.db.query("auditEvents").collect(),
+      contracts: await ctx.db.query("submilestoneScopeContracts").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      proposal: await ctx.db.get(proposalId),
+    }));
+    expect(state.proposal?.status).toBe("submitted");
+    expect(state.contracts).toHaveLength(3);
+    const published = state.revisions.find(
+      (revision: any) => revision.scopeOfWorkTiptapJson === scope,
+    );
+    const empty = state.revisions.filter(
+      (revision: any) =>
+        revision.scopeOfWorkTiptapJson === EMPTY_TIPTAP_DOCUMENT,
+    );
+    expect(published).toMatchObject({ status: "published", version: 1 });
+    expect(empty).toHaveLength(2);
+    expect(empty).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "draft", version: 1 }),
+        expect.objectContaining({ status: "draft", version: 1 }),
+      ]),
+    );
+    const publishedContract = state.contracts.find(
+      (contract: any) => contract.effectiveRevisionId === published?._id,
+    );
+    expect(publishedContract?.activeDraftRevisionId).toBeUndefined();
+    const emptyRevisionIds = new Set(empty.map((revision: any) => revision._id));
+    const emptyContracts = state.contracts.filter(
+      (contract: any) => emptyRevisionIds.has(contract.activeDraftRevisionId),
+    );
+    expect(emptyContracts).toHaveLength(2);
+    expect(
+      emptyContracts.every(
+        (contract: any) => contract.effectiveRevisionId === undefined,
+      ),
+    ).toBe(true);
+    expect(
+      state.audits.filter(
+        (audit: any) =>
+          audit.eventType === "submilestone_scope_revision.published",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        command: "publishSubmilestoneScopeRevision",
+        entityId: String(published?._id),
+        entityType: "submilestoneScopeRevision",
+        newState: expect.any(String),
+        priorState: expect.any(String),
+        warnings: [],
+      }),
+    ]);
+  });
+
+  test("keeps an empty v1 unpublished until post-submission borrower acknowledgement", async () => {
+    const {
+      base,
+      brokerageId,
+      builderProfileId,
+      proposalId,
+      t,
+    } = await directAdminProposalFixture(
+      "Post-submission Scope proposal",
+      "21 Post-submission Scope Lane",
+    );
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                key: "inspection",
+                name: "Inspection",
+                order: 1,
+                scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await submitProposalForTest(t, proposalId);
+    const initial = await t.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      return { contract, revision };
+    });
+    expect(initial.contract).toBeTruthy();
+    expect(initial.revision).toMatchObject({ status: "draft", version: 1 });
+
+    const revisionId = initial.revision._id;
+    await t.mutation(
+      (api as any).submilestone_scope_contracts.saveSubmilestoneScopeDraft,
+      {
+        revisionId,
+        scopeOfWorkTiptapJson: tiptapDocument(
+          "Complete the inspection against the issued drawings.",
+        ),
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).submilestone_scope_contracts
+        .publishSubmilestoneScopeRevision,
+      { revisionId, workosOrganizationId: ORG },
+    );
+    const publishedBeforeAck = await t.run(async (ctx: any) => {
+      const revision = await ctx.db.get(revisionId);
+      const contract = revision ? await ctx.db.get(revision.contractId) : null;
+      return { contract, revision };
+    });
+    expect(publishedBeforeAck.revision).toMatchObject({
+      _id: revisionId,
+      status: "published",
+      version: 1,
+    });
+    expect(publishedBeforeAck.contract?.effectiveRevisionId).toBeUndefined();
+
+    await base.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId,
+        builderProfileId,
+        createdAt: now,
+        role: "owner",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_builder",
+      });
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const acknowledgement = await builder.mutation(
+      (api as any).submilestone_scope_contracts
+        .acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "post-submission-scope-ack-001",
+        revisionId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(acknowledgement.effectiveRevisionId).toBe(revisionId);
+    const effectiveContract = await t.run(async (ctx: any) => {
+      const revision = await ctx.db.get(revisionId);
+      return revision ? await ctx.db.get(revision.contractId) : null;
+    });
+    expect(effectiveContract?.effectiveRevisionId).toBe(revisionId);
+  });
+
+  test("does not make a v1 effective when re-submitting a previously submitted draft", async () => {
+    const {
+      base,
+      brokerageId,
+      builderProfileId,
+      proposalId,
+      t,
+    } = await directAdminProposalFixture(
+      "Resubmitted Scope proposal",
+      "22 Resubmitted Scope Lane",
+    );
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                key: "inspection",
+                name: "Inspection",
+                order: 1,
+                scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.requestChanges, {
+      proposalId,
+      reason: "Return the proposal for a scope correction.",
+      workosOrganizationId: ORG,
+    });
+
+    const initial = await t.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      const proposal = await ctx.db.get(proposalId);
+      return { contract, proposal, revision };
+    });
+    expect(initial.proposal).toMatchObject({
+      status: "draft",
+      submittedAt: expect.any(Number),
+    });
+    expect(initial.revision).toMatchObject({ status: "draft", version: 1 });
+    const revisionId = initial.revision._id;
+
+    await t.mutation(
+      (api as any).submilestone_scope_contracts.saveSubmilestoneScopeDraft,
+      {
+        revisionId,
+        scopeOfWorkTiptapJson: tiptapDocument(
+          "Complete the inspection against the issued drawings.",
+        ),
+        workosOrganizationId: ORG,
+      },
+    );
+    await submitProposalForTest(t, proposalId);
+
+    const afterResubmission = await t.run(async (ctx: any) => {
+      const revision = await ctx.db.get(revisionId);
+      const contract = revision ? await ctx.db.get(revision.contractId) : null;
+      const proposal = await ctx.db.get(proposalId);
+      return { contract, proposal, revision };
+    });
+    expect(afterResubmission.proposal).toMatchObject({ status: "submitted" });
+    expect(afterResubmission.revision).toMatchObject({
+      _id: revisionId,
+      status: "published",
+      version: 1,
+    });
+    expect(afterResubmission.contract?.effectiveRevisionId).toBeUndefined();
+
+    await base.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId,
+        builderProfileId,
+        createdAt: now,
+        role: "owner",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_builder",
+      });
+      await ctx.db.patch(proposalId, { status: "approved", updatedAt: now });
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const lenderAdmin = withIdentity(
+      base,
+      ["principle-broker"],
+      "user_principle_broker",
+    );
+    const acknowledgement = await builder.mutation(
+      (api as any).submilestone_scope_contracts
+        .acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "resubmitted-scope-ack-001",
+        revisionId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(acknowledgement.effectiveRevisionId).toBeNull();
+
+    const approval = await lenderAdmin.mutation(
+      (api as any).submilestone_scope_contracts
+        .approveSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "resubmitted-scope-approval-001",
+        revisionId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(approval.effectiveRevisionId).toBe(revisionId);
+  });
+
+  test("removes abandoned draft Scope and Guidance while preserving same-key lineage IDs", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Draft Scope removal proposal",
+      "23 Draft Scope Removal Lane",
+    );
+    const keepScope = tiptapDocument("Keep the foundation forms aligned.");
+    const removeScope = tiptapDocument("Remove this abandoned excavation scope.");
+    const keepGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Capture the kept forms from two angles."),
+      whatToVerifyTiptapJson: tiptapDocument("Verify the kept forms before the pour."),
+    };
+    const removeGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Capture the abandoned excavation."),
+      whatToVerifyTiptapJson: tiptapDocument("Verify the abandoned excavation."),
+    };
+    const packageArgs = (submilestones: Array<Record<string, unknown>>) => ({
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones,
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs([
+        {
+          budgetCents: 20_000_000,
+          fieldGuidance: keepGuidance,
+          key: "keep",
+          name: "Keep this sub-milestone",
+          order: 1,
+          scopeOfWorkTiptapJson: keepScope,
+        },
+        {
+          budgetCents: 30_000_000,
+          fieldGuidance: removeGuidance,
+          key: "remove",
+          name: "Remove this sub-milestone",
+          order: 2,
+          scopeOfWorkTiptapJson: removeScope,
+        },
+      ]),
+    );
+    const firstState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    const firstKeep = firstState.submilestones.find(
+      (row: any) => row.key === "keep",
+    );
+    const firstRemove = firstState.submilestones.find(
+      (row: any) => row.key === "remove",
+    );
+    const firstKeepScope = firstState.scopes.find(
+      (row: any) => row.proposalSubmilestoneId === firstKeep?._id,
+    );
+    const firstRemoveScope = firstState.scopes.find(
+      (row: any) => row.proposalSubmilestoneId === firstRemove?._id,
+    );
+    const firstKeepRevision = firstState.revisions.find(
+      (row: any) => row.contractId === firstKeepScope?._id,
+    );
+    const firstRemoveRevision = firstState.revisions.find(
+      (row: any) => row.contractId === firstRemoveScope?._id,
+    );
+    const firstKeepGuidance = firstState.guidance.find(
+      (row: any) => row.proposalSubmilestoneId === firstKeep?._id,
+    );
+    const firstRemoveGuidance = firstState.guidance.find(
+      (row: any) => row.proposalSubmilestoneId === firstRemove?._id,
+    );
+    expect(firstKeep).toBeTruthy();
+    expect(firstRemove).toBeTruthy();
+    expect(firstKeepScope).toBeTruthy();
+    expect(firstRemoveScope).toBeTruthy();
+    expect(firstKeepRevision).toMatchObject({ status: "draft", version: 1 });
+    expect(firstRemoveRevision).toMatchObject({ status: "draft", version: 1 });
+    expect(firstKeepGuidance).toBeTruthy();
+    expect(firstRemoveGuidance).toBeTruthy();
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs([
+        {
+          budgetCents: 50_000_000,
+          fieldGuidance: keepGuidance,
+          key: "keep",
+          name: "Keep this sub-milestone",
+          order: 1,
+          scopeOfWorkTiptapJson: keepScope,
+        },
+      ]),
+    );
+    const secondState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(secondState.submilestones).toHaveLength(1);
+    expect(secondState.submilestones[0]).toMatchObject({ key: "keep" });
+    expect(secondState.submilestones[0]._id).toBe(firstKeep._id);
+    expect(secondState.scopes).toHaveLength(1);
+    expect(secondState.scopes[0]._id).toBe(firstKeepScope._id);
+    expect(secondState.scopes[0].proposalSubmilestoneId).toBe(firstKeep._id);
+    expect(secondState.revisions).toHaveLength(1);
+    expect(secondState.revisions[0]._id).toBe(firstKeepRevision._id);
+    expect(secondState.guidance).toHaveLength(1);
+    expect(secondState.guidance[0]._id).toBe(firstKeepGuidance._id);
+    const removedRows = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.get(firstRemoveGuidance._id),
+      revision: await ctx.db.get(firstRemoveRevision._id),
+      scope: await ctx.db.get(firstRemoveScope._id),
+      submilestone: await ctx.db.get(firstRemove._id),
+    }));
+    expect(removedRows).toEqual({
+      guidance: null,
+      revision: null,
+      scope: null,
+      submilestone: null,
+    });
+  });
+
+  test("fails closed when draft package replacement would remove published Scope lineage", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Published Scope removal proposal",
+      "25 Published Scope Removal Lane",
+    );
+    const scope = tiptapDocument("Publish this Scope before replacement.");
+    const packageArgs = (submilestones: Array<Record<string, unknown>>) => ({
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones,
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs([
+        {
+          budgetCents: 50_000_000,
+          key: "published",
+          name: "Published Scope",
+          order: 1,
+          scopeOfWorkTiptapJson: scope,
+        },
+      ]),
+    );
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.requestChanges, {
+      proposalId,
+      reason: "Replace the draft timeline after review.",
+      workosOrganizationId: ORG,
+    });
+    const before = await t.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .unique();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.effectiveRevisionId
+        ? await ctx.db.get(contract.effectiveRevisionId)
+        : null;
+      return { contract, revision, submilestone };
+    });
+    expect(before.revision).toMatchObject({ status: "published", version: 1 });
+    expect(before.contract?.effectiveRevisionId).toBe(before.revision?._id);
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.saveDraftProposalPackage,
+        packageArgs([
+          {
+            budgetCents: 50_000_000,
+            key: "replacement",
+            name: "Replacement Scope",
+            order: 1,
+          },
+        ]),
+      ),
+    ).rejects.toThrow(/Published Scope lineage cannot be removed/);
+
+    const after = await t.run(async (ctx: any) => {
+      const submilestones = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .collect();
+      const contract = await ctx.db.get(before.contract?._id);
+      const revision = await ctx.db.get(before.revision?._id);
+      return { contract, revision, submilestones };
+    });
+    expect(after.submilestones).toEqual([before.submilestone]);
+    expect(after.contract).toEqual(before.contract);
+    expect(after.revision).toEqual(before.revision);
+  });
+
+  test("rejects package Scope and Guidance writes after first submission even when status returns to draft", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Post-submission package write proposal",
+      "27 Post-submission Package Write Lane",
+    );
+    const packageArgs = (submilestone: Record<string, unknown>) => ({
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [submilestone],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs({
+        budgetCents: 50_000_000,
+        key: "inspection",
+        name: "Inspection",
+        order: 1,
+      }),
+    );
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.requestChanges, {
+      proposalId,
+      reason: "Return the package for a lender review correction.",
+      workosOrganizationId: ORG,
+    });
+    const scope = tiptapDocument("Scope must not be written post-submission.");
+    const fieldGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument(
+        "Guidance must not be written post-submission.",
+      ),
+      whatToVerifyTiptapJson: tiptapDocument(
+        "Verification must not be written post-submission.",
+      ),
+    };
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.saveDraftProposalPackage,
+        packageArgs({
+          budgetCents: 50_000_000,
+          fieldGuidance,
+          key: "inspection",
+          name: "Inspection",
+          order: 1,
+          scopeOfWorkTiptapJson: scope,
+        }),
+      ),
+    ).rejects.toThrow(/Scope authoring is unavailable/);
+    const state = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(state.guidance).toHaveLength(1);
+    expect(state.revisions).toEqual([
+      expect.objectContaining({
+        scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+        status: "draft",
+        version: 1,
+      }),
+    ]);
+    expect(state.submilestones).toHaveLength(1);
+    expect("scopeOfWorkTiptapJson" in state.submilestones[0]).toBe(false);
+  });
+
+  test("fails closed instead of inserting a duplicate v1 after a published pointer is cleared", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Cleared Scope pointer proposal",
+      "29 Cleared Scope Pointer Lane",
+    );
+    const scope = tiptapDocument("Published v1 must remain unique.");
+    const packageArgs = {
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 50_000_000,
+              key: "inspection",
+              name: "Inspection",
+              order: 1,
+              scopeOfWorkTiptapJson: scope,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    };
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs,
+    );
+    await submitProposalForTest(t, proposalId);
+    const published = await t.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.effectiveRevisionId
+        ? await ctx.db.get(contract.effectiveRevisionId)
+        : null;
+      await ctx.db.patch(proposalId, {
+        status: "draft",
+        submittedAt: undefined,
+      });
+      if (contract) {
+        await ctx.db.patch(contract._id, {
+          activeDraftRevisionId: undefined,
+          effectiveRevisionId: undefined,
+          latestVersion: 1,
+        });
+      }
+      return { contract, revision };
+    });
+    expect(published.revision).toMatchObject({ status: "published", version: 1 });
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.saveDraftProposalPackage,
+        packageArgs,
+      ),
+    ).rejects.toThrow(/Published Scope revisions cannot be changed/);
+    const state = await t.run(async (ctx: any) => ({
+      contracts: await ctx.db.query("submilestoneScopeContracts").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+    }));
+    expect(state.contracts).toHaveLength(1);
+    expect(state.revisions).toHaveLength(1);
+    expect(state.revisions[0]).toMatchObject({
+      _id: published.revision?._id,
+      scopeOfWorkTiptapJson: scope,
+      status: "published",
+      version: 1,
+    });
+  });
+});
+
+describe("Site Visit Field Guidance snapshots", () => {
+  test("rejects trimmed-empty Sub-milestone keys instead of silently selecting the whole milestone", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms and pour", order: 1 }],
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+        {
+          buildId: closing.buildId,
+          idempotencyKey: "site-visit-guidance-empty-key",
+          milestoneKey: "foundation",
+          requestedDay: 21,
+          submilestoneKeys: ["  "],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/empty Sub-milestone key/i);
+
+    const visits = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+    expect(visits).toHaveLength(0);
+  });
+
+  test("assigns unique deterministic snapshot order when roadmap rows share an order", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { key: "forms", name: "Forms and pour", order: 1 },
+        { key: "excavation", name: "Excavation", order: 1 },
+      ],
+    });
+    const lineage = await admin.run(async (ctx: any) => {
+      const rows = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      return rows.map((row: any) => ({
+        buildSubmilestoneId: row._id,
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+      }));
+    });
+    const guidanceSections = lineage.map((row: any, index: number) => ({
+      ...row,
+      cameraAnglesTiptapJson: tiptapDocument(`Angle ${index}.`),
+      whatToVerifyTiptapJson: tiptapDocument(`Verify ${index}.`),
+    }));
+
+    const visit = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      {
+        buildId: closing.buildId,
+        idempotencyKey: "site-visit-guidance-duplicate-order",
+        milestoneKey: "foundation",
+        requestedDay: 21,
+        submilestoneGuidanceSections: guidanceSections,
+        submilestoneKeys: ["forms", "excavation"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const snapshotOrders = await admin.run(async (ctx: any) => {
+      const visitRow = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", visit.visitId))
+        .unique();
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visitRow?._id),
+        )
+        .collect();
+      return sections
+        .sort((left: any, right: any) => left.order - right.order)
+        .map((section: any) => ({
+          key: section.submilestoneKey,
+          order: section.order,
+        }));
+    });
+
+    expect(snapshotOrders.map((section: any) => section.order)).toEqual([1, 2]);
+    expect(snapshotOrders.map((section: any) => section.key)).toEqual([
+      "excavation",
+      "forms",
+    ]);
+  });
+
+  test("assign retries return the original Visit and reject a changed request", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const args = {
+      buildId: closing.buildId,
+      idempotencyKey: "assign-site-visit-retry",
+      milestoneKey: "foundation",
+      note: "Inspect the foundation.",
+      requestedDay: 21,
+      workosOrganizationId: ORG,
+    };
+
+    const first = await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      args,
+    );
+    const replay = await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      args,
+    );
+    expect(replay.visitId).toBe(first.visitId);
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+        args,
+      ),
+    ).rejects.toThrow(/idempotency key/i);
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.assignActiveBuildSiteVisit,
+        { ...args, note: "Changed request must conflict." },
+      ),
+    ).rejects.toThrow(/idempotency key/i);
+
+    const visits = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+    expect(visits).toHaveLength(1);
+  });
+
+  test("replays a schedule row written with the pre-command fingerprint", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms and pour", order: 1 }],
+    });
+    const verification = tiptapDocument("Verify the forms.");
+    const cameraAngles = tiptapDocument("Capture the forms from the east.");
+    const args = {
+      buildId: closing.buildId,
+      idempotencyKey: "schedule-pre-command-replay",
+      milestoneKey: "foundation",
+      requestedDay: 21,
+      submilestoneKeys: ["forms"],
+      submilestoneGuidanceSections: [] as Array<{
+        buildSubmilestoneId: any;
+        proposalSubmilestoneId: any;
+        whatToVerifyTiptapJson: string;
+        cameraAnglesTiptapJson: string;
+      }>,
+      workosOrganizationId: ORG,
+    };
+    const lineage = await admin.run(async (ctx: any) => {
+      const row = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .unique();
+      return {
+        buildSubmilestoneId: row._id,
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+      };
+    });
+    args.submilestoneGuidanceSections = [
+      {
+        ...lineage,
+        cameraAnglesTiptapJson: cameraAngles,
+        whatToVerifyTiptapJson: verification,
+      },
+    ];
+    const first = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      args,
+    );
+    const persisted = await admin.run(async (ctx: any) => {
+      const visit = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", first.visitId))
+        .unique();
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visit._id),
+        )
+        .collect();
+      return { sections, visit };
+    });
+    const legacyFingerprint = await operationalRequestFingerprint({
+      milestoneKey: "foundation",
+      note: null,
+      requestedDay: 21,
+      requestedTime: null,
+      siteVisitGuidance: first.siteVisitGuidance,
+      submilestoneGuidanceSections: persisted.sections
+        .slice()
+        .sort((left: any, right: any) => left.order - right.order)
+        .map((section: any) => ({
+          buildSubmilestoneId: String(section.buildSubmilestoneId),
+          cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+          proposalSubmilestoneId: String(section.proposalSubmilestoneId),
+          whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+        })),
+      submilestoneKeys: ["forms"],
+    });
+    expect(legacyFingerprint).not.toBe(persisted.visit.scheduleRequestFingerprint);
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(persisted.visit._id, {
+        scheduleRequestFingerprint: legacyFingerprint,
+      });
+    });
+
+    const replay = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      args,
+    );
+    expect(replay.visitId).toBe(first.visitId);
+    const visits = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) => query.eq("buildId", closing.buildId))
+        .collect(),
+    );
+    expect(visits).toHaveLength(1);
+  });
+
+  test("returns a dedicated invalid state when Visit guidance snapshots exceed capacity", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms and pour", order: 1 }],
+    });
+    const lineage = await admin.run(async (ctx: any) => {
+      const row = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .unique();
+      return {
+        buildSubmilestoneId: row._id,
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+      };
+    });
+    const visit = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      {
+        buildId: closing.buildId,
+        idempotencyKey: "site-visit-guidance-capacity",
+        milestoneKey: "foundation",
+        requestedDay: 21,
+        submilestoneKeys: ["forms"],
+        submilestoneGuidanceSections: [
+          {
+            ...lineage,
+            cameraAnglesTiptapJson: tiptapDocument("Capture the forms."),
+            whatToVerifyTiptapJson: tiptapDocument("Verify the forms."),
+          },
+        ],
+        workosOrganizationId: ORG,
+      },
+    );
+    const source = await admin.run(async (ctx: any) => {
+      const visitRow = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", visit.visitId))
+        .unique();
+      const section = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visitRow._id),
+        )
+        .unique();
+      return { section, visitRow };
+    });
+    await admin.run(async (ctx: any) => {
+      const { _id, _creationTime, ...snapshot } = source.section;
+      for (let order = 2; order <= 501; order += 1) {
+        await ctx.db.insert("buildSiteVisitGuidanceSections", {
+          ...snapshot,
+          order,
+        });
+      }
+    });
+
+    const state = await admin.query(
+      (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+      { buildId: String(closing.buildId), token: visit.visitId },
+    );
+    expect(state).toMatchObject({
+      available: false,
+      build: expect.any(Object),
+      files: [],
+      reason: "guidance_sections_overflow",
+      status: "invalid",
+      targets: [],
+      visit: null,
+    });
+  });
+
+  test("saves canonical pairs and immutable ordered snapshots atomically", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { key: "forms", name: "Forms and pour", order: 1 },
+        { key: "excavation", name: "Excavation", order: 2 },
+      ],
+    });
+    const lineage = await admin.run(async (ctx: any) => {
+      const buildSubmilestones = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      return buildSubmilestones
+        .sort((left: any, right: any) => left.order - right.order)
+        .map((buildSubmilestone: any) => ({
+          buildSubmilestoneId: buildSubmilestone._id,
+          proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
+        }));
+    });
+    const [forms, excavation] = lineage;
+    const formsVerification = tiptapDocument("Verify the forms.");
+    const formsAngles = tiptapDocument("Capture the forms from the east.");
+    const excavationVerification = tiptapDocument("Verify excavation depth.");
+    const excavationAngles = tiptapDocument("Capture the excavation from north.");
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+        {
+          buildId: closing.buildId,
+          idempotencyKey: "site-visit-guidance-invalid",
+          milestoneKey: "foundation",
+          requestedDay: 21,
+          submilestoneKeys: ["forms", "excavation"],
+          submilestoneGuidanceSections: [
+            {
+              buildSubmilestoneId: forms.buildSubmilestoneId,
+              proposalSubmilestoneId: forms.proposalSubmilestoneId,
+              whatToVerifyTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              cameraAnglesTiptapJson: formsAngles,
+            },
+            {
+              buildSubmilestoneId: excavation.buildSubmilestoneId,
+              proposalSubmilestoneId: excavation.proposalSubmilestoneId,
+              whatToVerifyTiptapJson: excavationVerification,
+              cameraAnglesTiptapJson: excavationAngles,
+            },
+          ],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/whatToVerify|semantic|content|empty/i);
+
+    const beforeValid = await admin.run(async (ctx: any) => ({
+      visits: await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      sections: await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildId", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      guidance: await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", forms.proposalSubmilestoneId),
+        )
+        .unique(),
+    }));
+    expect(beforeValid.visits).toHaveLength(0);
+    expect(beforeValid.sections).toHaveLength(0);
+    expect(beforeValid.guidance).toMatchObject({
+      cameraAnglesTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+      whatToVerifyTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+    });
+
+    const visitArgs = {
+      buildId: closing.buildId,
+      idempotencyKey: "site-visit-guidance-valid",
+      milestoneKey: "foundation",
+      note: "Confirm the ordered guidance package.",
+      requestedDay: 21,
+      submilestoneKeys: ["forms", "excavation"],
+      submilestoneGuidanceSections: [
+        {
+          buildSubmilestoneId: forms.buildSubmilestoneId,
+          proposalSubmilestoneId: forms.proposalSubmilestoneId,
+          whatToVerifyTiptapJson: formsVerification,
+          cameraAnglesTiptapJson: formsAngles,
+        },
+        {
+          buildSubmilestoneId: excavation.buildSubmilestoneId,
+          proposalSubmilestoneId: excavation.proposalSubmilestoneId,
+          whatToVerifyTiptapJson: excavationVerification,
+          cameraAnglesTiptapJson: excavationAngles,
+        },
+      ],
+      workosOrganizationId: ORG,
+    };
+    const visit = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      visitArgs,
+    );
+    const persisted = await admin.run(async (ctx: any) => {
+      const visitRow = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", visit.visitId))
+        .unique();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", forms.proposalSubmilestoneId),
+        )
+        .unique();
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visitRow?._id),
+        )
+        .collect();
+      return { guidance, sections, visitRow };
+    });
+    expect(persisted.guidance).toMatchObject({
+      buildId: closing.buildId,
+      buildSubmilestoneId: forms.buildSubmilestoneId,
+      cameraAnglesTiptapJson: formsAngles,
+      whatToVerifyTiptapJson: formsVerification,
+    });
+    expect(persisted.sections).toEqual([
+      expect.objectContaining({
+        buildSiteVisitId: persisted.visitRow?._id,
+        buildSubmilestoneId: forms.buildSubmilestoneId,
+        cameraAnglesTiptapJson: formsAngles,
+        order: 1,
+        submilestoneKey: "forms",
+        submilestoneName: "Forms and pour",
+        whatToVerifyTiptapJson: formsVerification,
+      }),
+      expect.objectContaining({
+        buildSiteVisitId: persisted.visitRow?._id,
+        buildSubmilestoneId: excavation.buildSubmilestoneId,
+        cameraAnglesTiptapJson: excavationAngles,
+        order: 2,
+        submilestoneKey: "excavation",
+        submilestoneName: "Excavation",
+        whatToVerifyTiptapJson: excavationVerification,
+      }),
+    ]);
+    const updatedAt = persisted.guidance?.updatedAt;
+    const replay = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      visitArgs,
+    );
+    expect(replay.visitId).toBe(visit.visitId);
+    const afterReplay = await admin.run(async (ctx: any) => {
+      const guidance = await ctx.db.get(persisted.guidance!._id);
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", persisted.visitRow?._id),
+        )
+        .collect();
+      return { guidance, sections };
+    });
+    expect(afterReplay.guidance?.updatedAt).toBe(updatedAt);
+    expect(afterReplay.sections).toHaveLength(2);
+
+    await admin.mutation(
+      (api as any).submilestone_field_guidance.saveSubmilestoneFieldGuidance,
+      {
+        proposalSubmilestoneId: forms.proposalSubmilestoneId,
+        whatToVerifyTiptapJson: tiptapDocument("Changed after scheduling."),
+        cameraAnglesTiptapJson: tiptapDocument("New angle after scheduling."),
+        workosOrganizationId: ORG,
+      },
+    );
+    const tokenState = await admin.query(
+      (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+      { buildId: String(closing.buildId), token: visit.visitId },
+    );
+    expect(tokenState.targets[0].guidanceSections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          buildSubmilestoneId: String(forms.buildSubmilestoneId),
+          whatToVerifyTiptapJson: formsVerification,
+          cameraAnglesTiptapJson: formsAngles,
+        }),
+      ]),
+    );
+
+    await admin.run(async (ctx: any) => {
+      const { _creationTime, _id, ...snapshot } = persisted.sections[0];
+      await ctx.db.insert("buildSiteVisitGuidanceSections", {
+        ...snapshot,
+        order: 99,
+        organizationId: "org_other",
+      });
+    });
+    const corruptTokenState = await admin.query(
+      (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+      { buildId: String(closing.buildId), token: visit.visitId },
+    );
+    expect(corruptTokenState).toMatchObject({
+      available: false,
+      reason: "not_found",
+      status: "invalid",
+    });
+  });
+});
+
 describe("recipient delivery inbox", () => {
   test("serves only recipient-scoped deliveries and supports legal read, dismiss, and resolve actions", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
@@ -11825,6 +14860,7 @@ describe("recipient delivery inbox", () => {
         actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        expectedRevision: 0,
         idempotencyKey: "delivery-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
@@ -11869,6 +14905,7 @@ describe("recipient delivery inbox", () => {
         actualCostCents: 30_000_000,
         buildId: closing.buildId,
         completedDay: 21,
+        expectedRevision: 2,
         idempotencyKey: "delivery-completion-resubmit-002",
         milestoneKey: "foundation",
         note: "Footing photos added for review.",

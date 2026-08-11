@@ -17,6 +17,10 @@ import {
   CostDocumentDetailSheet,
 } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
 import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
+import {
+  type BuildSubmilestoneDetailTab,
+  normalizeBuildSubmilestoneDetailTab,
+} from "#/features/build-detail-targets/buildDetailTab.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -26,6 +30,7 @@ interface ContractorBuildSearch {
   costBatch?: string;
   costDocument?: string;
   costDocumentDraft?: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
 }
 
@@ -38,9 +43,11 @@ export const Route = createFileRoute("/contractor/builds/$buildId")({
       typeof search.assignmentId === "string" ? search.assignmentId : undefined;
     const costDocumentSearch = normalizeCostDocumentSearch(search);
     const focus = normalizeBuildCollaborationFocus(search.focus);
+    const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
     return {
       ...(assignmentId ? { assignmentId } : {}),
       ...costDocumentSearch,
+      ...(detailTab ? { detailTab } : {}),
       ...(focus ? { focus } : {}),
     };
   },
@@ -66,6 +73,7 @@ interface ContractorScope {
   submilestoneKey: string | null;
   submilestoneName: string | null;
   workStatus: "complete" | "in_progress" | "planned" | null;
+  workflowRevision?: number;
 }
 
 interface ContractorPermitDocument {
@@ -79,8 +87,14 @@ interface ContractorPermitDocument {
  */
 function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
-  const { assignmentId, costBatch, costDocument, costDocumentDraft, focus } =
-    Route.useSearch();
+  const {
+    assignmentId,
+    costBatch,
+    costDocument,
+    costDocumentDraft,
+    detailTab,
+    focus,
+  } = Route.useSearch();
   const navigate = useNavigate();
   const routeContext = Route.useRouteContext();
   const participationScope = useQuery(
@@ -89,7 +103,7 @@ function ContractorBuildDetail() {
       buildId: buildId as Id<"activeBuilds">,
       organizationId: routeContext.organizationId ?? undefined,
       workspaceRole: "contractor",
-    }
+    },
   );
   const hasLegacyContractorProfile =
     participationScope?.legacyContractorProfileLinked === true;
@@ -99,19 +113,19 @@ function ContractorBuildDetail() {
       ? {
           buildId: buildId as Id<"activeBuilds">,
         }
-      : "skip"
+      : "skip",
   );
   const acknowledge = useMutation(
-    api.contractorEvidence.acknowledgeContractorAssignment
+    api.contractorEvidence.acknowledgeContractorAssignment,
   );
   const requestClarification = useMutation(
-    api.contractorEvidence.requestContractorScopeClarification
+    api.contractorEvidence.requestContractorScopeClarification,
   );
   const disputeScope = useMutation(
-    api.contractorEvidence.flagContractorScopeMismatch
+    api.contractorEvidence.flagContractorScopeMismatch,
   );
   const startAssignedSubmilestone = useMutation(
-    api.contractorWorkspace.startAssignedSubmilestone
+    api.contractorWorkspace.startAssignedSubmilestone,
   );
   const [response, setResponse] = useState<{
     assignmentId: string;
@@ -157,6 +171,7 @@ function ContractorBuildDetail() {
       <ContractorCollaborationSurface
         buildId={buildId}
         buildName={participationScope.buildName}
+        detailTab={detailTab}
         focus={focus}
         organizationId={participationScope.organizationId}
       />
@@ -201,6 +216,7 @@ function ContractorBuildDetail() {
           </Frame>
           <BuildCollaborationSection
             buildId={buildId}
+            detailTab={detailTab}
             focus={focus}
             organizationId={participationScope.organizationId}
           />
@@ -220,7 +236,7 @@ function ContractorBuildDetail() {
           (scope: ContractorScope) =>
             scope.status === "active" &&
             scope.costDocumentCaptureEligible &&
-            scope.buildSubmilestoneId
+            scope.buildSubmilestoneId,
         )
         .map((scope: ContractorScope) => [
           String(scope.buildSubmilestoneId),
@@ -232,7 +248,7 @@ function ContractorBuildDetail() {
             milestoneKey: scope.milestoneKey,
             milestoneName: scope.milestoneName,
           },
-        ])
+        ]),
     ).values(),
   ];
 
@@ -251,7 +267,7 @@ function ContractorBuildDetail() {
       toast.success("Assignment acknowledged.");
     } catch {
       setErrorMessage(
-        "We could not acknowledge this assignment. Retry or contact the Builder."
+        "We could not acknowledge this assignment. Retry or contact the Builder.",
       );
     } finally {
       setPendingAction(null);
@@ -265,7 +281,7 @@ function ContractorBuildDetail() {
     const summary = responseText.trim();
     if (!summary) {
       setErrorMessage(
-        "Describe the clarification or scope concern before sending."
+        "Describe the clarification or scope concern before sending.",
       );
       return;
     }
@@ -290,13 +306,13 @@ function ContractorBuildDetail() {
       toast.success(
         response.kind === "clarification"
           ? "Clarification requested."
-          : "Scope concern sent."
+          : "Scope concern sent.",
       );
       setResponse(null);
       setResponseText("");
     } catch {
       setErrorMessage(
-        "We could not send this response. Retry or contact the Builder."
+        "We could not send this response. Retry or contact the Builder.",
       );
     } finally {
       setPendingAction(null);
@@ -347,7 +363,7 @@ function ContractorBuildDetail() {
                     <li
                       className={cn(
                         "space-y-3 p-4",
-                        selected && "bg-accent/40 ring-2 ring-ring ring-inset"
+                        selected && "bg-accent/40 ring-2 ring-ring ring-inset",
                       )}
                       id={`assignment-${scope.assignmentId}`}
                       key={scope.assignmentId}
@@ -370,12 +386,19 @@ function ContractorBuildDetail() {
                         !scope.actualStartedAt ? (
                           <Button
                             data-testid={`contractor-start-work-${scope.submilestoneKey}`}
-                            onClick={() =>
+                            onClick={() => {
+                              if (scope.workflowRevision === undefined) {
+                                setErrorMessage(
+                                  "Refresh this assigned scope before starting; the canonical workflow revision is unavailable.",
+                                );
+                                return;
+                              }
                               setStartRequest({
                                 request: {
                                   action: "start",
                                   buildName: detail.build.buildName,
                                   dependencyBlockers: scope.dependencyBlockers,
+                                  expectedRevision: scope.workflowRevision,
                                   milestoneKey: scope.milestoneKey,
                                   milestoneName: scope.milestoneName,
                                   plannedStartDate:
@@ -392,8 +415,8 @@ function ContractorBuildDetail() {
                                     undefined,
                                 },
                                 scope,
-                              })
-                            }
+                              });
+                            }}
                             size="sm"
                           >
                             Start work
@@ -523,7 +546,7 @@ function ContractorBuildDetail() {
                         <li className="text-sm" key={doc._id}>
                           {doc.fileName}
                         </li>
-                      )
+                      ),
                     )}
                   </ul>
                 )}
@@ -569,6 +592,7 @@ function ContractorBuildDetail() {
         />
         <BuildCollaborationSection
           buildId={buildId}
+          detailTab={detailTab}
           focus={focus}
           organizationId={participationScope.organizationId}
         />
@@ -583,13 +607,14 @@ function ContractorBuildDetail() {
               !startRequest.scope.submilestoneKey
             ) {
               throw new Error(
-                "A valid assigned submilestone start is required."
+                "A valid assigned submilestone start is required.",
               );
             }
             await startAssignedSubmilestone({
               actualStartedAt: input.actualStartedAt,
               buildId: buildId as Id<"activeBuilds">,
               dependencyOverrideReason: input.dependencyOverrideReason,
+              expectedRevision: input.expectedRevision,
               idempotencyKey: input.idempotencyKey,
               milestoneKey: input.milestoneKey,
               source: input.source as
@@ -738,7 +763,7 @@ function ContractorSubmittedCostDocumentHistory({
   const submittedCostDocuments = usePaginatedQuery(
     api.cost_documents.listCostDocuments,
     { actorCapacity: "contractor", buildId, organizationId } as never,
-    { initialNumItems: 20 }
+    { initialNumItems: 20 },
   );
   const selectedDocument = useQuery(
     api.cost_documents.getCostDocument,
@@ -749,7 +774,7 @@ function ContractorSubmittedCostDocumentHistory({
           costDocumentId,
           organizationId,
         } as never)
-      : "skip"
+      : "skip",
   ) as CostDocumentDetail | null | undefined;
   const ownSubmittedDocuments = submittedCostDocuments.results;
   const submittedDocumentsLoading =
@@ -836,11 +861,13 @@ function ContractorSubmittedCostDocumentHistory({
 function ContractorCollaborationSurface({
   buildId,
   buildName,
+  detailTab,
   focus,
   organizationId,
 }: {
   buildId: string;
   buildName: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   organizationId: string;
 }) {
@@ -855,6 +882,7 @@ function ContractorCollaborationSurface({
         </header>
         <BuildCollaborationSection
           buildId={buildId}
+          detailTab={detailTab}
           focus={focus}
           organizationId={organizationId}
         />
@@ -865,10 +893,12 @@ function ContractorCollaborationSurface({
 
 function BuildCollaborationSection({
   buildId,
+  detailTab,
   focus,
   organizationId,
 }: {
   buildId: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   organizationId: string;
 }) {
@@ -882,8 +912,10 @@ function BuildCollaborationSection({
       </h2>
       <BuildCollaborationWorkspace
         buildId={buildId}
+        detailTab={detailTab}
         focusedReference={focus}
         organizationId={organizationId}
+        viewerCapacity="contractor"
       />
     </section>
   );

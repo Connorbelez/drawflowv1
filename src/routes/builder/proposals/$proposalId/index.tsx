@@ -37,6 +37,7 @@ import {
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../../../convex/build_collaboration_model";
 
 export type BuilderProposalSearch = {
   tab?: ProductionReviewTab;
@@ -136,6 +137,7 @@ function BuilderProductionProposalRoute() {
       proposalId={proposalId}
       routeBase="/builder"
       search={search}
+      viewerCapacity="builder"
       workosOrganizationId={context.organizationId as string}
     />
   );
@@ -146,12 +148,14 @@ export function BuilderProductionProposalWorkspace({
   proposalId,
   routeBase,
   search,
+  viewerCapacity = routeBase === "/builder-staff" ? "builder-staff" : "builder",
   workosOrganizationId,
 }: {
   includeStaffTab: boolean;
   proposalId: string;
   routeBase: "/builder" | "/builder-staff";
   search: BuilderProposalSearch;
+  viewerCapacity?: BuildCollaborationRole;
   workosOrganizationId: string;
 }) {
   const navigate = useNavigate();
@@ -474,6 +478,8 @@ export function BuilderProductionProposalWorkspace({
           materialPlanningActions={materialPlanningActions}
           persistenceMode={proposalEditorPersistenceMode}
           proposalId={typedProposalId}
+          scopeRoute="builder-proposal"
+          viewerCapacity={viewerCapacity}
           showHeading
           templateTitle={detail.proposal.buildName}
           workosOrganizationId={workosOrganizationId}

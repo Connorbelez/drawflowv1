@@ -156,6 +156,7 @@ const detail = {
       submilestoneKey: "forms",
       submilestoneName: "Set forms",
       workStatus: "planned",
+      workflowRevision: 3,
     },
   ],
   build: {
@@ -607,6 +608,7 @@ describe("ContractorBuildDetail", () => {
         expect.objectContaining({
           actualStartedAt: expect.any(Number),
           buildId: "active_build_01",
+          expectedRevision: 3,
           idempotencyKey: expect.any(String),
           milestoneKey: "foundation",
           source: "submilestone_detail",

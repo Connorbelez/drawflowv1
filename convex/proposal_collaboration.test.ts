@@ -5,7 +5,7 @@ import timelineComponent from "convex-timeline/test";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import {
   captureProposalPlanningSnapshot,
   restoreProposalPlanningSnapshot,
@@ -55,44 +55,53 @@ async function seeded() {
     (api as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORG },
   );
-  await admin.run(async (ctx: any) => {
-    const now = Date.now();
-    for (const row of [
-      { roles: ["builder-staff"], subject: "user_builder_staff" },
-      { roles: ["broker"], subject: "user_broker" },
-      { roles: ["broker-staff"], subject: "user_broker_staff" },
-      { roles: ["principle-broker"], subject: "user_principle_broker" },
-      { roles: ["contractor"], subject: "user_contractor" },
-      { roles: ["member"], subject: "user_member" },
-      { roles: ["builder"], subject: "user_inactive_builder", status: "inactive" },
-      { roles: ["builder"], subject: "user_other_org_builder", org: OTHER_ORG },
-      { roles: ["builder"], subject: "user_assignee_builder" },
-    ]) {
-      await ctx.db.insert("users", {
-        authId: row.subject,
+
+  // WorkOS projection tables are webhook-owned.  Seed the additional
+  // collaboration identities through the same internal webhook entrypoint
+  // used by WorkOS projection tests instead of writing users or memberships
+  // directly from this product-flow fixture.
+  const now = new Date().toISOString();
+  for (const row of [
+    { roles: ["builder-staff"], subject: "user_builder_staff" },
+    { roles: ["broker-staff"], subject: "user_broker_staff" },
+    { roles: ["principle-broker"], subject: "user_principle_broker" },
+    { roles: ["contractor"], subject: "user_contractor" },
+    { roles: ["member"], subject: "user_member" },
+    { roles: ["builder"], subject: "user_inactive_builder", status: "inactive" },
+    { roles: ["builder"], subject: "user_other_org_builder", org: OTHER_ORG },
+    { roles: ["builder"], subject: "user_assignee_builder" },
+  ]) {
+    await base.mutation(internal.auth.authKitEvent, {
+      data: {
         createdAt: now,
         email: `${row.subject}@example.com`,
-        name: row.subject,
-        sourceEventId: `seed_${row.subject}`,
-        sourceEventType: "proposal_collaboration.test",
-        status: "active",
+        emailVerified: true,
+        firstName: row.subject,
+        id: row.subject,
+        profilePictureUrl: null,
         updatedAt: now,
-        workosUserId: row.subject,
-      });
-      await ctx.db.insert("workosOrganizationMemberships", {
+      },
+      event: "user.created",
+    });
+    await base.mutation(internal.auth.authKitEvent, {
+      data: {
         createdAt: now,
-        roleSlug: row.roles[0],
-        roleSlugs: row.roles,
-        sourceEventId: `seed_membership_${row.subject}`,
-        sourceEventType: "proposal_collaboration.test",
+        directoryManaged: false,
+        id: `membership_${row.subject}`,
+        object: "organization_membership",
+        organizationId: row.org ?? ORG,
+        role: { slug: row.roles[0] },
+        roles: row.roles.map((slug) => ({ slug })),
         status: row.status ?? "active",
         updatedAt: now,
-        workosMembershipId: `membership_${row.subject}`,
-        workosOrganizationId: row.org ?? ORG,
-        workosUserId: row.subject,
-      });
-    }
+        userId: row.subject,
+      },
+      event: "organization_membership.created",
+    });
+  }
 
+  await admin.run(async (ctx: any) => {
+    const now = Date.now();
     const assigneeProfileId = await ctx.db.insert("builderProfiles", {
       brokerageId: seed.brokerageId,
       createdAt: now,
@@ -617,6 +626,53 @@ describe("proposal collaboration", () => {
   test("undo and redo restore deterministic planning snapshots and append audit events", async () => {
     const { base, admin, seed } = await seeded();
     const proposalId = await createDraftProposal(admin, seed);
+    const canonicalScope = JSON.stringify({
+      content: [
+        {
+          content: [{ text: "Preserved collaboration Scope.", type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    const canonicalGuidance = JSON.stringify({
+      content: [
+        {
+          content: [
+            { text: "Preserved collaboration Guidance.", type: "text" },
+          ],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    await admin.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .first();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      await ctx.db.patch(contract.activeDraftRevisionId, {
+        scopeOfWorkTiptapJson: canonicalScope,
+      });
+      await ctx.db.patch(guidance._id, {
+        cameraAnglesTiptapJson: canonicalGuidance,
+        whatToVerifyTiptapJson: canonicalGuidance,
+      });
+    });
     const broker = asRole(base, ["broker"], "user_broker");
     const session = await broker.mutation(
       (api as any).proposal_collaboration.startSession,
@@ -686,6 +742,62 @@ describe("proposal collaboration", () => {
       { proposalId, workosOrganizationId: ORG },
     );
     expect(redone.milestones[0].budgetCents).toBe(52_000_000);
+    const canonicalState = await admin.run(async (ctx: any) => {
+      const submilestones = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .collect();
+      const contracts = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .collect();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .collect();
+      const revisions = await ctx.db
+        .query("submilestoneScopeRevisions")
+        .collect();
+      return { contracts, guidance, revisions, submilestones };
+    });
+    const submilestoneIds = new Set(
+      canonicalState.submilestones.map((row: any) => row._id),
+    );
+    expect(canonicalState.contracts).toHaveLength(
+      canonicalState.submilestones.length,
+    );
+    expect(canonicalState.guidance).toHaveLength(
+      canonicalState.submilestones.length,
+    );
+    expect(
+      canonicalState.contracts.every((row: any) =>
+        submilestoneIds.has(row.proposalSubmilestoneId),
+      ),
+    ).toBe(true);
+    expect(
+      canonicalState.guidance.every((row: any) =>
+        submilestoneIds.has(row.proposalSubmilestoneId),
+      ),
+    ).toBe(true);
+    expect(canonicalState.revisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scopeOfWorkTiptapJson: canonicalScope }),
+      ]),
+    );
+    expect(canonicalState.guidance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cameraAnglesTiptapJson: canonicalGuidance,
+          whatToVerifyTiptapJson: canonicalGuidance,
+        }),
+      ]),
+    );
 
     const historyStatus = await broker.query(
       (api as any).proposal_collaboration.getTimelineHistoryStatus,
@@ -702,6 +814,227 @@ describe("proposal collaboration", () => {
         "proposal.timeline.redo",
       ]),
     );
+  });
+
+  test("captures a detached v1 Scope draft and fails closed on corrupt content", async () => {
+    const { admin, seed } = await seeded();
+    const proposalId = await createDraftProposal(admin, seed);
+    const canonicalScope = JSON.stringify({
+      content: [
+        {
+          content: [{ text: "Detached Scope content.", type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    const detached = await admin.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      if (!contract?.activeDraftRevisionId) {
+        throw new Error("Missing seeded v1 Scope draft.");
+      }
+      const revisionId = contract.activeDraftRevisionId;
+      await ctx.db.patch(revisionId, {
+        scopeOfWorkTiptapJson: canonicalScope,
+      });
+      await ctx.db.patch(contract._id, { activeDraftRevisionId: undefined });
+      return { revisionId };
+    });
+
+    const captured = await admin.run((ctx: any) =>
+      captureProposalPlanningSnapshot(ctx, proposalId),
+    );
+    expect(captured.milestones[0]?.submilestones[0]?.scopeOfWorkTiptapJson).toBe(
+      canonicalScope,
+    );
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(detached.revisionId, {
+        scopeOfWorkTiptapJson: "not-valid-tiptap-json",
+      });
+    });
+    await expect(
+      admin.run((ctx: any) => captureProposalPlanningSnapshot(ctx, proposalId)),
+    ).rejects.toThrow(/Scope content|lineage/i);
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.delete(detached.revisionId);
+    });
+    await expect(
+      admin.run((ctx: any) => captureProposalPlanningSnapshot(ctx, proposalId)),
+    ).rejects.toThrow(/Scope content|lineage/i);
+  });
+
+  test("omits absent canonical Sub-milestone fields from snapshots", async () => {
+    const { admin, seed } = await seeded();
+    const proposalId = await createDraftProposal(admin, seed);
+    const canonical = await admin.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .unique();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      const revision = contract.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      if (!revision || !guidance) {
+        throw new Error("Missing canonical Sub-milestone fixture.");
+      }
+      return {
+        contractId: contract._id,
+        fieldGuidance: {
+          cameraAnglesTiptapJson: guidance.cameraAnglesTiptapJson,
+          whatToVerifyTiptapJson: guidance.whatToVerifyTiptapJson,
+        },
+        guidanceId: guidance._id,
+        revisionId: revision._id,
+        scopeOfWorkTiptapJson: revision.scopeOfWorkTiptapJson,
+      };
+    });
+
+    const populated = await admin.run((ctx: any) =>
+      captureProposalPlanningSnapshot(ctx, proposalId),
+    );
+    const populatedSubmilestone = populated.milestones[0]?.submilestones[0];
+    expect(populatedSubmilestone).toBeDefined();
+    expect(populatedSubmilestone?.fieldGuidance).toEqual(
+      canonical.fieldGuidance,
+    );
+    expect(populatedSubmilestone?.scopeOfWorkTiptapJson).toBe(
+      canonical.scopeOfWorkTiptapJson,
+    );
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.delete(canonical.revisionId);
+      await ctx.db.delete(canonical.contractId);
+      await ctx.db.delete(canonical.guidanceId);
+    });
+
+    const absent = await admin.run((ctx: any) =>
+      captureProposalPlanningSnapshot(ctx, proposalId),
+    );
+    const absentSubmilestone = absent.milestones[0]?.submilestones[0];
+    expect(absentSubmilestone).toBeDefined();
+    expect(
+      Object.prototype.hasOwnProperty.call(absentSubmilestone, "fieldGuidance"),
+    ).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        absentSubmilestone,
+        "scopeOfWorkTiptapJson",
+      ),
+    ).toBe(false);
+  });
+
+  test("rejects duplicate Field Guidance owners before snapshot map construction", async () => {
+    const { admin, seed } = await seeded();
+    const proposalId = await createDraftProposal(admin, seed);
+
+    await admin.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .unique();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      if (!proposal || !submilestone || !guidance) {
+        throw new Error("Missing duplicate Field Guidance test fixture.");
+      }
+
+      await ctx.db.insert("submilestoneFieldGuidance", {
+        brokerageId: proposal.brokerageId,
+        cameraAnglesTiptapJson: guidance.cameraAnglesTiptapJson,
+        createdAt: Date.now(),
+        organizationId: proposal.organizationId,
+        proposalId,
+        proposalSubmilestoneId: submilestone._id,
+        updatedAt: Date.now(),
+        updatedByWorkosUserId: "user_admin",
+        whatToVerifyTiptapJson: guidance.whatToVerifyTiptapJson,
+      });
+    });
+
+    await expect(
+      admin.run((ctx: any) =>
+        captureProposalPlanningSnapshot(ctx, proposalId),
+      ),
+    ).rejects.toThrow("Proposal draft Field Guidance lineage is unavailable.");
+  });
+
+  test("disables and rejects undo/redo after proposal submission", async () => {
+    const { base, admin, seed } = await seeded();
+    const proposalId = await createDraftProposal(admin, seed);
+    const broker = asRole(base, ["broker"], "user_broker");
+    const session = await broker.mutation(
+      (api as any).proposal_collaboration.startSession,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    await admin.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    await expect(
+      broker.query((api as any).proposal_collaboration.getTimelineHistoryStatus, {
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ canRedo: false, canUndo: false });
+    for (const command of ["undoProposalTimeline", "redoProposalTimeline"] as const) {
+      await expect(
+        broker.mutation((api as any).proposal_collaboration[command], {
+          proposalId,
+          reason: `Reject ${command} after submission.`,
+          sessionId: session.sessionId,
+          workosOrganizationId: ORG,
+        }),
+      ).rejects.toThrow(/only available for proposal planning edits/i);
+    }
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(proposalId, { status: "draft" });
+    });
+    await expect(
+      broker.query((api as any).proposal_collaboration.getTimelineHistoryStatus, {
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ canRedo: false, canUndo: false });
+    for (const command of ["undoProposalTimeline", "redoProposalTimeline"] as const) {
+      await expect(
+        broker.mutation((api as any).proposal_collaboration[command], {
+          proposalId,
+          reason: `Reject ${command} after a requested-changes transition.`,
+          sessionId: session.sessionId,
+          workosOrganizationId: ORG,
+        }),
+      ).rejects.toThrow(/only available for proposal planning edits/i);
+    }
   });
 
   test("legacy planning snapshots preserve cost items during restore", async () => {
@@ -753,6 +1086,131 @@ describe("proposal collaboration", () => {
           milestone._id === restored.costItems[0].proposalMilestoneId,
       ),
     ).toBe(true);
+  });
+
+  test("legacy planning snapshots preserve canonical bytes by stable keys", async () => {
+    const { admin, seed } = await seeded();
+    const proposalId = await createDraftProposal(admin, seed);
+    const scopeBytes = `{
+  "type": "doc",
+  "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "  Scope bytes  " }] }]
+}`;
+    const cameraAnglesBytes = `{
+  "type": "doc",
+  "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Camera bytes" }] }]
+}`;
+    const whatToVerifyBytes = `{
+  "type": "doc",
+  "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Verify bytes" }] }]
+}`;
+    const readCanonicalBytes = () =>
+      admin.run(async (ctx: any) => {
+        const submilestone = await ctx.db
+          .query("proposalSubmilestones")
+          .withIndex("by_proposal", (query: any) =>
+            query.eq("proposalId", proposalId),
+          )
+          .unique();
+        const contract = await ctx.db
+          .query("submilestoneScopeContracts")
+          .withIndex("by_proposalSubmilestoneId", (query: any) =>
+            query.eq("proposalSubmilestoneId", submilestone._id),
+          )
+          .unique();
+        const revision = await ctx.db.get(contract.activeDraftRevisionId);
+        const guidance = await ctx.db
+          .query("submilestoneFieldGuidance")
+          .withIndex("by_proposalSubmilestoneId", (query: any) =>
+            query.eq("proposalSubmilestoneId", submilestone._id),
+          )
+          .unique();
+        return {
+          cameraAnglesTiptapJson: guidance.cameraAnglesTiptapJson,
+          scopeOfWorkTiptapJson: revision.scopeOfWorkTiptapJson,
+          whatToVerifyTiptapJson: guidance.whatToVerifyTiptapJson,
+        };
+      });
+    const restore = (snapshot: any) =>
+      admin.run(async (ctx: any) => {
+        const proposal = await ctx.db.get(proposalId);
+        const brokerage = await ctx.db.get(seed.brokerageId);
+        if (!proposal || !brokerage) {
+          throw new Error("Missing legacy restore proposal fixture.");
+        }
+        await restoreProposalPlanningSnapshot(
+          ctx,
+          { brokerage, proposal, subject: "user_admin" },
+          snapshot,
+        );
+      });
+    await admin.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .unique();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      await ctx.db.patch(contract.activeDraftRevisionId, {
+        scopeOfWorkTiptapJson: scopeBytes,
+      });
+      await ctx.db.patch(guidance._id, {
+        cameraAnglesTiptapJson: cameraAnglesBytes,
+        whatToVerifyTiptapJson: whatToVerifyBytes,
+      });
+    });
+
+    const captured = await admin.run((ctx: any) =>
+      captureProposalPlanningSnapshot(ctx, proposalId),
+    );
+    const legacySnapshot = JSON.parse(JSON.stringify(captured)) as typeof captured;
+    const legacySubmilestone = legacySnapshot.milestones[0]?.submilestones[0];
+    if (!legacySubmilestone) {
+      throw new Error("Missing legacy restore Sub-milestone fixture.");
+    }
+    delete legacySubmilestone.scopeOfWorkTiptapJson;
+    delete legacySubmilestone.fieldGuidance;
+    await restore(legacySnapshot);
+    await expect(readCanonicalBytes()).resolves.toEqual({
+      cameraAnglesTiptapJson: cameraAnglesBytes,
+      scopeOfWorkTiptapJson: scopeBytes,
+      whatToVerifyTiptapJson: whatToVerifyBytes,
+    });
+
+    const explicitEmptySnapshot = await admin.run((ctx: any) =>
+      captureProposalPlanningSnapshot(ctx, proposalId),
+    );
+    const explicitEmptySubmilestone =
+      explicitEmptySnapshot.milestones[0]?.submilestones[0];
+    if (!explicitEmptySubmilestone) {
+      throw new Error("Missing explicit empty restore fixture.");
+    }
+    const emptyDocument = JSON.stringify({
+      content: [{ type: "paragraph" }],
+      type: "doc",
+    });
+    explicitEmptySubmilestone.scopeOfWorkTiptapJson = emptyDocument;
+    explicitEmptySubmilestone.fieldGuidance = {
+      cameraAnglesTiptapJson: emptyDocument,
+      whatToVerifyTiptapJson: emptyDocument,
+    };
+    await restore(explicitEmptySnapshot);
+    await expect(readCanonicalBytes()).resolves.toEqual({
+      cameraAnglesTiptapJson: emptyDocument,
+      scopeOfWorkTiptapJson: emptyDocument,
+      whatToVerifyTiptapJson: emptyDocument,
+    });
   });
 
   test("presence data carries collaborator cursor payloads and disconnects cleanly", async () => {

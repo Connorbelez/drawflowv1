@@ -1,5 +1,10 @@
 interface UnavailableState {
-  reason?: "consumed" | "expired" | "not_found" | null;
+  reason?:
+    | "consumed"
+    | "expired"
+    | "guidance_sections_overflow"
+    | "not_found"
+    | null;
   status: "completed" | "expired" | "invalid";
 }
 
@@ -185,6 +190,14 @@ export function resolveSiteVisitUnavailableCopy(state: UnavailableState) {
       canRequestReplacement: true,
       stamp: "TOKEN CONSUMED",
       title: "Site visit already complete",
+    };
+  }
+  if (state.reason === "guidance_sections_overflow") {
+    return {
+      body: "Visit data could not be loaded because its saved guidance sections exceeded the supported limit. Contact the requester for a new link.",
+      canRequestReplacement: false,
+      stamp: "VISIT DATA INVALID",
+      title: "Visit data unavailable",
     };
   }
   return {

@@ -111,6 +111,170 @@ describe("production proposal timeline setup adapter", () => {
     });
   });
 
+  test("preserves canonical Scope and Field Guidance when projecting templates", () => {
+    const scopeOfWorkTiptapJson = '{"type":"doc","content":[]}';
+    const fieldGuidance = {
+      cameraAnglesTiptapJson: '{"type":"doc","content":[]} ',
+      whatToVerifyTiptapJson: '{"type":"doc","content":[]}\n',
+    };
+
+    const templates = productionTemplatesToTimelineSetupTemplates([
+      {
+        milestones: [
+          {
+            durationDays: 7,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            percentageBps: 10_000,
+            submilestones: [
+              {
+                fieldGuidance,
+                key: "footings",
+                name: "Footings",
+                scopeOfWorkTiptapJson,
+              },
+            ],
+          },
+        ],
+        templateKey: "scope-guidance-template",
+        title: "Scope Guidance",
+      },
+    ]);
+
+    expect(templates?.[0]?.rows[0]?.subMilestoneDetails).toEqual([
+      {
+        durationDays: undefined,
+        fieldGuidance,
+        key: "footings",
+        name: "Footings",
+        order: undefined,
+        percentageBps: undefined,
+        scopeOfWorkTiptapJson,
+      },
+    ]);
+  });
+
+  test("keeps canonical Scope and Field Guidance on generated timeline items", () => {
+    const scopeOfWorkTiptapJson = '{"type":"doc","content":[]}';
+    const fieldGuidance = {
+      cameraAnglesTiptapJson: '{"type":"doc","content":[]} ',
+      whatToVerifyTiptapJson: '{"type":"doc","content":[]}\n',
+    };
+    const template: TimelineSetupTemplate = {
+      description: "Scope and guidance",
+      rows: [
+        {
+          dependencyKeys: [],
+          durationDays: 7,
+          icon: "foundation",
+          key: "foundation",
+          name: "Foundation",
+          percentageBps: 10_000,
+          subMilestoneDetails: [
+            {
+              fieldGuidance,
+              key: "footings",
+              name: "Footings",
+              scopeOfWorkTiptapJson,
+            },
+          ],
+          subMilestones: ["Footings"],
+          type: "foundation",
+        },
+      ],
+      summary: "Scope and guidance",
+      templateKey: "scope-guidance",
+      title: "Scope and guidance",
+    };
+    const rows = createRowsFromTemplate(template, 100_000_00);
+    const items = buildTimelineItemsFromSetupRows(rows);
+
+    expect(items[0]?.data.submilestoneDetails?.[0]).toMatchObject({
+      fieldGuidance,
+      scopeOfWorkTiptapJson,
+    });
+  });
+
+  test("carries Scope and Field Guidance as separate exact TipTap payloads", () => {
+    const scopeOfWorkTiptapJson =
+      '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Scope \\u2014 preserve bytes"}]}]}';
+    const fieldGuidance = {
+      cameraAnglesTiptapJson:
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Camera angle"}]}]}',
+      whatToVerifyTiptapJson:
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Verify field condition"}]}]}',
+    };
+
+    const payload = timelineSetupResultToDraftPackage({
+      activeItemId: "foundation",
+      borrowerCoPayBps: 2_000,
+      borrowerCoPayCents: 20_000_00,
+      contractorAssignments: [],
+      costItems: [],
+      currentDay: 0,
+      includedCount: 1,
+      items: [
+        {
+          data: {
+            amount: 100_000,
+            draw: "Draw 1",
+            durationDays: 10,
+            evidence: "Ready",
+            icon: "foundation",
+            name: "Foundation",
+            policy: "Planning",
+            status: "ready",
+            subMilestones: ["Footings"],
+            submilestoneDetails: [
+              {
+                budgetCents: 100_000_00,
+                description: "Legacy shared description must not leak",
+                durationDays: 10,
+                fieldGuidance,
+                key: "footings",
+                name: "Footings",
+                order: 1,
+                scopeOfWorkTiptapJson,
+              },
+            ],
+          },
+          eyebrow: "Milestone 1",
+          id: "foundation",
+          label: "Foundation",
+          markerLabel: "1",
+          tone: "active",
+          x: 0,
+        },
+      ],
+      permitFiles: [],
+      projectAddress: "Hamilton, ON",
+      proposedStartDate: "2025-04-15",
+      redirectToDurableRoute: true,
+      reimbursableBudgetCents: 80_000_00,
+      reimbursementBps: 8_000,
+      startingCash: 400_000,
+      templateKey: "single-family-full-build",
+      templateTitle: "Single Family Full Build",
+      totalBudget: 100_000,
+    });
+
+    expect(payload.milestones[0]?.submilestones).toEqual([
+      {
+        budgetCents: 100_000_00,
+        durationDays: 10,
+        fieldGuidance,
+        key: "footings",
+        name: "Footings",
+        order: 1,
+        scopeOfWorkTiptapJson,
+      },
+    ]);
+    expect(payload.milestones[0]?.submilestones[0]).not.toHaveProperty(
+      "description"
+    );
+  });
+
   test("generates active saved scenario draw rows instead of milestone fallback draws", () => {
     const template: TimelineSetupTemplate = {
       description: "Multiplex",
@@ -371,6 +535,7 @@ describe("production proposal timeline setup adapter", () => {
             submilestoneDetails: [
               {
                 budgetCents: 100_000_00,
+                description: "Excavate and install engineered footing forms.",
                 durationDays: 10,
                 key: "forms",
                 name: "Forms",

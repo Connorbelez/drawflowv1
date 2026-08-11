@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import { normalizeBuildSubmilestoneDetailTab } from "#/features/build-detail-targets/buildDetailTab.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
 import {
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
     const focus = normalizeBuildCollaborationFocus(search.focus);
+    const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
     const rail =
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuilderBuildSearch["rail"])
@@ -41,6 +43,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
         : undefined;
     return {
       ...costDocumentSearch,
+      ...(detailTab ? { detailTab } : {}),
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),

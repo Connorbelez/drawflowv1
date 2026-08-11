@@ -193,6 +193,8 @@ vi.mock(
       actions,
       contractorDetailHrefFor,
       costs,
+      viewerCapacity,
+      viewerRole,
     }: {
       activeTab?: string;
       actions?: {
@@ -220,9 +222,13 @@ vi.mock(
       };
       contractorDetailHrefFor?: (contractorId: string) => string;
       costs?: React.ReactNode;
+      viewerCapacity?: string;
+      viewerRole?: string;
     }) => (
       <div data-testid="production-build-surface">
         <span data-testid="active-build-tab">{activeTab}</span>
+        <span data-testid="viewer-capacity">{viewerCapacity}</span>
+        <span data-testid="viewer-role">{viewerRole}</span>
         {activeTab === "costs" && costs ? (
           <div data-testid="costs-slot-present">{costs}</div>
         ) : null}
@@ -354,6 +360,8 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
 
     expect(screen.getByTestId("production-build-surface")).not.toBeNull();
     expect(screen.getByTestId("active-build-tab").textContent).toBe("costs");
+    expect(screen.getByTestId("viewer-capacity").textContent).toBe("builder");
+    expect(screen.getByTestId("viewer-role").textContent).toBe("builder");
     expect(screen.getByTestId("costs-slot-present")).not.toBeNull();
     expect(
       screen
@@ -412,6 +420,10 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
         .getByTestId("cost-document-batch-workspace")
         .getAttribute("data-actor-capacity")
     ).toBe("builder-staff");
+    expect(screen.getByTestId("viewer-capacity").textContent).toBe(
+      "builder-staff",
+    );
+    expect(screen.getByTestId("viewer-role").textContent).toBe("builder");
   });
 
   test("renders a brokerage Cost ledger without private Builder batch queries when the viewer lacks Build-local Builder capacity", () => {

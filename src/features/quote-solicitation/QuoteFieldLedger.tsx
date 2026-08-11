@@ -72,6 +72,9 @@ type QuoteDraft = ReadableDraftResult["draft"];
 type LifecycleReadResult = FunctionReturnType<
   typeof api.quote_response_submissions.getQuoteInvitationResponseLifecycle
 >;
+type CopiedValuesConfirmationResult = FunctionReturnType<
+  typeof api.quote_response_drafts.confirmCopiedQuoteInvitationResponseDraftValues
+>;
 type ReadableLifecycleResult = LifecycleReadResult & {
   status: "available" | "read_only" | "acknowledgement_required";
 };
@@ -228,6 +231,13 @@ export function QuoteFieldLedger({
   const acknowledgeClaimedRevision = useMutation(
     api.quote_round_lifecycle.acknowledgeClaimedQuoteInvitationPackageRevision
   );
+  const confirmCopiedBrowserValues = useMutation(
+    api.quote_response_drafts.confirmCopiedQuoteInvitationResponseDraftValues
+  );
+  const confirmCopiedClaimedValues = useMutation(
+    api.quote_response_drafts
+      .confirmCopiedClaimedQuoteInvitationResponseDraftValues
+  );
 
   const access = activeRead.access;
 
@@ -236,6 +246,8 @@ export function QuoteFieldLedger({
     lifecycle?.result.draft ??
     lifecycle?.result.currentSubmission ??
     null;
+  const copiedResponseDraft =
+    activeRead.draft ?? lifecycle?.result.draft ?? null;
   const initialState = useMemo(
     () => stateFromResponse(responseLedgerSource),
     [responseLedgerSource]
@@ -254,6 +266,12 @@ export function QuoteFieldLedger({
     lifecycle.result.revisionAcknowledgement.required &&
     lifecycle.result.revisionAcknowledgement.status === "pending";
   const [acknowledgementPending, setAcknowledgementPending] = useState(false);
+  const [copiedValuesPending, setCopiedValuesPending] = useState(false);
+  const [confirmedCopiedSourceVersion, setConfirmedCopiedSourceVersion] =
+    useState<number | null>(null);
+  const copiedValuesConfirmationRequired =
+    copiedResponseDraft?.copiedValuesConfirmationState === "pending" &&
+    copiedResponseDraft.version !== confirmedCopiedSourceVersion;
   const responseWritesLocked =
     readOnly ||
     revisionAcknowledgementRequired ||
@@ -319,6 +337,80 @@ export function QuoteFieldLedger({
     acknowledgeClaimedRevision,
     lifecycle,
     revisionAcknowledgementRequired,
+    sessionToken,
+    usingClaimedAccess,
+  ]);
+
+  const confirmCopiedResponseValues = useCallback(async () => {
+    if (
+      copiedValuesConfirmationBlocked({
+        hasDraft: Boolean(copiedResponseDraft),
+        hasPendingConfirmation: copiedValuesConfirmationRequired,
+        hasConflict: Boolean(conflictRef.current),
+        flushing: flushingRef.current,
+        readOnly,
+        responseWritesLocked,
+      })
+    ) {
+      return;
+    }
+    if (!copiedResponseDraft) {
+      return;
+    }
+    const sourceVersion = copiedResponseDraft.version;
+    setCopiedValuesPending(true);
+    setSyncError(null);
+    try {
+      if (pendingRef.current) {
+        await flushRef.current();
+      }
+      if (
+        copiedValuesFlushBlocked({
+          hasPendingPatch: Boolean(pendingRef.current),
+          hasConflict: Boolean(conflictRef.current),
+          flushing: flushingRef.current,
+          readOnly,
+          responseWritesLocked,
+        })
+      ) {
+        return;
+      }
+      const input = {
+        expectedVersion: versionRef.current,
+        quoteRoundInvitationId: access.invitationId,
+      };
+      const result = usingClaimedAccess
+        ? await confirmCopiedClaimedValues(input)
+        : sessionToken
+          ? await confirmCopiedBrowserValues({ ...input, sessionToken })
+          : { status: "unavailable" as const };
+      handleCopiedValuesConfirmationResult(result, sourceVersion, {
+        conflictRef,
+        pendingRef,
+        setConfirmedSourceVersion: setConfirmedCopiedSourceVersion,
+        setConflict,
+        setLifecycleMessage,
+        setSyncError,
+        versionRef,
+      });
+    } catch (error) {
+      setSyncError(
+        lifecycleErrorMessage(
+          error,
+          "Copied response values could not be confirmed."
+        )
+      );
+    } finally {
+      setCopiedValuesPending(false);
+    }
+  }, [
+    access.invitationId,
+    confirmCopiedBrowserValues,
+    confirmCopiedClaimedValues,
+    copiedResponseDraft,
+    copiedValuesConfirmationRequired,
+    readOnly,
+    responseWritesLocked,
     sessionToken,
     usingClaimedAccess,
   ]);
@@ -762,7 +854,12 @@ export function QuoteFieldLedger({
   };
 
   const submitCurrentDraft = async () => {
-    if (!lifecycle || lifecyclePending || controlsLocked) {
+    if (
+      !lifecycle ||
+      lifecyclePending ||
+      controlsLocked ||
+      copiedValuesConfirmationRequired
+    ) {
       return;
     }
     setLifecyclePending("submit");
@@ -938,6 +1035,13 @@ export function QuoteFieldLedger({
                   acknowledgement={lifecycle.result.revisionAcknowledgement}
                   onAcknowledge={acknowledgeRevision}
                   pending={acknowledgementPending}
+                />
+              ) : null}
+              {copiedValuesConfirmationRequired ? (
+                <CopiedValuesConfirmationPanel
+                  onConfirm={confirmCopiedResponseValues}
+                  pending={copiedValuesPending}
+                  readOnly={readOnly}
                 />
               ) : null}
               {readOnly ? (
@@ -1133,6 +1237,7 @@ export function QuoteFieldLedger({
                   onWithdraw={withdrawCurrentResponse}
                   onWithdrawalExplanationChange={setWithdrawalExplanation}
                   readOnly={readOnly}
+                  submissionBlocked={copiedValuesConfirmationRequired}
                   total={total}
                   withdrawalExplanation={withdrawalExplanation}
                 />
@@ -1402,6 +1507,47 @@ function RevisionAcknowledgementPanel({
                   <ShieldCheck />
                 )}
                 {pending ? "Acknowledging…" : "Acknowledge package revision"}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </FramePanel>
+      </Frame>
+    </div>
+  );
+}
+
+function CopiedValuesConfirmationPanel({
+  onConfirm,
+  pending,
+  readOnly,
+}: {
+  onConfirm: () => Promise<void>;
+  pending: boolean;
+  readOnly: boolean;
+}) {
+  return (
+    <div className="border-b p-4 sm:p-5">
+      <Frame>
+        <FramePanel className="p-4">
+          <Alert variant="info">
+            <ShieldCheck />
+            <AlertTitle>Confirm copied response values</AlertTitle>
+            <AlertDescription>
+              Amounts or answers from your prior response were copied into this
+              package revision. Review them against the current issued Scope,
+              then confirm they still apply before submitting.
+              <Button
+                className="mt-4"
+                disabled={pending || readOnly}
+                onClick={onConfirm}
+                size="sm"
+              >
+                {pending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <ShieldCheck />
+                )}
+                {pending ? "Confirming…" : "Confirm copied answers"}
               </Button>
             </AlertDescription>
           </Alert>
@@ -2096,6 +2242,7 @@ function ReviewBand({
   onWithdraw,
   onWithdrawalExplanationChange,
   readOnly,
+  submissionBlocked,
   total,
   withdrawalExplanation,
 }: {
@@ -2110,13 +2257,17 @@ function ReviewBand({
   onWithdraw: () => Promise<void>;
   onWithdrawalExplanationChange: (value: string) => void;
   readOnly: boolean;
+  submissionBlocked: boolean;
   total: number;
   withdrawalExplanation: string;
 }) {
   const currentSubmission = lifecycle?.currentSubmission ?? null;
   const submissionStatus = responseSubmissionStatus(currentSubmission);
   const hasRevisionDraft = Boolean(currentSubmission && lifecycle?.draft);
-  const canSubmit = Boolean(lifecycle?.eligibility.canSubmit) && !readOnly;
+  const canSubmit =
+    Boolean(lifecycle?.eligibility.canSubmit) &&
+    !readOnly &&
+    !submissionBlocked;
   const canRevise = Boolean(lifecycle?.eligibility.canRevise) && !readOnly;
   const canWithdraw = Boolean(lifecycle?.eligibility.canWithdraw) && !readOnly;
   const submitLabel = currentSubmission ? "Resubmit quote" : "Submit quote";
@@ -2630,6 +2781,7 @@ function packagePricingLines(
   const packageLines: PricingDisplayLine[] =
     scope === "labour"
       ? access.package.labourLines.map((line) => ({
+          context: line.sourceScopeChangeReason,
           detail: parseQuoteRoundTiptapJson(line.scopeOfWorkTiptapJson),
           line: {
             lineKey: `labour:${line.sourceLineId}`,
@@ -2645,6 +2797,9 @@ function packagePricingLines(
             line.durationDays === undefined
               ? undefined
               : `${line.durationDays} day${line.durationDays === 1 ? "" : "s"}`,
+            line.sourceScopeVersion === undefined
+              ? undefined
+              : `Scope v${line.sourceScopeVersion}`,
           ]
             .filter((value): value is string => Boolean(value))
             .join(" · "),
@@ -2891,6 +3046,94 @@ function scheduleFlush(
 
 function runFlush(flush: () => Promise<void>) {
   flush().catch(() => undefined);
+}
+
+function copiedValuesConfirmationBlocked({
+  hasConflict,
+  hasDraft,
+  hasPendingConfirmation,
+  flushing,
+  readOnly,
+  responseWritesLocked,
+}: {
+  hasConflict: boolean;
+  hasDraft: boolean;
+  hasPendingConfirmation: boolean;
+  flushing: boolean;
+  readOnly: boolean;
+  responseWritesLocked: boolean;
+}) {
+  return (
+    !(hasDraft && hasPendingConfirmation) ||
+    hasConflict ||
+    flushing ||
+    readOnly ||
+    responseWritesLocked
+  );
+}
+
+function copiedValuesFlushBlocked({
+  hasConflict,
+  hasPendingPatch,
+  flushing,
+  readOnly,
+  responseWritesLocked,
+}: {
+  hasConflict: boolean;
+  hasPendingPatch: boolean;
+  flushing: boolean;
+  readOnly: boolean;
+  responseWritesLocked: boolean;
+}) {
+  return (
+    hasPendingPatch ||
+    hasConflict ||
+    flushing ||
+    readOnly ||
+    responseWritesLocked
+  );
+}
+
+function handleCopiedValuesConfirmationResult(
+  result: CopiedValuesConfirmationResult,
+  sourceVersion: number,
+  {
+    conflictRef,
+    pendingRef,
+    setConfirmedSourceVersion,
+    setConflict,
+    setLifecycleMessage,
+    setSyncError,
+    versionRef,
+  }: {
+    conflictRef: MutableRefObject<DraftConflict | null>;
+    pendingRef: MutableRefObject<DraftPatch | null>;
+    setConfirmedSourceVersion: (version: number) => void;
+    setConflict: (conflict: DraftConflict) => void;
+    setLifecycleMessage: (message: string) => void;
+    setSyncError: (message: string) => void;
+    versionRef: MutableRefObject<number>;
+  }
+) {
+  if (result.status === "confirmed") {
+    if (!pendingRef.current) {
+      versionRef.current = result.draft.version;
+    }
+    setConfirmedSourceVersion(sourceVersion);
+    setLifecycleMessage("Copied response values confirmed.");
+    return;
+  }
+  if (result.status === "not_required") {
+    setConfirmedSourceVersion(sourceVersion);
+    return;
+  }
+  if (result.status === "conflict" && result.draft) {
+    const nextConflict = { draft: result.draft };
+    conflictRef.current = nextConflict;
+    setConflict(nextConflict);
+    return;
+  }
+  setSyncError(lifecycleFailureMessage(result.status));
 }
 
 async function uploadResponseFile(

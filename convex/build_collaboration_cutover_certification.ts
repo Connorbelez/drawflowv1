@@ -44,6 +44,13 @@ export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
     const parityRun = evidence?.parityRunId
       ? await ctx.db.get(evidence.parityRunId)
       : null;
+    const companionCutover = await ctx.db
+      .query("buildSubmilestoneCompanionCutoverRuns")
+      .withIndex("by_buildId_and_updatedAt", (query) =>
+        query.eq("buildId", authorization.build._id)
+      )
+      .order("desc")
+      .first();
     const latestBuild = await ctx.db
       .query("activeBuilds")
       .withIndex("by_organizationId", (query) =>
@@ -107,6 +114,25 @@ export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
         kind: attestation.kind,
         rehearsalId: attestation.rehearsalId,
       })),
+      companionCutover:
+        companionCutover &&
+        companionCutover.organizationId === authorization.organizationId &&
+        companionCutover.brokerageId === authorization.brokerage._id
+          ? {
+              activeSubmilestoneCount: companionCutover.activeSubmilestoneCount,
+              exceptionCount: companionCutover.exceptionCount,
+              generatedCompanionCount: companionCutover.generatedCompanionCount,
+              manualActionItemCount: companionCutover.manualActionItemCount,
+              materializedCount: companionCutover.materializedCount,
+              parityMismatchCount: companionCutover.parityMismatchCount,
+              planToken: companionCutover.planToken,
+              repairedCount: companionCutover.repairedCount,
+              reportCount: companionCutover.reportCount,
+              reportHash: companionCutover.reportHash,
+              runId: companionCutover._id,
+              status: companionCutover.status,
+            }
+          : null,
       evidence: projectEvidence(evidence, authorization.brokerage._id),
       latestBuild: latestBuild
         ? { buildId: latestBuild._id, creationTime: latestBuild._creationTime }

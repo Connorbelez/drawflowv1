@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   BuildFundingWorkspace,
@@ -48,7 +48,29 @@ const milestones = [
   },
 ];
 
-afterEach(cleanup);
+const REAL_DATE = Date;
+const FIXED_NOW = "2026-07-15T18:30:00.000Z";
+
+beforeEach(() => {
+  // The funding schedule intentionally compares against today's date. Keep
+  // these fixed-date fixtures deterministic without replacing timer APIs used
+  // by Testing Library's async helpers.
+  class FixedDate extends REAL_DATE {
+    constructor(value?: string | number | Date) {
+      super(value === undefined ? FIXED_NOW : value);
+    }
+
+    static now() {
+      return REAL_DATE.parse(FIXED_NOW);
+    }
+  }
+  vi.stubGlobal("Date", FixedDate);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("BuildFundingWorkspace", () => {
   test("projects exact availability from approved money and reserving requests", () => {

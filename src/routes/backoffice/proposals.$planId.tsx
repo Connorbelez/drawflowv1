@@ -81,6 +81,8 @@ import { getUserManagementAccessDecision } from "#/lib/auth/rbac.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
+import { resolveBackofficeBuildViewerCapacity } from "./builds/$buildId/-route-capacity.ts";
 
 const PROPOSAL_REVIEW_TIMELINE_SIZING = {
   cardWidth: 232,
@@ -216,6 +218,10 @@ function ProposalReviewRoute() {
   const context = Route.useRouteContext();
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
+  const viewerCapacity = resolveBackofficeBuildViewerCapacity([
+    context.role,
+    ...(context.roles ?? []),
+  ]) as BuildCollaborationRole | undefined;
   const userManagementAccess = getUserManagementAccessDecision({
     isAuthenticated: Boolean(context.userId),
     organizationId: context.organizationId,
@@ -630,6 +636,8 @@ function ProposalReviewRoute() {
             materialPlanningActions={materialPlanningActions}
             persistenceMode={proposalEditorPersistenceMode}
             proposalId={proposalId}
+            scopeRoute="backoffice-proposal"
+            viewerCapacity={viewerCapacity}
             showHeading
             templateTitle={productionDetail.proposal.buildName}
             workosOrganizationId={workosOrganizationId}

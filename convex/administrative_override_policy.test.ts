@@ -11,6 +11,7 @@ import {
   authorizeAdministrativeRecovery,
   maskRecipientEmailForAudit,
 } from "./administrative_override_policy";
+import { authorizeQuoteAdministrativeRecovery } from "./quote_authoring_access";
 import type { ActorKind, RoleSlug } from "./authz";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import schema from "./schema";
@@ -335,6 +336,41 @@ describe("ENG-401 administrative audit and recovery policy", () => {
           })
         ).rejects.toThrow(/Forbidden|human actor/i);
       }
+    });
+  });
+
+  test("allows Principle Broker quote recovery without silently accepting Admin break-glass input", async () => {
+    const fixture = await seedPolicyFixture();
+    await fixture.base.run(async (ctx) => {
+      const documents = await policyDocuments(ctx, fixture);
+      const principleBroker = authorization(documents, {
+        capacity: "principle-broker",
+        roles: ["principle-broker"],
+        subject: "policy-principle-broker",
+      });
+      await expect(
+        authorizeQuoteAdministrativeRecovery(ctx as any, principleBroker, {
+          reason: "Publish the effective Scope revision.",
+        })
+      ).resolves.toMatchObject({
+        authorization: { effectiveRole: { role: "principle-broker" } },
+        breakGlass: false,
+      });
+      await expect(
+        authorizeQuoteAdministrativeRecovery(ctx as any, principleBroker, {
+          breakGlassConfirmed: false,
+          reason: "Publish the effective Scope revision.",
+        })
+      ).resolves.toMatchObject({
+        authorization: { effectiveRole: { role: "principle-broker" } },
+        breakGlass: false,
+      });
+      await expect(
+        authorizeQuoteAdministrativeRecovery(ctx as any, principleBroker, {
+          breakGlassConfirmed: true,
+          reason: "Publish the effective Scope revision.",
+        })
+      ).rejects.toThrow(/only for Brokerage Admin recovery/i);
     });
   });
 
@@ -711,7 +747,10 @@ describe("ENG-401 administrative audit and recovery policy", () => {
           expectedRevision: 4,
           quoteRoundId: fixture.quoteRoundId,
           reason: "A foreign tenant must never reopen this Quote Round.",
-          responseDeadline: Date.now() + 14 * 24 * 60 * 60 * 1000,
+          deadlinePolicy: {
+            kind: "replace",
+            responseDeadline: Date.now() + 14 * 24 * 60 * 60 * 1000,
+          },
           workosOrganizationId: "org_foreign_policy",
         }
       )

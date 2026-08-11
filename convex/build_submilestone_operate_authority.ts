@@ -45,6 +45,17 @@ export async function resolveSubmilestoneOperateAuthority(
     };
     /** Parent milestone complete / claim also blocks child start/update. */
     milestoneCompleted?: boolean;
+    /**
+     * Capability/read callers may resolve the same operate authority for a
+     * completed target (for example, to expose an authorized Reopen action).
+     * Commands still enforce their own lifecycle transitions after receipt
+     * replay and revision checks.
+     */
+    allowCompleted?: boolean;
+    /** Mutations may pass this only to let the canonical command receipt replay
+     * before target lifecycle checks; a new command still fails in the domain
+     * command itself. */
+    allowReplay?: boolean;
   }
 ): Promise<SubmilestoneOperateDecision> {
   const roles = await resolveOperateRoles(ctx, input.viewer);
@@ -53,10 +64,10 @@ export async function resolveSubmilestoneOperateAuthority(
     input.submilestone.status === "complete";
   const alreadyStarted = input.submilestone.actualStartedAt !== undefined;
 
-  if (completed) {
+  if (completed && !input.allowReplay && !input.allowCompleted) {
     return { allowed: false, denial: "completed" };
   }
-  if (input.intent === "start" && alreadyStarted) {
+  if (input.intent === "start" && alreadyStarted && !input.allowReplay) {
     return { allowed: false, denial: "already_started" };
   }
 
@@ -244,11 +255,11 @@ export function operateDenialMessage(
     case "already_started":
       return "Work has already started on this Sub-milestone.";
     case "assignment_required":
-      return "Assign a tradesperson before a Contractor can start.";
+      return "Assignment required: only the exact assigned Contractor may operate; assign a tradesperson before a Contractor can start.";
     case "completed":
       return "This Sub-milestone is already complete.";
     case "lender_review_only":
-      return "Review-only on this surface; field operate requires Builder or Admin authority.";
+      return "Review-only on this surface; lender staff cannot execute Builder work without Builder or Admin authority.";
     case "permission_denied":
       return "You do not have Sub-milestone update permission.";
     default: {

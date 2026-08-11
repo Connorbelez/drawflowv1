@@ -123,6 +123,28 @@ function formatLastActivity(value: number) {
   }).format(new Date(value));
 }
 
+function hasScopeUpdate(row: QuoteRoundRegisterRow) {
+  return (
+    row.state !== "closed" &&
+    row.state !== "cancelled" &&
+    row.scopeUpdateAvailable === true
+  );
+}
+
+function ScopeUpdateBadge({
+  className,
+  row,
+}: {
+  className?: string;
+  row: QuoteRoundRegisterRow;
+}) {
+  return hasScopeUpdate(row) ? (
+    <Badge className={className} variant="warning">
+      Update available
+    </Badge>
+  ) : null;
+}
+
 function formatDeadlineRelative(
   deadline: number | undefined,
   state: QuoteRoundRegisterRow["state"],
@@ -890,6 +912,7 @@ function DesktopControlRegister({
                       <span className="truncate font-semibold text-sm">
                         {row.title}
                       </span>
+                      <ScopeUpdateBadge className="shrink-0" row={row} />
                       <span className="text-[0.6875rem] text-muted-foreground">
                         {row._id}
                       </span>
@@ -1388,7 +1411,12 @@ function MobileControlRegister({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-start justify-between gap-3">
-                  <span className="font-semibold text-sm">{row.title}</span>
+                  <span className="min-w-0">
+                    <span className="block font-semibold text-sm">
+                      {row.title}
+                    </span>
+                    <ScopeUpdateBadge className="mt-1" row={row} />
+                  </span>
                   <span className="text-[0.6875rem] text-muted-foreground uppercase tracking-[0.08em]">
                     {modeLabel(row.mode)}
                   </span>

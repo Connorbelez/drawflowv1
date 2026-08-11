@@ -4,8 +4,6 @@ import type { JSONContent } from "@tiptap/react";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
-  ArrowLeft,
-  ArrowRight,
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
@@ -19,9 +17,8 @@ import {
   Send,
   ShieldCheck,
   UserRound,
-  X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -67,6 +64,7 @@ import {
   MilestoneStartDialog,
   type MilestoneStartDialogRequest,
 } from "../backoffice-build-detail/MilestoneStartDialog.tsx";
+import { BuildDetailTargetHeader as DetailSheetHeader } from "../build-detail-targets/BuildDetailTargetHeader.tsx";
 import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
@@ -98,10 +96,15 @@ import {
   toEditorReferenceKind,
 } from "./model.ts";
 
-type ActionItemDetail = FunctionReturnType<
+export type BuildActionItemDetail = FunctionReturnType<
   typeof api.build_action_item_details.getBuildActionItemDetail
 >;
-type VisibleActionItemDetail = Extract<ActionItemDetail, { state: "visible" }>;
+export type VisibleBuildActionItemDetail = Extract<
+  BuildActionItemDetail,
+  { state: "visible" }
+>;
+type ActionItemDetail = BuildActionItemDetail;
+type VisibleActionItemDetail = VisibleBuildActionItemDetail;
 type ActionPriority = VisibleActionItemDetail["item"]["priority"];
 type ActionWorkKind = VisibleActionItemDetail["item"]["workKind"];
 type ActionStatus = VisibleActionItemDetail["item"]["status"];
@@ -124,13 +127,25 @@ export type BuildActionItemSheetTarget =
       postId: Id<"buildCollaborationPosts">;
     };
 
+export interface BuildActionItemStructureCapabilities {
+  addChecklist?: boolean;
+  createChild?: boolean;
+  linkRelation?: boolean;
+  repairRelation?: boolean;
+  toggleChecklist?: boolean;
+  unlinkRelation?: boolean;
+}
+
 export function BuildActionItemDetailSheet({
   buildId,
+  canGoBack = false,
+  canGoForward = false,
   focusedAssetId,
   onCreated,
   onOpenChange,
+  onGoBack = () => undefined,
+  onGoForward = () => undefined,
   onReferenceOpen,
-  onTargetChange,
   open,
   organizationId,
   readOnly = false,
@@ -138,11 +153,14 @@ export function BuildActionItemDetailSheet({
   target,
 }: {
   buildId: Id<"activeBuilds">;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
   focusedAssetId?: Id<"buildCollaborationAssets">;
   onCreated?: (actionItemId: Id<"buildActionItems">) => void;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
-  onTargetChange?: (target: BuildActionItemSheetTarget) => void;
   open: boolean;
   organizationId: string;
   readOnly?: boolean;
@@ -153,47 +171,29 @@ export function BuildActionItemDetailSheet({
     target?.kind === "detail" ? target.actionItemId : undefined;
   const detail = useQuery(
     api.build_action_item_details.getBuildActionItemDetail,
-    open && actionItemId ? { actionItemId, buildId, organizationId } : "skip"
+    open && actionItemId ? { actionItemId, buildId, organizationId } : "skip",
   ) as ActionItemDetail | undefined;
-  const [history, setHistory] = useState<Id<"buildActionItems">[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const navigatingHistory = useRef(false);
-  useEffect(() => {
-    if (!(open && actionItemId)) {
-      if (!open) {
-        setHistory([]);
-        setHistoryIndex(-1);
-      }
-      return;
-    }
-    if (navigatingHistory.current) {
-      navigatingHistory.current = false;
-      return;
-    }
-    setHistory((current) => {
-      if (current[historyIndex] === actionItemId) {
-        return current;
-      }
-      const next = [...current.slice(0, historyIndex + 1), actionItemId];
-      setHistoryIndex(next.length - 1);
-      return next;
-    });
-  }, [actionItemId, historyIndex, open]);
-  const navigateHistory = (offset: -1 | 1) => {
-    const nextIndex = historyIndex + offset;
-    const nextActionItemId = history[nextIndex];
-    if (!nextActionItemId) {
-      return;
-    }
-    navigatingHistory.current = true;
-    setHistoryIndex(nextIndex);
-    onTargetChange?.({ actionItemId: nextActionItemId, kind: "detail" });
-  };
   return (
     <Sheet modal={false} onOpenChange={onOpenChange} open={open}>
       <SheetPopup
         backdropClassName="hidden"
         className="pointer-events-auto h-svh max-h-svh w-full max-w-none shadow-2xl sm:w-[min(34vw,32rem)] sm:min-w-[24rem]"
+        onKeyDown={(event) => {
+          const historyShortcut =
+            event.altKey &&
+            !(event.ctrlKey || event.metaKey || event.shiftKey) &&
+            (event.key === "ArrowLeft" || event.key === "ArrowRight");
+          if (!historyShortcut) {
+            return;
+          }
+          event.preventDefault();
+          if (event.key === "ArrowLeft" && canGoBack) {
+            onGoBack();
+          }
+          if (event.key === "ArrowRight" && canGoForward) {
+            onGoForward();
+          }
+        }}
         showCloseButton={false}
         side="right"
         viewportClassName="pointer-events-none"
@@ -210,14 +210,12 @@ export function BuildActionItemDetailSheet({
         ) : (
           <ActionItemDetailPanel
             buildId={buildId}
-            canGoBack={historyIndex > 0}
-            canGoForward={
-              historyIndex >= 0 && historyIndex < history.length - 1
-            }
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
             detail={detail}
             focusedAssetId={focusedAssetId}
-            onGoBack={() => navigateHistory(-1)}
-            onGoForward={() => navigateHistory(1)}
+            onGoBack={onGoBack}
+            onGoForward={onGoForward}
             onOpenChange={onOpenChange}
             onReferenceOpen={onReferenceOpen}
             open={open}
@@ -228,58 +226,6 @@ export function BuildActionItemDetailSheet({
         )}
       </SheetPopup>
     </Sheet>
-  );
-}
-
-function DetailSheetHeader({
-  canGoBack,
-  canGoForward,
-  children,
-  onClose,
-  onGoBack,
-  onGoForward,
-}: {
-  canGoBack: boolean;
-  canGoForward: boolean;
-  children: ReactNode;
-  onClose: () => void;
-  onGoBack: () => void;
-  onGoForward: () => void;
-}) {
-  return (
-    <SheetHeader className="sticky top-0 z-20 border-b bg-background/96 backdrop-blur-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1">
-          <Button
-            aria-label="Previous linked Action Item"
-            disabled={!canGoBack}
-            onClick={onGoBack}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <ArrowLeft aria-hidden="true" className="size-4" />
-          </Button>
-          <Button
-            aria-label="Next linked Action Item"
-            disabled={!canGoForward}
-            onClick={onGoForward}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </Button>
-        </div>
-        <Button
-          aria-label="Close Action Item detail"
-          onClick={onClose}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <X aria-hidden="true" className="size-4" />
-        </Button>
-      </div>
-      {children}
-    </SheetHeader>
   );
 }
 
@@ -305,21 +251,21 @@ function ActionItemCreatePanel({
   tagOptions: CollaborationTagOption[];
 }) {
   const createActionItem = useBuildCollaborationMutation(
-    api.build_action_items.createBuildActionItem
+    api.build_action_items.createBuildActionItem,
   );
   const beginAssetUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
   );
   const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage
+      .registerBuildCollaborationAssetUploadedStorage,
   );
   const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload
+      .finalizeAndScanBuildCollaborationAssetUpload,
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
   );
   const [title, setTitle] = useState("");
   const [document, setDocument] = useState<JSONContent>(emptyDocument());
@@ -334,7 +280,7 @@ function ActionItemCreatePanel({
   const [requestId] = useState(() => newActionItemRequestId());
   const [submitting, setSubmitting] = useState(false);
   const participants = tagOptions.filter(
-    (option) => option.kind === "participant"
+    (option) => option.kind === "participant",
   );
   const effectiveWorkKind = effectiveActionItemWorkKind(workKind, references);
 
@@ -396,7 +342,9 @@ function ActionItemCreatePanel({
         reason: "Action Item creation failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to create Action Item."
+        error instanceof Error
+          ? error.message
+          : "Unable to create Action Item.",
       );
     } finally {
       setSubmitting(false);
@@ -636,81 +584,75 @@ function VisibleActionItemDetail({
   tagOptions: CollaborationTagOption[];
 }) {
   const updateActionItem = useBuildCollaborationMutation(
-    api.build_action_items.updateBuildActionItem
+    api.build_action_items.updateBuildActionItem,
   );
   const addComment = useBuildCollaborationMutation(
-    api.build_action_item_details.addBuildActionItemComment
+    api.build_action_item_details.addBuildActionItemComment,
   );
   const toggleCommentReaction = useBuildCollaborationMutation(
-    api.build_action_item_details.toggleBuildActionItemCommentReaction
+    api.build_action_item_details.toggleBuildActionItemCommentReaction,
   );
   const markActivityRead = useBuildCollaborationReadMutation(
-    api.build_collaboration_inbox.markBuildActionItemActivityRead
+    api.build_collaboration_inbox.markBuildActionItemActivityRead,
   );
   const addReplacementComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.addBuildCollaborationComment
+    api.build_collaboration_threads.addBuildCollaborationComment,
   );
   const beginReplacementUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
   );
   const registerReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage
+      .registerBuildCollaborationAssetUploadedStorage,
   );
   const finalizeAndScanReplacement = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload
+      .finalizeAndScanBuildCollaborationAssetUpload,
   );
   const abandonReplacementAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
   );
   const assignActionItem = useBuildCollaborationMutation(
-    api.build_action_item_workflow.assignBuildActionItem
+    api.build_action_item_workflow.assignBuildActionItem,
   );
   const acceptAssignment = useBuildCollaborationMutation(
-    api.build_action_item_workflow.acceptBuildActionItemAssignment
+    api.build_action_item_workflow.acceptBuildActionItemAssignment,
   );
   const transitionActionItem = useBuildCollaborationMutation(
-    api.build_action_item_workflow.transitionBuildActionItem
+    api.build_action_item_workflow.transitionBuildActionItem,
   );
   const startCanonicalMilestone = useBuildCollaborationMutation(
-    api.production_proposals.startActiveBuildMilestone
+    api.production_proposals.startActiveBuildMilestone,
   );
   const updateCanonicalProgress = useBuildCollaborationMutation(
-    api.production_proposals.updateActiveBuildSubmilestoneProgress
+    api.production_proposals.updateActiveBuildSubmilestoneProgress,
   );
   const generateCanonicalEvidenceUploadUrl = useBuildCollaborationMutation(
-    api.production_proposals.generateActiveBuildEvidenceUploadUrl
+    api.production_proposals.generateActiveBuildEvidenceUploadUrl,
   );
   const addCanonicalEvidence = useBuildCollaborationMutation(
-    api.production_proposals.addActiveBuildSubmilestoneEvidence
+    api.production_proposals.addActiveBuildSubmilestoneEvidence,
   );
   const freezeCanonicalEvidencePackage = useBuildCollaborationMutation(
-    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage
+    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
   );
   const submitCanonicalCompletionForReview = useBuildCollaborationMutation(
-    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview
+    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview,
   );
   const recommendCanonicalReview = useBuildCollaborationMutation(
-    api.build_submilestone_review.recommendActiveBuildSubmilestoneReview
+    api.build_submilestone_review.recommendActiveBuildSubmilestoneReview,
   );
   const requestCanonicalChanges = useBuildCollaborationMutation(
-    api.build_submilestone_review.requestActiveBuildSubmilestoneChanges
+    api.build_submilestone_review.requestActiveBuildSubmilestoneChanges,
   );
   const waiveCanonicalSiteVisit = useBuildCollaborationMutation(
-    api.build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit
+    api.build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
   );
   const approveCanonicalSubmilestone = useBuildCollaborationMutation(
-    api.build_submilestone_review.approveActiveBuildSubmilestone
+    api.build_submilestone_review.approveActiveBuildSubmilestone,
   );
   const retractCanonicalSubmilestoneApproval = useBuildCollaborationMutation(
-    api.build_submilestone_review.retractActiveBuildSubmilestoneApproval
-  );
-  const approveCanonicalMilestone = useBuildCollaborationMutation(
-    api.build_submilestone_review.approveActiveBuildMilestoneReview
-  );
-  const retractCanonicalMilestoneApproval = useBuildCollaborationMutation(
-    api.build_submilestone_review.retractActiveBuildMilestoneApproval
+    api.build_submilestone_review.retractActiveBuildSubmilestoneApproval,
   );
   const workflow = useQuery(
     api.build_action_item_workflow.getBuildActionItemWorkflowContext,
@@ -718,18 +660,18 @@ function VisibleActionItemDetail({
       actionItemId: detail.item.actionItemId,
       buildId,
       organizationId,
-    }
+    },
   ) as WorkflowContext | undefined;
   const [title, setTitle] = useState(detail.item.title);
   const [priority, setPriority] = useState(detail.item.priority);
   const [dueDate, setDueDate] = useState(dateInputValue(detail.item.dueAt));
   const [labels, setLabels] = useState<BuildActionItemTag[]>(
     detail.labels.filter((label): label is BuildActionItemTag =>
-      BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
-    )
+      BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag),
+    ),
   );
   const [briefDocument, setBriefDocument] = useState<JSONContent>(() =>
-    parseDocument(detail.item.descriptionTiptapJson)
+    parseDocument(detail.item.descriptionTiptapJson),
   );
   const [briefReferences, setBriefReferences] = useState<
     CollaborationTagReference[]
@@ -739,10 +681,10 @@ function VisibleActionItemDetail({
         tagOptions.find(
           (option) =>
             option.id === reference.entityId &&
-            option.kind === toEditorReferenceKind(reference.entityKind)
-        )
+            option.kind === toEditorReferenceKind(reference.entityKind),
+        ),
       )
-      .filter((option): option is CollaborationTagOption => Boolean(option))
+      .filter((option): option is CollaborationTagOption => Boolean(option)),
   );
   const [briefDirty, setBriefDirty] = useState(false);
   const [briefSaveState, setBriefSaveState] = useState<
@@ -751,7 +693,7 @@ function VisibleActionItemDetail({
   const [definitionReason, setDefinitionReason] = useState("");
   const [commentHtml, setCommentHtml] = useState("");
   const [commentDocument, setCommentDocument] = useState<JSONContent>(
-    emptyDocument()
+    emptyDocument(),
   );
   const [commentReferences, setCommentReferences] = useState<
     CollaborationTagReference[]
@@ -773,13 +715,21 @@ function VisibleActionItemDetail({
   const [canonicalEvidenceBusy, setCanonicalEvidenceBusy] = useState(false);
   const [canonicalReviewNote, setCanonicalReviewNote] = useState("");
   const [canonicalReviewReason, setCanonicalReviewReason] = useState("");
-  const [canonicalReviewSiteVisitRequired, setCanonicalReviewSiteVisitRequired] =
-    useState(false);
+  const [
+    canonicalReviewSiteVisitRequired,
+    setCanonicalReviewSiteVisitRequired,
+  ] = useState(false);
   const [canonicalReviewBusy, setCanonicalReviewBusy] = useState(false);
   const canonicalCommandKeys = useRef(new Map<string, string>());
 
   const canonicalPresentation = detail.item.systemPresentation;
   const canonicalStartCommand = canonicalPresentation?.startCommand;
+  const canonicalStartRevision = canonicalPresentation?.workflowRevision;
+  const canonicalStartRevisionAvailable =
+    typeof canonicalStartRevision === "number" &&
+    Number.isFinite(canonicalStartRevision);
+  const [canonicalStartRevisionError, setCanonicalStartRevisionError] =
+    useState<string | null>(null);
   const canonicalProgressValue = canonicalPresentation?.progressPercent ?? 0;
   const canonicalForecastValue =
     canonicalPresentation?.completionForecastDate ?? "";
@@ -819,7 +769,7 @@ function VisibleActionItemDetail({
 
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
-    file: File
+    file: File,
   ) => {
     let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
@@ -864,7 +814,7 @@ function VisibleActionItemDetail({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to publish the attachment replacement."
+          : "Unable to publish the attachment replacement.",
       );
     }
   };
@@ -875,8 +825,8 @@ function VisibleActionItemDetail({
     setDueDate(dateInputValue(detail.item.dueAt));
     setLabels(
       detail.labels.filter((label): label is BuildActionItemTag =>
-        BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
-      )
+        BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag),
+      ),
     );
   }, [
     detail.item.dueAt,
@@ -927,7 +877,7 @@ function VisibleActionItemDetail({
       } catch (error) {
         setBriefSaveState("conflict");
         toast.error(
-          error instanceof Error ? error.message : "Unable to save the brief."
+          error instanceof Error ? error.message : "Unable to save the brief.",
         );
       }
     }, 700);
@@ -967,7 +917,9 @@ function VisibleActionItemDetail({
       toast.success("Action Item updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update Action Item."
+        error instanceof Error
+          ? error.message
+          : "Unable to update Action Item.",
       );
     } finally {
       setSaving(false);
@@ -1019,7 +971,7 @@ function VisibleActionItemDetail({
         reason: "Action Item comment failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to add comment."
+        error instanceof Error ? error.message : "Unable to add comment.",
       );
     }
   };
@@ -1036,11 +988,11 @@ function VisibleActionItemDetail({
       toast.success(
         workosUserId
           ? "Action Item assignment updated."
-          : "Action Item unassigned."
+          : "Action Item unassigned.",
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update assignment."
+        error instanceof Error ? error.message : "Unable to update assignment.",
       );
     } finally {
       setWorkflowBusy(false);
@@ -1058,7 +1010,7 @@ function VisibleActionItemDetail({
       toast.success("Assignment accepted.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to accept assignment."
+        error instanceof Error ? error.message : "Unable to accept assignment.",
       );
     } finally {
       setWorkflowBusy(false);
@@ -1085,7 +1037,7 @@ function VisibleActionItemDetail({
       toast.success("Action Item status updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update status."
+        error instanceof Error ? error.message : "Unable to update status.",
       );
     } finally {
       setWorkflowBusy(false);
@@ -1097,10 +1049,18 @@ function VisibleActionItemDetail({
     if (!command?.allowed || readOnly) {
       return;
     }
+    if (!canonicalStartRevisionAvailable) {
+      setCanonicalStartRevisionError(
+        "Refresh this Action Item before starting; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
+    setCanonicalStartRevisionError(null);
     setCanonicalStartRequest({
       action: "start",
       buildName: command.buildName,
       dependencyBlockers: command.dependencyBlockers,
+      expectedRevision: canonicalStartRevision,
       milestoneKey: command.milestoneKey,
       milestoneName: command.milestoneName,
       plannedStartDate: command.plannedStartDate,
@@ -1113,13 +1073,20 @@ function VisibleActionItemDetail({
   };
 
   const confirmCanonicalStart = async (input: MilestoneStartConfirmation) => {
-    if (input.action !== "start" || input.actualStartedAt === undefined) {
-      throw new Error("An actual start is required.");
+    if (
+      input.action !== "start" ||
+      input.actualStartedAt === undefined ||
+      input.expectedRevision === undefined
+    ) {
+      throw new Error(
+        "Refresh this Action Item before starting; the canonical workflow revision is unavailable.",
+      );
     }
     await startCanonicalMilestone({
       actualStartedAt: input.actualStartedAt,
       buildId,
       dependencyOverrideReason: input.dependencyOverrideReason,
+      expectedRevision: input.expectedRevision,
       idempotencyKey: input.idempotencyKey,
       milestoneKey: input.milestoneKey,
       source: input.source,
@@ -1134,8 +1101,19 @@ function VisibleActionItemDetail({
     if (!canonicalStartCommand || readOnly) {
       return;
     }
+    if (
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
+    ) {
+      toast.error(
+        "Refresh this Action Item before updating execution; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
     const actualCostInput = canonicalActualCost.trim();
-    const actualCostCents = actualCostInput ? Number(actualCostInput) : undefined;
+    const actualCostCents = actualCostInput
+      ? Number(actualCostInput)
+      : undefined;
     if (
       actualCostInput &&
       (!Number.isInteger(actualCostCents) || (actualCostCents ?? 0) < 0)
@@ -1150,7 +1128,7 @@ function VisibleActionItemDetail({
         buildId,
         completionForecastDate: canonicalForecast.trim() || undefined,
         fieldNote: canonicalFieldNote.trim() || undefined,
-        expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         idempotencyKey: canonicalCommandKey("progress"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         progressPercent: canonicalProgress,
@@ -1162,7 +1140,7 @@ function VisibleActionItemDetail({
       toast.success("Canonical progress updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update progress."
+        error instanceof Error ? error.message : "Unable to update progress.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1173,6 +1151,15 @@ function VisibleActionItemDetail({
     file,
   }: EvidenceUploaderUploadInput) => {
     if (!(canonicalStartCommand && file) || readOnly) {
+      return;
+    }
+    if (
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
+    ) {
+      toast.error(
+        "Refresh this Action Item before adding evidence; the canonical workflow revision is unavailable.",
+      );
       return;
     }
     setCanonicalEvidenceBusy(true);
@@ -1211,7 +1198,7 @@ function VisibleActionItemDetail({
           sizeBytes: uploadFile.size,
           storageId: uploadResult.storageId,
         },
-        expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         idempotencyKey: canonicalCommandKey("evidence"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         submilestoneKey: canonicalStartCommand.submilestoneKey,
@@ -1221,7 +1208,7 @@ function VisibleActionItemDetail({
       toast.success("Evidence added to the canonical package.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add evidence."
+        error instanceof Error ? error.message : "Unable to add evidence.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1238,11 +1225,20 @@ function VisibleActionItemDetail({
     ) {
       return;
     }
+    if (
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
+    ) {
+      toast.error(
+        "Refresh this Action Item before freezing evidence; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
     setCanonicalEvidenceBusy(true);
     try {
       await freezeCanonicalEvidencePackage({
         buildId,
-        expectedRevision: canonicalPresentation.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         milestoneKey: canonicalStartCommand.milestoneKey,
         packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
         submilestoneKey: canonicalStartCommand.submilestoneKey,
@@ -1253,7 +1249,7 @@ function VisibleActionItemDetail({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to freeze Evidence Package."
+          : "Unable to freeze Evidence Package.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1267,7 +1263,9 @@ function VisibleActionItemDetail({
         canonicalPresentation?.evidencePackageRevisionId
       ) ||
       canonicalPresentation.evidencePackageRevision === undefined ||
-      readOnly
+      readOnly ||
+      !canonicalStartRevisionAvailable ||
+      canonicalStartRevision === undefined
     ) {
       return;
     }
@@ -1278,7 +1276,7 @@ function VisibleActionItemDetail({
         completionNote: canonicalCompletionNote.trim() || undefined,
         declareComplete: true,
         expectedPackageRevision: canonicalPresentation.evidencePackageRevision,
-        expectedRevision: canonicalPresentation.workflowRevision ?? 0,
+        expectedRevision: canonicalStartRevision,
         idempotencyKey: canonicalCommandKey("completion-review"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
@@ -1292,7 +1290,7 @@ function VisibleActionItemDetail({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to submit completion for review."
+          : "Unable to submit completion for review.",
       );
     } finally {
       setCanonicalEvidenceBusy(false);
@@ -1307,10 +1305,7 @@ function VisibleActionItemDetail({
     : null;
   const canonicalReviewRevision =
     canonicalPresentation?.reviewRevision ??
-    canonicalPresentation?.workflowRevision ??
-    0;
-  const canonicalMilestoneReviewRevision =
-    canonicalPresentation?.milestoneReviewRevision ?? 0;
+    canonicalPresentation?.workflowRevision;
   const runCanonicalReviewCommand = async (
     commandScope: string,
     command: () => Promise<unknown>,
@@ -1333,6 +1328,12 @@ function VisibleActionItemDetail({
   };
   const recommendCanonicalReviewCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before recording review; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     void runCanonicalReviewCommand(
       "review-recommendation",
       () =>
@@ -1352,6 +1353,12 @@ function VisibleActionItemDetail({
   };
   const requestCanonicalChangesCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before requesting changes; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     const reason = canonicalReviewReason.trim();
     if (!reason) {
       toast.error("Changes requested reason is required.");
@@ -1375,6 +1382,12 @@ function VisibleActionItemDetail({
   };
   const waiveCanonicalSiteVisitCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before waiving the Site Visit; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     const reason = canonicalReviewReason.trim();
     if (!reason) {
       toast.error("Site Visit waiver reason is required.");
@@ -1398,6 +1411,12 @@ function VisibleActionItemDetail({
   };
   const approveCanonicalSubmilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before approving; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     void runCanonicalReviewCommand(
       "review-child-approval",
       () =>
@@ -1416,6 +1435,12 @@ function VisibleActionItemDetail({
   };
   const retractCanonicalSubmilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
+    if (canonicalReviewRevision === undefined) {
+      toast.error(
+        "Refresh this Action Item before retracting approval; the canonical review revision is unavailable.",
+      );
+      return;
+    }
     const reason = canonicalReviewReason.trim();
     if (!reason) {
       toast.error("Child approval retraction reason is required.");
@@ -1437,46 +1462,6 @@ function VisibleActionItemDetail({
       "Unable to retract Sub-milestone approval.",
     );
   };
-  const approveCanonicalMilestoneCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    void runCanonicalReviewCommand(
-      "review-milestone-approval",
-      () =>
-        approveCanonicalMilestone({
-          buildId,
-          expectedRevision: canonicalMilestoneReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-milestone-approval"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          reason: canonicalReviewNote.trim() || undefined,
-          workosOrganizationId: organizationId,
-        }),
-      "Milestone approved; the System Post is resolved.",
-      "Unable to approve this Milestone.",
-    );
-  };
-  const retractCanonicalMilestoneCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    const reason = canonicalReviewReason.trim();
-    if (!reason) {
-      toast.error("Parent approval retraction reason is required.");
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-milestone-retraction",
-      () =>
-        retractCanonicalMilestoneApproval({
-          buildId,
-          expectedRevision: canonicalMilestoneReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-milestone-retraction"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          reason,
-          workosOrganizationId: organizationId,
-        }),
-      "Milestone approval retracted; the same System Post is reopened.",
-      "Unable to retract Milestone approval.",
-    );
-  };
-
   return (
     <>
       <DetailSheetHeader
@@ -1527,6 +1512,7 @@ function VisibleActionItemDetail({
         {detail.item.systemMode === "generated_milestone_submilestone" ? (
           <CanonicalMilestoneActionItemFacts
             actualCost={canonicalActualCost}
+            canonicalStartRevisionError={canonicalStartRevisionError}
             completionNote={canonicalCompletionNote}
             detail={detail}
             evidenceBusy={canonicalEvidenceBusy}
@@ -1541,11 +1527,9 @@ function VisibleActionItemDetail({
             onProgressChange={setCanonicalProgress}
             onStart={openCanonicalStart}
             onSubmitReview={submitCanonicalReview}
-            onApproveMilestone={approveCanonicalMilestoneCommand}
             onApproveSubmilestone={approveCanonicalSubmilestoneCommand}
             onRecommendReview={recommendCanonicalReviewCommand}
             onRequestChanges={requestCanonicalChangesCommand}
-            onRetractMilestone={retractCanonicalMilestoneCommand}
             onRetractSubmilestone={retractCanonicalSubmilestoneCommand}
             onWaiveSiteVisit={waiveCanonicalSiteVisitCommand}
             reviewBusy={canonicalReviewBusy}
@@ -1554,7 +1538,9 @@ function VisibleActionItemDetail({
             reviewSiteVisitRequired={canonicalReviewSiteVisitRequired}
             onReviewNoteChange={setCanonicalReviewNote}
             onReviewReasonChange={setCanonicalReviewReason}
-            onReviewSiteVisitRequiredChange={setCanonicalReviewSiteVisitRequired}
+            onReviewSiteVisitRequiredChange={
+              setCanonicalReviewSiteVisitRequired
+            }
             onUpdateExecution={updateCanonicalExecution}
             onUploadEvidence={addCanonicalEvidenceFile}
             progress={canonicalProgress}
@@ -1761,7 +1747,7 @@ function VisibleActionItemDetail({
                     />
                     {detail.comments
                       .filter(
-                        (reply) => reply.parentCommentId === entry.commentId
+                        (reply) => reply.parentCommentId === entry.commentId,
                       )
                       .map((reply) => (
                         <div
@@ -1860,7 +1846,7 @@ function VisibleActionItemDetail({
 
 function CanonicalMilestoneActionItemFacts({
   actualCost,
-  onApproveMilestone,
+  canonicalStartRevisionError,
   onApproveSubmilestone,
   completionNote,
   detail,
@@ -1874,7 +1860,6 @@ function CanonicalMilestoneActionItemFacts({
   onFreezePackage,
   onRecommendReview,
   onRequestChanges,
-  onRetractMilestone,
   onRetractSubmilestone,
   onStart,
   onSubmitReview,
@@ -1894,7 +1879,7 @@ function CanonicalMilestoneActionItemFacts({
   onReviewSiteVisitRequiredChange,
 }: {
   actualCost: string;
-  onApproveMilestone: () => void;
+  canonicalStartRevisionError: string | null;
   onApproveSubmilestone: () => void;
   completionNote: string;
   detail: VisibleActionItemDetail;
@@ -1908,12 +1893,11 @@ function CanonicalMilestoneActionItemFacts({
   onFreezePackage: () => void;
   onRecommendReview: () => void;
   onRequestChanges: () => void;
-  onRetractMilestone: () => void;
   onRetractSubmilestone: () => void;
   onStart?: () => void;
   onSubmitReview: () => void;
   onUploadEvidence: (
-    input: EvidenceUploaderUploadInput
+    input: EvidenceUploaderUploadInput,
   ) => Promise<unknown> | unknown;
   onUpdateExecution: () => void;
   onWaiveSiteVisit: () => void;
@@ -1930,11 +1914,16 @@ function CanonicalMilestoneActionItemFacts({
   onReviewSiteVisitRequiredChange: (value: boolean) => void;
 }) {
   const milestoneReference = detail.references.find(
-    (reference) => reference.entityKind === "milestone"
+    (reference) => reference.entityKind === "milestone",
   );
   const submilestoneReference = detail.references.find(
-    (reference) => reference.entityKind === "submilestone"
+    (reference) => reference.entityKind === "submilestone",
   );
+  const canonicalStartRevision =
+    detail.item.systemPresentation?.workflowRevision;
+  const canonicalStartRevisionAvailable =
+    typeof canonicalStartRevision === "number" &&
+    Number.isFinite(canonicalStartRevision);
   return (
     <Frame className="border-dashed bg-muted/20" size="sm">
       <FramePanel className="space-y-2 p-3">
@@ -1948,11 +1937,7 @@ function CanonicalMilestoneActionItemFacts({
                   : "outline"
               }
             >
-              {
-                systemPresentationLabels[
-                  detail.item.systemPresentation.column
-                ]
-              }
+              {systemPresentationLabels[detail.item.systemPresentation.column]}
             </Badge>
           ) : null}
           {detail.item.systemPresentation?.attention ===
@@ -1983,13 +1968,30 @@ function CanonicalMilestoneActionItemFacts({
               : ""}
           </p>
         ) : null}
-        {detail.item.systemPresentation?.startCommand?.allowed && !readOnly ? (
+        {detail.item.systemPresentation?.startCommand?.allowed &&
+        !readOnly &&
+        canonicalStartRevisionAvailable ? (
           <Button onClick={onStart} size="sm" type="button">
             <Play aria-hidden="true" className="size-4" />
             Start work
           </Button>
         ) : null}
-        {detail.item.systemPresentation?.canUpdateExecution && !readOnly ? (
+        {detail.item.systemPresentation?.startCommand?.allowed &&
+        !readOnly &&
+        !canonicalStartRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before starting; canonical workflow
+            revision is unavailable.
+          </p>
+        ) : null}
+        {canonicalStartRevisionError ? (
+          <p className="text-destructive-text text-xs" role="alert">
+            {canonicalStartRevisionError}
+          </p>
+        ) : null}
+        {detail.item.systemPresentation?.canUpdateExecution &&
+        !readOnly &&
+        canonicalStartRevisionAvailable ? (
           <CanonicalFieldExecutionPanel
             actualCost={actualCost}
             evidenceBusy={evidenceBusy}
@@ -2003,7 +2005,17 @@ function CanonicalMilestoneActionItemFacts({
             progress={progress}
           />
         ) : null}
-        {detail.item.systemPresentation?.canAddEvidence && !readOnly ? (
+        {detail.item.systemPresentation?.canUpdateExecution &&
+        !readOnly &&
+        !canonicalStartRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before updating execution; canonical
+            workflow revision is unavailable.
+          </p>
+        ) : null}
+        {detail.item.systemPresentation?.canAddEvidence &&
+        !readOnly &&
+        canonicalStartRevisionAvailable ? (
           <CanonicalEvidencePackagePanel
             completionNote={completionNote}
             detail={detail}
@@ -2014,13 +2026,19 @@ function CanonicalMilestoneActionItemFacts({
             onUploadEvidence={onUploadEvidence}
           />
         ) : null}
+        {detail.item.systemPresentation?.canAddEvidence &&
+        !readOnly &&
+        !canonicalStartRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before adding evidence; canonical workflow
+            revision is unavailable.
+          </p>
+        ) : null}
         <CanonicalReviewLifecyclePanel
           detail={detail}
-          onApproveMilestone={onApproveMilestone}
           onApproveSubmilestone={onApproveSubmilestone}
           onRecommendReview={onRecommendReview}
           onRequestChanges={onRequestChanges}
-          onRetractMilestone={onRetractMilestone}
           onRetractSubmilestone={onRetractSubmilestone}
           onReviewNoteChange={onReviewNoteChange}
           onReviewReasonChange={onReviewReasonChange}
@@ -2082,7 +2100,7 @@ function CanonicalFieldExecutionPanel({
               min={0}
               onChange={(event) =>
                 onProgressChange(
-                  Math.min(100, Math.max(0, Number(event.target.value) || 0))
+                  Math.min(100, Math.max(0, Number(event.target.value) || 0)),
                 )
               }
               type="number"
@@ -2146,7 +2164,7 @@ function CanonicalEvidencePackagePanel({
   onFreezePackage: () => void;
   onSubmitReview: () => void;
   onUploadEvidence: (
-    input: EvidenceUploaderUploadInput
+    input: EvidenceUploaderUploadInput,
   ) => Promise<unknown> | unknown;
 }) {
   const presentation = detail.item.systemPresentation;
@@ -2172,7 +2190,7 @@ function CanonicalEvidencePackagePanel({
                 mimeType: "application/octet-stream",
                 sizeBytes: 0,
                 tag: "existing",
-              })
+              }),
             ),
             key: startCommand?.submilestoneKey ?? "",
           }}
@@ -2270,11 +2288,9 @@ function siteVisitRequirementLabel(
 
 function CanonicalReviewLifecyclePanel({
   detail,
-  onApproveMilestone,
   onApproveSubmilestone,
   onRecommendReview,
   onRequestChanges,
-  onRetractMilestone,
   onRetractSubmilestone,
   onReviewNoteChange,
   onReviewReasonChange,
@@ -2288,11 +2304,9 @@ function CanonicalReviewLifecyclePanel({
   tagOptions,
 }: {
   detail: VisibleActionItemDetail;
-  onApproveMilestone: () => void;
   onApproveSubmilestone: () => void;
   onRecommendReview: () => void;
   onRequestChanges: () => void;
-  onRetractMilestone: () => void;
   onRetractSubmilestone: () => void;
   onReviewNoteChange: (value: string) => void;
   onReviewReasonChange: (value: string) => void;
@@ -2307,19 +2321,21 @@ function CanonicalReviewLifecyclePanel({
 }) {
   const presentation = detail.item.systemPresentation;
   if (!presentation) return null;
+  const canonicalRevisionAvailable =
+    typeof presentation.workflowRevision === "number" &&
+    Number.isFinite(presentation.workflowRevision);
   const canEditReview =
     !readOnly &&
+    canonicalRevisionAvailable &&
     (presentation.canRecommendReview === true ||
       presentation.canRequestChanges === true ||
       presentation.canApproveSubmilestone === true ||
       presentation.canWaiveSiteVisit === true ||
-      presentation.canRetractSubmilestoneApproval === true ||
-      presentation.canApproveMilestone === true ||
-      presentation.canRetractMilestoneApproval === true);
+      presentation.canRetractSubmilestoneApproval === true);
   const requirement = presentation.siteVisitRequirement;
   const reviewHistory = presentation.reviewHistory ?? [];
   const participantOptions = tagOptions.filter(
-    (option) => option.kind === "participant"
+    (option) => option.kind === "participant",
   );
   const siteVisitSignals = requirement
     ? [
@@ -2371,8 +2387,8 @@ function CanonicalReviewLifecyclePanel({
         {presentation.reviewDecisionState === "reopened" ||
         presentation.milestoneReviewDecisionState === "reopened" ? (
           <p className="rounded-md border border-warning/30 bg-warning/8 px-3 py-2 text-warning-foreground text-xs">
-            This review is reopened. Prior evidence, Site Visits, decisions,
-            and rounds remain immutable history.
+            This review is reopened. Prior evidence, Site Visits, decisions, and
+            rounds remain immutable history.
           </p>
         ) : null}
         <div className="space-y-2 rounded-md border bg-muted/20 p-3">
@@ -2406,9 +2422,8 @@ function CanonicalReviewLifecyclePanel({
         {canEditReview ? (
           <div className="space-y-3 rounded-md border p-3">
             <p className="font-medium text-xs">Review command</p>
-            {(presentation.canRecommendReview ||
-              presentation.canApproveSubmilestone ||
-              presentation.canApproveMilestone) ? (
+            {presentation.canRecommendReview ||
+            presentation.canApproveSubmilestone ? (
               <Label className="space-y-1 text-xs">
                 <span>Reviewer note</span>
                 <Input
@@ -2419,10 +2434,9 @@ function CanonicalReviewLifecyclePanel({
                 />
               </Label>
             ) : null}
-            {(presentation.canRequestChanges ||
-              presentation.canWaiveSiteVisit ||
-              presentation.canRetractSubmilestoneApproval ||
-              presentation.canRetractMilestoneApproval) ? (
+            {presentation.canRequestChanges ||
+            presentation.canWaiveSiteVisit ||
+            presentation.canRetractSubmilestoneApproval ? (
               <Label className="space-y-1 text-xs">
                 <span>Reason (required for this command)</span>
                 <Input
@@ -2501,29 +2515,14 @@ function CanonicalReviewLifecyclePanel({
                   Retract child approval
                 </Button>
               ) : null}
-              {presentation.canApproveMilestone ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onApproveMilestone}
-                  size="sm"
-                  type="button"
-                >
-                  Approve Milestone
-                </Button>
-              ) : null}
-              {presentation.canRetractMilestoneApproval ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onRetractMilestone}
-                  size="sm"
-                  type="button"
-                  variant="warning"
-                >
-                  Retract Milestone approval
-                </Button>
-              ) : null}
             </div>
           </div>
+        ) : null}
+        {!readOnly && !canonicalRevisionAvailable ? (
+          <p className="text-muted-foreground text-xs" role="status">
+            Refresh this Action Item before recording review; canonical workflow
+            revision is unavailable.
+          </p>
         ) : null}
         <div className="space-y-2">
           <div className="flex items-center gap-2 font-medium text-xs">
@@ -2553,8 +2552,9 @@ function CanonicalReviewLifecyclePanel({
                     </span>
                   </div>
                   <p className="text-muted-foreground">
-                    {entry.actorRoles.join(", ")} · {participantOptions.find(
-                      (option) => option.id === entry.actorWorkosUserId
+                    {entry.actorRoles.join(", ")} ·{" "}
+                    {participantOptions.find(
+                      (option) => option.id === entry.actorWorkosUserId,
                     )?.label ?? "Former Build participant"}
                   </p>
                   {entry.reason || entry.note ? (
@@ -2575,9 +2575,13 @@ function CanonicalReviewLifecyclePanel({
   );
 }
 
-const ACTION_ITEM_REACTIONS = ["acknowledged", "agree", "question"] as const;
+const ACTION_ITEM_REACTIONS = [
+  "acknowledged",
+  "agree",
+  "question",
+] as const;
 
-function ActionItemCommentCard({
+export function ActionItemCommentCard({
   buildId,
   entry,
   onReact,
@@ -2621,7 +2625,7 @@ function ActionItemCommentCard({
         <div className="flex flex-wrap items-center gap-1">
           {ACTION_ITEM_REACTIONS.map((reaction) => {
             const summary = entry.reactions.find(
-              (candidate) => candidate.reaction === reaction
+              (candidate) => candidate.reaction === reaction,
             );
             return (
               <Button
@@ -2674,7 +2678,7 @@ function TagTaxonomyPicker({
                 onChange(
                   selected
                     ? labels.filter((candidate) => candidate !== label)
-                    : [...labels, label]
+                    : [...labels, label],
                 )
               }
               size="xs"
@@ -2731,7 +2735,7 @@ function ActionItemWorkflowPanel({
         ? "Assigned"
         : "Unassigned";
   const statusOptions = Array.from(
-    new Set([detail.item.status, ...visibleWorkflow.availableTransitions])
+    new Set([detail.item.status, ...visibleWorkflow.availableTransitions]),
   );
   const transitionNeedsReason = (nextStatus: ActionStatus) =>
     nextStatus === "blocked" ||
@@ -2741,7 +2745,7 @@ function ActionItemWorkflowPanel({
       return "Unassigned";
     }
     const participant = visibleWorkflow.assignableParticipants.find(
-      (candidate) => candidate.workosUserId === value
+      (candidate) => candidate.workosUserId === value,
     );
     return (
       participant?.displayName ??
@@ -2908,7 +2912,7 @@ function DetailContext({
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   onReplaceAsset?: (
     asset: BuildCollaborationAssetSummary,
-    file: File
+    file: File,
   ) => Promise<void>;
   organizationId: string;
   tagOptions: CollaborationTagOption[];
@@ -2926,7 +2930,7 @@ function DetailContext({
           const option = tagOptions.find(
             (candidate) =>
               candidate.id === reference.entityId &&
-              candidate.kind === toEditorReferenceKind(reference.entityKind)
+              candidate.kind === toEditorReferenceKind(reference.entityKind),
           );
           return option ? (
             <BuildCollaborationReferenceChip
@@ -2955,7 +2959,8 @@ function DetailContext({
   );
 }
 
-function ActionItemStructurePanel({
+export function ActionItemStructurePanel({
+  capabilities,
   buildId,
   detail,
   onReferenceOpen,
@@ -2964,6 +2969,7 @@ function ActionItemStructurePanel({
   readOnly,
   tagOptions,
 }: {
+  capabilities?: BuildActionItemStructureCapabilities;
   buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
@@ -2978,26 +2984,26 @@ function ActionItemStructurePanel({
       actionItemId: detail.item.actionItemId,
       buildId,
       organizationId,
-    }
+    },
   ) as StructureContext | undefined;
   const addChecklistItem = useBuildCollaborationMutation(
-    api.build_action_item_structure.addBuildActionItemChecklistItem
+    api.build_action_item_structure.addBuildActionItemChecklistItem,
   );
   const toggleChecklistItem = useBuildCollaborationMutation(
-    api.build_action_item_structure.toggleBuildActionItemChecklistItem
+    api.build_action_item_structure.toggleBuildActionItemChecklistItem,
   );
   const linkActionItems = useBuildCollaborationMutation(
-    api.build_action_item_structure.linkBuildActionItems
+    api.build_action_item_structure.linkBuildActionItems,
   );
   const unlinkActionItems = useBuildCollaborationMutation(
-    api.build_action_item_structure.unlinkBuildActionItemRelation
+    api.build_action_item_structure.unlinkBuildActionItemRelation,
   );
   const repairRelation = useBuildCollaborationMutation(
-    api.build_action_item_structure.repairBuildActionItemRelation
+    api.build_action_item_structure.repairBuildActionItemRelation,
   );
   const [checklistLabel, setChecklistLabel] = useState("");
   const [relationKind, setRelationKind] = useState<"duplicate" | "related">(
-    "related"
+    "related",
   );
   const [relatedActionItemId, setRelatedActionItemId] = useState("");
   const [dependsOnActionItemId, setDependsOnActionItemId] = useState("");
@@ -3007,14 +3013,17 @@ function ActionItemStructurePanel({
   const [busy, setBusy] = useState(false);
   const relatedOptions = tagOptions.filter(
     (option) =>
-      option.kind === "action_item" && option.id !== detail.item.actionItemId
+      option.kind === "action_item" && option.id !== detail.item.actionItemId,
   );
+  const canCreateChild =
+    capabilities?.createChild ??
+    (structure?.state === "visible" ? structure.viewerCanCreateChild : false);
 
   useEffect(() => {
-    if (readOnly) {
+    if (readOnly || !canCreateChild) {
       setCreatingChild(false);
     }
-  }, [readOnly]);
+  }, [canCreateChild, readOnly]);
 
   if (structure === undefined) {
     return (
@@ -3029,6 +3038,15 @@ function ActionItemStructurePanel({
     return null;
   }
   const visibleStructure = structure as VisibleStructureContext;
+  const canAddChecklist =
+    capabilities?.addChecklist ?? visibleStructure.viewerCanAddChecklist;
+  const canLinkRelation =
+    capabilities?.linkRelation ?? visibleStructure.viewerCanLinkRelation;
+  const canRepairRelation =
+    capabilities?.repairRelation ?? visibleStructure.viewerCanRepairRelations;
+  const canToggleChecklist = capabilities?.toggleChecklist ?? true;
+  const canUnlinkRelation =
+    capabilities?.unlinkRelation ?? visibleStructure.viewerCanLinkRelation;
   const addChecklist = async () => {
     const label = checklistLabel.trim();
     if (!(label && !busy)) {
@@ -3048,7 +3066,9 @@ function ActionItemStructurePanel({
       toast.success("Checklist step added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add checklist step."
+        error instanceof Error
+          ? error.message
+          : "Unable to add checklist step.",
       );
     } finally {
       setBusy(false);
@@ -3075,7 +3095,7 @@ function ActionItemStructurePanel({
       toast.success("Action Item relationship added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to link Action Items."
+        error instanceof Error ? error.message : "Unable to link Action Items.",
       );
     } finally {
       setBusy(false);
@@ -3113,14 +3133,14 @@ function ActionItemStructurePanel({
       toast.success("Dependency added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add dependency."
+        error instanceof Error ? error.message : "Unable to add dependency.",
       );
     } finally {
       setBusy(false);
     }
   };
   const unlinkDependency = async (
-    relationId: Id<"buildActionItemRelations">
+    relationId: Id<"buildActionItemRelations">,
   ) => {
     setBusy(true);
     try {
@@ -3135,7 +3155,7 @@ function ActionItemStructurePanel({
       toast.success("Dependency removed.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to remove dependency."
+        error instanceof Error ? error.message : "Unable to remove dependency.",
       );
     } finally {
       setBusy(false);
@@ -3143,10 +3163,10 @@ function ActionItemStructurePanel({
   };
   const openRelatedActionItem = (
     actionItemId: Id<"buildActionItems">,
-    title: string
+    title: string,
   ) => {
     const option = relatedOptions.find(
-      (candidate) => candidate.id === actionItemId
+      (candidate) => candidate.id === actionItemId,
     );
     onReferenceOpen(
       option ?? {
@@ -3155,7 +3175,7 @@ function ActionItemStructurePanel({
         kind: "action_item",
         label: title,
         summary: "Linked Action Item",
-      }
+      },
     );
   };
   return (
@@ -3170,7 +3190,7 @@ function ActionItemStructurePanel({
           </p>
         </div>
         {!readOnly &&
-        visibleStructure.viewerCanCreateChild &&
+        canCreateChild &&
         !detail.item.parentActionItemId ? (
           <Button
             onClick={() => setCreatingChild(true)}
@@ -3201,7 +3221,7 @@ function ActionItemStructurePanel({
                     const option = tagOptions.find(
                       (candidate) =>
                         candidate.kind === "action_item" &&
-                        candidate.id === child.actionItemId
+                        candidate.id === child.actionItemId,
                     );
                     onReferenceOpen(
                       option ?? {
@@ -3210,7 +3230,7 @@ function ActionItemStructurePanel({
                         kind: "action_item",
                         label: child.title,
                         summary: `${child.status.replaceAll("_", " ")} · ${child.priority}`,
-                      }
+                      },
                     );
                   }}
                   render={<button type="button" />}
@@ -3241,9 +3261,13 @@ function ActionItemStructurePanel({
               <Checkbox
                 aria-label={`Mark ${row.label} ${row.completed ? "incomplete" : "complete"}`}
                 checked={row.completed}
-                disabled={busy || readOnly}
+                disabled={
+                  busy ||
+                  readOnly ||
+                  !canToggleChecklist
+                }
                 onCheckedChange={async () => {
-                  if (readOnly) {
+                  if (readOnly || !canToggleChecklist) {
                     return;
                   }
                   setBusy(true);
@@ -3258,7 +3282,7 @@ function ActionItemStructurePanel({
                     toast.error(
                       error instanceof Error
                         ? error.message
-                        : "Unable to update checklist step."
+                        : "Unable to update checklist step.",
                     );
                   } finally {
                     setBusy(false);
@@ -3270,7 +3294,7 @@ function ActionItemStructurePanel({
               </span>
             </div>
           ))}
-          {!readOnly && visibleStructure.viewerCanAddChecklist ? (
+          {!readOnly && canAddChecklist ? (
             <div className="flex gap-2">
               <Input
                 aria-label="New checklist step"
@@ -3289,31 +3313,35 @@ function ActionItemStructurePanel({
       <div className="grid gap-3">
         <DependencyDisclosure
           busy={busy}
+          canAdd={canLinkRelation}
+          canRemove={canUnlinkRelation}
           label="Depends on"
           onAdd={() => linkDependency("depends_on")}
           onOpen={openRelatedActionItem}
           onRemove={unlinkDependency}
           onSelectionChange={setDependsOnActionItemId}
           options={relatedOptions}
-          readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
+          readOnly={readOnly || (!canLinkRelation && !canUnlinkRelation)}
           relations={visibleStructure.relations.filter(
             (relation) =>
-              relation.kind === "blocks" && relation.direction === "incoming"
+              relation.kind === "blocks" && relation.direction === "incoming",
           )}
           selection={dependsOnActionItemId}
         />
         <DependencyDisclosure
           busy={busy}
+          canAdd={canLinkRelation}
+          canRemove={canUnlinkRelation}
           label="Unblocks"
           onAdd={() => linkDependency("unblocks")}
           onOpen={openRelatedActionItem}
           onRemove={unlinkDependency}
           onSelectionChange={setUnblocksActionItemId}
           options={relatedOptions}
-          readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
+          readOnly={readOnly || (!canLinkRelation && !canUnlinkRelation)}
           relations={visibleStructure.relations.filter(
             (relation) =>
-              relation.kind === "blocks" && relation.direction === "outgoing"
+              relation.kind === "blocks" && relation.direction === "outgoing",
           )}
           selection={unblocksActionItemId}
         />
@@ -3325,7 +3353,7 @@ function ActionItemStructurePanel({
             Related ·{" "}
             {
               visibleStructure.relations.filter(
-                (relation) => relation.kind !== "blocks"
+                (relation) => relation.kind !== "blocks",
               ).length
             }
           </p>
@@ -3349,7 +3377,7 @@ function ActionItemStructurePanel({
                   {relation.status === "suspended" &&
                   !readOnly &&
                   relation.sourceRevision !== undefined &&
-                  visibleStructure.viewerCanRepairRelations ? (
+                  canRepairRelation ? (
                     <div className="flex gap-2">
                       <Input
                         aria-label="Relationship repair reason"
@@ -3378,7 +3406,7 @@ function ActionItemStructurePanel({
                             toast.error(
                               error instanceof Error
                                 ? error.message
-                                : "Unable to repair relationship."
+                                : "Unable to repair relationship.",
                             );
                           } finally {
                             setBusy(false);
@@ -3393,7 +3421,7 @@ function ActionItemStructurePanel({
                 </CardPanel>
               </Card>
             ))}
-          {!readOnly && visibleStructure.viewerCanLinkRelation ? (
+          {!readOnly && canLinkRelation ? (
             <div className="grid gap-2 sm:grid-cols-[0.8fr_1.2fr_auto]">
               <Select
                 onValueChange={(value) => {
@@ -3438,7 +3466,7 @@ function ActionItemStructurePanel({
         </FramePanel>
       </Frame>
 
-      {!readOnly && creatingChild ? (
+      {!readOnly && canCreateChild && creatingChild ? (
         <Frame>
           <FramePanel className="p-0">
             <ActionItemCreatePanel
@@ -3460,6 +3488,8 @@ function ActionItemStructurePanel({
 
 function DependencyDisclosure({
   busy,
+  canAdd,
+  canRemove,
   label,
   onAdd,
   onOpen,
@@ -3471,6 +3501,8 @@ function DependencyDisclosure({
   selection,
 }: {
   busy: boolean;
+  canAdd: boolean;
+  canRemove: boolean;
   label: string;
   onAdd: () => void;
   onOpen: (actionItemId: Id<"buildActionItems">, title: string) => void;
@@ -3532,7 +3564,7 @@ function DependencyDisclosure({
                         onClick={() =>
                           onOpen(
                             relation.otherActionItemId as Id<"buildActionItems">,
-                            relation.otherActionItemTitle ?? "Action Item"
+                            relation.otherActionItemTitle ?? "Action Item",
                           )
                         }
                         size="xs"
@@ -3542,7 +3574,7 @@ function DependencyDisclosure({
                         <ArrowUpRight aria-hidden="true" className="size-3.5" />
                       </Button>
                     ) : null}
-                    {!readOnly && relation.status === "active" ? (
+                    {!readOnly && canRemove && relation.status === "active" ? (
                       <Button
                         disabled={busy}
                         onClick={() => onRemove(relation.relationId)}
@@ -3556,7 +3588,7 @@ function DependencyDisclosure({
                 ))
               )}
             </div>
-            {readOnly ? null : (
+            {readOnly || !canAdd ? null : (
               <div className="flex gap-2">
                 <Select
                   onValueChange={(value) => onSelectionChange(value ?? "")}
@@ -3585,7 +3617,7 @@ function DependencyDisclosure({
   );
 }
 
-function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
+export function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -3617,7 +3649,7 @@ function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
   );
 }
 
-function ActivityHistory({ detail }: { detail: VisibleActionItemDetail }) {
+export function ActivityHistory({ detail }: { detail: VisibleActionItemDetail }) {
   return (
     <section className="space-y-3">
       <h3 className="font-semibold text-base leading-snug">Activity</h3>
@@ -3686,7 +3718,7 @@ function PrioritySelect({
             <SelectItem key={priority} value={priority}>
               {priority}
             </SelectItem>
-          )
+          ),
         )}
       </SelectContent>
     </Select>
@@ -3822,7 +3854,7 @@ function statusLabel(status: ActionStatus) {
 
 function effectiveActionItemWorkKind(
   selectedWorkKind: ActionWorkKind,
-  references: CollaborationTagReference[]
+  references: CollaborationTagReference[],
 ): ActionWorkKind {
   if (selectedWorkKind !== "ordinary") {
     return selectedWorkKind;
@@ -3840,7 +3872,7 @@ function effectiveActionItemWorkKind(
 }
 
 function relationDirectionLabel(
-  relation: VisibleStructureContext["relations"][number]
+  relation: VisibleStructureContext["relations"][number],
 ) {
   if (relation.kind === "blocks") {
     return relation.direction === "outgoing" ? "Blocks" : "Blocked by";
@@ -3850,7 +3882,7 @@ function relationDirectionLabel(
 
 function transitionLabel(
   detail: VisibleActionItemDetail,
-  status: ActionStatus
+  status: ActionStatus,
 ) {
   if (status === "in_review" && detail.item.requiresAcceptance) {
     return "Submit for review";

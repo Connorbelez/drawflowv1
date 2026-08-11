@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import type { Doc } from "./_generated/dataModel";
 import {
   authenticatedMutation,
   authenticatedQuery,
@@ -542,13 +543,20 @@ export const getTimelineHistoryStatus = authenticatedQuery
     })
   )
   .handler(async (ctx, args) => {
-    await resolveCollaborationAuth(
+    const auth = await resolveCollaborationAuth(
       ctx,
       args.proposalId,
       args.workosOrganizationId,
       { allowActiveParticipant: true }
     );
-    return await getProposalTimelineStatus(ctx, args.proposalId);
+    const status = await getProposalTimelineStatus(ctx, args.proposalId);
+    if (
+      auth.proposal.status !== "draft" ||
+      auth.proposal.submittedAt !== undefined
+    ) {
+      return { ...status, canRedo: false, canUndo: false };
+    }
+    return status;
   })
   .public();
 
@@ -576,7 +584,7 @@ export const undoProposalTimeline = authenticatedMutation
       throw new Error("Collaboration session is not active.");
     }
     await assertParticipantCanEdit(ctx, session, auth.subject);
-    assertUndoableProposalState(auth.proposal.status);
+    assertUndoableProposalState(auth.proposal);
     const snapshot = await undoProposalPlanningSnapshot(ctx, args.proposalId);
     if (!snapshot) {
       throw new Error("Nothing to undo.");
@@ -618,7 +626,7 @@ export const redoProposalTimeline = authenticatedMutation
       throw new Error("Collaboration session is not active.");
     }
     await assertParticipantCanEdit(ctx, session, auth.subject);
-    assertUndoableProposalState(auth.proposal.status);
+    assertUndoableProposalState(auth.proposal);
     const snapshot = await redoProposalPlanningSnapshot(ctx, args.proposalId);
     if (!snapshot) {
       throw new Error("Nothing to redo.");
@@ -820,8 +828,10 @@ async function updateInviteParticipantPermission(
   return updated;
 }
 
-function assertUndoableProposalState(status: string) {
-  if (status === "draft" || status === "submitted") {
+function assertUndoableProposalState(
+  proposal: Pick<Doc<"buildProposals">, "status" | "submittedAt">
+) {
+  if (proposal.status === "draft" && proposal.submittedAt === undefined) {
     return;
   }
   throw new Error("Undo/redo is only available for proposal planning edits.");

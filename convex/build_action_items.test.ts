@@ -182,6 +182,188 @@ async function seedActionItemBuild() {
   };
 }
 
+async function seedGeneratedCompanion(
+  fixture: Awaited<ReturnType<typeof seedActionItemBuild>>
+) {
+  return await fixture.base.run(async (ctx) => {
+    const build = await ctx.db.get(fixture.buildId);
+    if (!build) {
+      throw new Error("Generated companion build is unavailable.");
+    }
+    const now = Date.now();
+    const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
+      brokerageId: build.brokerageId,
+      budgetCents: 50_000_000,
+      createdAt: now,
+      dayEnd: 20,
+      dayStart: 0,
+      dependencyKeys: [],
+      drawAvailabilityCents: 40_000_000,
+      durationDays: 20,
+      key: "generated-foundation",
+      name: "Generated Foundation",
+      order: 1,
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      updatedAt: now,
+    });
+    const proposalSubmilestoneId = await ctx.db.insert(
+      "proposalSubmilestones",
+      {
+        brokerageId: build.brokerageId,
+        budgetCents: 50_000_000,
+        createdAt: now,
+        durationDays: 20,
+        key: "generated-footings",
+        milestoneKey: "generated-foundation",
+        name: "Generated Footings",
+        order: 1,
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        proposalMilestoneId,
+        startDay: 0,
+        updatedAt: now,
+      }
+    );
+    const milestoneId = await ctx.db.insert("buildMilestones", {
+      brokerageId: build.brokerageId,
+      budgetCents: 50_000_000,
+      buildId: build._id,
+      createdAt: now,
+      dayEnd: 20,
+      dayStart: 0,
+      dependencyKeys: [],
+      drawAvailabilityCents: 40_000_000,
+      durationDays: 20,
+      key: "generated-foundation",
+      name: "Generated Foundation",
+      order: 1,
+      organizationId: build.organizationId,
+      planningState: "active",
+      proposalMilestoneId,
+      status: "planned",
+      updatedAt: now,
+    });
+    const submilestoneId = await ctx.db.insert("buildSubmilestones", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      buildMilestoneId: milestoneId,
+      createdAt: now,
+      durationDays: 20,
+      key: "generated-footings",
+      milestoneKey: "generated-foundation",
+      name: "Generated Footings",
+      order: 1,
+      organizationId: build.organizationId,
+      planningState: "active",
+      proposalSubmilestoneId,
+      startDay: 0,
+      status: "planned",
+      updatedAt: now,
+    });
+    const postId = await ctx.db.insert("buildCollaborationPosts", {
+      acknowledgementRequired: false,
+      agentDrafted: false,
+      audienceFloorTier: 0,
+      audienceMode: "build_wide",
+      authorDisplayNameSnapshot: "DrawFlow System",
+      authorRolesSnapshot: [],
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      canonicalBuildMilestoneId: milestoneId,
+      commentCount: 0,
+      contentState: "active",
+      createdAt: now,
+      lastMeaningfulActivityAt: now,
+      openActionItemCount: 1,
+      organizationId: build.organizationId,
+      postType: "update",
+      readRevision: 1,
+      revision: 1,
+      source: "system",
+      systemEventKey: `milestone:${milestoneId}`,
+      systemLifecycle: "open",
+      systemOccurrenceKey: `milestone:${milestoneId}`,
+      systemPostKind: "milestone",
+      threadRevision: 0,
+      threadState: "open",
+      updatedAt: now,
+    });
+    const actionItemId = await ctx.db.insert("buildActionItems", {
+      assignmentState: "unassigned",
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      canonicalBindingRevision: 1,
+      canonicalBuildMilestoneId: milestoneId,
+      canonicalBuildSubmilestoneId: submilestoneId,
+      canonicalCompanionDisposition: "active",
+      canonicalPlanningState: "active",
+      createdAt: now,
+      creatorRole: "admin",
+      creatorWorkosUserId: "system",
+      currentRevision: 1,
+      descriptionPlainText: "Generated companion",
+      descriptionTiptapJson: JSON.stringify({ content: [], type: "doc" }),
+      organizationId: build.organizationId,
+      originatingPostId: postId,
+      priority: "none",
+      requiresAcceptance: false,
+      status: "todo",
+      systemMode: "generated_milestone_submilestone",
+      title: "Generated Footings",
+      updatedAt: now,
+      workKind: "ordinary",
+    });
+    const contractorId = await ctx.db.insert("contractorProfiles", {
+      accountWorkosUserId: "user_contractor_reader",
+      brokerageId: build.brokerageId,
+      createdAt: now,
+      name: "Assigned reader contractor",
+      organizationId: build.organizationId,
+      status: "active",
+      trades: ["concrete"],
+      updatedAt: now,
+    });
+    const buildContractorAssignmentId = await ctx.db.insert(
+      "buildContractorAssignments",
+      {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        contractorId,
+        createdAt: now,
+        organizationId: build.organizationId,
+        role: "Concrete contractor",
+        status: "active",
+        updatedAt: now,
+      }
+    );
+    await ctx.db.insert("milestoneContractorAssignments", {
+      assignedAt: now,
+      assignedByWorkosUserId: "user_admin",
+      brokerageId: build.brokerageId,
+      buildContractorAssignmentId,
+      buildId: build._id,
+      buildMilestoneId: milestoneId,
+      buildSubmilestoneId: submilestoneId,
+      contractorId,
+      createdAt: now,
+      milestoneKey: "generated-foundation",
+      organizationId: build.organizationId,
+      postHoc: false,
+      role: "Concrete contractor",
+      status: "active",
+      submilestoneKey: "generated-footings",
+      updatedAt: now,
+    });
+    return {
+      actionItemId,
+      milestoneId,
+      postId,
+      submilestoneId,
+    };
+  });
+}
+
 async function readActionItem(
   fixture: Awaited<ReturnType<typeof seedActionItemBuild>>,
   actionItemId: Id<"buildActionItems">
@@ -1407,6 +1589,253 @@ describe("Build Action Item server authorization", () => {
     }));
     expect(persisted.child?.parentActionItemId).toBe(parentActionItemId);
     expect(persisted.parent?.status).toBe("todo");
+  });
+
+  test("generated companions allow structural collaboration without granting workflow ownership", async () => {
+    const fixture = await seedActionItemBuild();
+    const companion = await seedGeneratedCompanion(fixture);
+
+    const builderContext = await fixture.builder.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: companion.actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(builderContext).toMatchObject({
+      state: "visible",
+      viewerCanAddChecklist: true,
+      viewerCanCreateChild: true,
+      viewerCanLinkRelation: true,
+      viewerCanRepairRelations: true,
+    });
+
+    const checklistItemId = await fixture.builder.mutation(
+      (api as any).build_action_item_structure
+        .addBuildActionItemChecklistItem,
+      {
+        actionItemId: companion.actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        label: "Confirm footing inspection",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const afterAdd = await readActionItem(fixture, companion.actionItemId);
+    expect(afterAdd.item?.currentRevision).toBe(2);
+
+    await fixture.reader.mutation(
+      (api as any).build_action_item_structure
+        .toggleBuildActionItemChecklistItem,
+      {
+        buildId: fixture.buildId,
+        checklistItemId,
+        expectedRevision: 2,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const afterToggle = await readActionItem(fixture, companion.actionItemId);
+    expect(afterToggle.item?.currentRevision).toBe(3);
+    expect(
+      afterToggle.events.map((event) => event.eventType)
+    ).toEqual(expect.arrayContaining(["checklist_item_added", "checklist_item_toggled"]));
+
+    const childActionItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        expectedParentRevision: 3,
+        organizationId: ORGANIZATION_ID,
+        parentActionItemId: companion.actionItemId,
+        postId: companion.postId,
+        title: "Upload footing photo",
+      }
+    );
+    const child = await fixture.base.run((ctx) =>
+      ctx.db.get(childActionItemId as Id<"buildActionItems">)
+    );
+    expect(child).toMatchObject({
+      parentActionItemId: companion.actionItemId,
+    });
+    expect(child?.systemMode).toBeUndefined();
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          parentActionItemId: childActionItemId,
+          postId: companion.postId,
+          title: "Disallowed grandchild",
+        }
+      )
+    ).rejects.toThrow("only one level of child Action Items");
+
+    const relationId = await fixture.builder.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        expectedSourceRevision: 4,
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        reason: "Photo is required before closeout",
+        sourceActionItemId: companion.actionItemId,
+        targetActionItemId: childActionItemId,
+      }
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          kind: "blocks",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: childActionItemId,
+          targetActionItemId: companion.actionItemId,
+        }
+      )
+    ).rejects.toThrow("would create a cycle");
+    await fixture.builder.mutation(
+      (api as any).build_action_item_structure.unlinkBuildActionItemRelation,
+      {
+        buildId: fixture.buildId,
+        expectedGoverningRevision: 5,
+        governingActionItemId: companion.actionItemId,
+        organizationId: ORGANIZATION_ID,
+        reason: "Dependency no longer applies",
+        relationId,
+      }
+    );
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId: companion.actionItemId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          title: "Workflow edit must remain denied",
+        }
+      )
+    ).rejects.toThrow("System Action Items mirror canonical Sub-milestones");
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId: companion.actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 6,
+          nextStatus: "in_progress",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("System Action Items mirror canonical Sub-milestones");
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(companion.actionItemId, {
+        canonicalCompanionDisposition: "historical",
+        canonicalPlanningState: "superseded",
+      });
+    });
+    const historicalContext = await fixture.builder.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: companion.actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(historicalContext).toMatchObject({
+      state: "visible",
+      viewerCanAddChecklist: false,
+      viewerCanCreateChild: false,
+      viewerCanLinkRelation: false,
+      viewerCanRepairRelations: false,
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_item_structure
+          .addBuildActionItemChecklistItem,
+        {
+          actionItemId: companion.actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 6,
+          label: "Must remain read-only",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("read-only");
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(companion.actionItemId, {
+        canonicalCompanionDisposition: "quarantined",
+        canonicalBuildSubmilestoneId: undefined,
+        historicalCanonicalBuildSubmilestoneId: companion.submilestoneId,
+      });
+    });
+    await expect(
+      fixture.builder.query(
+        (api as any).build_action_item_structure
+          .getBuildActionItemStructureContext,
+        {
+          actionItemId: companion.actionItemId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({
+      state: "visible",
+      viewerCanAddChecklist: false,
+      viewerCanCreateChild: false,
+      viewerCanLinkRelation: false,
+      viewerCanRepairRelations: false,
+    });
+
+    await expect(
+      fixture.builder.query(
+        (api as any).build_action_item_structure
+          .getBuildActionItemStructureContext,
+        {
+          actionItemId: companion.actionItemId,
+          buildId: fixture.buildId,
+          organizationId: "org_other_tenant",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex(
+          "by_buildId_and_workosUserId_and_participationPeriod",
+          (query) =>
+            query
+              .eq("buildId", fixture.buildId)
+              .eq("workosUserId", "user_contractor_reader")
+        )
+        .order("desc")
+        .first();
+      if (!participant) {
+        throw new Error("Assigned Contractor participant is unavailable.");
+      }
+      await ctx.db.patch(participant._id, {
+        status: "removed",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      fixture.reader.query(
+        (api as any).build_action_item_structure
+          .getBuildActionItemStructureContext,
+        {
+          actionItemId: companion.actionItemId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("revoked");
   });
 
   test("never exposes an unreadable relationship endpoint from the legacy Action Item list", async () => {

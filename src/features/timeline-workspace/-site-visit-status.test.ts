@@ -4,7 +4,7 @@ import {
   normalizeTimelineSiteVisitStatus,
   resolveTimelinePersistenceSiteVisitMilestoneKey,
   resolveTimelineSiteVisitMilestoneKey,
-} from "./index.tsx";
+} from "./TimelineWorkspace.tsx";
 
 describe("timeline site visit status helpers", () => {
   test("normalizes requested, opened, completed, and expired token states", () => {

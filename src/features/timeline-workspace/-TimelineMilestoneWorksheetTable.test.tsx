@@ -22,23 +22,62 @@ import {
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
   FieldRichTextEditor: ({
+    editable = true,
+    onDocumentChange,
     onChange,
     testId,
     value,
   }: {
     onChange: (value: string) => void;
+    onDocumentChange?: (document: unknown, html: string) => void;
+    editable?: boolean;
     testId?: string;
-    value: string;
+    value: string | { content?: Array<{ content?: Array<{ text?: string }> }> };
   }) => (
     <textarea
       data-rich-text-editor="true"
       data-testid={testId}
-      onChange={(event) => onChange(`<p>${event.currentTarget.value}</p>`)}
-      value={value.replace(/<[^>]+>/g, "")}
+      disabled={!editable}
+      onChange={(event) => {
+        const html = `<p>${event.currentTarget.value}</p>`;
+        onChange(html);
+        onDocumentChange?.(
+          {
+            content: [
+              {
+                content: [{ text: event.currentTarget.value, type: "text" }],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          },
+          html
+        );
+      }}
+      value={
+        typeof value === "string"
+          ? value.replace(/<[^>]+>/g, "")
+          : (value.content
+              ?.flatMap((node) => node.content ?? [])
+              .map((node) => node.text ?? "")
+              .join(" ") ?? "")
+      }
     />
   ),
   FieldRichTextPreview: () => null,
 }));
+
+function tiptap(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
 
 afterEach(() => cleanup());
 
@@ -60,10 +99,15 @@ const worksheetRows: TimelineMilestoneWorksheetRow[] = [
         budgetText: "$125,000",
         description: "Clear the site and pour foundation",
         durationText: "14",
+        fieldGuidance: {
+          cameraAnglesTiptapJson: tiptap("Capture the north and east faces"),
+          whatToVerifyTiptapJson: tiptap("Verify footing layout before pour"),
+        },
         id: "site-prep-foundation-sub-1",
         name: "Foundation scope",
         percentageBps: 5000,
         percentageText: "50.00%",
+        scopeOfWorkTiptapJson: tiptap("Clear the site and pour foundation"),
       },
     ],
     subMilestones: ["Foundation scope"],
@@ -86,10 +130,15 @@ const worksheetRows: TimelineMilestoneWorksheetRow[] = [
         budgetText: "$75,000",
         description: "Frame walls and roof",
         durationText: "10",
+        fieldGuidance: {
+          cameraAnglesTiptapJson: tiptap("Capture the roofline"),
+          whatToVerifyTiptapJson: tiptap("Verify framing connections"),
+        },
         id: "framing-sub-1",
         name: "Frame shell",
         percentageBps: 5000,
         percentageText: "50.00%",
+        scopeOfWorkTiptapJson: tiptap("Frame walls and roof"),
       },
     ],
     subMilestones: ["Frame shell"],
@@ -190,6 +239,22 @@ const cascadeRows: TimelineMilestoneWorksheetRow[] = [
   },
 ];
 
+const fallbackGuardRows: TimelineMilestoneWorksheetRow[] = [
+  worksheetRows[0]!,
+  {
+    ...worksheetRows[1]!,
+    subMilestoneDetails: [
+      worksheetRows[1]!.subMilestoneDetails[0]!,
+      {
+        ...worksheetRows[1]!.subMilestoneDetails[0]!,
+        id: "framing-sub-2",
+        name: "Frame finishes",
+      },
+    ],
+    subMilestones: ["Frame shell", "Frame finishes"],
+  },
+];
+
 function ControlledWorksheet({
   cascadeBudgetEdits = false,
   contractorActions,
@@ -198,6 +263,7 @@ function ControlledWorksheet({
   initialRows = worksheetRows,
   includeChangeMeta = false,
   mode = "setup",
+  onBack,
   onComplete = vi.fn(),
   onRowsChange = vi.fn(),
   proposedStartDate,
@@ -217,6 +283,7 @@ function ControlledWorksheet({
   >["initialWorksheetView"];
   initialRows?: TimelineMilestoneWorksheetRow[];
   mode?: "settings" | "setup";
+  onBack?: ComponentProps<typeof TimelineMilestoneWorksheetTable>["onBack"];
   onComplete?: ComponentProps<
     typeof TimelineMilestoneWorksheetTable
   >["onComplete"];
@@ -239,6 +306,7 @@ function ControlledWorksheet({
       contractorOptions={contractorOptions}
       initialWorksheetView={initialWorksheetView}
       mode={mode}
+      onBack={onBack}
       onCascadeBudgetEditsChange={setCascadeEnabled}
       onComplete={onComplete}
       onRowsChange={(nextRows, meta) => {
@@ -418,6 +486,257 @@ describe("TimelineMilestoneWorksheetTable", () => {
     ).toContain("2.5 x $80,000");
   });
 
+  test("summarizes only canonical field guidance", () => {
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            subMilestoneDetails: [
+              {
+                ...worksheetRows[0]!.subMilestoneDetails[0]!,
+                description: "Legacy description should not replace guidance",
+              },
+            ],
+          },
+        ]}
+      />
+    );
+
+    const canonicalGuidance = screen
+      .getByTestId(
+        "timeline-setup-status-site-prep-foundation-sub-1-guidance"
+      )
+      .getAttribute("aria-label");
+    expect(canonicalGuidance).toContain(
+      "What to verify: Verify footing layout before pour"
+    );
+    expect(canonicalGuidance).toContain(
+      "Recommended camera angles: Capture the north and east faces"
+    );
+    expect(canonicalGuidance).not.toContain("Scope note:");
+
+    cleanup();
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            subMilestoneDetails: [
+              {
+                ...worksheetRows[0]!.subMilestoneDetails[0]!,
+                description: "Legacy verification note",
+                fieldGuidance: undefined,
+              },
+            ],
+          },
+        ]}
+      />
+    );
+
+    const missingGuidance = screen
+      .getByTestId(
+        "timeline-setup-status-site-prep-foundation-sub-1-guidance"
+      )
+      .getAttribute("aria-label");
+    expect(missingGuidance).toContain("No field guidance set.");
+    expect(missingGuidance).not.toContain("Legacy verification note");
+
+    cleanup();
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            subMilestoneDetails: [
+              {
+                ...worksheetRows[0]!.subMilestoneDetails[0]!,
+                description: "",
+                fieldGuidance: undefined,
+              },
+            ],
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen
+        .getByTestId(
+          "timeline-setup-status-site-prep-foundation-sub-1-guidance"
+        )
+        .getAttribute("aria-label")
+    ).toContain("No field guidance set.");
+  });
+
+  test("only parses TipTap document roots when summarizing guidance", () => {
+    const subMilestone = worksheetRows[0]!.subMilestoneDetails[0]!;
+    const renderSummary = (whatToVerifyTiptapJson: string) => {
+      render(
+        <ControlledWorksheet
+          initialWorksheetView="table"
+          initialRows={[
+            {
+              ...worksheetRows[0]!,
+              subMilestoneDetails: [
+                {
+                  ...subMilestone,
+                  fieldGuidance: {
+                    cameraAnglesTiptapJson: "",
+                    whatToVerifyTiptapJson,
+                  },
+                },
+              ],
+            },
+          ]}
+        />
+      );
+
+      return screen
+        .getByTestId(
+          "timeline-setup-status-site-prep-foundation-sub-1-guidance"
+        )
+        .getAttribute("aria-label");
+    };
+
+    expect(renderSummary(JSON.stringify("Legacy quoted guidance"))).toContain(
+      'What to verify: "Legacy quoted guidance"'
+    );
+    cleanup();
+
+    expect(
+      renderSummary(
+        JSON.stringify({
+          content: [{ text: "Legacy paragraph-shaped guidance" }],
+          type: "paragraph",
+        })
+      )
+    ).toContain('What to verify: {"content":[{"text":"Legacy paragraph-shaped guidance"}],"type":"paragraph"}');
+    cleanup();
+
+    expect(renderSummary(tiptap("Parsed document guidance"))).toContain(
+      "What to verify: Parsed document guidance"
+    );
+  });
+
+  test("joins adjacent inline TipTap text and separates block text", () => {
+    const subMilestone = worksheetRows[0]!.subMilestoneDetails[0]!;
+    const formattedGuidance = JSON.stringify({
+      content: [
+        {
+          content: [
+            { text: "Foot", type: "text" },
+            {
+              marks: [{ type: "bold" }],
+              text: "ings",
+              type: "text",
+            },
+            { text: " layout", type: "text" },
+          ],
+          type: "paragraph",
+        },
+        {
+          content: [{ text: "Second paragraph", type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            subMilestoneDetails: [
+              {
+                ...subMilestone,
+                fieldGuidance: {
+                  cameraAnglesTiptapJson: "",
+                  whatToVerifyTiptapJson: formattedGuidance,
+                },
+              },
+            ],
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen
+        .getByTestId(
+          "timeline-setup-status-site-prep-foundation-sub-1-guidance"
+        )
+        .getAttribute("aria-label")
+    ).toContain("What to verify: Footings layout Second paragraph");
+  });
+
+  test("guards a dirty fallback active sub-milestone before card switching", () => {
+    render(
+      <ControlledWorksheet
+        initialRows={fallbackGuardRows}
+        initialWorksheetView="table"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Worksheet" }));
+    fireEvent.click(screen.getByTestId("timeline-setup-row-expand-framing"));
+
+    const firstScopeEditor = screen.getByTestId(
+      "timeline-setup-submilestone-description-framing-sub-1"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(firstScopeEditor, {
+      target: { value: "Keep this fallback scope draft" },
+    });
+    fireEvent.click(
+      within(
+        screen.getByTestId("timeline-setup-submilestone-card-framing-sub-2")
+      ).getByRole("button", { name: /^Frame finishes/ })
+    );
+
+    expect(
+      screen.getByTestId("timeline-setup-unsaved-changes-dialog")
+    ).toBeTruthy();
+  });
+
+  test("guards a dirty fallback active sub-milestone before details switching", () => {
+    render(
+      <ControlledWorksheet
+        initialRows={fallbackGuardRows}
+        initialWorksheetView="table"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-framing-sub-1"
+      )
+    );
+    const firstSheet = screen.getByTestId(
+      "timeline-setup-submilestone-details-sheet-framing-sub-1"
+    );
+    fireEvent.change(
+      within(firstSheet).getByTestId(
+        "timeline-setup-submilestone-description-framing-sub-1"
+      ),
+      { target: { value: "Keep this fallback details draft" } }
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-framing-sub-2"
+      )
+    );
+
+    expect(
+      screen.getByTestId("timeline-setup-unsaved-changes-dialog")
+    ).toBeTruthy();
+  });
+
   test("status chip click opens the detail sheet focused on the matching tab", () => {
     render(
       <ControlledWorksheet
@@ -564,6 +883,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
             trades: ["Framing"],
           },
         ]}
+        includeChangeMeta
         onRowsChange={onRowsChange}
       />
     );
@@ -607,6 +927,10 @@ describe("TimelineMilestoneWorksheetTable", () => {
         ) as HTMLInputElement
       ).value
     ).toBe("Foundation scope");
+    const scopeEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    expect(scopeEditor.value).toBe("Clear the site and pour foundation");
 
     fireEvent.click(within(sheet).getByRole("tab", { name: "Contractors" }));
     fireEvent.change(
@@ -640,7 +964,8 @@ describe("TimelineMilestoneWorksheetTable", () => {
           ],
           key: "site-prep-foundation",
         }),
-      ])
+      ]),
+      expect.objectContaining({ commit: true })
     );
   });
 
@@ -655,6 +980,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
             trades: ["Framing"],
           },
         ]}
+        includeChangeMeta
         onRowsChange={onRowsChange}
       />
     );
@@ -732,17 +1058,30 @@ describe("TimelineMilestoneWorksheetTable", () => {
           ],
           key: "site-prep-foundation",
         }),
-      ])
+      ]),
+      expect.objectContaining({ commit: true })
     );
 
     fireEvent.click(within(sheet).getByRole("tab", { name: "Field Guidance" }));
     const guidanceEditor = within(sheet).getByTestId(
       "timeline-setup-submilestone-guidance-description-site-prep-foundation-sub-1"
-    );
+    ) as HTMLTextAreaElement;
     expect(guidanceEditor.getAttribute("data-rich-text-editor")).toBe("true");
+    expect(guidanceEditor.value).toBe("Verify footing layout before pour");
+    const cameraEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-guidance-camera-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    expect(cameraEditor.value).toBe("Capture the north and east faces");
     fireEvent.change(guidanceEditor, {
       target: { value: "Verify footing layout before pour." },
     });
+
+    expect(onRowsChange).toHaveBeenCalledTimes(1);
+    const saveGuidance = within(sheet).getByTestId(
+      "timeline-setup-submilestone-field-guidance-save-site-prep-foundation-sub-1"
+    );
+    expect(saveGuidance.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveGuidance);
 
     expect(onRowsChange).toHaveBeenLastCalledWith(
       expect.arrayContaining([
@@ -750,12 +1089,25 @@ describe("TimelineMilestoneWorksheetTable", () => {
           key: "site-prep-foundation",
           subMilestoneDetails: [
             expect.objectContaining({
-              description: "<p>Verify footing layout before pour.</p>",
+              description: "Clear the site and pour foundation",
+              fieldGuidance: expect.objectContaining({
+                whatToVerifyTiptapJson: tiptap(
+                  "Verify footing layout before pour."
+                ),
+              }),
               id: "site-prep-foundation-sub-1",
             }),
           ],
         }),
-      ])
+      ]),
+      expect.objectContaining({
+        commit: true,
+        save: {
+          group: "fieldGuidance",
+          rowKey: "site-prep-foundation",
+          subMilestoneId: "site-prep-foundation-sub-1",
+        },
+      })
     );
   });
 
@@ -811,6 +1163,501 @@ describe("TimelineMilestoneWorksheetTable", () => {
         }),
       ])
     );
+  });
+
+  test("keeps scope edits local until explicit save and disables editing while saving", async () => {
+    let resolveSave: (() => void) | undefined;
+    const onRowsChange = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    render(
+      <TimelineMilestoneWorksheetTable
+        initialWorksheetView="table"
+        mode="setup"
+        onRowsChange={onRowsChange}
+        rows={worksheetRows}
+        templateTitle="Scope save fixture"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-submilestone-details-sheet-site-prep-foundation-sub-1"
+    );
+    const scopeEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(scopeEditor, { target: { value: "Updated contract scope" } });
+
+    expect(onRowsChange).not.toHaveBeenCalled();
+    const saveScope = within(sheet).getByTestId(
+      "timeline-setup-submilestone-scope-save-site-prep-foundation-sub-1"
+    );
+    expect(saveScope.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveScope);
+
+    expect(saveScope.hasAttribute("disabled")).toBe(true);
+    expect(scopeEditor.hasAttribute("disabled")).toBe(true);
+    expect(onRowsChange).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "site-prep-foundation",
+          subMilestoneDetails: expect.arrayContaining([
+            expect.objectContaining({
+              id: "site-prep-foundation-sub-1",
+              scopeOfWorkTiptapJson: tiptap("Updated contract scope"),
+            }),
+          ]),
+        }),
+      ]),
+      {
+        commit: true,
+        save: {
+          group: "scope",
+          rowKey: "site-prep-foundation",
+          subMilestoneId: "site-prep-foundation-sub-1",
+        },
+      }
+    );
+
+    resolveSave?.();
+    await waitFor(() => expect(scopeEditor.hasAttribute("disabled")).toBe(false));
+    expect(saveScope.hasAttribute("disabled")).toBe(true);
+    expect(scopeEditor.value).toBe("Updated contract scope");
+  });
+
+  test("preserves local scope content after a failed save", async () => {
+    const onRowsChange = vi.fn(() => Promise.reject(new Error("offline")));
+    render(
+      <TimelineMilestoneWorksheetTable
+        initialWorksheetView="table"
+        mode="setup"
+        onRowsChange={onRowsChange}
+        rows={worksheetRows}
+        templateTitle="Scope failure fixture"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-submilestone-details-sheet-site-prep-foundation-sub-1"
+    );
+    const scopeEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(scopeEditor, { target: { value: "Keep this failed draft" } });
+    fireEvent.click(
+      within(sheet).getByTestId(
+        "timeline-setup-submilestone-scope-save-site-prep-foundation-sub-1"
+      )
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("offline")
+    );
+    expect(scopeEditor.value).toBe("Keep this failed draft");
+  });
+
+  test("syncs clean external scope updates, preserves dirty drafts, and remounts by identity", () => {
+    const firstRow = worksheetRows[0]!;
+    const firstSubMilestone = firstRow.subMilestoneDetails[0]!;
+    const secondSubMilestone = {
+      ...firstSubMilestone,
+      id: "site-prep-foundation-sub-2",
+      name: "Foundation finish",
+      scopeOfWorkTiptapJson: tiptap("Second scope"),
+    };
+    const identityRows: TimelineMilestoneWorksheetRow[] = [
+      {
+        ...firstRow,
+        subMilestoneDetails: [
+          {
+            ...firstSubMilestone,
+            scopeOfWorkTiptapJson: tiptap("Initial scope"),
+          },
+          secondSubMilestone,
+        ],
+        subMilestones: ["Foundation scope", "Foundation finish"],
+      },
+      ...worksheetRows.slice(1),
+    ];
+    const replaceFirstScope = (
+      rows: TimelineMilestoneWorksheetRow[],
+      scopeOfWorkTiptapJson: string
+    ) =>
+      rows.map((row) =>
+        row.key === firstRow.key
+          ? {
+              ...row,
+              subMilestoneDetails: row.subMilestoneDetails.map((detail) =>
+                detail.id === firstSubMilestone.id
+                  ? { ...detail, scopeOfWorkTiptapJson }
+                  : detail
+              ),
+            }
+          : row
+      );
+    const onRowsChange = vi.fn();
+    const { rerender } = render(
+      <TimelineMilestoneWorksheetTable
+        initialWorksheetView="editor"
+        mode="setup"
+        onRowsChange={onRowsChange}
+        rows={identityRows}
+        templateTitle="Scope identity fixture"
+      />
+    );
+
+    const scopeTestId =
+      "timeline-setup-submilestone-description-site-prep-foundation-sub-1";
+    const scopeEditor = screen.getByTestId(scopeTestId) as HTMLTextAreaElement;
+    expect(scopeEditor.value).toBe("Initial scope");
+
+    const canonicalRows = replaceFirstScope(
+      identityRows,
+      tiptap("Server canonical scope")
+    );
+    rerender(
+      <TimelineMilestoneWorksheetTable
+        initialWorksheetView="editor"
+        mode="setup"
+        onRowsChange={onRowsChange}
+        rows={canonicalRows}
+        templateTitle="Scope identity fixture"
+      />
+    );
+    expect((screen.getByTestId(scopeTestId) as HTMLTextAreaElement).value).toBe(
+      "Server canonical scope"
+    );
+
+    const dirtyScopeEditor = screen.getByTestId(scopeTestId) as HTMLTextAreaElement;
+    fireEvent.change(dirtyScopeEditor, {
+      target: { value: "Local dirty scope" },
+    });
+    const divergentRows = replaceFirstScope(
+      canonicalRows,
+      tiptap("Later server canonical scope")
+    );
+    rerender(
+      <TimelineMilestoneWorksheetTable
+        initialWorksheetView="editor"
+        mode="setup"
+        onRowsChange={onRowsChange}
+        rows={divergentRows}
+        templateTitle="Scope identity fixture"
+      />
+    );
+    expect((screen.getByTestId(scopeTestId) as HTMLTextAreaElement).value).toBe(
+      "Local dirty scope"
+    );
+
+    fireEvent.click(
+      within(
+        screen.getByTestId(
+          "timeline-setup-submilestone-card-site-prep-foundation-sub-2"
+        )
+      ).getByRole("button", { name: /^Foundation finish/ })
+    );
+    fireEvent.click(screen.getByTestId("timeline-setup-unsaved-changes-discard"));
+
+    expect(
+      (screen.getByTestId(
+        "timeline-setup-submilestone-description-site-prep-foundation-sub-2"
+      ) as HTMLTextAreaElement).value
+    ).toBe("Second scope");
+  });
+
+  test("saves both Field Guidance editors together without changing Scope", async () => {
+    let resolveSave: (() => void) | undefined;
+    const onRowsChange = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    render(
+      <TimelineMilestoneWorksheetTable
+        initialWorksheetView="table"
+        mode="setup"
+        onRowsChange={onRowsChange}
+        rows={worksheetRows}
+        templateTitle="Field Guidance save fixture"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-submilestone-details-sheet-site-prep-foundation-sub-1"
+    );
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Field Guidance" }));
+    const verificationEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-guidance-description-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    const cameraEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-guidance-camera-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(verificationEditor, {
+      target: { value: "Verify embeds and flashing" },
+    });
+    fireEvent.change(cameraEditor, {
+      target: { value: "Capture the west and south faces" },
+    });
+
+    expect(onRowsChange).not.toHaveBeenCalled();
+    const saveGuidance = within(sheet).getByTestId(
+      "timeline-setup-submilestone-field-guidance-save-site-prep-foundation-sub-1"
+    );
+    expect(saveGuidance.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveGuidance);
+
+    expect(saveGuidance.hasAttribute("disabled")).toBe(true);
+    expect(verificationEditor.hasAttribute("disabled")).toBe(true);
+    expect(cameraEditor.hasAttribute("disabled")).toBe(true);
+    expect(onRowsChange).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "site-prep-foundation",
+          subMilestoneDetails: expect.arrayContaining([
+            expect.objectContaining({
+              fieldGuidance: {
+                cameraAnglesTiptapJson: tiptap("Capture the west and south faces"),
+                whatToVerifyTiptapJson: tiptap("Verify embeds and flashing"),
+              },
+              id: "site-prep-foundation-sub-1",
+              scopeOfWorkTiptapJson: tiptap("Clear the site and pour foundation"),
+            }),
+          ]),
+        }),
+      ]),
+      {
+        commit: true,
+        save: {
+          group: "fieldGuidance",
+          rowKey: "site-prep-foundation",
+          subMilestoneId: "site-prep-foundation-sub-1",
+        },
+      }
+    );
+
+    resolveSave?.();
+    await waitFor(() =>
+      expect(verificationEditor.hasAttribute("disabled")).toBe(false)
+    );
+    expect(saveGuidance.hasAttribute("disabled")).toBe(true);
+    expect(cameraEditor.hasAttribute("disabled")).toBe(false);
+  });
+
+  test("guards switching away from a dirty active sub-milestone", () => {
+    const onBack = vi.fn();
+    const firstRow = worksheetRows[0]!;
+    const firstSubMilestone = firstRow.subMilestoneDetails[0]!;
+    const switchRows = [
+      {
+        ...firstRow,
+        subMilestoneDetails: [
+          firstSubMilestone,
+          {
+            ...firstSubMilestone,
+            id: "site-prep-foundation-sub-2",
+            name: "Foundation finish",
+          },
+        ],
+        subMilestones: ["Foundation scope", "Foundation finish"],
+      },
+      ...worksheetRows.slice(1),
+    ];
+    render(
+      <ControlledWorksheet
+        initialRows={switchRows}
+        onBack={onBack}
+      />
+    );
+
+    const firstScopeEditor = screen.getByTestId(
+      "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(firstScopeEditor, {
+      target: { value: "Keep this first scope draft" },
+    });
+    fireEvent.click(
+      within(
+        screen.getByTestId(
+          "timeline-setup-submilestone-card-site-prep-foundation-sub-2"
+        )
+      ).getByRole("button", { name: /^Foundation finish/ })
+    );
+
+    expect(
+      screen.getByTestId("timeline-setup-unsaved-changes-dialog")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(
+      screen.getByTestId(
+        "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+      )
+    ).toBe(firstScopeEditor);
+    expect(firstScopeEditor.value).toBe("Keep this first scope draft");
+
+    fireEvent.click(
+      within(
+        screen.getByTestId(
+          "timeline-setup-submilestone-card-site-prep-foundation-sub-2"
+        )
+      ).getByRole("button", { name: /^Foundation finish/ })
+    );
+    fireEvent.click(screen.getByTestId("timeline-setup-unsaved-changes-discard"));
+    expect(
+      screen.getByTestId(
+        "timeline-setup-submilestone-description-site-prep-foundation-sub-2"
+      )
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to templates" }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("timeline-setup-unsaved-changes-dialog")).toBeNull();
+  });
+
+  test("confirms before closing a sheet with unsaved editor content and clears the dirty key on discard", () => {
+    render(
+      <TimelineMilestoneWorksheetTable
+        initialWorksheetView="table"
+        mode="setup"
+        onRowsChange={vi.fn()}
+        rows={worksheetRows}
+        templateTitle="Unsaved close fixture"
+      />
+    );
+
+    const openDetails = () => {
+      fireEvent.click(
+        screen.getByTestId(
+          "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+        )
+      );
+      return screen.getByTestId(
+        "timeline-setup-submilestone-details-sheet-site-prep-foundation-sub-1"
+      );
+    };
+    const sheet = openDetails();
+    const scopeEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(scopeEditor, { target: { value: "Unsaved before close" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(
+      screen.getByTestId("timeline-setup-unsaved-changes-dialog")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId("timeline-setup-unsaved-changes-discard"));
+    expect(
+      screen.queryByTestId(
+        "timeline-setup-submilestone-details-sheet-site-prep-foundation-sub-1"
+      )
+    ).toBeNull();
+
+    const reopenedSheet = openDetails();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByTestId("timeline-setup-unsaved-changes-dialog")).toBeNull();
+  });
+
+  test("confirms unsaved edits before Back and Generate navigation", () => {
+    const onBack = vi.fn();
+    const onComplete = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        onBack={onBack}
+        onComplete={onComplete}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Worksheet" }));
+    fireEvent.change(
+      screen.getByTestId(
+        "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+      ),
+      { target: { value: "Unsaved before back" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back to templates" }));
+    expect(onBack).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("timeline-setup-unsaved-changes-discard"));
+    expect(onBack).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        onComplete={onComplete}
+      />
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Worksheet" }));
+    fireEvent.change(
+      screen.getByTestId(
+        "timeline-setup-submilestone-description-site-prep-foundation-sub-1"
+      ),
+      { target: { value: "Unsaved before generate" } }
+    );
+    fireEvent.click(screen.getByTestId("timeline-setup-complete"));
+    expect(onComplete).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("timeline-setup-unsaved-changes-discard"));
+    expect(onComplete).toHaveBeenCalledWith({ redirectToDurableRoute: false });
+  });
+
+  test("confirms worksheet-view changes before discarding an editor draft", () => {
+    const onBack = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        onBack={onBack}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Worksheet" }));
+    fireEvent.click(screen.getByTestId("timeline-setup-row-expand-framing"));
+    const dirtyFramingScope = screen.getByTestId(
+      "timeline-setup-submilestone-description-framing-sub-1"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(dirtyFramingScope, {
+      target: { value: "Unrelated framing draft" },
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+    expect(
+      screen.getByTestId("timeline-setup-unsaved-changes-dialog")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId("timeline-setup-unsaved-changes-discard"));
+    expect(onBack).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Worksheet" }));
+    const restoredFramingScope = screen.getByTestId(
+      "timeline-setup-submilestone-description-framing-sub-1"
+    ) as HTMLTextAreaElement;
+    expect(restoredFramingScope).not.toBe(dirtyFramingScope);
+    expect(restoredFramingScope.value).toBe("Frame walls and roof");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to templates" }));
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   test("adds milestones and sub-milestones from table view controls", () => {

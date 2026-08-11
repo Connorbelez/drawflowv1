@@ -9,6 +9,18 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 const ORG = "org_production_foundation";
 
+function tiptap(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
+
 function withIdentity(t: any, roles: string[], subject: string) {
   return t.withIdentity({
     email: `${subject}@example.com`,
@@ -68,6 +80,14 @@ async function createCalendarProposal(t: any, seed: any) {
           {
             budgetCents: 15_000_000,
             durationDays: 8,
+            fieldGuidance: {
+              cameraAnglesTiptapJson: tiptap(
+                "Capture the north and east foundation elevations.",
+              ),
+              whatToVerifyTiptapJson: tiptap(
+                "Verify the completed foundation forms and reinforcing.",
+              ),
+            },
             key: "forms",
             name: "Forms",
             order: 1,

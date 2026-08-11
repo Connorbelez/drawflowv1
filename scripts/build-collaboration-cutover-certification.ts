@@ -79,6 +79,20 @@ export interface BuildCollaborationCutoverLiveState {
     kind: ArtifactAttestationKind;
     rehearsalId: string;
   }>;
+  companionCutover: {
+    activeSubmilestoneCount: number;
+    exceptionCount: number;
+    generatedCompanionCount: number;
+    manualActionItemCount: number;
+    materializedCount: number;
+    parityMismatchCount: number;
+    planToken: string;
+    repairedCount: number;
+    reportCount: number;
+    reportHash?: string;
+    runId: string;
+    status: string;
+  } | null;
   evidence: {
     buildReportCount: number;
     cutoverEpoch: number;
@@ -283,6 +297,7 @@ export function validateBuildCollaborationCutoverEvidence(
         continue;
       }
       validateCommonArtifact(errors, artifact, context, `migration ${stage}`);
+      validateCompanionCutoverArtifact(errors, artifact, liveState, stage);
       requireExactString(
         errors,
         artifact,
@@ -900,6 +915,170 @@ function validateCommonArtifact(
         `${label} artifact ${key} does not match the manifest release scope.`
       );
     }
+  }
+}
+
+function validateCompanionCutoverArtifact(
+  errors: string[],
+  artifact: JsonObject,
+  live: BuildCollaborationCutoverLiveState,
+  stage: "preview" | "application" | "replay" | "parity"
+) {
+  const rawCutover = (live as unknown as JsonObject).companionCutover;
+  if (rawCutover === null) {
+    if (artifactClaimsCompanionCutover(artifact)) {
+      errors.push(
+        `Migration ${stage} artifact claims a companion cutover, but authenticated companion cutover state is unavailable.`
+      );
+    }
+    return;
+  }
+  const cutoverObject = asObject(rawCutover);
+  if (!cutoverObject) {
+    errors.push(
+      "Authenticated companion cutover state must be null or a JSON object."
+    );
+    return;
+  }
+  const cutover = cutoverObject as unknown as NonNullable<
+    BuildCollaborationCutoverLiveState["companionCutover"]
+  >;
+  validateAuthenticatedCompanionCutoverShape(errors, cutover);
+  const mappings: [string, unknown][] = [
+    ["companionRunId", cutover.runId],
+    ["companionPlanToken", cutover.planToken],
+    ["companionReportCount", cutover.reportCount],
+  ];
+  for (const [key, expected] of mappings) {
+    if (artifact[key] !== expected) {
+      errors.push(
+        `Migration ${stage} artifact ${key} does not match the authenticated companion cutover.`
+      );
+    }
+  }
+  validateCompanionReportHash(errors, artifact, cutover, stage);
+  validateCompletedCompanionCutover(errors, cutover);
+  validateCompanionStageEvidence(errors, artifact, cutover, stage);
+}
+
+function artifactClaimsCompanionCutover(artifact: JsonObject) {
+  return [
+    "activeSubmilestoneCount",
+    "exceptionCount",
+    "companionParityPassed",
+    "companionRunId",
+    "companionPlanToken",
+    "companionReportCount",
+    "companionReportHash",
+    "companionReplayed",
+    "companionWriteCount",
+    "generatedCompanionCount",
+    "manualActionItemCount",
+    "materializedCount",
+    "parityMismatchCount",
+    "repairedCount",
+  ].some((key) => artifact[key] !== undefined);
+}
+
+function validateAuthenticatedCompanionCutoverShape(
+  errors: string[],
+  cutover: NonNullable<BuildCollaborationCutoverLiveState["companionCutover"]>
+) {
+  if (
+    typeof cutover.runId !== "string" ||
+    cutover.runId.trim().length === 0 ||
+    typeof cutover.planToken !== "string" ||
+    cutover.planToken.trim().length === 0
+  ) {
+    errors.push(
+      "Authenticated companion cutover is missing a non-empty run ID or plan token."
+    );
+  }
+  const completionMetrics = [
+    ["activeSubmilestoneCount", cutover.activeSubmilestoneCount],
+    ["exceptionCount", cutover.exceptionCount],
+    ["generatedCompanionCount", cutover.generatedCompanionCount],
+    ["manualActionItemCount", cutover.manualActionItemCount],
+    ["materializedCount", cutover.materializedCount],
+    ["parityMismatchCount", cutover.parityMismatchCount],
+    ["repairedCount", cutover.repairedCount],
+    ["reportCount", cutover.reportCount],
+  ] as const;
+  for (const [name, value] of completionMetrics) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      errors.push(
+        `Authenticated companion cutover ${name} must be a non-negative integer.`
+      );
+    }
+  }
+}
+
+function validateCompanionReportHash(
+  errors: string[],
+  artifact: JsonObject,
+  cutover: NonNullable<BuildCollaborationCutoverLiveState["companionCutover"]>,
+  stage: "preview" | "application" | "replay" | "parity"
+) {
+  if (stage !== "preview") {
+    if (
+      typeof cutover.reportHash !== "string" ||
+      !SHA256_PATTERN.test(cutover.reportHash)
+    ) {
+      errors.push(
+        "Authenticated companion cutover is missing a valid report hash."
+      );
+    }
+    if (
+      typeof artifact.companionReportHash !== "string" ||
+      !SHA256_PATTERN.test(artifact.companionReportHash) ||
+      artifact.companionReportHash !== cutover.reportHash
+    ) {
+      errors.push(
+        `Migration ${stage} artifact companionReportHash does not match the authenticated companion cutover.`
+      );
+    }
+  }
+}
+
+function validateCompletedCompanionCutover(
+  errors: string[],
+  cutover: NonNullable<BuildCollaborationCutoverLiveState["companionCutover"]>
+) {
+  if (
+    cutover.status !== "complete" ||
+    cutover.exceptionCount !== 0 ||
+    cutover.parityMismatchCount !== 0
+  ) {
+    errors.push(
+      "Authenticated companion cutover is not complete with zero exceptions and parity mismatches."
+    );
+  }
+}
+
+function validateCompanionStageEvidence(
+  errors: string[],
+  artifact: JsonObject,
+  cutover: NonNullable<BuildCollaborationCutoverLiveState["companionCutover"]>,
+  stage: "preview" | "application" | "replay" | "parity"
+) {
+  if (
+    stage === "replay" &&
+    (artifact.companionReplayed !== true || artifact.companionWriteCount !== 0)
+  ) {
+    errors.push(
+      "Migration replay artifact must prove a zero-write companion replay."
+    );
+  }
+  if (
+    stage === "parity" &&
+    (artifact.companionParityPassed !== true ||
+      artifact.activeSubmilestoneCount !== cutover.activeSubmilestoneCount ||
+      artifact.generatedCompanionCount !== cutover.generatedCompanionCount ||
+      artifact.manualActionItemCount !== cutover.manualActionItemCount)
+  ) {
+    errors.push(
+      "Migration parity artifact does not match the certified companion dimensions."
+    );
   }
 }
 

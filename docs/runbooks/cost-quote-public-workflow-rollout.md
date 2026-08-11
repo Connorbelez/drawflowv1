@@ -214,6 +214,14 @@ Read back at least:
 - cross-organization, cross-Build, cross-recipient, stale-role, revoked-access,
   and break-glass denials.
 
+For every contractor-facing Quote Package labour line, also verify the immutable
+Sub-milestone Scope provenance: revision ID, version, optional change reason,
+and exact TipTap snapshot bytes. A successor draft must not change the current
+Package. A later effective revision appears only after an explicit Round refresh
+or republish with a deadline policy. Field Guidance and execution notes must be
+absent from the composer, Package projection, invitation response draft, and
+historical submission revision.
+
 The application release endpoint, application origin, Convex deployment, and
 Git commit must match the release record.
 

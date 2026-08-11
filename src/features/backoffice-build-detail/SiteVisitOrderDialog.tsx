@@ -29,6 +29,12 @@ import {
   ProgressTrack,
 } from "#/components/ui/progress.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
+import {
+  hasMeaningfulTipTapContent,
+  normalizeGuidance,
+  type SubmilestoneFieldGuidance,
+  SubmilestoneFieldGuidanceEditor,
+} from "#/features/submilestone-guidance/SubmilestoneFieldGuidanceEditor.tsx";
 
 export interface SiteVisitGuidance {
   cameraAngles: string;
@@ -36,8 +42,18 @@ export interface SiteVisitGuidance {
 }
 
 export interface SiteVisitScopeItem {
+  _id?: string;
+  fieldGuidance?: Partial<SubmilestoneFieldGuidance> | null;
   key: string;
   name: string;
+  proposalSubmilestoneId?: string;
+}
+
+export interface SiteVisitSubmilestoneGuidanceSection {
+  buildSubmilestoneId: string;
+  cameraAnglesTiptapJson: string;
+  proposalSubmilestoneId: string;
+  whatToVerifyTiptapJson: string;
 }
 
 export interface SiteVisitGuidanceGenerationInput {
@@ -60,6 +76,7 @@ export interface SiteVisitOrderConfirmation {
   requestedDay?: number;
   requestedTime?: string;
   siteVisitGuidance: SiteVisitGuidance;
+  submilestoneGuidanceSections: SiteVisitSubmilestoneGuidanceSection[];
   submilestoneKeys: string[];
 }
 
@@ -107,6 +124,9 @@ export function SiteVisitOrderDialog({
   const [guidance, setGuidance] = useState<SiteVisitGuidance>(() =>
     initialGuidance(milestone)
   );
+  const [submilestoneGuidance, setSubmilestoneGuidance] = useState<
+    Record<string, SubmilestoneFieldGuidance>
+  >(() => initialSubmilestoneGuidance(submilestones));
   const [pendingAction, setPendingAction] = useState<
     "confirm" | "generate" | null
   >(null);
@@ -114,11 +134,16 @@ export function SiteVisitOrderDialog({
     useState<GuidanceGenerationState>({ status: "idle" });
   const [error, setError] = useState("");
 
+  // The parent rebuilds submilestone arrays on every detail projection render.
+  // Reset only when the dialog opens or its selected milestone changes so
+  // local edits survive unrelated parent updates.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional local draft boundary.
   useEffect(() => {
     if (!open) {
       return;
     }
     setGuidance(initialGuidance(milestone));
+    setSubmilestoneGuidance(initialSubmilestoneGuidance(submilestones));
     setPendingAction(null);
     setGenerationState({ status: "idle" });
     setError("");
@@ -159,12 +184,15 @@ export function SiteVisitOrderDialog({
   };
 
   const hasGenerated = generationState.status === "generated";
+  const submilestoneGuidanceComplete = submilestones.every((item) =>
+    guidanceIsComplete(submilestoneGuidance[itemIdentity(item)])
+  );
 
   const confirm = async () => {
     if (
       !(milestone && request) ||
       pendingAction ||
-      !guidanceIsComplete(guidance)
+      !submilestoneGuidanceComplete
     ) {
       return;
     }
@@ -181,6 +209,22 @@ export function SiteVisitOrderDialog({
           ? { requestedTime: request.requestedTime }
           : {}),
         siteVisitGuidance: guidance,
+        submilestoneGuidanceSections: submilestones.map((item) => {
+          const buildSubmilestoneId = item._id;
+          const proposalSubmilestoneId = item.proposalSubmilestoneId;
+          if (!(buildSubmilestoneId && proposalSubmilestoneId)) {
+            throw new Error(
+              `Canonical Sub-milestone identity is unavailable for ${item.name}. Refresh and try again.`
+            );
+          }
+          const pair = submilestoneGuidance[itemIdentity(item)];
+          return {
+            buildSubmilestoneId,
+            cameraAnglesTiptapJson: pair?.cameraAnglesTiptapJson ?? "",
+            proposalSubmilestoneId,
+            whatToVerifyTiptapJson: pair?.whatToVerifyTiptapJson ?? "",
+          };
+        }),
         submilestoneKeys: submilestones.map((item) => item.key),
       });
       onOpenChange(false);
@@ -231,59 +275,126 @@ export function SiteVisitOrderDialog({
             </div>
           </section>
 
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <section
+            aria-labelledby="site-visit-submilestone-guidance-title"
+            className="grid gap-4"
+          >
             <div>
-              <h3 className="font-semibold text-sm">Field guidance</h3>
+              <h3
+                className="font-semibold text-sm"
+                id="site-visit-submilestone-guidance-title"
+              >
+                Sub-milestone Field Guidance
+              </h3>
               <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-                These instructions appear in the field visit exactly as written.
+                Review the canonical verification checklist and recommended
+                camera angles for each selected Sub-milestone. Both sections are
+                required before this visit can be ordered.
               </p>
             </div>
-            <Button
-              disabled={!onGenerate || pendingAction !== null}
-              loading={pendingAction === "generate"}
-              onClick={generate}
-              type="button"
-              variant="outline"
-            >
-              <Sparkles aria-hidden="true" />
-              {hasGenerated
-                ? "Rewrite with DrawFlow AI"
-                : "Write with DrawFlow AI"}
-            </Button>
-          </div>
+            {submilestones.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No Sub-milestones are selected. Visit-wide guidance below is
+                optional.
+              </p>
+            ) : (
+              submilestones.map((item) => {
+                const identity = itemIdentity(item);
+                return (
+                  <div
+                    className="grid gap-2 border-t pt-4"
+                    data-testid={`site-visit-submilestone-guidance-row-${identity}`}
+                    key={identity}
+                  >
+                    <h4 className="font-semibold text-sm">{item.name}</h4>
+                    <SubmilestoneFieldGuidanceEditor
+                      canEdit
+                      disabled={pendingAction !== null}
+                      guidance={submilestoneGuidance[identity]}
+                      id={identity}
+                      onDraftChange={(next) =>
+                        setSubmilestoneGuidance((current) => ({
+                          ...current,
+                          [identity]: next,
+                        }))
+                      }
+                      readOnly={false}
+                      sectionTestId={`site-visit-submilestone-field-guidance-${identity}`}
+                      subMilestoneName={item.name}
+                      testIdPrefix="site-visit-submilestone"
+                    />
+                  </div>
+                );
+              })
+            )}
+          </section>
 
-          <GuidanceGenerationStatus
-            generationState={generationState}
-            milestoneName={milestone?.name}
-            submilestoneCount={submilestones.length}
-          />
+          <section
+            aria-labelledby="site-visit-wide-guidance-title"
+            className="grid gap-4 border-t pt-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3
+                  className="font-semibold text-sm"
+                  id="site-visit-wide-guidance-title"
+                >
+                  Visit-wide guidance (optional)
+                </h3>
+                <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
+                  These extra instructions apply to the whole visit and are
+                  separate from each Sub-milestone&apos;s canonical guidance.
+                </p>
+              </div>
+              <Button
+                disabled={!onGenerate || pendingAction !== null}
+                loading={pendingAction === "generate"}
+                onClick={generate}
+                type="button"
+                variant="outline"
+              >
+                <Sparkles aria-hidden="true" />
+                {hasGenerated
+                  ? "Rewrite with DrawFlow AI"
+                  : "Write with DrawFlow AI"}
+              </Button>
+            </div>
 
-          <div className="grid gap-5 lg:grid-cols-2">
-            <div className="grid min-w-0 gap-2 text-sm">
-              <span className="font-semibold">What to verify</span>
-              <FieldRichTextEditor
-                ariaLabel="What to verify"
-                editorMinHeightClass="[&_.ProseMirror]:min-h-44"
-                onChange={(whatToVerify) =>
-                  setGuidance((current) => ({ ...current, whatToVerify }))
-                }
-                placeholder="Add a concise verification checklist…"
-                value={guidance.whatToVerify}
-              />
+            <GuidanceGenerationStatus
+              generationState={generationState}
+              milestoneName={milestone?.name}
+              submilestoneCount={submilestones.length}
+            />
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <div className="grid min-w-0 gap-2 text-sm">
+                <span className="font-semibold">What to verify</span>
+                <FieldRichTextEditor
+                  ariaLabel="Visit-wide what to verify"
+                  editable={pendingAction === null}
+                  editorMinHeightClass="[&_.ProseMirror]:min-h-44"
+                  onChange={(whatToVerify) =>
+                    setGuidance((current) => ({ ...current, whatToVerify }))
+                  }
+                  placeholder="Add optional visit-wide verification context…"
+                  value={guidance.whatToVerify}
+                />
+              </div>
+              <div className="grid min-w-0 gap-2 text-sm">
+                <span className="font-semibold">Required photo angles</span>
+                <FieldRichTextEditor
+                  ariaLabel="Visit-wide required photo angles"
+                  editable={pendingAction === null}
+                  editorMinHeightClass="[&_.ProseMirror]:min-h-44"
+                  onChange={(cameraAngles) =>
+                    setGuidance((current) => ({ ...current, cameraAngles }))
+                  }
+                  placeholder="Add optional visit-wide photo context…"
+                  value={guidance.cameraAngles}
+                />
+              </div>
             </div>
-            <div className="grid min-w-0 gap-2 text-sm">
-              <span className="font-semibold">Required photo angles</span>
-              <FieldRichTextEditor
-                ariaLabel="Required photo angles"
-                editorMinHeightClass="[&_.ProseMirror]:min-h-44"
-                onChange={(cameraAngles) =>
-                  setGuidance((current) => ({ ...current, cameraAngles }))
-                }
-                placeholder="List the required wide, detail, and context views…"
-                value={guidance.cameraAngles}
-              />
-            </div>
-          </div>
+          </section>
 
           {error ? (
             <p
@@ -304,7 +415,7 @@ export function SiteVisitOrderDialog({
             Cancel
           </Button>
           <Button
-            disabled={pendingAction !== null || !guidanceIsComplete(guidance)}
+            disabled={pendingAction !== null || !submilestoneGuidanceComplete}
             loading={pendingAction === "confirm"}
             onClick={confirm}
             type="button"
@@ -517,8 +628,27 @@ function initialGuidance(
   };
 }
 
-function guidanceIsComplete(guidance: SiteVisitGuidance) {
-  return Boolean(guidance.cameraAngles.trim() && guidance.whatToVerify.trim());
+function initialSubmilestoneGuidance(
+  submilestones: SiteVisitScopeItem[]
+): Record<string, SubmilestoneFieldGuidance> {
+  return Object.fromEntries(
+    submilestones.map((item) => [
+      itemIdentity(item),
+      normalizeGuidance(item.fieldGuidance),
+    ])
+  );
+}
+
+function itemIdentity(item: SiteVisitScopeItem) {
+  return item._id ?? item.key;
+}
+
+function guidanceIsComplete(guidance: SubmilestoneFieldGuidance | undefined) {
+  return Boolean(
+    guidance &&
+      hasMeaningfulTipTapContent(guidance.cameraAnglesTiptapJson) &&
+      hasMeaningfulTipTapContent(guidance.whatToVerifyTiptapJson)
+  );
 }
 
 function formatScopeCount(submilestoneCount: number) {

@@ -780,6 +780,7 @@ async function requireReadablePost(
   const post = await ctx.db.get(postId);
   if (
     !post ||
+    post.systemLifecycle === "latent" ||
     post.organizationId !== authorization.organizationId ||
     post.brokerageId !== authorization.brokerage._id ||
     post.buildId !== authorization.build._id ||

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   normalizeQuoteRoundOrganizationId,
   QuoteRoundComposerRoute,
+  resolveQuoteRoundRepublishCapacity,
 } from "#/features/quote-solicitation/QuoteRoundComposerRoute.tsx";
 import type { QuoteRoundComposerSearch } from "#/routes/builder/builds/$buildId/quotes/new.tsx";
 
@@ -28,6 +29,10 @@ function BackofficeQuoteRoundComposerRoute() {
     <QuoteRoundComposerRoute
       buildId={buildId}
       organizationId={normalizeQuoteRoundOrganizationId(context.organizationId)}
+      republishCapacity={resolveQuoteRoundRepublishCapacity("/backoffice", [
+        context.role,
+        ...(context.roles ?? []),
+      ])}
       roundId={roundId}
       routeBase="/backoffice"
     />

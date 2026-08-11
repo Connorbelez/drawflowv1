@@ -90,20 +90,14 @@ const mocks = vi.hoisted(() => ({
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
   feedRows: [] as Array<Record<string, unknown>>,
   feedQueryArgs: undefined as Record<string, unknown> | undefined,
-  focusedCommentContext: undefined as
-    | Record<string, unknown>
-    | undefined,
+  focusedCommentContext: undefined as Record<string, unknown> | undefined,
   focusedAssetContext: undefined as Record<string, unknown> | undefined,
   focusedPostContext: undefined as Record<string, unknown> | undefined,
   focusedReferenceContext: undefined as Record<string, unknown> | undefined,
   focusedPostId: "post-1" as string | null,
   loadMore: vi.fn(),
   lifecycleState: "open" as "closed" | "open" | "purged",
-  planningLifecycle: undefined as
-    | "open"
-    | "resolved"
-    | "reopened"
-    | undefined,
+  planningLifecycle: undefined as "open" | "resolved" | "reopened" | undefined,
   planningReconciliation: undefined as Record<string, unknown> | undefined,
   planningSnapshotStatus: "Exhausted" as
     | "CanLoadMore"
@@ -118,9 +112,7 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
   personalActionItems: [] as Array<Record<string, unknown>>,
-  preferenceChannels: ["in_app", "email"] as Array<
-    "in_app" | "email" | "push"
-  >,
+  preferenceChannels: ["in_app", "email"] as Array<"in_app" | "email" | "push">,
   postContentState: "active" as "active" | "tombstoned",
   postResolutionSummary: undefined as string | undefined,
   postRevision: 1,
@@ -159,11 +151,7 @@ const mocks = vi.hoisted(() => ({
     roles: ["admin"],
     workosUserId: "user_admin",
   } as Record<string, unknown>,
-  workflowTransitions: [
-    "in_progress",
-    "blocked",
-    "cancelled",
-  ] as Array<
+  workflowTransitions: ["in_progress", "blocked", "cancelled"] as Array<
     "todo" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled"
   >,
 }));
@@ -250,7 +238,7 @@ function focusedPostEntryFixture(id: string, text: string) {
       readRevision: 1,
       revision: 1,
       source: "human",
-          threadState: mocks.postThreadState,
+      threadState: mocks.postThreadState,
       updatedAt: now,
       viewerCanAppeal: false,
       viewerCanEdit: false,
@@ -269,9 +257,7 @@ function focusedPostEntryFixture(id: string, text: string) {
       plainText: text,
       revision: 1,
       tiptapJson: JSON.stringify({
-        content: [
-          { content: [{ text, type: "text" }], type: "paragraph" },
-        ],
+        content: [{ content: [{ text, type: "text" }], type: "paragraph" }],
         type: "doc",
       }),
     },
@@ -310,11 +296,13 @@ function canonicalMilestoneSystemPostEntryFixture() {
           startCommand: {
             allowed: false,
             buildName: "UI fixture Build",
+            buildSubmilestoneId: "submilestone-1",
             dependencyBlockers: [],
             denialReason: "assignment_required",
             milestoneKey: "foundation",
             milestoneName: "Foundation",
             plannedStartDate: "2026-08-03",
+            proposalSubmilestoneId: "proposal-submilestone-1",
             scope: "submilestone",
             source: "submilestone_detail",
             submilestoneKey: "foundation-1",
@@ -322,6 +310,7 @@ function canonicalMilestoneSystemPostEntryFixture() {
           },
           state: "known",
           timezone: "America/Toronto",
+          workflowRevision: 2,
         },
         systemMode: "generated_milestone_submilestone",
         title: "Excavate",
@@ -402,7 +391,8 @@ function canonicalMilestoneSystemPostEntryFixture() {
       },
     ],
     revision: {
-      plainText: "Foundation started. Canonical Sub-milestone cards are synchronized.",
+      plainText:
+        "Foundation started. Canonical Sub-milestone cards are synchronized.",
       tiptapJson: JSON.stringify({
         content: [
           {
@@ -431,9 +421,11 @@ type DrawCoordinationFixtureState = {
   workingAudienceTruncated?: boolean;
 };
 
-function canonicalDrawSystemPostEntryFixture(options: {
-  coordination?: DrawCoordinationFixtureState;
-} = {}) {
+function canonicalDrawSystemPostEntryFixture(
+  options: {
+    coordination?: DrawCoordinationFixtureState;
+  } = {},
+) {
   const now = Date.parse("2026-08-03T12:00:00.000Z");
   const plainText =
     "Foundation reimbursement is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.";
@@ -533,7 +525,9 @@ function canonicalDrawSystemPostEntryFixture(options: {
     revision: {
       plainText,
       tiptapJson: JSON.stringify({
-        content: [{ content: [{ text: plainText, type: "text" }], type: "paragraph" }],
+        content: [
+          { content: [{ text: plainText, type: "text" }], type: "paragraph" },
+        ],
         type: "doc",
       }),
     },
@@ -631,7 +625,7 @@ function planningReconciliationFixture({
 
 function collaborationDraftBundleFixture(
   text: string,
-  overrides: Record<string, unknown> = {}
+  overrides: Record<string, unknown> = {},
 ) {
   return {
     actionItems: [],
@@ -648,9 +642,7 @@ function collaborationDraftBundleFixture(
     requestedReaderIds: [],
     sharedMutations: [],
     tiptapJson: JSON.stringify({
-      content: [
-        { content: [{ text, type: "text" }], type: "paragraph" },
-      ],
+      content: [{ content: [{ text, type: "text" }], type: "paragraph" }],
       type: "doc",
     }),
     ...overrides,
@@ -689,7 +681,7 @@ function queueRowFixture(input: {
 vi.mock("convex/react", () => ({
   useAction: (reference: unknown) => {
     const functionName = getFunctionName(
-      reference as Parameters<typeof getFunctionName>[0]
+      reference as Parameters<typeof getFunctionName>[0],
     );
     return functionName ===
       "build_collaboration_search:searchBuildCollaboration"
@@ -698,9 +690,12 @@ vi.mock("convex/react", () => ({
   },
   useMutation: () => mocks.mutate,
   useConvexConnectionState: () => mocks.convexConnectionState,
-  usePaginatedQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
+  usePaginatedQuery: (
+    reference: unknown,
+    args?: Record<string, unknown> | "skip",
+  ) => {
     const functionName = getFunctionName(
-      reference as Parameters<typeof getFunctionName>[0]
+      reference as Parameters<typeof getFunctionName>[0],
     );
     if (
       functionName ===
@@ -711,10 +706,9 @@ vi.mock("convex/react", () => ({
       const planning = mocks.planningReconciliation as
         | Record<string, any>
         | undefined;
-      const snapshot =
-        functionName.endsWith("ActivationSnapshot")
-          ? planning?.activation?.snapshot
-          : planning?.current?.snapshot;
+      const snapshot = functionName.endsWith("ActivationSnapshot")
+        ? planning?.activation?.snapshot
+        : planning?.current?.snapshot;
       const results = snapshot
         ? [
             ...(snapshot.allocations ?? []),
@@ -743,13 +737,11 @@ vi.mock("convex/react", () => ({
             ? []
             : ((mocks.planningReconciliation as Record<string, any> | undefined)
                 ?.diffs ?? []),
-        status:
-          args === "skip" ? "LoadingFirstPage" : mocks.planningDiffStatus,
+        status: args === "skip" ? "LoadingFirstPage" : mocks.planningDiffStatus,
       };
     }
     if (
-      functionName ===
-      "build_action_item_queues:listMyBuildActionItemQueue"
+      functionName === "build_action_item_queues:listMyBuildActionItemQueue"
     ) {
       return {
         loadMore: mocks.loadMore,
@@ -757,9 +749,7 @@ vi.mock("convex/react", () => ({
         status: args === "skip" ? "LoadingFirstPage" : mocks.queueStatus,
       };
     }
-    if (
-      functionName === "build_action_item_queues:listBuildActionItemQueue"
-    ) {
+    if (functionName === "build_action_item_queues:listBuildActionItemQueue") {
       return {
         loadMore: mocks.loadMore,
         results:
@@ -774,90 +764,93 @@ vi.mock("convex/react", () => ({
     mocks.feedQueryArgs = args === "skip" ? undefined : args;
     return {
       loadMore: mocks.loadMore,
-      results: mocks.feedRows.length > 0 ? mocks.feedRows : [
-      {
-        kind: "restricted",
-        placeholderKey: "restricted-first-page-0",
-      },
-      {
-        kind: "restricted",
-        placeholderKey: "restricted-second-page-0",
-      },
-      {
-        acknowledgement: { acknowledged: false, required: false },
-        actionItems: [
-          {
-            _id: "action-1",
-            actionableUnreadCount: 3,
-            assigneeWorkosUserId: "user-broker",
-            assignmentState: "assigned",
-            createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
-            currentRevision: 1,
-            dependencyCount: 2,
-            priority: "high",
-            requiresAcceptance: false,
-            status: "todo",
-            title: "Upload engineer seal",
-            unblocksCount: 1,
-            unreadCommentCount: 2,
-          },
-        ],
-        following: true,
-        kind: "post",
-        pins: [],
-        post: {
-          _id: "post-1",
-          acceptedCommentId: mocks.acceptedCommentId,
-          announcementExpiresAt: mocks.announcementExpiresAt,
-          announcementProminent: mocks.announcementProminent,
-          audienceMode: "build_wide",
-          authorDisplayNameSnapshot: "Alex Chen",
-          authorRole: "builder",
-          contentState: mocks.postContentState,
-          createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
-          postType: mocks.postType,
-          readRevision: mocks.postRevision,
-          resolutionSummary: mocks.postResolutionSummary,
-          revision: mocks.postRevision,
-          threadState: mocks.postThreadState,
-          updatedAt: Date.parse("2026-07-28T12:00:00.000Z"),
-          viewerCanAppeal: false,
-          viewerCanEdit: mocks.postViewerIsAuthor,
-          viewerCanModerate: mocks.postViewerCanModerate,
-          viewerCanResolveAppeal: false,
-          viewerCanManageThread: true,
-          viewerIsAuthor: mocks.postViewerIsAuthor,
-        },
-        reactions: [],
-        receipts: [],
-        references: [
-          {
-            _id: "reference-1",
-            entityId: "evidence-1",
-            entityKind: "evidenceAsset",
-            labelSnapshot: "Foundation completion photo",
-            summarySnapshot: "Location verified · uploaded today",
-          },
-        ],
-        revision: {
-          plainText: "Foundation evidence is ready for review.",
-          tiptapJson: JSON.stringify({
-            content: [
+      results:
+        mocks.feedRows.length > 0
+          ? mocks.feedRows
+          : [
               {
-                content: [
+                kind: "restricted",
+                placeholderKey: "restricted-first-page-0",
+              },
+              {
+                kind: "restricted",
+                placeholderKey: "restricted-second-page-0",
+              },
+              {
+                acknowledgement: { acknowledged: false, required: false },
+                actionItems: [
                   {
-                    text: "Foundation evidence is ready for review.",
-                    type: "text",
+                    _id: "action-1",
+                    actionableUnreadCount: 3,
+                    assigneeWorkosUserId: "user-broker",
+                    assignmentState: "assigned",
+                    createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
+                    currentRevision: 1,
+                    dependencyCount: 2,
+                    priority: "high",
+                    requiresAcceptance: false,
+                    status: "todo",
+                    title: "Upload engineer seal",
+                    unblocksCount: 1,
+                    unreadCommentCount: 2,
                   },
                 ],
-                type: "paragraph",
+                following: true,
+                kind: "post",
+                pins: [],
+                post: {
+                  _id: "post-1",
+                  acceptedCommentId: mocks.acceptedCommentId,
+                  announcementExpiresAt: mocks.announcementExpiresAt,
+                  announcementProminent: mocks.announcementProminent,
+                  audienceMode: "build_wide",
+                  authorDisplayNameSnapshot: "Alex Chen",
+                  authorRole: "builder",
+                  contentState: mocks.postContentState,
+                  createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
+                  postType: mocks.postType,
+                  readRevision: mocks.postRevision,
+                  resolutionSummary: mocks.postResolutionSummary,
+                  revision: mocks.postRevision,
+                  threadState: mocks.postThreadState,
+                  updatedAt: Date.parse("2026-07-28T12:00:00.000Z"),
+                  viewerCanAppeal: false,
+                  viewerCanEdit: mocks.postViewerIsAuthor,
+                  viewerCanModerate: mocks.postViewerCanModerate,
+                  viewerCanResolveAppeal: false,
+                  viewerCanManageThread: true,
+                  viewerIsAuthor: mocks.postViewerIsAuthor,
+                },
+                reactions: [],
+                receipts: [],
+                references: [
+                  {
+                    _id: "reference-1",
+                    entityId: "evidence-1",
+                    entityKind: "evidenceAsset",
+                    labelSnapshot: "Foundation completion photo",
+                    summarySnapshot: "Location verified · uploaded today",
+                  },
+                ],
+                revision: {
+                  plainText: "Foundation evidence is ready for review.",
+                  tiptapJson: JSON.stringify({
+                    content: [
+                      {
+                        content: [
+                          {
+                            text: "Foundation evidence is ready for review.",
+                            type: "text",
+                          },
+                        ],
+                        type: "paragraph",
+                      },
+                    ],
+                    type: "doc",
+                  }),
+                },
               },
             ],
-            type: "doc",
-          }),
-        },
-      },
-    ],
       status: mocks.feedStatus,
     };
   },
@@ -866,7 +859,7 @@ vi.mock("convex/react", () => ({
       return undefined;
     }
     const functionName = getFunctionName(
-      reference as Parameters<typeof getFunctionName>[0]
+      reference as Parameters<typeof getFunctionName>[0],
     );
     if (
       functionName ===
@@ -922,10 +915,7 @@ vi.mock("convex/react", () => ({
     ) {
       return args === "skip" ? undefined : mocks.focusedAssetContext;
     }
-    if (
-      functionName ===
-      "build_action_item_details:getBuildActionItemDetail"
-    ) {
+    if (functionName === "build_action_item_details:getBuildActionItemDetail") {
       if (args !== "skip" && typeof args?.actionItemId !== "string") {
         throw new Error("Action Item detail queries require a string ID.");
       }
@@ -960,9 +950,7 @@ vi.mock("convex/react", () => ({
           descriptionTiptapJson: JSON.stringify({
             content: [
               {
-                content: [
-                  { text: "Upload the engineer seal.", type: "text" },
-                ],
+                content: [{ text: "Upload the engineer seal.", type: "text" }],
                 type: "paragraph",
               },
             ],
@@ -1066,11 +1054,13 @@ vi.mock("convex/react", () => ({
                   startCommand: {
                     allowed: false,
                     buildName: "UI fixture Build",
+                    buildSubmilestoneId: "submilestone-1",
                     dependencyBlockers: [],
                     denialReason: "already_started",
                     milestoneKey: "foundation",
                     milestoneName: "Foundation",
                     plannedStartDate: "2026-08-03",
+                    proposalSubmilestoneId: "proposal-submilestone-1",
                     scope: "submilestone",
                     source: "submilestone_detail",
                     submilestoneKey: "foundation-1",
@@ -1262,22 +1252,16 @@ vi.mock("convex/react", () => ({
         return undefined;
       }
       const requested = new Set(
-        Array.isArray(args?.assetIds) ? args.assetIds : []
+        Array.isArray(args?.assetIds) ? args.assetIds : [],
       );
-      return mocks.assetStatuses.filter((asset) =>
-        requested.has(asset._id)
-      );
+      return mocks.assetStatuses.filter((asset) => requested.has(asset._id));
     }
     if (
-      functionName ===
-      "build_action_item_queues:listMyBuildActionItemQueue"
+      functionName === "build_action_item_queues:listMyBuildActionItemQueue"
     ) {
       return args === "skip" ? undefined : mocks.personalActionItems;
     }
-    if (
-      functionName ===
-      "build_action_item_queues:listBuildActionItemQueue"
-    ) {
+    if (functionName === "build_action_item_queues:listBuildActionItemQueue") {
       if (args === "skip") {
         return undefined;
       }
@@ -1294,6 +1278,34 @@ vi.mock("convex/react", () => ({
         digestCadence: "daily",
         digestEnabled: true,
         ordinaryMuted: false,
+      };
+    }
+    if (
+      functionName ===
+      "submilestone_field_guidance:getSubmilestoneFieldGuidance"
+    ) {
+      const tiptapJson = JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Verify the selected scope.", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      });
+      return {
+        guidance: {
+          _id: "guidance-1",
+          buildId: "build-1",
+          buildSubmilestoneId: "submilestone-1",
+          cameraAnglesTiptapJson: tiptapJson,
+          createdAt: Date.parse("2026-08-03T12:00:00.000Z"),
+          proposalSubmilestoneId: "proposal-submilestone-1",
+          updatedAt: Date.parse("2026-08-03T12:00:00.000Z"),
+          updatedByWorkosUserId: "user_admin",
+          whatToVerifyTiptapJson: tiptapJson,
+        },
+        readiness: { missingSections: [], readyForSiteVisit: true },
       };
     }
     if (
@@ -1336,6 +1348,15 @@ vi.mock("convex/react", () => ({
         summary: "92% complete",
       },
       {
+        entityId: "submilestone-1",
+        entityKind: "submilestone",
+        eyebrow: "Sub-milestone",
+        href: "?tab=details&focus=submilestone%3Asubmilestone-1",
+        label: "Excavate",
+        searchTerms: ["foundation", "excavate"],
+        summary: "Planned",
+      },
+      {
         entityId: "action-4",
         entityKind: "actionItem",
         eyebrow: "Action Item",
@@ -1352,53 +1373,50 @@ beforeEach(() => {
   searchAction.mockImplementation(async () => mocks.searchResponse);
 });
 
-vi.mock(
-  "./CollaborationRichTextEditor.tsx",
-  () => ({
-    CollaborationRichTextEditor: ({
-      ariaLabel,
-      onChange,
-      onDocumentChange,
-    }: {
-      ariaLabel: string;
-      onChange: (html: string, references: unknown[]) => void;
-      onDocumentChange?: (document: unknown) => void;
-    }) => (
-      <button
-        aria-label={`Mock ${ariaLabel}`}
-        data-testid="mock-editor"
-        onClick={() => {
-          const document = {
-            content: [
-              {
-                content: [{ text: "Useful accountable work.", type: "text" }],
-                type: "paragraph",
-              },
-            ],
-            type: "doc",
-          };
-          onChange("<p>Useful accountable work.</p>", mocks.editorReferences);
-          onDocumentChange?.(document);
-        }}
-        type="button"
-      >
-        Mock editor
-      </button>
-    ),
-    CollaborationRichTextPreview: ({
-      value,
-    }: {
-      value: { content?: Array<{ content?: Array<{ text?: string }> }> };
-    }) => (
-      <p>
-        {value.content
-          ?.flatMap((node) => node.content ?? [])
-          .map((node) => node.text ?? "")
-          .join("")}
-      </p>
-    ),
-  }),
-);
+vi.mock("./CollaborationRichTextEditor.tsx", () => ({
+  CollaborationRichTextEditor: ({
+    ariaLabel,
+    onChange,
+    onDocumentChange,
+  }: {
+    ariaLabel: string;
+    onChange: (html: string, references: unknown[]) => void;
+    onDocumentChange?: (document: unknown) => void;
+  }) => (
+    <button
+      aria-label={`Mock ${ariaLabel}`}
+      data-testid="mock-editor"
+      onClick={() => {
+        const document = {
+          content: [
+            {
+              content: [{ text: "Useful accountable work.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        };
+        onChange("<p>Useful accountable work.</p>", mocks.editorReferences);
+        onDocumentChange?.(document);
+      }}
+      type="button"
+    >
+      Mock editor
+    </button>
+  ),
+  CollaborationRichTextPreview: ({
+    value,
+  }: {
+    value: { content?: Array<{ content?: Array<{ text?: string }> }> };
+  }) => (
+    <p>
+      {value.content
+        ?.flatMap((node) => node.content ?? [])
+        .map((node) => node.text ?? "")
+        .join("")}
+    </p>
+  ),
+}));
 
 import {
   buildActionItemQueueHref,
@@ -1505,59 +1523,53 @@ describe("BuildCollaborationFeed", () => {
     expect(
       buildActionItemSheetHref(
         "https://drawflow.test/builder/builds/build-1?tab=details&filter=mine",
-        "action-9"
-      )
+        "action-9",
+      ),
     ).toBe(
-      "/builder/builds/build-1?tab=details&filter=mine&focus=actionItem%3Aaction-9"
+      "/builder/builds/build-1?tab=details&filter=mine&focus=actionItem%3Aaction-9",
     );
     expect(
       buildActionItemSheetHref(
-        "https://drawflow.test/builder/builds/build-1?tab=details&focus=actionItem%3Aaction-9&filter=mine"
-      )
+        "https://drawflow.test/builder/builds/build-1?tab=details&focus=actionItem%3Aaction-9&filter=mine",
+      ),
     ).toBe("/builder/builds/build-1?tab=details&filter=mine");
   });
 
   test("renders the server-derived viewer binding for production persona verification", () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     const feed = screen.getByTestId("build-collaboration-feed");
     expect(feed.getAttribute("data-build-id")).toBe("build-1");
     expect(feed.getAttribute("data-organization-id")).toBe("org-1");
     expect(feed.getAttribute("data-viewer-role")).toBe("admin");
-    expect(feed.getAttribute("data-viewer-workos-user-id")).toBe(
-      "user_admin"
-    );
+    expect(feed.getAttribute("data-viewer-workos-user-id")).toBe("user_admin");
     expect(feed.classList.contains("build-collaboration-layout")).toBe(true);
     expect(feed.parentElement?.getAttribute("data-slot")).toBe("frame");
     expect(
-      feed.parentElement?.classList.contains("build-collaboration-frame")
+      feed.parentElement?.classList.contains("build-collaboration-frame"),
     ).toBe(true);
+    expect(feed.parentElement?.classList.contains("rounded-none")).toBe(true);
     expect(
-      feed.parentElement?.classList.contains("rounded-none")
-    ).toBe(true);
-    expect(
-      feed.querySelector(".build-collaboration-main")?.getAttribute("data-slot")
+      feed
+        .querySelector(".build-collaboration-main")
+        ?.getAttribute("data-slot"),
     ).toBeNull();
     expect(
       feed
         .querySelector('aside[aria-label="My collaboration work"]')
-        ?.classList.contains("build-collaboration-rail")
+        ?.classList.contains("build-collaboration-rail"),
     ).toBe(true);
     expect(
       feed
         .querySelector('aside[aria-label="Build collaboration context"]')
-        ?.classList.contains("build-collaboration-context-rail")
+        ?.classList.contains("build-collaboration-context-rail"),
     ).toBe(true);
   });
 
   test("renders Variant A Milestone System Post board and locks generated card workflow", () => {
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("system-post-experience")).toBeTruthy();
     expect(screen.getByText("Sub-milestones")).toBeTruthy();
@@ -1567,23 +1579,25 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(
       screen.getByRole("button", {
         name: /Excavate/,
-      })
+      }),
     );
     expect(screen.getByTestId("submilestone-primary-actions")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Approve Sub-milestone" })
+      screen.getByRole("button", { name: "Approve Sub-milestone" }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Start Sub-milestone" })
+      screen.queryByRole("button", { name: "Start Sub-milestone" }),
     ).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Complete Sub-milestone" })
+      screen.queryByRole("button", { name: "Complete Sub-milestone" }),
     ).toBeNull();
-    expect(screen.queryByText("Your role cannot start this Sub-milestone.")).toBeNull();
+    expect(
+      screen.queryByText("Your role cannot start this Sub-milestone."),
+    ).toBeNull();
     expect(screen.queryByText("Builder commands")).toBeNull();
     expect(screen.queryByText("Backoffice commands")).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Open execution record" })
+      screen.queryByRole("button", { name: "Open execution record" }),
     ).toBeNull();
     expect(screen.queryByText("Next required gate")).toBeNull();
     expect(screen.getByText("Builder evidence")).toBeTruthy();
@@ -1592,10 +1606,12 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Suppliers")).toBeTruthy();
     expect(screen.getByText("Materials")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Assign tradesperson/ })
+      screen.getByRole("button", { name: /Assign tradesperson/ }),
     ).toBeTruthy();
     expect(screen.getByText("Site visits")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Manage assignments" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Manage assignments" }),
+    ).toBeNull();
     expect(screen.getAllByText("Foundation").length).toBeGreaterThan(0);
     expect(screen.getByText("Former Build participant")).toBeTruthy();
     expect(screen.getByText("explicit start")).toBeTruthy();
@@ -1605,19 +1621,21 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Show Action Items as a list" })
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
     );
     expect(screen.getAllByText("System · Milestone").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Behind Schedule").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Assignment required").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Assignment required").length).toBeGreaterThan(
+      0,
+    );
     const status = screen.getByRole("combobox", {
       name: "Status for Excavate",
     });
     expect(status.getAttribute("data-disabled")).not.toBeNull();
     expect(
       screen.getByText(
-        "System · Milestone — status follows the canonical Sub-milestone."
-      )
+        "System · Milestone — status follows the canonical Sub-milestone.",
+      ),
     ).toBeTruthy();
   });
 
@@ -1651,21 +1669,21 @@ describe("BuildCollaborationFeed", () => {
     window.history.replaceState(
       {},
       "",
-      "/builder/builds/build-1?tab=collaboration"
+      "/builder/builds/build-1?tab=collaboration",
     );
 
     const { unmount } = render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
     expect(
-      screen.getByRole("button", { name: "Start Sub-milestone" })
+      screen.getByRole("button", { name: "Start Sub-milestone" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Complete Sub-milestone" })
+      screen.getByRole("button", { name: "Complete Sub-milestone" }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Approve Sub-milestone" })
+      screen.queryByRole("button", { name: "Approve Sub-milestone" }),
     ).toBeNull();
     expect(screen.queryByText("Backoffice commands")).toBeNull();
     expect(screen.queryByText("Builder commands")).toBeNull();
@@ -1699,20 +1717,22 @@ describe("BuildCollaborationFeed", () => {
     window.history.replaceState(
       {},
       "",
-      "/builder/builds/build-1?tab=collaboration"
+      "/builder/builds/build-1?tab=collaboration",
     );
     const dual = render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
     expect(
-      screen.getByRole("button", { name: "Start Sub-milestone" })
+      screen.getByRole("button", { name: "Start Sub-milestone" }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Approve Sub-milestone" })
+      screen.queryByRole("button", { name: "Approve Sub-milestone" }),
     ).toBeNull();
     expect(
-      screen.queryByText("You are not the assigned operator for this Sub-milestone.")
+      screen.queryByText(
+        "You are not the assigned operator for this Sub-milestone.",
+      ),
     ).toBeNull();
     dual.unmount();
 
@@ -1743,10 +1763,10 @@ describe("BuildCollaborationFeed", () => {
     window.history.replaceState(
       {},
       "",
-      "/builder/builds/build-1?tab=collaboration"
+      "/builder/builds/build-1?tab=collaboration",
     );
     const adminOnly = render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
     const adminStart = screen.getByRole("button", {
@@ -1755,10 +1775,12 @@ describe("BuildCollaborationFeed", () => {
     expect(adminStart).toBeTruthy();
     expect(adminStart.hasAttribute("disabled")).toBe(false);
     expect(
-      screen.queryByText("You are not the assigned operator for this Sub-milestone.")
+      screen.queryByText(
+        "You are not the assigned operator for this Sub-milestone.",
+      ),
     ).toBeNull();
     expect(
-      screen.queryByText("You do not have Sub-milestone update permission.")
+      screen.queryByText("You do not have Sub-milestone update permission."),
     ).toBeNull();
     adminOnly.unmount();
 
@@ -1790,36 +1812,184 @@ describe("BuildCollaborationFeed", () => {
     window.history.replaceState(
       {},
       "",
-      "/backoffice/builds/build-1?tab=collaboration"
+      "/backoffice/builds/build-1?tab=collaboration",
     );
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
     expect(
-      screen.getByRole("button", { name: "Approve Sub-milestone" })
+      screen.getByRole("button", { name: "Approve Sub-milestone" }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Start Sub-milestone" })
+      screen.queryByRole("button", { name: "Start Sub-milestone" }),
     ).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Complete Sub-milestone" })
+      screen.queryByRole("button", { name: "Complete Sub-milestone" }),
     ).toBeNull();
     expect(screen.queryByText("Builder commands")).toBeNull();
     expect(screen.queryByText("Backoffice commands")).toBeNull();
     expect(
-      screen.queryByText("Your role cannot start this Sub-milestone.")
+      screen.queryByText("Your role cannot start this Sub-milestone."),
     ).toBeNull();
+  });
+
+  test("orders a Site Visit with canonical Sub-milestone identity and Guidance", async () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture() as {
+      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
+    };
+    Object.assign(entry.actionItems[0]!.systemPresentation, {
+      canReview: true,
+      siteVisitRequirement: {
+        manualSignals: [],
+        policySignals: [],
+        required: true,
+        riskSignals: [],
+        status: "required",
+      },
+    });
+    mocks.viewerBinding = {
+      ...mocks.viewerBinding,
+      role: "broker",
+      roles: ["broker"],
+      workosUserId: "user_broker",
+    };
+    mocks.authUserId = "user_broker";
+    mocks.feedRows = [entry];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Order site visit" }));
+    expect(screen.getByRole("dialog", { name: "Configure site visit" })).toBeTruthy();
+
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm and order site visit" }),
+    );
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: "build-1",
+        milestoneKey: "foundation",
+        submilestoneGuidanceSections: [
+          expect.objectContaining({
+            buildSubmilestoneId: "submilestone-1",
+            proposalSubmilestoneId: "proposal-submilestone-1",
+          }),
+        ],
+        submilestoneKeys: ["foundation-1"],
+        workosOrganizationId: "org-1",
+      }),
+    );
+  });
+
+  test("explains revision-gated Sub-milestone controls before a refresh", () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture() as {
+      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
+    };
+    const presentation = entry.actionItems[0]!.systemPresentation;
+    delete presentation.workflowRevision;
+    Object.assign(presentation, {
+      canAddEvidence: true,
+      canSubmitForReview: true,
+      evidencePackageRevision: 1,
+      evidencePackageRevisionId: "package-1",
+      startCommand: {
+        ...(presentation.startCommand as Record<string, unknown>),
+        allowed: true,
+        denialReason: undefined,
+      },
+    });
+    mocks.viewerBinding = {
+      ...mocks.viewerBinding,
+      role: "builder",
+      roles: ["builder"],
+      workosUserId: "user_builder",
+    };
+    mocks.feedRows = [entry];
+    window.history.replaceState(
+      {},
+      "",
+      "/builder/builds/build-1?tab=collaboration",
+    );
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
+
+    const reason =
+      "Refresh this collaboration card; the canonical workflow revision is unavailable.";
+    expect(screen.getAllByText(reason).length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByRole("button", { name: "Start Sub-milestone" }).hasAttribute(
+        "disabled",
+      ),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Complete Sub-milestone" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  test("freezes evidence with a stable key before submitting at the returned revision", async () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture() as {
+      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
+    };
+    const presentation = entry.actionItems[0]!.systemPresentation;
+    Object.assign(presentation, {
+      canSubmitForReview: true,
+      evidencePackageRevision: 1,
+      evidencePackageRevisionId: "package-1",
+      evidenceReviewState: "not_ready",
+      startCommand: {
+        ...(presentation.startCommand as Record<string, unknown>),
+        allowed: false,
+        denialReason: "already_started",
+      },
+    });
+    mocks.viewerBinding = {
+      ...mocks.viewerBinding,
+      role: "builder",
+      roles: ["builder"],
+      workosUserId: "user_builder",
+    };
+    mocks.feedRows = [entry];
+    mocks.mutate
+      .mockReset()
+      .mockResolvedValueOnce({ revision: 3 })
+      .mockResolvedValueOnce({ revision: 4 });
+    window.history.replaceState(
+      {},
+      "",
+      "/builder/builds/build-1?tab=collaboration",
+    );
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Complete Sub-milestone" }),
+    );
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(2));
+    expect(mocks.mutate.mock.calls[0]?.[0]).toMatchObject({
+      expectedRevision: 2,
+      idempotencyKey: expect.stringMatching(/^evidence-freeze:/),
+      packageRevisionId: "package-1",
+      submilestoneKey: "foundation-1",
+    });
+    expect(mocks.mutate.mock.calls[1]?.[0]).toMatchObject({
+      expectedRevision: 3,
+      idempotencyKey: expect.stringMatching(/^completion-review:/),
+      packageRevisionId: "package-1",
+      submilestoneKey: "foundation-1",
+    });
   });
 
   test("keeps canonical Milestone status transitions disabled in the detail sheet", async () => {
     mocks.canonicalSystemActionItem = true;
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
@@ -1833,9 +2003,7 @@ describe("BuildCollaborationFeed", () => {
       document.getElementById(actionCard.getAttribute("aria-describedby")!)
         ?.textContent,
     ).toContain("Behind Schedule · Assignment required");
-    fireEvent.click(
-      actionCard,
-    );
+    fireEvent.click(actionCard);
 
     const status = await screen.findByRole("combobox", {
       name: "Change Action Item status",
@@ -1888,9 +2056,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.lifecycleState = "closed";
     mocks.feedRows = [activeEntry, archivedEntry];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(mocks.feedQueryArgs).toMatchObject({
       buildId: "build-1",
@@ -1902,8 +2068,12 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Active operations" }));
     expect(mocks.feedQueryArgs).toMatchObject({ filter: "active_operations" });
-    expect(screen.getByText("Active canonical milestone operation.")).toBeTruthy();
-    expect(screen.queryByText("Historical canonical milestone record.")).toBeNull();
+    expect(
+      screen.getByText("Active canonical milestone operation."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Historical canonical milestone record."),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "All" }));
     const archivedCard = screen.getByTestId(
@@ -1917,7 +2087,9 @@ describe("BuildCollaborationFeed", () => {
       within(archivedCard).getByRole("button", { name: "Discussion 0" }),
     );
     expect(
-      within(archivedCard).getByText(/archived discussion is available to read/i),
+      within(archivedCard).getByText(
+        /archived discussion is available to read/i,
+      ),
     ).toBeTruthy();
     expect(
       within(archivedCard).queryByRole("button", { name: "Write a reply…" }),
@@ -1937,9 +2109,7 @@ describe("BuildCollaborationFeed", () => {
       activeEntry,
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("tab", { name: "Active operations" }));
 
@@ -1954,26 +2124,26 @@ describe("BuildCollaborationFeed", () => {
   test("renders live Draw facts and an explicit absence of generated work or a Draw board", () => {
     mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getAllByText("System post").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Draw").length).toBeGreaterThan(0);
     expect(screen.getByTestId("system-post-draw-facts")).toBeTruthy();
     expect(screen.getByText("Canonical Draw lifecycle")).toBeTruthy();
-    expect(screen.getAllByText("Foundation reimbursement").length).toBeGreaterThan(
-      0
-    );
+    expect(
+      screen.getAllByText("Foundation reimbursement").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Evidence · Location unverified")).toBeTruthy();
     expect(screen.getByText("Site Visits · 1")).toBeTruthy();
     expect(
       screen.getByText(
-        "No generated Action Items or Draw board. Discussion remains available; all workflow commands stay in the canonical Draw surfaces."
-      )
+        "No generated Action Items or Draw board. Discussion remains available; all workflow commands stay in the canonical Draw surfaces.",
+      ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Action Items/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Show Action Items as a board/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Show Action Items as a board/ }),
+    ).toBeNull();
   });
 
   test("surfaces a conservative lower bound when the Draw working audience is saturated", () => {
@@ -1991,9 +2161,7 @@ describe("BuildCollaborationFeed", () => {
       }),
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Working audience · 100+")).toBeTruthy();
     expect(
@@ -2006,17 +2174,13 @@ describe("BuildCollaborationFeed", () => {
     delete (entry.post.systemPost as { drawFacts?: unknown }).drawFacts;
     mocks.feedRows = [entry];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
       screen.getByTestId("system-post-draw-facts-unavailable"),
     ).toBeTruthy();
     expect(screen.queryByTestId("system-post-planning-summary")).toBeNull();
-    expect(
-      screen.queryByTestId("system-post-planning-comparison"),
-    ).toBeNull();
+    expect(screen.queryByTestId("system-post-planning-comparison")).toBeNull();
   });
 
   test("keeps planning branches on a non-Draw System Post even if Draw facts are present", () => {
@@ -2025,14 +2189,10 @@ describe("BuildCollaborationFeed", () => {
     mocks.feedRows = [entry];
     mocks.planningReconciliation = planningReconciliationFixture();
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("system-post-planning-summary")).toBeTruthy();
-    expect(
-      screen.getByTestId("system-post-planning-comparison"),
-    ).toBeTruthy();
+    expect(screen.getByTestId("system-post-planning-comparison")).toBeTruthy();
     expect(screen.queryByTestId("system-post-draw-facts")).toBeNull();
   });
 
@@ -2050,15 +2210,11 @@ describe("BuildCollaborationFeed", () => {
       }),
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Working audience · 2")).toBeTruthy();
     mocks.mutate.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Join coordination" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Join coordination" }));
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         buildId: "build-1",
@@ -2079,9 +2235,7 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Mock Action Item description" }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Action Item" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Create Action Item" }));
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2108,21 +2262,17 @@ describe("BuildCollaborationFeed", () => {
       }),
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
       screen.getByRole("button", { name: "Leave coordination" }),
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Post actions" }),
-    );
-    expect(screen.getByRole("menuitem", { name: "Follow thread" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+    expect(
+      screen.getByRole("menuitem", { name: "Follow thread" }),
+    ).toBeTruthy();
     mocks.mutate.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Leave coordination" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Leave coordination" }));
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         buildId: "build-1",
@@ -2191,18 +2341,14 @@ describe("BuildCollaborationFeed", () => {
       }),
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
       screen.getByText(
         "Canonical Draw facts remain visible. Internal coordination, discussion, and related work are restricted to eligible Build participants.",
       ),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: /Discussion/ }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Discussion/ })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Add coordination Action Item" }),
     ).toBeNull();
@@ -2254,9 +2400,7 @@ describe("BuildCollaborationFeed", () => {
     entry.post.viewerIsAuthor = true;
     mocks.feedRows = [entry];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
       screen.queryByRole("button", { name: "Add coordination Action Item" }),
@@ -2271,9 +2415,7 @@ describe("BuildCollaborationFeed", () => {
         name: "Revision history",
       }),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Save revision" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save revision" })).toBeNull();
   });
 
   test("disables Draw coordination controls in an archived Build", () => {
@@ -2291,17 +2433,21 @@ describe("BuildCollaborationFeed", () => {
       }),
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(screen.getByTestId("build-collaboration-read-only-banner")).toBeTruthy();
+    expect(
+      screen.getByTestId("build-collaboration-read-only-banner"),
+    ).toBeTruthy();
     const join = screen.getByRole("button", { name: "Join coordination" });
     const create = screen.getByRole("button", {
       name: "Add coordination Action Item",
     });
-    expect(join.getAttribute("data-disabled") ?? join.getAttribute("disabled")).not.toBeNull();
-    expect(create.getAttribute("data-disabled") ?? create.getAttribute("disabled")).not.toBeNull();
+    expect(
+      join.getAttribute("data-disabled") ?? join.getAttribute("disabled"),
+    ).not.toBeNull();
+    expect(
+      create.getAttribute("data-disabled") ?? create.getAttribute("disabled"),
+    ).not.toBeNull();
     mocks.mutate.mockClear();
     fireEvent.click(join);
     fireEvent.click(create);
@@ -2315,9 +2461,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.feedRows = [entry];
     mocks.planningReconciliation = planningReconciliationFixture();
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("system-post-planning-summary")).toBeTruthy();
     expect(screen.getByText("Open")).toBeTruthy();
@@ -2344,13 +2488,11 @@ describe("BuildCollaborationFeed", () => {
       truncated: true,
     });
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(screen.getByTestId("planning-diffs-truncated").textContent).toContain(
-      "Structured planning diffs are truncated at 10,000 changes",
-    );
+    expect(
+      screen.getByTestId("planning-diffs-truncated").textContent,
+    ).toContain("Structured planning diffs are truncated at 10,000 changes");
   });
 
   test.each([
@@ -2388,9 +2530,9 @@ describe("BuildCollaborationFeed", () => {
         <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
       );
 
-      expect(
-        screen.queryByTestId("planning-diffs-truncated") !== null,
-      ).toBe(expectTruncated);
+      expect(screen.queryByTestId("planning-diffs-truncated") !== null).toBe(
+        expectTruncated,
+      );
       expect(
         screen.queryByTestId("planning-diffs-more-available") !== null,
       ).toBe(expectMore);
@@ -2413,9 +2555,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.planningDiffStatus = "CanLoadMore";
     mocks.planningReconciliation = reconciliation;
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("planning-diffs-more-available")).toBeTruthy();
     expect(screen.queryByTestId("planning-diffs-indeterminate")).toBeNull();
@@ -2433,13 +2573,11 @@ describe("BuildCollaborationFeed", () => {
     mocks.planningDiffStatus = "LoadingMore";
     mocks.planningReconciliation = planningReconciliationFixture();
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(screen.getByTestId("planning-diffs-more-available").textContent).toContain(
-      "Loading more structured planning changes",
-    );
+    expect(
+      screen.getByTestId("planning-diffs-more-available").textContent,
+    ).toContain("Loading more structured planning changes");
     expect(screen.queryByTestId("planning-diffs-truncated")).toBeNull();
   });
 
@@ -2450,15 +2588,15 @@ describe("BuildCollaborationFeed", () => {
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
     mocks.planningReconciliation = reconciliation;
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
       screen.getByTestId("planning-revisions-truncated").textContent,
     ).toContain("Only the latest 100 planning revisions are shown");
     expect(
-      screen.getByText("No structured planning changes are recorded after activation."),
+      screen.getByText(
+        "No structured planning changes are recorded after activation.",
+      ),
     ).toBeTruthy();
   });
 
@@ -2468,13 +2606,13 @@ describe("BuildCollaborationFeed", () => {
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
     mocks.planningReconciliation = reconciliation;
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("planning-diffs-indeterminate")).toBeTruthy();
     expect(
-      screen.queryByText("No structured planning changes are recorded after activation."),
+      screen.queryByText(
+        "No structured planning changes are recorded after activation.",
+      ),
     ).toBeNull();
   });
 
@@ -2486,14 +2624,14 @@ describe("BuildCollaborationFeed", () => {
     };
     mocks.feedRows = [entry];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Loading comparison…")).toBeTruthy();
     expect(screen.queryByText("Changed since activation")).toBeNull();
     expect(screen.queryByText("Matches activation")).toBeNull();
-    expect(screen.getByText("Loading structured planning changes…")).toBeTruthy();
+    expect(
+      screen.getByText("Loading structured planning changes…"),
+    ).toBeTruthy();
   });
 
   test("treats a missing milestone binding as indeterminate planning data", () => {
@@ -2502,9 +2640,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.feedRows = [entry];
     mocks.planningReconciliation = planningReconciliationFixture();
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("planning-diffs-indeterminate")).toBeTruthy();
     expect(
@@ -2513,7 +2649,9 @@ describe("BuildCollaborationFeed", () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.queryByText("No structured planning changes are recorded after activation."),
+      screen.queryByText(
+        "No structured planning changes are recorded after activation.",
+      ),
     ).toBeNull();
     expect(screen.queryByText(/Structured changes ·/)).toBeNull();
   });
@@ -2533,9 +2671,7 @@ describe("BuildCollaborationFeed", () => {
       restricted: true,
     });
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Schedule")).toBeTruthy();
     expect(screen.queryByText("Assignments")).toBeNull();
@@ -2550,18 +2686,20 @@ describe("BuildCollaborationFeed", () => {
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
     const { rerender } = render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
     );
 
     expect(screen.getAllByText("Resolved").length).toBeGreaterThan(0);
-    expect(screen.getByText("Milestone approved by Lender Admin.")).toBeTruthy();
+    expect(
+      screen.getByText("Milestone approved by Lender Admin."),
+    ).toBeTruthy();
 
     mocks.planningLifecycle = "reopened";
     mocks.postThreadState = "open";
     mocks.postResolutionSummary = undefined;
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
     rerender(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
     );
 
     expect(screen.getAllByText("Reopened").length).toBeGreaterThan(0);
@@ -2579,9 +2717,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.authUserId = "user_builder";
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2617,9 +2753,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.authUserId = "user_builder";
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2701,9 +2835,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.authUserId = "user_builder";
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2718,20 +2850,24 @@ describe("BuildCollaborationFeed", () => {
     mocks.mutate.mockRejectedValueOnce(new Error("temporary progress failure"));
     fireEvent.click(screen.getByRole("button", { name: "Save progress" }));
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
-    const failedKey = (mocks.mutate.mock.calls[0]?.[0] as Record<string, unknown>)
-      .idempotencyKey;
+    const failedKey = (
+      mocks.mutate.mock.calls[0]?.[0] as Record<string, unknown>
+    ).idempotencyKey;
 
     fireEvent.click(screen.getByRole("button", { name: "Save progress" }));
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(2));
-    const retriedKey = (mocks.mutate.mock.calls[1]?.[0] as Record<string, unknown>)
-      .idempotencyKey;
+    const retriedKey = (
+      mocks.mutate.mock.calls[1]?.[0] as Record<string, unknown>
+    ).idempotencyKey;
     expect(retriedKey).toBe(failedKey);
 
     fireEvent.click(
       screen.getByRole("button", { name: "Close Action Item detail" }),
     );
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Save progress" })).toBeNull(),
+      expect(
+        screen.queryByRole("button", { name: "Save progress" }),
+      ).toBeNull(),
     );
     mocks.actionItemDetailId = "action-2";
     fireEvent.click(
@@ -2760,9 +2896,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.authUserId = "user_broker";
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2795,9 +2929,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.authUserId = "user_broker";
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2809,8 +2941,12 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getByText("Governed review lifecycle")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Record recommendation" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Request changes" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Record recommendation" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Request changes" }),
+    ).toBeTruthy();
     expect(screen.getByText("Review history")).toBeTruthy();
     expect(screen.getByText(/lender_staff_recommendation/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Review note"), {
@@ -2818,7 +2954,9 @@ describe("BuildCollaborationFeed", () => {
     });
     fireEvent.click(screen.getAllByLabelText("Recommend a Site Visit")[0]);
     mocks.mutate.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Record recommendation" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Record recommendation" }),
+    );
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         buildId: "build-1",
@@ -2831,11 +2969,13 @@ describe("BuildCollaborationFeed", () => {
         workosOrganizationId: "org-1",
       }),
     );
-    expect((screen.getByLabelText("Review note") as HTMLInputElement).value).toBe("");
     expect(
-      screen.getAllByLabelText("Recommend a Site Visit")[0].getAttribute(
-        "aria-checked",
-      ),
+      (screen.getByLabelText("Review note") as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      screen
+        .getAllByLabelText("Recommend a Site Visit")[0]
+        .getAttribute("aria-checked"),
     ).toBe("false");
     mocks.mutate.mockClear();
     fireEvent.change(screen.getByLabelText("Review reason"), {
@@ -2866,9 +3006,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.authUserId = "user_principal_broker";
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2897,7 +3035,9 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
     mocks.mutate.mockClear();
     fireEvent.change(screen.getByLabelText("Review reason"), {
-      target: { value: "Principal broker escalation with missing footing report." },
+      target: {
+        value: "Principal broker escalation with missing footing report.",
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
     await waitFor(() =>
@@ -2913,7 +3053,7 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
-  test("shows Admin Site Visit waiver and independent child/parent approval commands", async () => {
+  test("keeps Admin Action Item review commands child-scoped", async () => {
     mocks.canonicalSystemActionItem = true;
     mocks.canonicalParentReadyForApproval = true;
     mocks.viewerBinding = {
@@ -2924,9 +3064,7 @@ describe("BuildCollaborationFeed", () => {
     };
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2937,12 +3075,18 @@ describe("BuildCollaborationFeed", () => {
       }),
     );
 
-    expect(screen.getByText(/Every child is independently approved/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Waive Site Visit" })).toBeTruthy();
+    expect(
+      screen.getByText(/Every child is independently approved/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Waive Site Visit" }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Approve Sub-milestone" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Approve Milestone" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Approve Milestone" }),
+    ).toBeNull();
     fireEvent.change(screen.getByLabelText("Review reason"), {
       target: { value: "Admin reviewed the exception." },
     });
@@ -2950,7 +3094,7 @@ describe("BuildCollaborationFeed", () => {
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalled());
   });
 
-  test("keeps resolved discussion on the same System Post while exposing Admin retraction", async () => {
+  test("keeps resolved discussion on the same System Post with child-only retraction", async () => {
     mocks.canonicalSystemActionItem = true;
     mocks.canonicalReviewState = "approved";
     mocks.canonicalMilestoneReviewState = "approved";
@@ -2965,11 +3109,11 @@ describe("BuildCollaborationFeed", () => {
     };
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     expect(screen.getAllByText("Resolved").length).toBeGreaterThan(0);
-    expect(screen.getByText("Milestone approved by Lender Admin.")).toBeTruthy();
+    expect(
+      screen.getByText("Milestone approved by Lender Admin."),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Show Action Items as a list" }),
@@ -2985,8 +3129,8 @@ describe("BuildCollaborationFeed", () => {
       screen.getByRole("button", { name: "Retract child approval" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Retract Milestone approval" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Retract Milestone approval" }),
+    ).toBeNull();
     expect(screen.getByText("Milestone · approved")).toBeTruthy();
   });
 
@@ -3003,9 +3147,7 @@ describe("BuildCollaborationFeed", () => {
     };
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     expect(screen.queryByText("Resolved")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
@@ -3021,13 +3163,11 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("distills list Action Items into a clickable card with compact metadata", () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Show Action Items as a list" })
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
     );
 
     const actionItemCard = screen.getByRole("button", {
@@ -3035,121 +3175,143 @@ describe("BuildCollaborationFeed", () => {
     });
     expect(actionItemCard.getAttribute("data-slot")).toBe("card");
     expect(
-      actionItemCard.querySelector('[aria-label="Assignee: Priya Raman"]')
+      actionItemCard.querySelector('[aria-label="Assignee: Priya Raman"]'),
     ).toBeTruthy();
     expect(within(actionItemCard).getByText("Blocked by 2")).toBeTruthy();
     expect(within(actionItemCard).getByText("Blocking 1")).toBeTruthy();
     expect(
-      within(actionItemCard).getByLabelText("2 unread comments")
+      within(actionItemCard).getByLabelText("2 unread comments"),
     ).toBeTruthy();
     expect(
-      within(actionItemCard).getByLabelText("1 other unread updates")
+      within(actionItemCard).getByLabelText("1 other unread updates"),
     ).toBeTruthy();
     expect(screen.queryByText("Assignee")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open details" })).toBeNull();
     expect(
       screen.getByRole("combobox", {
         name: "Status for Upload engineer seal",
-      })
+      }),
     ).toBeTruthy();
   });
 
   test("uses the board column as status context and opens the whole Action Item card", async () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     expect(
       screen.queryByRole("combobox", {
         name: "Status for Upload engineer seal",
-      })
+      }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "Open details" })).toBeNull();
 
     fireEvent.click(
       screen.getByRole("button", {
         name: "Open Action Item: Upload engineer seal",
-      })
+      }),
     );
 
     expect(await screen.findByText("Structured work")).toBeTruthy();
   });
 
+  test("contains the wide Action Item board inside its own horizontal scroller", () => {
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    const count = screen.getByText("1 item anchored to this post");
+    const boardSection = count.closest("section");
+    const scroller = boardSection?.querySelector(":scope > div.max-w-full");
+    const board = scroller?.firstElementChild;
+
+    expect(boardSection?.className).toContain("min-w-0");
+    expect(scroller?.className).toContain("overflow-x-auto");
+    expect(board?.className).toContain("min-w-[68rem]");
+    expect(board?.className).not.toContain("overflow-x-auto");
+  });
+
+  test("contains feed filters in their own mobile horizontal scroller", () => {
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    const filters = screen.getByRole("tablist", { name: "Feed filters" });
+    expect(filters.className).toContain("max-w-full");
+    expect(filters.className).toContain("overflow-x-auto");
+    expect(filters.className).toContain("justify-start");
+  });
+
   test("restores the last browser-only Action Item view preference", () => {
     window.localStorage.setItem(
       "drawflow:build-collaboration:action-item-view",
-      "list"
+      "list",
     );
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     expect(
       screen.getByRole("combobox", {
         name: "Status for Upload engineer seal",
-      })
+      }),
     ).toBeTruthy();
   });
 
   test("keeps shared controls closed until the Build lifecycle resolves", () => {
     mocks.allQueriesUnavailable = true;
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Loading collaboration access…")).toBeTruthy();
     expect(
       screen.queryByRole("button", {
         name: "What should people involved in this Build know?",
-      })
+      }),
     ).toBeNull();
   });
 
   test("renders a closed Build as a readable archive without shared mutation controls", () => {
     mocks.lifecycleState = "closed";
     mocks.postViewerCanModerate = true;
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Collaboration is read-only")).toBeTruthy();
     expect(
       screen.queryByRole("button", {
         name: "What should people involved in this Build know?",
-      })
+      }),
     ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
-    expect(screen.getByRole("menuitem", { name: "Save privately" })).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: "Pin for Build" })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Moderate content" })).toBeNull();
+    expect(
+      screen.getByRole("menuitem", { name: "Save privately" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "Pin for Build" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Moderate content" }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
-    expect(screen.getByText(/archived discussion is available to read/i)).toBeTruthy();
+    expect(
+      screen.getByText(/archived discussion is available to read/i),
+    ).toBeTruthy();
   });
 
   test("keeps structured Action Item work readable but immutable in a closed Build", async () => {
     mocks.lifecycleState = "closed";
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Open Action Item: Upload engineer seal",
-      })
+      }),
     );
 
     expect(await screen.findByText("Structured work")).toBeTruthy();
     const archivedChecklist = screen.getByLabelText(
-      "Mark Confirm file naming complete"
+      "Mark Confirm file naming complete",
     );
     expect(archivedChecklist.getAttribute("data-disabled")).not.toBeNull();
     mocks.mutate.mockClear();
     fireEvent.click(archivedChecklist);
     expect(mocks.mutate).not.toHaveBeenCalled();
     expect(
-      screen.queryByRole("button", { name: "Add child Action Item" })
+      screen.queryByRole("button", { name: "Add child Action Item" }),
     ).toBeNull();
     expect(screen.queryByLabelText("New checklist step")).toBeNull();
     expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
@@ -3177,17 +3339,13 @@ describe("BuildCollaborationFeed", () => {
         root = null;
         rootMargin = "0px";
         thresholds = [0.5];
-      }
+      },
     );
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     expect(mocks.mutate).not.toHaveBeenCalled();
 
     act(() => {
-      deliverIntersection?.([
-        { intersectionRatio: 0.5, isIntersecting: true },
-      ]);
+      deliverIntersection?.([{ intersectionRatio: 0.5, isIntersecting: true }]);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(999);
@@ -3213,12 +3371,10 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("exposes digest cadence and email delivery controls", async () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
-      screen.getByRole("combobox", { name: "Activity digest" })
+      screen.getByRole("combobox", { name: "Activity digest" }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Email on" }));
 
@@ -3230,7 +3386,7 @@ describe("BuildCollaborationFeed", () => {
         digestEnabled: true,
         ordinaryMuted: false,
         organizationId: "org-1",
-      })
+      }),
     );
   });
 
@@ -3256,15 +3412,13 @@ describe("BuildCollaborationFeed", () => {
       configurable: true,
       value: { getRegistration, register },
     });
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     await waitFor(() =>
       expect(
         (screen.getByRole("button", { name: "Push off" }) as HTMLButtonElement)
-          .disabled
-      ).toBe(false)
+          .disabled,
+      ).toBe(false),
     );
     fireEvent.click(screen.getByRole("button", { name: "Push off" }));
 
@@ -3275,13 +3429,11 @@ describe("BuildCollaborationFeed", () => {
         endpoint: "https://push.example.test/browser-subscription",
         organizationId: "org-1",
         p256dh: "AwQ",
-      })
+      }),
     );
-    expect(register).toHaveBeenCalledWith(
-      "/build-collaboration-push-sw.js"
-    );
+    expect(register).toHaveBeenCalledWith("/build-collaboration-push-sw.js");
     expect(subscribe).toHaveBeenCalledWith(
-      expect.objectContaining({ userVisibleOnly: true })
+      expect.objectContaining({ userVisibleOnly: true }),
     );
     expect(unsubscribe).not.toHaveBeenCalled();
   });
@@ -3309,11 +3461,11 @@ describe("BuildCollaborationFeed", () => {
       },
     });
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(await screen.findByRole("button", { name: "Push off" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Push off" }),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Push on" })).toBeNull();
   });
 
@@ -3324,9 +3476,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.announcementExpiresAt = now + 30_000;
     mocks.announcementProminent = true;
     mocks.postType = "announcement";
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Prominent")).toBeTruthy();
     act(() => vi.advanceTimersByTime(30_001));
@@ -3337,17 +3487,10 @@ describe("BuildCollaborationFeed", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    render(
-      <BuildCollaborationFeed
-        buildId="build-1"
-        organizationId="org-1"
-      />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getAllByText("Restricted update")).toHaveLength(2);
-    expect(
-      screen.queryByText(/Alex Chen.*restricted/i),
-    ).toBeNull();
+    expect(screen.queryByText(/Alex Chen.*restricted/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Following" }));
 
@@ -3387,6 +3530,42 @@ describe("BuildCollaborationFeed", () => {
       screen.queryByRole("heading", {
         name: "Foundation completion photo",
       }),
+    ).toBeNull();
+  });
+
+  test("opens a Sub-milestone reference in its unified detail sheet", () => {
+    const entry = focusedPostEntryFixture(
+      "post-submilestone-reference",
+      "Excavation is ready to start.",
+    );
+    entry.references = [
+      {
+        _id: "reference-submilestone-1",
+        entityId: "submilestone-1",
+        entityKind: "submilestone",
+        labelSnapshot: "Excavate",
+        summarySnapshot: "Planned",
+      },
+    ];
+    mocks.feedRows = [entry];
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        onOpenReference={mocks.onOpenReference}
+        organizationId="org-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Excavate"));
+
+    expect(mocks.onOpenReference).toHaveBeenCalledWith({
+      entityId: "submilestone-1",
+      entityKind: "submilestone",
+      href: "?tab=details&focus=submilestone%3Asubmilestone-1",
+    });
+    expect(
+      screen.queryByTestId("build-collaboration-focused-reference"),
     ).toBeNull();
   });
 
@@ -3615,9 +3794,7 @@ describe("BuildCollaborationFeed", () => {
       />,
     );
 
-    expect(
-      await screen.findByText("Deep foundation inspection"),
-    ).toBeTruthy();
+    expect(await screen.findByText("Deep foundation inspection")).toBeTruthy();
     expect(screen.getByText("Ready for review")).toBeTruthy();
   });
 
@@ -3680,9 +3857,7 @@ describe("BuildCollaborationFeed", () => {
       },
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("My Action Items")).toBeTruthy();
     expect(screen.getByText("Confirm framing inspection")).toBeTruthy();
@@ -3694,19 +3869,19 @@ describe("BuildCollaborationFeed", () => {
       buildActionItemQueueHref(
         "https://drawflow.example/builder/builds/build-1?tab=details&rail=closed",
         "build-2",
-        "action-personal"
-      )
+        "action-personal",
+      ),
     ).toBe(
-      "/builder/builds/build-2?tab=details&focus=actionItem%3Aaction-personal"
+      "/builder/builds/build-2?tab=details&focus=actionItem%3Aaction-personal",
     );
     expect(
       buildActionItemQueueHref(
         "https://drawflow.example/builder-staff/builds/build-1?tab=details",
         "build-2",
-        "action-personal"
-      )
+        "action-personal",
+      ),
     ).toBe(
-      "/builder-staff/builds/build-2?tab=details&focus=actionItem%3Aaction-personal"
+      "/builder-staff/builds/build-2?tab=details&focus=actionItem%3Aaction-personal",
     );
   });
 
@@ -3717,24 +3892,22 @@ describe("BuildCollaborationFeed", () => {
         buildName: "Foundation Build",
         id: `action-personal-${index + 1}`,
         title: `Queued action ${index + 1}`,
-      })
+      }),
     );
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.queryByText("Queued action 6")).toBeNull();
     expect(screen.queryByText("Queued action 16")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Show 5 more of 11" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Show 5 more of 11" }));
     fireEvent.click(screen.getByRole("button", { name: "Show 5 more of 6" }));
     fireEvent.click(screen.getByRole("button", { name: "Show 1 more of 1" }));
     for (let index = 1; index <= 16; index += 1) {
       expect(screen.getByText(`Queued action ${index}`)).toBeTruthy();
     }
-    expect(screen.queryByRole("button", { name: /Show .* more of/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Show .* more of/ }),
+    ).toBeNull();
   });
 
   test("uses one compact queue disclosure to reveal every loaded Action Item", () => {
@@ -3744,12 +3917,10 @@ describe("BuildCollaborationFeed", () => {
         buildName: "Foundation Build",
         id: `compact-action-${index + 1}`,
         title: `Compact action ${index + 1}`,
-      })
+      }),
     );
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.queryByText("Compact action 16")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View all 16" }));
@@ -3758,7 +3929,7 @@ describe("BuildCollaborationFeed", () => {
     }
     expect(screen.getByRole("button", { name: "Show fewer" })).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: /Show .* more of/ })
+      screen.queryByRole("button", { name: /Show .* more of/ }),
     ).toBeNull();
   });
 
@@ -3770,15 +3941,13 @@ describe("BuildCollaborationFeed", () => {
         buildName: "Foundation Build",
         id: `paged-action-${index + 1}`,
         title: `Paged action ${index + 1}`,
-      })
+      }),
     );
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Load more Action Items" })[0]
+      screen.getAllByRole("button", { name: "Load more Action Items" })[0],
     );
     expect(mocks.loadMore).toHaveBeenCalledWith(20);
   });
@@ -3796,9 +3965,7 @@ describe("BuildCollaborationFeed", () => {
       },
     ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByText("Foundation completion photo"));
 
     expect(screen.getByText("Related Action Items")).toBeTruthy();
@@ -3806,12 +3973,12 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(
       screen.getByRole("button", {
         name: "Open Replace blurred foundation photo",
-      })
+      }),
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: "Upload engineer seal" })
-      ).toBeTruthy()
+        screen.getByRole("heading", { name: "Upload engineer seal" }),
+      ).toBeTruthy(),
     );
   });
 
@@ -3836,10 +4003,115 @@ describe("BuildCollaborationFeed", () => {
     ).toBeTruthy();
   });
 
-  test("creates Action Items from a live post with inherited audience context", async () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+  test("closes a host-managed Action Item when browser history removes focus", async () => {
+    const { rerender } = render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailResolutionState="visible"
+        focusedReference="actionItem:action-1"
+        organizationId="org-1"
+        resolvedDetailTarget={{
+          actionItemId: "action-1" as Id<"buildActionItems">,
+          kind: "actionItem",
+        }}
+      />,
     );
+
+    expect(
+      await screen.findByRole("heading", { name: "Upload engineer seal" }),
+    ).toBeTruthy();
+
+    rerender(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailResolutionState="idle"
+        organizationId="org-1"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Upload engineer seal" }),
+      ).toBeNull(),
+    );
+  });
+
+  test("navigates host-managed Action Item history with documented shortcuts", async () => {
+    const onDetailGoBack = vi.fn();
+    const onDetailGoForward = vi.fn();
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailCanGoBack
+        detailCanGoForward
+        detailResolutionState="visible"
+        focusedReference="actionItem:action-1"
+        onDetailGoBack={onDetailGoBack}
+        onDetailGoForward={onDetailGoForward}
+        organizationId="org-1"
+        resolvedDetailTarget={{
+          actionItemId: "action-1" as Id<"buildActionItems">,
+          kind: "actionItem",
+        }}
+      />,
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.keyDown(dialog, { altKey: true, key: "ArrowLeft" });
+    fireEvent.keyDown(dialog, { altKey: true, key: "ArrowRight" });
+
+    expect(onDetailGoBack).toHaveBeenCalledTimes(1);
+    expect(onDetailGoForward).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(dialog, {
+      altKey: true,
+      key: "ArrowLeft",
+      shiftKey: true,
+    });
+    expect(onDetailGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  test("removes the generic sheet when a generated focus resolves canonically", async () => {
+    const { rerender } = render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailResolutionState="visible"
+        focusedReference="actionItem:action-1"
+        organizationId="org-1"
+        resolvedDetailTarget={{
+          actionItemId: "action-1" as Id<"buildActionItems">,
+          kind: "actionItem",
+        }}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Upload engineer seal" }),
+    ).toBeTruthy();
+
+    rerender(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailResolutionState="visible"
+        focusedReference="actionItem:action-1"
+        organizationId="org-1"
+        resolvedDetailTarget={{
+          companionId: "action-1" as Id<"buildActionItems">,
+          kind: "submilestone",
+          submilestoneId: "submilestone-1" as Id<"buildSubmilestones">,
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Upload engineer seal" }),
+      ).toBeNull(),
+    );
+  });
+
+  test("creates Action Items from a live post with inherited audience context", async () => {
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
@@ -3857,14 +4129,14 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.change(screen.getByLabelText("Action Item title"), {
       target: { value: "Upload signed engineer seal" },
     });
-    fireEvent.click(screen.getByRole("button", {
-      name: "Mock Action Item description",
-    }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Mock Action Item description",
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
     fireEvent.click(screen.getByRole("button", { name: "Draw" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Action Item" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Create Action Item" }));
 
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith(
@@ -3892,9 +4164,7 @@ describe("BuildCollaborationFeed", () => {
         summary: "Location verified · uploaded today",
       },
     ];
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
@@ -3907,9 +4177,9 @@ describe("BuildCollaborationFeed", () => {
       screen.getByRole("button", { name: "Mock Action Item description" }),
     );
 
-    expect(screen.getByLabelText("Action Item work type").textContent).toContain(
-      "evidence",
-    );
+    expect(
+      screen.getByLabelText("Action Item work type").textContent,
+    ).toContain("evidence");
     expect(
       screen.getByText(
         "Governed work requires a due date and authority acceptance before Done.",
@@ -3917,17 +4187,13 @@ describe("BuildCollaborationFeed", () => {
     ).toBeTruthy();
 
     mocks.mutate.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Action Item" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Create Action Item" }));
     expect(mocks.mutate).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Action Item due date"), {
       target: { value: "2026-08-15" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Action Item" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Create Action Item" }));
 
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith(
@@ -3947,9 +4213,7 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("opens the reusable Action Item detail sheet from a post card", async () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
@@ -3982,21 +4246,19 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Revision history")).toBeTruthy();
     expect(screen.getByText("Activity")).toBeTruthy();
     fireEvent.click(
-      screen.getAllByRole("button", { name: /Foundation completion photo/ })[0]
+      screen.getAllByRole("button", { name: /Foundation completion photo/ })[0],
     );
     expect(
-      screen.getByRole("heading", { name: "Foundation completion photo" })
+      screen.getByRole("heading", { name: "Foundation completion photo" }),
     ).toBeTruthy();
   });
 
   test("uses the Action Item detail sheet for children, checklists, relationship conflicts, and repair", async () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Show Action Items as a list" })
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
     );
     fireEvent.click(
       await screen.findByRole("button", {
@@ -4011,9 +4273,7 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Permission conflict")).toBeTruthy();
 
     mocks.mutate.mockClear();
-    fireEvent.click(
-      screen.getByLabelText("Mark Confirm file naming complete"),
-    );
+    fireEvent.click(screen.getByLabelText("Mark Confirm file naming complete"));
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         buildId: "build-1",
@@ -4057,9 +4317,7 @@ describe("BuildCollaborationFeed", () => {
       screen.getByRole("button", { name: "Mock Action Item description" }),
     );
     mocks.mutate.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create Action Item" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Create Action Item" }));
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -4073,26 +4331,24 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("executes Action Item workflow transitions from the detail sheet", async () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Open Action Item: Upload engineer seal",
-      })
+      }),
     );
     mocks.mutate.mockClear();
     fireEvent.change(
       await screen.findByRole("combobox", {
         name: "Change Action Item status",
       }),
-      { target: { value: "in_progress" } }
+      { target: { value: "in_progress" } },
     );
     expect(
       screen.getByRole("combobox", { name: "Change Action Item status" })
-        .textContent
+        .textContent,
     ).toContain("In progress");
 
     await waitFor(() =>
@@ -4103,13 +4359,13 @@ describe("BuildCollaborationFeed", () => {
         nextStatus: "in_progress",
         organizationId: "org-1",
         reason: undefined,
-      })
+      }),
     );
 
     mocks.mutate.mockClear();
     fireEvent.change(
       screen.getByRole("combobox", { name: "Change Action Item status" }),
-      { target: { value: "blocked" } }
+      { target: { value: "blocked" } },
     );
     expect(mocks.mutate).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Action Item transition reason"), {
@@ -4124,7 +4380,7 @@ describe("BuildCollaborationFeed", () => {
         nextStatus: "blocked",
         organizationId: "org-1",
         reason: "Waiting for the engineer seal",
-      })
+      }),
     );
   });
 
@@ -4134,42 +4390,38 @@ describe("BuildCollaborationFeed", () => {
     mocks.workflowAssignmentMode = "request";
     mocks.workflowCanAccept = true;
     mocks.workflowTransitions = ["in_review"];
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Open Action Item: Upload engineer seal",
-      })
+      }),
     );
 
     expect(screen.getByText("Governed completion")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Accept assignment" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept assignment" }));
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         actionItemId: "action-1",
         buildId: "build-1",
         expectedRevision: 1,
         organizationId: "org-1",
-      })
+      }),
     );
 
     mocks.mutate.mockClear();
     fireEvent.change(
       screen.getByRole("combobox", { name: "Change Action Item status" }),
-      { target: { value: "in_review" } }
+      { target: { value: "in_review" } },
     );
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           actionItemId: "action-1",
           nextStatus: "in_review",
-        })
-      )
+        }),
+      ),
     );
   });
 
@@ -4177,21 +4429,19 @@ describe("BuildCollaborationFeed", () => {
     mocks.actionItemAssignmentState = "assigned";
     mocks.actionItemRequiresAcceptance = true;
     mocks.workflowTransitions = ["in_review"];
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Open Action Item: Upload engineer seal",
-      })
+      }),
     );
 
     expect(screen.getByText("Ordinary work")).toBeTruthy();
     expect(screen.getByText("Governed completion")).toBeTruthy();
     expect(
-      screen.getByRole("combobox", { name: "Change Action Item status" })
+      screen.getByRole("combobox", { name: "Change Action Item status" }),
     ).toBeTruthy();
   });
 
@@ -4217,11 +4467,11 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="actionItem:not-a-convex-id"
         organizationId="org-1"
-      />
+      />,
     );
 
     expect(
-      screen.queryByRole("heading", { name: "Upload engineer seal" })
+      screen.queryByRole("heading", { name: "Upload engineer seal" }),
     ).toBeNull();
     expect(screen.queryByText("Loading Action Item…")).toBeNull();
   });
@@ -4245,7 +4495,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.focusedPostContext = {
       entry: focusedPostEntryFixture(
         "post-outside-first-page",
-        "Focused notification thread."
+        "Focused notification thread.",
       ),
       state: "visible",
     };
@@ -4255,16 +4505,20 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="post:post-outside-first-page"
         organizationId="org-1"
-      />
+      />,
     );
 
-    expect(await screen.findByText("Focused notification thread.")).toBeTruthy();
+    expect(
+      await screen.findByText("Focused notification thread."),
+    ).toBeTruthy();
     expect(
       screen
         .getByTestId("collaboration-post-post-outside-first-page")
-        .getAttribute("data-focused")
+        .getAttribute("data-focused"),
     ).toBe("true");
-    expect(screen.getByText("Foundation evidence is ready for review.")).toBeTruthy();
+    expect(
+      screen.getByText("Foundation evidence is ready for review."),
+    ).toBeTruthy();
   });
 
   test("keeps revoked focused posts disclosure-safe", async () => {
@@ -4274,16 +4528,16 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="post:post-revoked"
         organizationId="org-1"
-      />
+      />,
     );
 
     expect(
       await screen.findByText(
-        "This focused post is unavailable or your access was revoked."
-      )
+        "This focused post is unavailable or your access was revoked.",
+      ),
     ).toBeTruthy();
     expect(
-      screen.getAllByText("Foundation evidence is ready for review.").length
+      screen.getAllByText("Foundation evidence is ready for review.").length,
     ).toBeGreaterThan(0);
   });
 
@@ -4304,7 +4558,9 @@ describe("BuildCollaborationFeed", () => {
         .getByTestId("build-collaboration-focused-reference")
         .getAttribute("data-reference-key"),
     ).toBe("participant:user-broker");
-    expect(screen.getByText("Focused participant detail for this Build.")).toBeTruthy();
+    expect(
+      screen.getByText("Focused participant detail for this Build."),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Open focused workspace" }),
     ).toBeNull();
@@ -4316,19 +4572,19 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="milestone:foundation-footings"
         organizationId="org-1"
-      />
+      />,
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Foundation & footings" })
+      await screen.findByRole("heading", { name: "Foundation & footings" }),
     ).toBeTruthy();
     expect(
       screen
         .getByTestId("build-collaboration-focused-reference")
-        .getAttribute("data-reference-key")
+        .getAttribute("data-reference-key"),
     ).toBe("milestone:foundation-footings");
     expect(
-      screen.getByRole("button", { name: "Open focused workspace" })
+      screen.getByRole("button", { name: "Open focused workspace" }),
     ).toBeTruthy();
   });
 
@@ -4337,9 +4593,7 @@ describe("BuildCollaborationFeed", () => {
       commentRowFixture("comment-first", "First reply"),
       commentRowFixture("comment-second", "Second reply"),
     ];
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     const first = screen.getByTestId("collaboration-comment-comment-first");
@@ -4451,7 +4705,7 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="comment:comment-deep"
         organizationId="org-1"
-      />
+      />,
     );
 
     const root = screen.getByTestId("collaboration-comment-comment-root");
@@ -4479,7 +4733,7 @@ describe("BuildCollaborationFeed", () => {
     await waitFor(() => expect(document.activeElement).toBe(replyButton));
 
     fireEvent.click(
-      within(deep).getByRole("button", { name: "Acknowledge 1" })
+      within(deep).getByRole("button", { name: "Acknowledge 1" }),
     );
     expect(mocks.mutate).toHaveBeenCalledWith({
       buildId: "build-1",
@@ -4499,9 +4753,7 @@ describe("BuildCollaborationFeed", () => {
 
   test("announces deterministic discussion loading state", () => {
     mocks.commentsLoading = true;
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     expect(screen.getByText("Loading discussion…")).toBeTruthy();
@@ -4517,12 +4769,12 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="comment:comment-pending"
         organizationId="org-1"
-      />
+      />,
     );
 
     expect(screen.getByText("Loading focused discussion…")).toBeTruthy();
     expect(screen.getAllByText("Ordinary loaded reply").length).toBeGreaterThan(
-      0
+      0,
     );
   });
 
@@ -4534,9 +4786,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.focusedCommentContext = {
       focusCommentId: "comment-outside-page",
       postId: "post-outside-page",
-      rows: [
-        commentRowFixture("comment-outside-page", "Focused older reply"),
-      ],
+      rows: [commentRowFixture("comment-outside-page", "Focused older reply")],
       state: "visible",
     };
     render(
@@ -4544,12 +4794,12 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="comment:comment-outside-page"
         organizationId="org-1"
-      />
+      />,
     );
 
     expect(screen.getByText("Loading focused discussion…")).toBeTruthy();
     expect(screen.getAllByText("Ordinary loaded reply").length).toBeGreaterThan(
-      0
+      0,
     );
     await waitFor(() => expect(mocks.loadMore).toHaveBeenCalledWith(20));
   });
@@ -4561,24 +4811,19 @@ describe("BuildCollaborationFeed", () => {
         buildId="build-1"
         focusedReference="comment:comment-revoked"
         organizationId="org-1"
-      />
+      />,
     );
 
     expect(
       screen.getByText(
-        "This focused discussion is unavailable or your access was revoked."
-      )
+        "This focused discussion is unavailable or your access was revoked.",
+      ),
     ).toBeTruthy();
   });
 
   test("labels a revised post as edited without treating thread receipt changes as edits", () => {
     mocks.postRevision = 2;
-    render(
-      <BuildCollaborationFeed
-        buildId="build-1"
-        organizationId="org-1"
-      />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByText("Edited")).toBeTruthy();
   });
@@ -4586,55 +4831,41 @@ describe("BuildCollaborationFeed", () => {
   test("lets a non-author reader inspect an edited post without edit authority", async () => {
     mocks.postRevision = 2;
     mocks.postViewerIsAuthor = false;
-    render(
-      <BuildCollaborationFeed
-        buildId="build-1"
-        organizationId="org-1"
-      />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
     fireEvent.click(
       await screen.findByRole("menuitem", {
         name: "View revision history",
-      })
+      }),
     );
 
     expect(
       await screen.findByRole("heading", {
         level: 2,
         name: "Revision history",
-      })
+      }),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Save revision" })
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save revision" })).toBeNull();
   });
 
   test("opens the hierarchy-safe moderation action from the post menu", async () => {
     mocks.postViewerCanModerate = true;
     mocks.postViewerIsAuthor = false;
-    render(
-      <BuildCollaborationFeed
-        buildId="build-1"
-        organizationId="org-1"
-      />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Moderate content" })
+      await screen.findByRole("menuitem", { name: "Moderate content" }),
     );
     expect(
-      await screen.findByRole("heading", { name: "Content moderation" })
+      await screen.findByRole("heading", { name: "Content moderation" }),
     ).toBeTruthy();
     fireEvent.change(
       screen.getByRole("textbox", { name: "Moderation reason" }),
-      { target: { value: "Unsafe instruction" } }
+      { target: { value: "Unsafe instruction" } },
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Moderate content" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Moderate content" }));
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         buildId: "build-1",
@@ -4643,7 +4874,7 @@ describe("BuildCollaborationFeed", () => {
         expectedRevision: 1,
         organizationId: "org-1",
         reason: "Unsafe instruction",
-      })
+      }),
     );
   });
 
@@ -4666,8 +4897,7 @@ describe("BuildCollaborationFeed", () => {
         },
         references: [],
         revision: {
-          plainText:
-            "This reply is unavailable while it is under moderation.",
+          plainText: "This reply is unavailable while it is under moderation.",
           tiptapJson: JSON.stringify({
             content: [
               {
@@ -4685,19 +4915,12 @@ describe("BuildCollaborationFeed", () => {
         },
       },
     ];
-    render(
-      <BuildCollaborationFeed
-        buildId="build-1"
-        organizationId="org-1"
-      />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     const comment = screen.getByTestId("collaboration-comment-comment-1");
     expect(within(comment).getByText("Moderated")).toBeTruthy();
-    expect(
-      within(comment).queryByRole("button", { name: "Reply" })
-    ).toBeNull();
+    expect(within(comment).queryByRole("button", { name: "Reply" })).toBeNull();
   });
 
   test("presents the accepted visible reply as the resolved Question outcome", () => {
@@ -4742,25 +4965,18 @@ describe("BuildCollaborationFeed", () => {
       },
     ];
 
-    render(
-      <BuildCollaborationFeed
-        buildId="build-1"
-        organizationId="org-1"
-      />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     expect(screen.getAllByText("Accepted answer")).toHaveLength(2);
     expect(
-      screen.getAllByText("The revised engineer seal is acceptable.")
+      screen.getAllByText("The revised engineer seal is acceptable."),
     ).toHaveLength(2);
     expect(screen.getByText("Resolved")).toBeTruthy();
   });
 
   test("publishes a human-authored composer post without showing a HITL checkpoint", async () => {
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(
       screen.getByRole("button", {
         name: /What should people involved in this Build know\?/,
@@ -4792,13 +5008,11 @@ describe("BuildCollaborationFeed", () => {
       draftId: "draft-autosaved",
       revision: 1,
     });
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(
       screen.getByRole("button", {
         name: /What should people involved in this Build know\?/,
-      })
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
 
@@ -4809,14 +5023,14 @@ describe("BuildCollaborationFeed", () => {
     expect(offlineDraftMocks.saveDraft).toHaveBeenCalledWith(
       expect.objectContaining({
         key: "org-1:build-1:user_admin",
-      })
+      }),
     );
     expect(mocks.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         buildId: "build-1",
         organizationId: "org-1",
         preparedByAgent: false,
-      })
+      }),
     );
     expect(screen.getByText(/Private draft autosaved/)).toBeTruthy();
   });
@@ -4859,9 +5073,7 @@ describe("BuildCollaborationFeed", () => {
         updatedAt: Date.now(),
       },
     ];
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
       screen.queryByRole("button", { name: "Review exact bundle" }),
@@ -4929,9 +5141,7 @@ describe("BuildCollaborationFeed", () => {
         updatedAt: Date.now(),
       },
     ];
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("mistaken-photo.jpg")).toBeTruthy();
@@ -4943,7 +5153,7 @@ describe("BuildCollaborationFeed", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Remove mistaken-photo.jpg" })
+      screen.getByRole("button", { name: "Remove mistaken-photo.jpg" }),
     );
 
     await waitFor(() =>
@@ -4953,13 +5163,13 @@ describe("BuildCollaborationFeed", () => {
           buildId: "build-1",
           draftId: "human-draft-remove",
           organizationId: "org-1",
-        })
-      )
+        }),
+      ),
     );
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "Remove mistaken-photo.jpg" })
-      ).toBeNull()
+        screen.queryByRole("button", { name: "Remove mistaken-photo.jpg" }),
+      ).toBeNull(),
     );
   });
 
@@ -4974,19 +5184,17 @@ describe("BuildCollaborationFeed", () => {
       version: 1,
     }));
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     expect(screen.getByText("Private offline mode")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", {
         name: "What should people involved in this Build know?",
-      })
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
     mocks.mutate.mockClear();
     fireEvent.click(
-      screen.getByRole("button", { name: "Save privately on device" })
+      screen.getByRole("button", { name: "Save privately on device" }),
     );
 
     await waitFor(() =>
@@ -4996,8 +5204,8 @@ describe("BuildCollaborationFeed", () => {
           expectedRevision: undefined,
           files: [],
           key: "org-1:build-1:user_admin",
-        })
-      )
+        }),
+      ),
     );
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
@@ -5008,26 +5216,26 @@ describe("BuildCollaborationFeed", () => {
       value: false,
     });
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
     expect(screen.queryByRole("button", { name: "Acknowledge" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Write a reply…" })).toBeNull();
-    expect(screen.getByText(/archived discussion is available to read/i)).toBeTruthy();
+    expect(
+      screen.getByText(/archived discussion is available to read/i),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Show Action Items as a list" })
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
     );
     expect(
       (await screen.findByRole("button", {
         name: "Add Action Item",
-      })) as HTMLButtonElement
+      })) as HTMLButtonElement,
     ).toHaveProperty("disabled", true);
     expect(
-      screen.getByLabelText("Status for Upload engineer seal")
+      screen.getByLabelText("Status for Upload engineer seal"),
     ).toHaveProperty("disabled", true);
 
     await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
@@ -5054,18 +5262,16 @@ describe("BuildCollaborationFeed", () => {
       version: 1,
     }));
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     expect(screen.getByText("Private offline mode")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", {
         name: "What should people involved in this Build know?",
-      })
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Save privately on device" })
+      screen.getByRole("button", { name: "Save privately on device" }),
     );
 
     await waitFor(() => expect(offlineDraftMocks.saveDraft).toHaveBeenCalled());
@@ -5074,7 +5280,7 @@ describe("BuildCollaborationFeed", () => {
 
   test("keeps a cold never-connected Convex session private", async () => {
     const bundle = collaborationDraftBundleFixture(
-      "Cold offline draft remains available."
+      "Cold offline draft remains available.",
     );
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
@@ -5105,25 +5311,23 @@ describe("BuildCollaborationFeed", () => {
       version: 1,
     }));
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     expect(screen.getByText("Private offline mode")).toBeTruthy();
     await waitFor(() =>
       expect(offlineDraftMocks.loadDraft).toHaveBeenCalledWith(
-        "org-1:build-1:user_admin"
-      )
+        "org-1:build-1:user_admin",
+      ),
     );
     expect(await screen.findByText(/Private device draft from/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Continue offline" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Save privately on device" })
+      screen.getByRole("button", { name: "Save privately on device" }),
     );
 
     await waitFor(() =>
       expect(offlineDraftMocks.saveDraft).toHaveBeenCalledWith(
-        expect.objectContaining({ key: "org-1:build-1:user_admin" })
-      )
+        expect.objectContaining({ key: "org-1:build-1:user_admin" }),
+      ),
     );
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
@@ -5131,14 +5335,12 @@ describe("BuildCollaborationFeed", () => {
   test("revalidates the hydrated auth identity before every server reconciliation path", async () => {
     mocks.canSchedule = true;
     mocks.serverDraftIdentityWorkosUserId = "user_other";
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     mocks.mutate.mockClear();
     fireEvent.click(
       screen.getByRole("button", {
         name: "What should people involved in this Build know?",
-      })
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
@@ -5163,7 +5365,7 @@ describe("BuildCollaborationFeed", () => {
 
   test("reconnects an offline edit against the exact server draft revision", async () => {
     const bundle = collaborationDraftBundleFixture(
-      "Offline edit awaiting reconciliation."
+      "Offline edit awaiting reconciliation.",
     );
     offlineDraftMocks.loadDraft.mockResolvedValue({
       bundle,
@@ -5182,10 +5384,10 @@ describe("BuildCollaborationFeed", () => {
       revision: 5,
     });
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Load and reconcile" }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Load and reconcile" }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() =>
@@ -5194,8 +5396,8 @@ describe("BuildCollaborationFeed", () => {
           draftId: "server-draft-1",
           expectedRevision: 4,
           offlineCapturedAt: Date.parse("2026-08-01T11:00:00.000Z"),
-        })
-      )
+        }),
+      ),
     );
   });
 
@@ -5206,7 +5408,7 @@ describe("BuildCollaborationFeed", () => {
     mocks.mutate.mockImplementation(async (args: Record<string, unknown>) => {
       if (args.preparedByAgent === false && !args.draftId) {
         const bundle = collaborationDraftBundleFixture(
-          String(args.plainText ?? "Useful accountable work.")
+          String(args.plainText ?? "Useful accountable work."),
         );
         mocks.drafts = [
           {
@@ -5232,20 +5434,17 @@ describe("BuildCollaborationFeed", () => {
       return "approval-1";
     });
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(
       screen.getByRole("button", {
         name: "What should people involved in this Build know?",
-      })
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
     fireEvent.click(screen.getByRole("button", { name: /Add attachments/ }));
-    fireEvent.change(
-      screen.getByLabelText("Scheduled publication time"),
-      { target: { value: scheduledForInput } }
-    );
+    fireEvent.change(screen.getByLabelText("Scheduled publication time"), {
+      target: { value: scheduledForInput },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Review & schedule" }));
 
     await screen.findByText("Human approval checkpoint");
@@ -5253,7 +5452,7 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(
       screen.getByRole("button", {
         name: "Approve exact bundle & schedule",
-      })
+      }),
     );
 
     await waitFor(() =>
@@ -5263,7 +5462,7 @@ describe("BuildCollaborationFeed", () => {
         expectedRevision: 1,
         organizationId: "org-1",
         scheduledFor,
-      })
+      }),
     );
   });
 
@@ -5289,21 +5488,19 @@ describe("BuildCollaborationFeed", () => {
           {
             ...mocks.drafts[0],
             bundleJson: JSON.stringify(
-              collaborationDraftBundleFixture("Server-side revision.")
+              collaborationDraftBundleFixture("Server-side revision."),
             ),
             revision: 2,
           },
         ];
         throw new Error(
-          "Draft revision conflict: expected revision 1 but found 2."
+          "Draft revision conflict: expected revision 1 but found 2.",
         );
       }
       return null;
     });
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
@@ -5312,14 +5509,14 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Useful accountable work.")).toBeTruthy();
     expect(screen.getByText("Latest server revision 2")).toBeTruthy();
     expect(screen.getAllByText("Server-side revision.").length).toBeGreaterThan(
-      0
+      0,
     );
     expect(offlineDraftMocks.saveDraft).toHaveBeenCalledWith(
       expect.objectContaining({
         draftId: "conflicted-draft-1",
         expectedRevision: 1,
         key: "org-1:build-1:user_admin",
-      })
+      }),
     );
   });
 
@@ -5425,12 +5622,7 @@ describe("BuildCollaborationFeed", () => {
       },
     ];
 
-    render(
-      <BuildCollaborationFeed
-        buildId="build-1"
-        organizationId="org-1"
-      />,
-    );
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
     fireEvent.click(
       screen.getByRole("button", { name: "Review exact bundle" }),
     );

@@ -5,6 +5,7 @@
  * `/prototype/system-posts`. Theme-token styled; mock prototype data is not used.
  */
 
+import { useQuery } from "convex/react";
 import {
   AlertTriangle,
   Banknote,
@@ -123,7 +124,7 @@ const DRAW_LIFECYCLE_STEPS: DrawLifecycleStep[] = [
 ];
 
 export function systemPostTitle(
-  entry: CollaborationFeedPostEntry
+  entry: CollaborationFeedPostEntry,
 ): string | null {
   const systemPost = entry.post.systemPost;
   if (!systemPost) {
@@ -183,7 +184,7 @@ export function SystemPostExperience({
   const isDraw = systemPost.kind === "draw";
   const generatedItems = entry.actionItems.filter(isCanonicalMilestoneItem);
   const coordinationItems = entry.actionItems.filter(
-    (item) => !isCanonicalMilestoneItem(item)
+    (item) => !isCanonicalMilestoneItem(item),
   );
 
   return (
@@ -360,7 +361,7 @@ function MilestoneBoardExperience({
               <div className="grid min-w-[62rem] grid-cols-5 gap-2 rounded-xl border bg-background/30 p-2.5">
                 {STATE_COLUMNS.map((column) => {
                   const columnItems = items.filter(
-                    (item) => item.systemPresentation?.column === column.key
+                    (item) => item.systemPresentation?.column === column.key,
                   );
                   return (
                     <section className="min-w-0" key={column.key}>
@@ -423,7 +424,7 @@ function MilestoneHeadline({
   const behind =
     planningSummary?.counts.behind_schedule ??
     items.filter(
-      (item) => item.systemPresentation?.column === "behind_schedule"
+      (item) => item.systemPresentation?.column === "behind_schedule",
     ).length;
   const inProgress =
     planningSummary?.counts.in_progress ??
@@ -460,9 +461,9 @@ function MilestoneHeadline({
       items
         .map(
           (item) =>
-            item.systemPresentation?.executionOwnership?.assigneeDisplayName
+            item.systemPresentation?.executionOwnership?.assigneeDisplayName,
         )
-        .filter((value): value is string => Boolean(value))
+        .filter((value): value is string => Boolean(value)),
     ),
   ];
 
@@ -616,11 +617,11 @@ function MilestoneOversightStrip({
   const requiredVisits =
     planningSummary?.attention.requiredSiteVisits ??
     items.filter(
-      (item) => item.systemPresentation?.siteVisitRequirement?.required
+      (item) => item.systemPresentation?.siteVisitRequirement?.required,
     ).length;
   const evidencePhotos = items.reduce(
     (sum, item) => sum + (item.systemPresentation?.evidenceCount ?? 0),
-    0
+    0,
   );
   const attention = planningSummary
     ? (
@@ -797,6 +798,29 @@ function SubMilestoneExpandedDetails({
 }) {
   const presentation = item.systemPresentation;
   const startCommand = presentation?.startCommand;
+  const viewerRoleList = viewerRoles?.length
+    ? viewerRoles
+    : viewerRole
+      ? [viewerRole]
+      : [];
+  const canReadCanonicalFieldGuidance = viewerRoleList.some((role) =>
+    isBackofficeReviewRole(role)
+  );
+  const hasCanonicalSubmilestoneIdentity = Boolean(
+    startCommand?.buildSubmilestoneId &&
+      startCommand?.proposalSubmilestoneId
+  );
+  const fieldGuidance = useQuery(
+    api.submilestone_field_guidance.getSubmilestoneFieldGuidance,
+    startCommand &&
+      hasCanonicalSubmilestoneIdentity &&
+      canReadCanonicalFieldGuidance
+      ? {
+          proposalSubmilestoneId: startCommand.proposalSubmilestoneId,
+          workosOrganizationId: organizationId,
+        }
+      : "skip"
+  );
   const assigneeRequired =
     presentation?.executionOwnership?.state === "assignment_required";
   const assigneeName =
@@ -808,6 +832,9 @@ function SubMilestoneExpandedDetails({
 
   const [startRequest, setStartRequest] =
     useState<MilestoneStartDialogRequest | null>(null);
+  const [startRevisionError, setStartRevisionError] = useState<string | null>(
+    null,
+  );
   const [siteVisitOpen, setSiteVisitOpen] = useState(false);
   const [busy, setBusy] = useState<
     "start" | "complete" | "approve" | "evidence" | "site_visit" | null
@@ -815,25 +842,25 @@ function SubMilestoneExpandedDetails({
   const commandKeys = useRef(new Map<string, string>());
 
   const startCanonicalMilestone = useBuildCollaborationMutation(
-    api.production_proposals.startActiveBuildMilestone
+    api.production_proposals.startActiveBuildMilestone,
   );
   const generateEvidenceUploadUrl = useBuildCollaborationMutation(
-    api.production_proposals.generateActiveBuildEvidenceUploadUrl
+    api.production_proposals.generateActiveBuildEvidenceUploadUrl,
   );
   const addEvidence = useBuildCollaborationMutation(
-    api.production_proposals.addActiveBuildSubmilestoneEvidence
+    api.production_proposals.addActiveBuildSubmilestoneEvidence,
   );
   const freezeEvidencePackage = useBuildCollaborationMutation(
-    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage
+    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
   );
   const submitCompletion = useBuildCollaborationMutation(
-    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview
+    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview,
   );
   const approveSubmilestone = useBuildCollaborationMutation(
-    api.build_submilestone_review.approveActiveBuildSubmilestone
+    api.build_submilestone_review.approveActiveBuildSubmilestone,
   );
   const assignSiteVisit = useBuildCollaborationMutation(
-    api.production_proposals.assignActiveBuildSiteVisit
+    api.production_proposals.assignActiveBuildSiteVisit,
   );
 
   const commandKey = (scope: string) => {
@@ -853,46 +880,66 @@ function SubMilestoneExpandedDetails({
   // Route picks which command surface is exposed. Roles decide enablement.
   // Dual-role admin+builder on /builder favors Builder Start/Complete.
   const actionSurface = collaborationActionSurface({
-    roles: viewerRoles?.length
-      ? viewerRoles
-      : viewerRole
-        ? [viewerRole]
-        : [],
+    roles: viewerRoles?.length ? viewerRoles : viewerRole ? [viewerRole] : [],
   });
   const showBuilderActions = actionSurface === "builder";
   const showBackofficeActions = actionSurface === "backoffice";
-  const startEnabled = Boolean(startCommand?.allowed) && !readOnly;
+  const canonicalWorkflowRevision = presentation?.workflowRevision;
+  const canonicalWorkflowRevisionAvailable =
+    typeof canonicalWorkflowRevision === "number" &&
+    Number.isFinite(canonicalWorkflowRevision);
+  const canonicalRevisionUnavailableReason =
+    "Refresh this collaboration card; the canonical workflow revision is unavailable.";
+  const startEnabled =
+    Boolean(startCommand?.allowed) &&
+    !readOnly &&
+    canonicalWorkflowRevisionAvailable;
   const completeEnabled =
     Boolean(presentation?.canSubmitForReview) &&
     Boolean(presentation?.evidencePackageRevisionId) &&
     presentation?.evidencePackageRevision !== undefined &&
     Boolean(startCommand) &&
-    !readOnly;
+    !readOnly &&
+    canonicalWorkflowRevisionAvailable;
   const approveEnabled =
     Boolean(presentation?.canApproveSubmilestone) &&
     Boolean(startCommand) &&
-    !readOnly;
+    !readOnly &&
+    canonicalWorkflowRevisionAvailable;
   const canOrderSiteVisit =
     !readOnly &&
     Boolean(startCommand) &&
     Boolean(
       presentation?.canWaiveSiteVisit ||
         presentation?.canReview ||
-        presentation?.canRecommendReview
+        presentation?.canRecommendReview,
     ) &&
     Boolean(siteVisit?.required) &&
-    siteVisit?.status === "required";
+    siteVisit?.status === "required" &&
+    hasCanonicalSubmilestoneIdentity &&
+    fieldGuidance !== undefined;
   const canUploadEvidence =
-    Boolean(presentation?.canAddEvidence) && Boolean(startCommand) && !readOnly;
+    Boolean(presentation?.canAddEvidence) &&
+    Boolean(startCommand) &&
+    !readOnly &&
+    canonicalWorkflowRevisionAvailable;
 
   const openStart = () => {
     if (!(startCommand?.allowed && !readOnly)) {
       return;
     }
+    if (!canonicalWorkflowRevisionAvailable) {
+      setStartRevisionError(
+        "Refresh this collaboration card before starting; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
+    setStartRevisionError(null);
     setStartRequest({
       action: "start",
       buildName: startCommand.buildName,
       dependencyBlockers: startCommand.dependencyBlockers,
+      expectedRevision: canonicalWorkflowRevision,
       milestoneKey: startCommand.milestoneKey,
       milestoneName: startCommand.milestoneName,
       plannedStartDate: startCommand.plannedStartDate,
@@ -905,8 +952,14 @@ function SubMilestoneExpandedDetails({
   };
 
   const confirmStart = async (input: MilestoneStartConfirmation) => {
-    if (input.action !== "start" || input.actualStartedAt === undefined) {
-      throw new Error("An actual start is required.");
+    if (
+      input.action !== "start" ||
+      input.actualStartedAt === undefined ||
+      input.expectedRevision === undefined
+    ) {
+      throw new Error(
+        "Refresh this collaboration card before starting; the canonical workflow revision is unavailable.",
+      );
     }
     setBusy("start");
     try {
@@ -914,6 +967,7 @@ function SubMilestoneExpandedDetails({
         actualStartedAt: input.actualStartedAt,
         buildId,
         dependencyOverrideReason: input.dependencyOverrideReason,
+        expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey,
         milestoneKey: input.milestoneKey,
         source: input.source,
@@ -929,6 +983,12 @@ function SubMilestoneExpandedDetails({
   };
 
   const submitComplete = async () => {
+    if (!canonicalWorkflowRevisionAvailable) {
+      setStartRevisionError(
+        "Refresh this collaboration card before submitting completion; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
     if (
       !(
         startCommand &&
@@ -940,36 +1000,52 @@ function SubMilestoneExpandedDetails({
       openRecord();
       return;
     }
+    setStartRevisionError(null);
     setBusy("complete");
     try {
+      let completionExpectedRevision = canonicalWorkflowRevision;
       if (presentation.evidenceReviewState === "not_ready") {
-        await freezeEvidencePackage({
+        const frozen = await freezeEvidencePackage({
           buildId,
-          expectedRevision: presentation.workflowRevision ?? 0,
+          expectedRevision: canonicalWorkflowRevision,
+          idempotencyKey: commandKey("evidence-freeze"),
           milestoneKey: startCommand.milestoneKey,
           packageRevisionId: presentation.evidencePackageRevisionId,
           submilestoneKey: startCommand.submilestoneKey,
           workosOrganizationId: organizationId,
         });
+        const frozenRevision =
+          frozen &&
+          typeof frozen === "object" &&
+          typeof (frozen as { revision?: unknown }).revision === "number"
+            ? (frozen as { revision: number }).revision
+            : undefined;
+        if (frozenRevision === undefined) {
+          throw new Error(
+            "Evidence Package freeze did not return the canonical workflow revision.",
+          );
+        }
+        completionExpectedRevision = frozenRevision;
       }
       await submitCompletion({
         buildId,
         declareComplete: true,
         expectedPackageRevision: presentation.evidencePackageRevision,
-        expectedRevision: presentation.workflowRevision ?? 0,
+        expectedRevision: completionExpectedRevision,
         idempotencyKey: commandKey("completion-review"),
         milestoneKey: startCommand.milestoneKey,
         packageRevisionId: presentation.evidencePackageRevisionId,
         submilestoneKey: startCommand.submilestoneKey,
         workosOrganizationId: organizationId,
       });
+      clearCommandKey("evidence-freeze");
       clearCommandKey("completion-review");
       toast.success("Completion entered lender review.");
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to submit Sub-milestone completion."
+          : "Unable to submit Sub-milestone completion.",
       );
       openRecord();
     } finally {
@@ -981,12 +1057,19 @@ function SubMilestoneExpandedDetails({
     if (!(startCommand && approveEnabled) || readOnly) {
       return;
     }
+    if (!canonicalWorkflowRevisionAvailable) {
+      setStartRevisionError(
+        "Refresh this collaboration card before approving; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
+    setStartRevisionError(null);
     setBusy("approve");
     try {
       await approveSubmilestone({
         buildId,
         expectedRevision:
-          presentation?.reviewRevision ?? presentation?.workflowRevision ?? 0,
+          presentation?.reviewRevision ?? canonicalWorkflowRevision,
         idempotencyKey: commandKey("child-approval"),
         milestoneKey: startCommand.milestoneKey,
         submilestoneKey: startCommand.submilestoneKey,
@@ -998,7 +1081,7 @@ function SubMilestoneExpandedDetails({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to approve this Sub-milestone."
+          : "Unable to approve this Sub-milestone.",
       );
     } finally {
       setBusy(null);
@@ -1009,6 +1092,13 @@ function SubMilestoneExpandedDetails({
     if (!(startCommand && file) || readOnly) {
       return;
     }
+    if (!canonicalWorkflowRevisionAvailable) {
+      setStartRevisionError(
+        "Refresh this collaboration card before adding evidence; the canonical workflow revision is unavailable.",
+      );
+      return;
+    }
+    setStartRevisionError(null);
     setBusy("evidence");
     try {
       const uploadFile = await normalizeEvidenceFileForUpload(file);
@@ -1045,7 +1135,7 @@ function SubMilestoneExpandedDetails({
           sizeBytes: uploadFile.size,
           storageId: uploadResult.storageId,
         },
-        expectedRevision: presentation?.workflowRevision ?? 0,
+        expectedRevision: canonicalWorkflowRevision,
         idempotencyKey: commandKey("evidence"),
         milestoneKey: startCommand.milestoneKey,
         submilestoneKey: startCommand.submilestoneKey,
@@ -1055,7 +1145,7 @@ function SubMilestoneExpandedDetails({
       toast.success("Evidence added to the canonical package.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add evidence."
+        error instanceof Error ? error.message : "Unable to add evidence.",
       );
       throw error;
     } finally {
@@ -1066,21 +1156,25 @@ function SubMilestoneExpandedDetails({
   const confirmSiteVisit = async (input: SiteVisitOrderConfirmation) => {
     setBusy("site_visit");
     try {
+      const idempotencyKey = commandKey("site-visit");
       await assignSiteVisit({
         buildId,
+        idempotencyKey,
         milestoneKey: input.milestoneKey,
         ...(input.note ? { note: input.note } : {}),
         requestedDay: input.requestedDay ?? 0,
         ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
         siteVisitGuidance: input.siteVisitGuidance,
+        submilestoneGuidanceSections: input.submilestoneGuidanceSections,
         submilestoneKeys: input.submilestoneKeys,
         workosOrganizationId: organizationId,
       });
+      clearCommandKey("site-visit");
       toast.success("Site visit ordered.");
       setSiteVisitOpen(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to order site visit."
+        error instanceof Error ? error.message : "Unable to order site visit.",
       );
       throw error;
     } finally {
@@ -1092,14 +1186,26 @@ function SubMilestoneExpandedDetails({
     <CardPanel className="space-y-0 border-t px-3 py-3 sm:px-4">
       <SubMilestonePrimaryActions
         approveEnabled={approveEnabled}
-        approveReason={approveDenialReason(presentation)}
+        approveReason={
+          !canonicalWorkflowRevisionAvailable &&
+          Boolean(presentation?.canApproveSubmilestone) &&
+          !readOnly
+            ? canonicalRevisionUnavailableReason
+            : approveDenialReason(presentation)
+        }
         busy={busy}
         completeEnabled={completeEnabled}
-        completeReason={completeDenialReason({
-          completeEnabled,
-          presentation,
-          readOnly,
-        })}
+        completeReason={
+          !canonicalWorkflowRevisionAvailable &&
+          Boolean(presentation?.canSubmitForReview) &&
+          !readOnly
+            ? canonicalRevisionUnavailableReason
+            : completeDenialReason({
+                completeEnabled,
+                presentation,
+                readOnly,
+              })
+        }
         denialReason={startCommand?.denialReason}
         onApprove={approveChild}
         onComplete={submitComplete}
@@ -1107,12 +1213,27 @@ function SubMilestoneExpandedDetails({
         showBackofficeActions={showBackofficeActions}
         showBuilderActions={showBuilderActions}
         startEnabled={startEnabled}
-        startReason={startDenialReason({
-          denialReason: startCommand?.denialReason,
-          readOnly,
-          startEnabled,
-        })}
+        startReason={
+          !canonicalWorkflowRevisionAvailable &&
+          Boolean(startCommand?.allowed) &&
+          !readOnly
+            ? canonicalRevisionUnavailableReason
+            : startDenialReason({
+                denialReason: startCommand?.denialReason,
+                readOnly,
+                startEnabled,
+              })
+        }
       />
+      {startRevisionError ? (
+        <p
+          aria-live="assertive"
+          className="mt-2 text-destructive-text text-xs"
+          role="alert"
+        >
+          {startRevisionError}
+        </p>
+      ) : null}
       <Separator className="my-3" />
       <div className="grid gap-3 sm:grid-cols-2">
         <DetailBlock
@@ -1237,6 +1358,13 @@ function SubMilestoneExpandedDetails({
         onUpload={uploadEvidence}
         packageRevision={presentation?.evidencePackageRevision}
         submilestoneKey={startCommand?.submilestoneKey}
+        uploadUnavailableReason={
+          !canonicalWorkflowRevisionAvailable &&
+          Boolean(presentation?.canAddEvidence) &&
+          !readOnly
+            ? canonicalRevisionUnavailableReason
+            : undefined
+        }
       />
       <Separator className="my-3" />
       <SubMilestoneSiteVisitsSection
@@ -1278,8 +1406,13 @@ function SubMilestoneExpandedDetails({
           }
           submilestones={[
             {
+              _id: String(startCommand.buildSubmilestoneId),
+              fieldGuidance: fieldGuidance?.guidance ?? null,
               key: startCommand.submilestoneKey,
               name: startCommand.submilestoneName,
+              proposalSubmilestoneId: String(
+                startCommand.proposalSubmilestoneId
+              ),
             },
           ]}
         />
@@ -1289,7 +1422,7 @@ function SubMilestoneExpandedDetails({
 }
 
 function collaborationRouteSurface(
-  pathname = typeof window === "undefined" ? "" : window.location.pathname
+  pathname = typeof window === "undefined" ? "" : window.location.pathname,
 ): "builder" | "backoffice" | "other" {
   if (pathname.includes("/backoffice")) {
     return "backoffice";
@@ -1306,9 +1439,7 @@ function collaborationRouteSurface(
 
 function isBuilderExecutionRole(role: string | undefined) {
   return (
-    role === "builder" ||
-    role === "builder-staff" ||
-    role === "contractor"
+    role === "builder" || role === "builder-staff" || role === "contractor"
   );
 }
 
@@ -1442,7 +1573,7 @@ function completeDenialReason({
 }
 
 function approveDenialReason(
-  presentation: CollaborationSystemPresentation | undefined
+  presentation: CollaborationSystemPresentation | undefined,
 ) {
   if (presentation?.canApproveSubmilestone) {
     return "Lender Admin final child approval. Required Site Visits and evidence gates must already be satisfied.";
@@ -1509,7 +1640,9 @@ function SubMilestonePrimaryActions({
       className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
       data-testid="submilestone-primary-actions"
     >
-      <p className="min-w-0 text-muted-foreground text-xs leading-5">{status}</p>
+      <p className="min-w-0 text-muted-foreground text-xs leading-5">
+        {status}
+      </p>
       <div className="flex shrink-0 flex-wrap gap-2">
         {showBuilderActions ? (
           <>
@@ -1575,7 +1708,7 @@ function AllocationEmptyState({
     <div
       className={cn(
         "flex h-full flex-col rounded-xl border border-dashed bg-muted/15 p-3",
-        highlight && "border-warning/50 bg-warning/5"
+        highlight && "border-warning/50 bg-warning/5",
       )}
     >
       <div className="flex items-center gap-2">
@@ -1683,6 +1816,7 @@ function SubMilestoneBuilderEvidenceSection({
   onUpload,
   packageRevision,
   submilestoneKey,
+  uploadUnavailableReason,
 }: {
   canUpload: boolean;
   evidenceCount: number;
@@ -1691,6 +1825,7 @@ function SubMilestoneBuilderEvidenceSection({
   onUpload: (input: EvidenceUploaderUploadInput) => Promise<void>;
   packageRevision?: number;
   submilestoneKey?: string;
+  uploadUnavailableReason?: string;
 }) {
   return (
     <section className="space-y-2">
@@ -1757,6 +1892,11 @@ function SubMilestoneBuilderEvidenceSection({
           Open evidence package
         </Button>
       )}
+      {uploadUnavailableReason ? (
+        <p className="text-muted-foreground text-xs" role="status">
+          {uploadUnavailableReason}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -1793,7 +1933,7 @@ function SubMilestoneBoardCard({
     <Card
       className={cn(
         "w-full shadow-none transition hover:border-foreground/30",
-        selected && "ring-2 ring-primary/35"
+        selected && "ring-2 ring-primary/35",
       )}
       onClick={onOpen}
       render={<button type="button" />}
@@ -1979,7 +2119,7 @@ function DrawLifecycleStepper({ active }: { active: DrawLifecycleStep }) {
               className={cn(
                 "grid size-6 shrink-0 place-items-center rounded-full border",
                 index <= activeIndex &&
-                  "border-primary bg-primary text-primary-foreground"
+                  "border-primary bg-primary text-primary-foreground",
               )}
             >
               {index < activeIndex ? (
@@ -1993,7 +2133,7 @@ function DrawLifecycleStepper({ active }: { active: DrawLifecycleStep }) {
                 "text-xs",
                 index === activeIndex
                   ? "font-semibold"
-                  : "text-muted-foreground"
+                  : "text-muted-foreground",
               )}
             >
               {drawLifecycleLabel(state)}
@@ -2028,10 +2168,10 @@ function DrawCoordinationPanel({
   postId: Id<"buildCollaborationPosts">;
 }) {
   const join = useBuildCollaborationMutation(
-    api.build_draw_coordination.joinDrawCoordination
+    api.build_draw_coordination.joinDrawCoordination,
   );
   const leave = useBuildCollaborationMutation(
-    api.build_draw_coordination.leaveDrawCoordination
+    api.build_draw_coordination.leaveDrawCoordination,
   );
   const [pending, setPending] = useState(false);
   const canCoordinate = coordinationVisible && coordination?.eligible === true;
@@ -2047,13 +2187,13 @@ function DrawCoordinationPanel({
       toast.success(
         action === "join"
           ? "Joined Draw coordination."
-          : "Left Draw coordination."
+          : "Left Draw coordination.",
       );
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to update Draw coordination."
+          : "Unable to update Draw coordination.",
       );
     } finally {
       setPending(false);
@@ -2219,7 +2359,7 @@ function SystemPostIdentityFacts({
   tagOptions: ReferenceOption[];
 }) {
   const milestoneReference = entry.references.find(
-    (reference) => reference.entityKind === "milestone"
+    (reference) => reference.entityKind === "milestone",
   );
   const drawFacts =
     systemPost.kind === "draw" ? systemPost.drawFacts : undefined;
@@ -2227,7 +2367,7 @@ function SystemPostIdentityFacts({
     ? (tagOptions.find(
         (option) =>
           option.kind === "participant" &&
-          option.id === systemPost.triggeredByWorkosUserId
+          option.id === systemPost.triggeredByWorkosUserId,
       )?.label ?? "Former Build participant")
     : systemPost.triggeredByRole
       ? roleLabel(systemPost.triggeredByRole)
@@ -2289,7 +2429,7 @@ function SystemPostPlanningComparison({
           diff.entityKey.startsWith(`${milestoneKey}:`)
         );
       }) ?? [],
-    [planningReconciliation?.diffs, systemPost.milestoneKey]
+    [planningReconciliation?.diffs, systemPost.milestoneKey],
   );
   const hasComparison =
     planningReconciliation !== undefined ||
@@ -2320,7 +2460,7 @@ function SystemPostPlanningComparison({
     current.count += 1;
     current.changeTypes.set(
       diff.changeType,
-      (current.changeTypes.get(diff.changeType) ?? 0) + 1
+      (current.changeTypes.get(diff.changeType) ?? 0) + 1,
     );
     current.entityTypes.add(diff.entityType);
     categoryCounts.set(diff.category, current);
@@ -2458,7 +2598,7 @@ function SystemPostPlanningComparison({
                           ([changeType, count]) =>
                             String(count) +
                             " " +
-                            planningChangeTypeLabel(changeType)
+                            planningChangeTypeLabel(changeType),
                         )
                         .join(", ")}
                       {" · "}
@@ -2535,7 +2675,7 @@ function StatePulseIcon({ state }: { state: WorkColumn }) {
 }
 
 function columnTone(
-  column: CollaborationSystemPresentation["column"]
+  column: CollaborationSystemPresentation["column"],
 ): BadgeProps["variant"] {
   if (column === "behind_schedule") {
     return "error";
@@ -2595,7 +2735,7 @@ function drawFactMoney(amountCents: number) {
 }
 
 function historicalFactLabel(
-  fact: HistoricalBackfillFacts["unknownFacts"][number]
+  fact: HistoricalBackfillFacts["unknownFacts"][number],
 ) {
   switch (fact) {
     case "start":

@@ -8,6 +8,8 @@ import {
   type TimelineScheduleDisplayMode,
   type WorksheetContractorActions,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
+import type { ScopeRevisionSurfaceRoute } from "../submilestone-scope/SubmilestoneScopeRevisionSurface.tsx";
 
 import {
   contractorOptionsFromPlanning,
@@ -24,8 +26,11 @@ export function ProductionProposalMilestoneWorksheet({
   footerExtra,
   materialPlanningActions,
   onPersistRows,
+  scopeRoute,
+  scopeWorkosOrganizationId,
   showHeading = false,
   templateTitle,
+  viewerCapacity,
 }: {
   contractorActions?: WorksheetContractorActions;
   contractorPlanning?: ContractorPlanningModel | null;
@@ -35,8 +40,11 @@ export function ProductionProposalMilestoneWorksheet({
   onPersistRows?: (
     rows: TimelineMilestoneWorksheetRow[]
   ) => void | Promise<void>;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  scopeWorkosOrganizationId?: string;
   showHeading?: boolean;
   templateTitle: string;
+  viewerCapacity?: BuildCollaborationRole;
 }) {
   const contractorOptions = useMemo(
     () => contractorOptionsFromPlanning(contractorPlanning),
@@ -81,12 +89,24 @@ export function ProductionProposalMilestoneWorksheet({
   const handleRowsChange = (
     nextRows: TimelineMilestoneWorksheetRow[],
     meta: TimelineMilestoneWorksheetRowsChangeMeta = { commit: true }
-  ) => {
+  ): void | Promise<void> => {
     setRows(nextRows);
     pendingRowsRef.current = nextRows;
 
     if (!onPersistRows || meta.commit === false) {
       return;
+    }
+
+    if (meta.save) {
+      if (persistTimeoutRef.current) {
+        clearTimeout(persistTimeoutRef.current);
+        persistTimeoutRef.current = null;
+      }
+      return Promise.resolve(onPersistRows(nextRows)).then(() => {
+        if (pendingRowsRef.current === nextRows) {
+          pendingRowsRef.current = null;
+        }
+      });
     }
 
     if (persistTimeoutRef.current) {
@@ -99,7 +119,11 @@ export function ProductionProposalMilestoneWorksheet({
       if (!pendingRows) {
         return;
       }
-      onPersistRows(pendingRows);
+      try {
+        Promise.resolve(onPersistRows(pendingRows)).catch(() => undefined);
+      } catch {
+        // The callback normally returns a Promise; swallow sync failures too.
+      }
     }, PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS);
   };
 
@@ -114,11 +138,15 @@ export function ProductionProposalMilestoneWorksheet({
       onCascadeBudgetEditsChange={setCascadeBudgetEdits}
       onRowsChange={handleRowsChange}
       onScheduleDisplayModeChange={setScheduleDisplayMode}
+      proposalSubmittedAt={detail.proposal.submittedAt}
       proposedStartDate={proposedStartDate}
       rows={rows}
       scheduleDisplayMode={scheduleDisplayMode}
+      scopeRoute={scopeRoute}
+      scopeWorkosOrganizationId={scopeWorkosOrganizationId}
       showHeading={showHeading}
       templateTitle={templateTitle}
+      viewerCapacity={viewerCapacity}
     />
   );
 }

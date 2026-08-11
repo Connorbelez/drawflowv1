@@ -1,6 +1,13 @@
 "use client";
 
-import { Check, Eye, HardHat, PackageCheck, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  Eye,
+  HardHat,
+  PackageCheck,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 
 import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
@@ -53,7 +60,11 @@ export interface QuoteRoundLabourSubmilestone {
   milestoneName: string;
   name: string;
   order: number;
-  scopeOfWorkTiptapJson: string;
+  scopeOfWorkTiptapJson?: string;
+  scopeUpdateAvailable?: boolean;
+  sourceScopeChangeReason?: string;
+  sourceScopeRevisionId?: string;
+  sourceScopeVersion?: number;
   startDay?: number;
   submilestoneKey?: string;
 }
@@ -129,11 +140,19 @@ export interface QuoteRoundRecipientSelection {
 }
 
 export interface QuoteRoundDraft {
+  labourLines?: Array<{
+    buildSubmilestoneId: string;
+    scopeOfWorkTiptapJson: string;
+    sourceScopeChangeReason?: string;
+    sourceScopeRevisionId: string;
+    sourceScopeVersion: number;
+  }>;
   labourSubmilestoneIds: string[];
   materialRows: QuoteRoundMaterialRow[];
   recipients: QuoteRoundRecipientSelection[];
   responseDeadline?: string;
   revision: number;
+  scopeUpdateAvailable?: boolean;
   templateVersionId?: string;
   title: string;
 }
@@ -142,10 +161,20 @@ export interface QuoteRoundDetail {
   draft?: QuoteRoundDraft | null;
   mode: QuoteRoundMode;
   packageRevision?: {
+    _id?: string;
     number?: number;
     publishedAt?: number;
+    responseDeadline?: number;
   } | null;
+  packageRevisionHistory?: Array<{
+    _id: string;
+    publishedAt: number;
+    responseDeadline: number;
+    revision: number;
+  }>;
   quoteRoundId: string;
+  revision?: number;
+  scopeUpdateAvailable?: boolean;
   state: "draft" | "open" | "closed" | "cancelled";
   title: string;
 }
@@ -201,6 +230,9 @@ export interface QuoteRoundComposerActions {
     idempotencyKey: string;
   }) => Promise<QuoteRoundPublishReceipt>;
   onRefresh?: () => void;
+  onRefreshScope?: (input: { expectedRevision: number }) => Promise<{
+    revision: number;
+  }>;
   onSave: (
     input: QuoteRoundDraftInput & { expectedRevision: number }
   ) => Promise<{ revision: number }>;
@@ -387,8 +419,15 @@ function LabourScopeSelector({
                           {selected ? <Check className="size-3.5" /> : null}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium text-sm">
-                            {item.name}
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate font-medium text-sm">
+                              {item.name}
+                            </span>
+                            {item.sourceScopeVersion === undefined ? null : (
+                              <Badge className="shrink-0" variant="outline">
+                                Scope v{item.sourceScopeVersion}
+                              </Badge>
+                            )}
                           </span>
                           <span className="block text-muted-foreground text-xs">
                             {formatDayWindow(item)} ·{" "}
@@ -408,6 +447,11 @@ function LabourScopeSelector({
                           <p className="mt-1 text-muted-foreground text-xs">
                             {formatDayWindow(item)}
                           </p>
+                          {item.sourceScopeChangeReason ? (
+                            <p className="mt-1 text-muted-foreground text-xs">
+                              {item.sourceScopeChangeReason}
+                            </p>
+                          ) : null}
                           {parseQuoteRoundTiptapJson(
                             item.scopeOfWorkTiptapJson
                           ) ? (
@@ -439,6 +483,37 @@ function LabourScopeSelector({
   );
 }
 
+function composerDataWithPinnedDraftScope(
+  data: QuoteRoundComposerData,
+  round: QuoteRoundDetail
+): QuoteRoundComposerData {
+  const pinnedLines = round.draft?.labourLines;
+  if (!pinnedLines?.length) {
+    return data;
+  }
+  const pinnedBySubmilestoneId = new Map(
+    pinnedLines.map((line) => [line.buildSubmilestoneId, line])
+  );
+  return {
+    ...data,
+    labourSubmilestones: data.labourSubmilestones.map((item) => {
+      const pinned = pinnedBySubmilestoneId.get(item._id);
+      if (!pinned) {
+        return item;
+      }
+      return {
+        ...item,
+        scopeOfWorkTiptapJson: pinned.scopeOfWorkTiptapJson,
+        scopeUpdateAvailable:
+          item.sourceScopeRevisionId !== pinned.sourceScopeRevisionId,
+        sourceScopeChangeReason: pinned.sourceScopeChangeReason,
+        sourceScopeRevisionId: pinned.sourceScopeRevisionId,
+        sourceScopeVersion: pinned.sourceScopeVersion,
+      };
+    }),
+  };
+}
+
 export function QuoteRoundComposer({
   actions,
   data,
@@ -448,6 +523,12 @@ export function QuoteRoundComposer({
   data: QuoteRoundComposerData;
   round: QuoteRoundDetail;
 }) {
+  const displayData = useMemo(
+    () => composerDataWithPinnedDraftScope(data, round),
+    [data, round]
+  );
+  const [scopeRefreshPending, setScopeRefreshPending] = useState(false);
+  const [scopeRefreshError, setScopeRefreshError] = useState<string>();
   const {
     continueStage,
     error,
@@ -476,12 +557,32 @@ export function QuoteRoundComposer({
     templateVersionId,
     title,
     toggleLabour,
-  } = useQuoteRoundComposerState({ actions, data, round });
+  } = useQuoteRoundComposerState({ actions, data: displayData, round });
+
+  const refreshPinnedScope = async () => {
+    if (!(actions.onRefreshScope && round.draft?.scopeUpdateAvailable)) {
+      return;
+    }
+    setScopeRefreshPending(true);
+    setScopeRefreshError(undefined);
+    try {
+      await actions.onRefreshScope({ expectedRevision: revision });
+      actions.onRefresh?.();
+    } catch (cause) {
+      setScopeRefreshError(
+        cause instanceof Error
+          ? cause.message
+          : "The selected Scope could not be refreshed."
+      );
+    } finally {
+      setScopeRefreshPending(false);
+    }
+  };
 
   const stageBody: Record<QuoteRoundStep, ReactNode> = {
     dispatch: (
       <QuoteRoundDispatchStage
-        data={data}
+        data={displayData}
         deadline={responseDeadline}
         mode={mode}
         onDeadlineChange={setResponseDeadline}
@@ -492,7 +593,7 @@ export function QuoteRoundComposer({
     package: (
       <>
         <QuoteRoundDisclosureProof
-          data={data}
+          data={displayData}
           materialRows={materialRows}
           selectedLabour={selectedLabour}
         />
@@ -508,7 +609,7 @@ export function QuoteRoundComposer({
     ),
     recipients: (
       <QuoteRoundRecipientEditor
-        candidates={data.compatibleRecipients}
+        candidates={displayData.compatibleRecipients}
         mode={mode}
         onChange={setRecipients}
         onCreateColdRecipient={actions.onCreateColdRecipient}
@@ -521,12 +622,39 @@ export function QuoteRoundComposer({
         materialCount={materialRows.length}
         mode={mode}
         onChange={setTemplateVersionId}
-        templates={data.responseTemplates}
+        templates={displayData.responseTemplates}
         templateVersionId={templateVersionId}
       />
     ),
     scope: (
       <div className="space-y-4">
+        {round.draft?.scopeUpdateAvailable ? (
+          <Alert variant="warning">
+            <RefreshCw />
+            <AlertTitle>Update available</AlertTitle>
+            <AlertDescription>
+              A selected Sub-milestone has a newer effective Scope. This draft
+              remains pinned until you refresh it.
+              {scopeRefreshError ? (
+                <span className="mt-2 block text-destructive">
+                  {scopeRefreshError}
+                </span>
+              ) : null}
+              {actions.onRefreshScope ? (
+                <Button
+                  className="mt-3"
+                  loading={scopeRefreshPending}
+                  onClick={refreshPinnedScope}
+                  size="sm"
+                  variant="outline"
+                >
+                  <RefreshCw />
+                  Refresh selected Scope
+                </Button>
+              ) : null}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <label className="grid gap-1.5 text-sm" htmlFor="quote-round-title">
           <span className="font-medium">Quote Round title</span>
           <Input
@@ -539,8 +667,8 @@ export function QuoteRoundComposer({
           />
         </label>
         <TabbedScopeContent
-          labourItems={data.labourSubmilestones}
-          materialItems={data.materialCostItems}
+          labourItems={displayData.labourSubmilestones}
+          materialItems={displayData.materialCostItems}
           materialRows={materialRows}
           mode={mode}
           onMaterialRowsChange={setMaterialRows}
@@ -558,7 +686,7 @@ export function QuoteRoundComposer({
       data-testid="quote-round-composer"
     >
       <QuoteRoundComposerHeader
-        buildName={data.build.buildName}
+        buildName={displayData.build.buildName}
         mode={mode}
         onExit={actions.onExit}
         revision={revision}
@@ -593,7 +721,7 @@ export function QuoteRoundComposer({
           stale={stale}
         />
         <QuoteRoundRecipientExperience
-          data={data}
+          data={displayData}
           materialRows={materialRows}
           recipients={recipients}
           selectedLabour={selectedLabour}

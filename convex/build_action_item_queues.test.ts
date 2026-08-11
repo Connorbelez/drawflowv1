@@ -581,6 +581,51 @@ describe("Build Action Item queues, deadlines, and escalation", () => {
     });
   });
 
+  test("excludes historical generated companions when legacy planning state is absent", async () => {
+    const fixture = await seedQueueBuilds();
+    const itemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_assignee",
+        buildId: fixture.buildIds[0],
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postIds[0],
+        title: "Historical generated companion",
+      }
+    );
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(itemId, {
+        canonicalCompanionDisposition: "historical_duplicate",
+        canonicalPlanningState: undefined,
+        systemMode: "generated_milestone_submilestone",
+      })
+    );
+
+    const [buildQueue, personalQueue] = await Promise.all([
+      fixture.assignee.query(
+        (api as any).build_action_item_queues.listBuildActionItemQueue,
+        {
+          buildId: fixture.buildIds[0],
+          includeCompleted: true,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 20 },
+          scope: "build",
+        }
+      ),
+      fixture.assignee.query(
+        (api as any).build_action_item_queues.listMyBuildActionItemQueue,
+        {
+          includeCompleted: true,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 20 },
+        }
+      ),
+    ]);
+
+    expect(buildQueue.page).toEqual([]);
+    expect(personalQueue.page).toEqual([]);
+  });
+
   test("keeps entity queue projections synchronized with due dates, status, and references", async () => {
     const fixture = await seedQueueBuilds();
     const now = Date.now();

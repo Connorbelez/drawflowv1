@@ -38,13 +38,19 @@ import {
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
+import {
+  type BuildSubmilestoneDetailTab,
+  normalizeBuildSubmilestoneDetailTab,
+} from "#/features/build-detail-targets/buildDetailTab.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../../../convex/build_collaboration_model";
 
 export interface BuilderBuildSearch {
   costBatch?: string;
   costDocument?: string;
   costDocumentDraft?: string;
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   milestone?: string;
   rail?: "open" | "closed";
@@ -66,7 +72,7 @@ export interface BuilderBuildSearch {
 }
 
 function isMilestoneStartPrototypeVariant(
-  variant: BuilderBuildSearch["variant"]
+  variant: BuilderBuildSearch["variant"],
 ): variant is MilestoneStartPrototypeVariant {
   return (
     variant === "start-dialog" ||
@@ -158,6 +164,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
     const focus = normalizeBuildCollaborationFocus(search.focus);
+    const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
     const variant =
       search.variant === "ledger" ||
       search.variant === "console" ||
@@ -181,6 +188,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         : undefined;
     return {
       ...costDocumentSearch,
+      ...(detailTab ? { detailTab } : {}),
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
@@ -195,7 +203,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
 async function sha256Hex(value: string) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(value)
+    new TextEncoder().encode(value),
   );
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -208,7 +216,7 @@ async function createBuilderDrawClientOperationId(input: {
   drawKey: string;
 }) {
   return `builder-draw:${await sha256Hex(
-    [String(input.buildId), input.drawKey, String(input.amountCents)].join("|")
+    [String(input.buildId), input.drawKey, String(input.amountCents)].join("|"),
   )}`;
 }
 
@@ -377,7 +385,7 @@ export function BuilderBuildWorkspaceRoute({
       : {
           buildId,
           workosOrganizationId,
-        }
+        },
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? getVisualParityActiveBuildDetail(buildId)
@@ -392,7 +400,7 @@ export function BuilderBuildWorkspaceRoute({
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip"
+        : "skip",
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
@@ -406,13 +414,13 @@ export function BuilderBuildWorkspaceRoute({
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip"
+        : "skip",
   );
   const availabilityQuery = useQuery(
     (api as any).production_proposals.getActiveBuildRouteAvailabilityByString,
     visualFixtureEnabled || productionBuildQuery !== null
       ? "skip"
-      : { buildId, workosOrganizationId }
+      : { buildId, workosOrganizationId },
   );
   const effectiveAvailability = visualFixtureEnabled
     ? {
@@ -421,61 +429,61 @@ export function BuilderBuildWorkspaceRoute({
       }
     : availabilityQuery;
   const requestDraw = useMutation(
-    api.production_proposals.requestActiveBuildDraw
+    api.production_proposals.requestActiveBuildDraw,
   );
   const withdrawDraw = useMutation(
-    api.production_proposals.withdrawActiveBuildDraw
+    api.production_proposals.withdrawActiveBuildDraw,
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange
+    (api as any).production_proposals.requestActiveBuildFacilityChange,
   );
   const requestBudgetRevision = useMutation(
-    (api as any).production_proposals.requestActiveBuildBudgetRevision
+    (api as any).production_proposals.requestActiveBuildBudgetRevision,
   );
   const assignContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignActiveBuildContractorToMilestone
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone,
   );
   const removeContractorFromMilestone = useMutation(
-    api.production_proposals.removeActiveBuildContractorFromMilestone
+    api.production_proposals.removeActiveBuildContractorFromMilestone,
   );
   const attachAndInviteContractor = useMutation(
-    (api as any).production_proposals.attachAndInviteActiveBuildContractor
+    (api as any).production_proposals.attachAndInviteActiveBuildContractor,
   );
   const attachContractor = useMutation(
-    api.production_proposals.attachActiveBuildContractor
+    api.production_proposals.attachActiveBuildContractor,
   );
   const createAndAttachContractor = useMutation(
-    api.production_proposals.createAndAttachActiveBuildContractor
+    api.production_proposals.createAndAttachActiveBuildContractor,
   );
   const sendContractorInvite = useMutation(
-    (api as any).contractorOnboarding.sendContractorProfileInvite
+    (api as any).contractorOnboarding.sendContractorProfileInvite,
   );
   const submitMilestoneCompletion = useMutation(
-    (api as any).production_proposals.submitActiveBuildMilestoneCompletion
+    (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
   );
   const startMilestoneWork = useMutation(
-    (api as any).production_proposals.startActiveBuildMilestone
+    (api as any).production_proposals.startActiveBuildMilestone,
   );
   const correctMilestoneStart = useMutation(
-    (api as any).production_proposals.correctActiveBuildMilestoneStart
+    (api as any).production_proposals.correctActiveBuildMilestoneStart,
   );
   const retractMilestoneStart = useMutation(
-    (api as any).production_proposals.retractActiveBuildMilestoneStart
+    (api as any).production_proposals.retractActiveBuildMilestoneStart,
   );
   const updateSubmilestoneExecution = useMutation(
-    (api as any).production_proposals.updateActiveBuildSubmilestoneExecution
+    (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
   );
   const generateEvidenceUploadUrl = useMutation(
-    (api as any).production_proposals.generateActiveBuildEvidenceUploadUrl
+    (api as any).production_proposals.generateActiveBuildEvidenceUploadUrl,
   );
   const createEvidenceAsset = useMutation(
-    (api as any).production_proposals.createActiveBuildTimelineEvidenceAsset
+    (api as any).production_proposals.createActiveBuildTimelineEvidenceAsset,
   );
 
   const onChangeTab = (tab: BuildDetailSubTab, focus?: string) =>
     navigate({
       params: { buildId },
-      replace: true,
+      replace: !focus || focus === search.focus,
       search: { ...search, focus, tab },
       to: `${routeBase}/builds/$buildId`,
     } as never);
@@ -501,7 +509,7 @@ export function BuilderBuildWorkspaceRoute({
       to: `${routeBase}/builds/$buildId` as never,
     });
   const onChangePrototypeVariant = (
-    variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant
+    variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant,
   ) =>
     navigate({
       params: { buildId },
@@ -540,7 +548,7 @@ export function BuilderBuildWorkspaceRoute({
     assignContractorToMilestone: canUseAppPermission(
       appPermissions,
       "contractor",
-      "update"
+      "update",
     )
       ? ({
           assignmentCost,
@@ -562,7 +570,7 @@ export function BuilderBuildWorkspaceRoute({
     removeContractorFromMilestone: canUseAppPermission(
       appPermissions,
       "contractor",
-      "update"
+      "update",
     )
       ? ({ contractorId, milestoneKey, reason, submilestoneKey }) =>
           removeContractorFromMilestone({
@@ -588,7 +596,7 @@ export function BuilderBuildWorkspaceRoute({
     attachContractor: canUseAppPermission(
       appPermissions,
       "contractor",
-      "update"
+      "update",
     )
       ? ({ contractorId, role }) =>
           attachContractor({
@@ -640,7 +648,7 @@ export function BuilderBuildWorkspaceRoute({
     inviteContractor: canUseAppPermission(
       appPermissions,
       "contractor",
-      "create"
+      "create",
     )
       ? (contractorId) =>
           sendContractorInvite({
@@ -683,7 +691,7 @@ export function BuilderBuildWorkspaceRoute({
     requestFacilityChange: canUseAppPermission(
       appPermissions,
       "capitalEvent",
-      "create"
+      "create",
     )
       ? (input) =>
           requestFacilityChange({
@@ -695,7 +703,7 @@ export function BuilderBuildWorkspaceRoute({
     requestBudgetRevision: canUseAppPermission(
       appPermissions,
       "capitalEvent",
-      "create"
+      "create",
     )
       ? (input) =>
           requestBudgetRevision({
@@ -707,7 +715,7 @@ export function BuilderBuildWorkspaceRoute({
     requestLoanFacilityDateChange: canUseAppPermission(
       appPermissions,
       "capitalEvent",
-      "create"
+      "create",
     )
       ? (input) =>
           requestFacilityChange({
@@ -721,7 +729,7 @@ export function BuilderBuildWorkspaceRoute({
     startMilestoneWork: canUseAppPermission(
       appPermissions,
       "milestone",
-      "update"
+      "update",
     )
       ? (input) =>
           startMilestoneWork({
@@ -733,7 +741,7 @@ export function BuilderBuildWorkspaceRoute({
     correctMilestoneStart: canUseAppPermission(
       appPermissions,
       "milestone",
-      "update"
+      "update",
     )
       ? (input) =>
           correctMilestoneStart({
@@ -745,7 +753,7 @@ export function BuilderBuildWorkspaceRoute({
     retractMilestoneStart: canUseAppPermission(
       appPermissions,
       "milestone",
-      "update"
+      "update",
     )
       ? (input) =>
           retractMilestoneStart({
@@ -767,7 +775,7 @@ export function BuilderBuildWorkspaceRoute({
     updateSubmilestoneExecution: canUseAppPermission(
       appPermissions,
       "submilestone",
-      "update"
+      "update",
     )
       ? (input) =>
           updateSubmilestoneExecution({
@@ -779,7 +787,7 @@ export function BuilderBuildWorkspaceRoute({
     uploadSubmilestoneEvidence: canUseAppPermission(
       appPermissions,
       "evidence",
-      "create"
+      "create",
     )
       ? async ({ file, locationVerified, milestoneKey, submilestoneKey }) => {
           const uploadFile = await normalizeEvidenceFileForUpload(file);
@@ -821,7 +829,7 @@ export function BuilderBuildWorkspaceRoute({
       : undefined,
   } as ProductionBuildDetailActions;
   const surfaceActions: ProductionBuildDetailActions = actions;
-  const requestedCostDocumentCapacity =
+  const requestedCostDocumentCapacity: BuildCollaborationRole =
     routeBase === "/builder-staff" ? "builder-staff" : "builder";
   const backofficeCostDocumentCapacity = viewerRoles.includes("admin")
     ? "admin"
@@ -835,7 +843,7 @@ export function BuilderBuildWorkspaceRoute({
       : backofficeCostDocumentCapacity;
   const costDocumentSubmilestones = buildCostDocumentSubmilestoneOptions(
     detail.milestones ?? [],
-    detail.submilestones ?? []
+    detail.submilestones ?? [],
   );
   const onCostDocumentIdChange = (costDocumentId?: string) =>
     navigate({
@@ -923,6 +931,7 @@ export function BuilderBuildWorkspaceRoute({
           )
         }
         detail={detail}
+        detailTab={search.detailTab}
         focusedReference={search.focus}
         fundingWorkspaceEnabled
         milestoneKey={
@@ -978,6 +987,7 @@ export function BuilderBuildWorkspaceRoute({
           ) : undefined
         }
         timelineWorkspace={effectiveTimelineWorkspace as any}
+        viewerCapacity={requestedCostDocumentCapacity}
         viewerRole="builder"
         visibleTabs={
           includeStaffTab

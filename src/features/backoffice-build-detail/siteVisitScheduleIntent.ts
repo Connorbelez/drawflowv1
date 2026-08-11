@@ -4,6 +4,7 @@ export interface SiteVisitScheduleIntent {
   requestedDay: number;
   requestedTime?: string;
   siteVisitGuidance?: unknown;
+  submilestoneGuidanceSections?: unknown;
   submilestoneKeys?: string[];
 }
 
@@ -39,6 +40,7 @@ export function siteVisitScheduleIntentFingerprint(
     requestedDay: input.requestedDay,
     requestedTime: input.requestedTime ?? null,
     siteVisitGuidance: input.siteVisitGuidance ?? null,
+    submilestoneGuidanceSections: input.submilestoneGuidanceSections ?? null,
     submilestoneKeys: [...(input.submilestoneKeys ?? [])].sort(),
   });
 }

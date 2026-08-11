@@ -32,6 +32,7 @@ const MAX_DRAFT_ATTACHMENTS = 25;
 const MAX_SUBMISSION_REVISIONS = 100;
 const MAX_SUBMISSION_EVENTS = MAX_SUBMISSION_REVISIONS * 3;
 const MAX_LIFECYCLE_REVISION_SUMMARIES = 20;
+const MAX_PACKAGE_REVISION_LINEAGE = 20;
 const MAX_QUOTE_AMOUNT_CENTS = 100_000_000_000;
 const MAX_RESPONSE_HTML_LENGTH = 40_000;
 const MAX_RESPONSE_VALUE_LENGTH = 32_000;
@@ -44,6 +45,11 @@ const DRAFT_LINE_KEY_PATTERN = /^[a-z]+:[A-Za-z0-9_-]{1,180}$/;
 const UNSAFE_EMBEDDED_HTML_PATTERN = /<(?:script|iframe|object|embed|style)\b/i;
 const UNSAFE_HTML_EVENT_HANDLER_PATTERN = /\son[a-z]+\s*=/i;
 const UNSAFE_HTML_PROTOCOL_PATTERN = /javascript\s*:/i;
+
+type PackageRevisionLineageCache = Map<
+  Id<"quotePackageRevisions">,
+  Promise<void>
+>;
 
 const quoteLineSourceValidator = v.union(
   v.literal("package_labour"),
@@ -105,6 +111,12 @@ const draftProjectionValidator = v.object({
   attachments: v.array(attachmentProjectionValidator),
   commentsHtml: v.optional(v.string()),
   completedPricingLineCount: v.number(),
+  copiedFromQuotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+  copiedValuesConfirmationState: v.optional(
+    v.union(v.literal("pending"), v.literal("confirmed"))
+  ),
+  copiedValuesConfirmedAt: v.optional(v.number()),
+  copiedValuesConfirmedByWorkosUserId: v.optional(v.string()),
   createdAt: v.number(),
   lineItems: v.array(draftLineProjectionValidator),
   responses: v.array(answerProjectionValidator),
@@ -117,6 +129,8 @@ const submissionProjectionValidator = v.object({
   canonicalTotalCents: v.number(),
   commentsHtml: v.optional(v.string()),
   lineItems: v.array(draftLineProjectionValidator),
+  quotePackageRevision: v.number(),
+  quotePackageRevisionId: v.id("quotePackageRevisions"),
   responses: v.array(answerProjectionValidator),
   revision: v.number(),
   sourceDraftVersion: v.number(),
@@ -133,6 +147,8 @@ const submissionProjectionValidator = v.object({
 // reactive query.
 const submissionSummaryValidator = v.object({
   canonicalTotalCents: v.number(),
+  quotePackageRevision: v.number(),
+  quotePackageRevisionId: v.id("quotePackageRevisions"),
   revision: v.number(),
   status: submissionLifecycleStatusValidator,
   submittedAt: v.number(),
@@ -465,6 +481,13 @@ async function lifecycleForAccess(ctx: QueryCtx, access: ReadAccess) {
     return emptyLifecycle(access.status);
   }
   const scope = access.scope;
+  const packageLineageCache: PackageRevisionLineageCache = new Map();
+  await assertPackageRevisionDescendsFromInvitationRoot(
+    ctx,
+    scope,
+    scope.packageRevision,
+    packageLineageCache
+  );
   const [draft, state, revisionHistory, acknowledgement] = await Promise.all([
     findDraft(ctx, scope),
     findSubmissionState(ctx, scope),
@@ -486,7 +509,12 @@ async function lifecycleForAccess(ctx: QueryCtx, access: ReadAccess) {
   const currentSubmission = currentRevision
     ? await submissionProjection(ctx, scope, currentRevision)
     : null;
-  const summaries = await submissionSummaries(ctx, scope, revisions);
+  const summaries = await submissionSummaries(
+    ctx,
+    scope,
+    revisions,
+    packageLineageCache
+  );
   const lifecycleStatus =
     access.status === "available" && !acknowledgement.acknowledged
       ? ("acknowledgement_required" as const)
@@ -518,7 +546,7 @@ async function lifecycleForAccess(ctx: QueryCtx, access: ReadAccess) {
       required: acknowledgement.required,
       status: acknowledgement.status,
     },
-    revisionCount: state?.latestRevision ?? 0,
+    revisionCount: revisionHistory.revisionCount,
     revisions: summaries,
     status: lifecycleStatus,
   } as const;
@@ -549,9 +577,13 @@ async function submissionRevisionForAccess(
   if (!submission) {
     return { submission: null, status: access.status } as const;
   }
-  assertSubmissionScope(submission, access.scope);
+  const submissionScope = await historicalSubmissionScope(
+    ctx,
+    access.scope,
+    submission
+  );
   return {
-    submission: await submissionProjection(ctx, access.scope, submission),
+    submission: await submissionProjection(ctx, submissionScope, submission),
     status: access.status,
   } as const;
 }
@@ -693,7 +725,21 @@ async function acceptValidatedDraftSubmission(
   if (state) {
     assertSubmissionStateScope(state, scope);
   }
-  if ((state?.latestRevision ?? 0) >= MAX_SUBMISSION_REVISIONS) {
+  const priorInvitationRevision = state
+    ? null
+    : await ctx.db
+        .query("quoteInvitationResponseSubmissionRevisions")
+        .withIndex("by_quoteRoundInvitationId_and_revision", (query) =>
+          query.eq("quoteRoundInvitationId", scope.invitation._id)
+        )
+        .order("desc")
+        .first();
+  if (priorInvitationRevision) {
+    assertSubmissionInvitationScope(priorInvitationRevision, scope);
+  }
+  const latestInvitationRevision =
+    state?.latestRevision ?? priorInvitationRevision?.revision ?? 0;
+  if (latestInvitationRevision >= MAX_SUBMISSION_REVISIONS) {
     return {
       draft: await draftProjectionFromRows(draft, rows),
       status: "invalid" as const,
@@ -732,7 +778,7 @@ async function acceptValidatedDraftSubmission(
         "Quote response resubmission superseded the previously Preferred Quote.",
     });
   }
-  const revision = (state?.latestRevision ?? 0) + 1;
+  const revision = latestInvitationRevision + 1;
   const submissionRevisionId = await ctx.db.insert(
     "quoteInvitationResponseSubmissionRevisions",
     {
@@ -1257,20 +1303,55 @@ async function listLifecycleSubmissionRevisions(
     .slice(0, MAX_LIFECYCLE_REVISION_SUMMARIES)
     .reverse();
   for (const revision of revisions) {
-    assertSubmissionScope(revision, scope);
+    assertSubmissionInvitationScope(revision, scope);
   }
-  return { hasMore, revisions };
+  return {
+    hasMore,
+    revisionCount: revisions.length,
+    revisions,
+  };
 }
 
 async function submissionSummaries(
   ctx: QueryCtx | MutationCtx,
   scope: InvitationScope,
-  revisions: Doc<"quoteInvitationResponseSubmissionRevisions">[]
+  revisions: Doc<"quoteInvitationResponseSubmissionRevisions">[],
+  packageLineageCache: PackageRevisionLineageCache
 ) {
   if (revisions.length === 0) {
     return [];
   }
   const byId = new Map(revisions.map((revision) => [revision._id, revision]));
+  const packageRevisions = await Promise.all(
+    [
+      ...new Set(revisions.map((revision) => revision.quotePackageRevisionId)),
+    ].map((id) => ctx.db.get(id))
+  );
+  const packageRevisionById = new Map(
+    packageRevisions.map((revision) => {
+      if (!revision) {
+        throw new ConvexError(
+          "Historical Quote Package Revision is unavailable."
+        );
+      }
+      return [revision._id, revision] as const;
+    })
+  );
+  await Promise.all(
+    packageRevisions.map((revision) => {
+      if (!revision) {
+        throw new ConvexError(
+          "Historical Quote Package Revision is unavailable."
+        );
+      }
+      return assertPackageRevisionDescendsFromInvitationRoot(
+        ctx,
+        scope,
+        revision,
+        packageLineageCache
+      );
+    })
+  );
   const events = await ctx.db
     .query("quoteInvitationResponseSubmissionLifecycleEvents")
     .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
@@ -1300,13 +1381,22 @@ async function submissionSummaries(
     grouped.push(event);
     eventsBySubmissionId.set(submission._id, grouped);
   }
-  return revisions.map((revision) =>
-    submissionSummary(
+  return revisions.map((revision) => {
+    const packageRevision = packageRevisionById.get(
+      revision.quotePackageRevisionId
+    );
+    if (!packageRevision) {
+      throw new ConvexError(
+        "Historical Quote Package Revision is unavailable."
+      );
+    }
+    return submissionSummary(
       revision,
+      packageRevision.revision,
       eventsBySubmissionId.get(revision._id) ?? [],
       byId
-    )
-  );
+    );
+  });
 }
 
 async function replaySubmissionRequest(
@@ -1408,6 +1498,11 @@ function draftProjectionFromRows(
     })),
     commentsHtml: draft.commentsHtml,
     completedPricingLineCount: draft.completedPricingLineCount,
+    copiedFromQuotePackageRevisionId: draft.copiedFromQuotePackageRevisionId,
+    copiedValuesConfirmationState: draft.copiedValuesConfirmationState,
+    copiedValuesConfirmedAt: draft.copiedValuesConfirmedAt,
+    copiedValuesConfirmedByWorkosUserId:
+      draft.copiedValuesConfirmedByWorkosUserId,
     createdAt: draft.createdAt,
     lineItems: rows.lineItems.map((line) => lineProjection(line)),
     responses: rows.answers.map((answer) => ({
@@ -1422,6 +1517,7 @@ function draftProjectionFromRows(
 
 function submissionSummary(
   submission: Doc<"quoteInvitationResponseSubmissionRevisions">,
+  quotePackageRevision: number,
   events: Doc<"quoteInvitationResponseSubmissionLifecycleEvents">[],
   revisionsById: Map<
     Id<"quoteInvitationResponseSubmissionRevisions">,
@@ -1439,6 +1535,8 @@ function submissionSummary(
   });
   return {
     canonicalTotalCents: submission.canonicalTotalCents,
+    quotePackageRevision,
+    quotePackageRevisionId: submission.quotePackageRevisionId,
     revision: submission.revision,
     ...lifecycle,
     submittedAt: submission.submittedAt,
@@ -1569,6 +1667,8 @@ async function submissionProjection(
     canonicalTotalCents: submission.canonicalTotalCents,
     commentsHtml: submission.commentsHtml,
     lineItems: lineItems.map((line) => lineProjection(line)),
+    quotePackageRevision: scope.packageRevision.revision,
+    quotePackageRevisionId: submission.quotePackageRevisionId,
     responses: answers.map((answer) => ({
       sourcePackageRevisionResponseFieldId:
         answer.sourcePackageRevisionResponseFieldId,
@@ -1856,6 +1956,11 @@ async function validateDraftForSubmission(
   const errors = [...lineErrors, ...answerErrors, ...attachmentErrors].filter(
     (error): error is string => error !== null
   );
+  if (draft.copiedValuesConfirmationState === "pending") {
+    errors.unshift(
+      "Confirm all copied response values and pricing before submitting."
+    );
+  }
   if (draft.commentsHtml !== undefined) {
     const error = validateCommentsHtml(draft.commentsHtml);
     if (error) {
@@ -2295,18 +2400,114 @@ function assertSubmissionScope(
   submission: Doc<"quoteInvitationResponseSubmissionRevisions">,
   scope: InvitationScope
 ) {
+  assertSubmissionInvitationScope(submission, scope);
+  if (submission.quotePackageRevisionId !== scope.packageRevision._id) {
+    throw new ConvexError(
+      "Quote response submission crosses its invitation scope."
+    );
+  }
+}
+
+function assertSubmissionInvitationScope(
+  submission: Doc<"quoteInvitationResponseSubmissionRevisions">,
+  scope: InvitationScope
+) {
   if (
     submission.brokerageId !== scope.invitation.brokerageId ||
     submission.organizationId !== scope.invitation.organizationId ||
     submission.buildId !== scope.invitation.buildId ||
     submission.quoteRoundId !== scope.invitation.quoteRoundId ||
-    submission.quoteRoundInvitationId !== scope.invitation._id ||
-    submission.quotePackageRevisionId !== scope.packageRevision._id
+    submission.quoteRoundInvitationId !== scope.invitation._id
   ) {
     throw new ConvexError(
       "Quote response submission crosses its invitation scope."
     );
   }
+}
+
+function assertPackageRevisionInvitationScope(
+  packageRevision: Doc<"quotePackageRevisions">,
+  scope: InvitationScope
+) {
+  if (
+    packageRevision.brokerageId !== scope.invitation.brokerageId ||
+    packageRevision.organizationId !== scope.invitation.organizationId ||
+    packageRevision.buildId !== scope.invitation.buildId ||
+    packageRevision.quoteRoundId !== scope.invitation.quoteRoundId
+  ) {
+    throw new ConvexError(
+      "Quote Package Revision crosses its invitation scope."
+    );
+  }
+}
+
+function assertPackageRevisionDescendsFromInvitationRoot(
+  ctx: QueryCtx | MutationCtx,
+  scope: InvitationScope,
+  packageRevision: Doc<"quotePackageRevisions">,
+  cache?: PackageRevisionLineageCache
+) {
+  const cached = cache?.get(packageRevision._id);
+  if (cached) {
+    return cached;
+  }
+  const verification = (async () => {
+    let current = packageRevision;
+    for (let depth = 0; depth <= MAX_PACKAGE_REVISION_LINEAGE; depth += 1) {
+      try {
+        assertPackageRevisionInvitationScope(current, scope);
+      } catch {
+        throw new ConvexError(
+          "Historical Quote Package Revision is unavailable."
+        );
+      }
+      if (current._id === scope.invitation.quotePackageRevisionId) {
+        return;
+      }
+      if (depth === MAX_PACKAGE_REVISION_LINEAGE) {
+        throw new ConvexError(
+          "Historical Quote Package Revision is unavailable."
+        );
+      }
+      if (!current.previousPackageRevisionId) {
+        throw new ConvexError(
+          "Historical Quote Package Revision is unavailable."
+        );
+      }
+      const previous = await ctx.db.get(current.previousPackageRevisionId);
+      if (!previous) {
+        throw new ConvexError(
+          "Historical Quote Package Revision is unavailable."
+        );
+      }
+      current = previous;
+    }
+  })();
+  cache?.set(packageRevision._id, verification);
+  return verification;
+}
+
+async function historicalSubmissionScope(
+  ctx: QueryCtx | MutationCtx,
+  scope: InvitationScope,
+  submission: Doc<"quoteInvitationResponseSubmissionRevisions">,
+  packageLineageCache?: PackageRevisionLineageCache
+) {
+  assertSubmissionInvitationScope(submission, scope);
+  const packageRevision =
+    submission.quotePackageRevisionId === scope.packageRevision._id
+      ? scope.packageRevision
+      : await ctx.db.get(submission.quotePackageRevisionId);
+  if (!packageRevision) {
+    throw new ConvexError("Historical Quote Package Revision is unavailable.");
+  }
+  await assertPackageRevisionDescendsFromInvitationRoot(
+    ctx,
+    scope,
+    packageRevision,
+    packageLineageCache
+  );
+  return { ...scope, packageRevision };
 }
 
 function assertSubmissionStateScope(
@@ -2384,7 +2585,7 @@ function assertSubmissionLifecycleEventScope(
     event.buildId !== scope.invitation.buildId ||
     event.quoteRoundId !== scope.invitation.quoteRoundId ||
     event.quoteRoundInvitationId !== scope.invitation._id ||
-    event.quotePackageRevisionId !== scope.packageRevision._id ||
+    event.quotePackageRevisionId !== submission.quotePackageRevisionId ||
     event.quoteInvitationResponseSubmissionRevisionId !== submission._id
   ) {
     throw new ConvexError(

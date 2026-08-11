@@ -3,6 +3,7 @@ import type {
   TimelineSetupResult,
   TimelineSetupTemplate,
 } from "#/features/timeline-workspace/-TimelineSetupFlow.tsx";
+import type { TimelineSubmilestoneFieldGuidance } from "#/features/timeline-workspace/-timeline-milestone-submilestones.ts";
 import { resolveMilestoneSubmilestones } from "#/features/timeline-workspace/-timeline-milestone-submilestones.ts";
 import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
@@ -24,10 +25,12 @@ export interface ProductionProposalTemplateProjection {
     };
     submilestones?: Array<{
       durationDays?: number;
+      fieldGuidance?: TimelineSubmilestoneFieldGuidance;
       key: string;
       name: string;
       order?: number;
       percentageBps?: number;
+      scopeOfWorkTiptapJson?: string;
     }>;
   }>;
   scenarios?: Array<{
@@ -226,10 +229,12 @@ export function productionTemplatesToTimelineSetupTemplates(
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           .map((submilestone) => ({
             durationDays: submilestone.durationDays,
+            fieldGuidance: submilestone.fieldGuidance,
             key: submilestone.key,
             name: submilestone.name,
             order: submilestone.order,
             percentageBps: submilestone.percentageBps,
+            scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
           })),
         subMilestones: [...(milestone.submilestones ?? [])]
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -295,9 +300,17 @@ export function timelineSetupResultToDraftPackage(
             ...(submilestone.durationDays === undefined
               ? {}
               : { durationDays: submilestone.durationDays }),
+            ...(submilestone.fieldGuidance === undefined
+              ? {}
+              : { fieldGuidance: submilestone.fieldGuidance }),
             key: submilestone.key,
             name: submilestone.name,
             order: submilestone.order,
+            ...(submilestone.scopeOfWorkTiptapJson === undefined
+              ? {}
+              : {
+                  scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
+                }),
             ...(submilestone.startDay === undefined
               ? {}
               : { startDay: submilestone.startDay }),

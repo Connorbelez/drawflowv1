@@ -5,17 +5,21 @@ import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
 import {
   authorizeBuildActionItemOperation,
+  authorizeGeneratedMilestoneCompanionStructureOperation,
   type BuildActionItemAuthorizationDecision,
   type BuildActionItemOperation,
+  type GeneratedMilestoneCompanionStructureOperation,
 } from "./build_action_item_rbac";
 import { wouldCreateActionItemDependencyCycle } from "./build_action_item_structure_model";
 import {
   assertCanonicalMilestoneActionItemMutable,
   requireReadableActionItem,
+  resolveGeneratedMilestoneCompanionBinding,
 } from "./build_action_items";
 import { resolveCurrentCollaborationPostReaderIds } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
@@ -93,6 +97,7 @@ export const getBuildActionItemStructureContext = authenticatedQuery
         authorization,
         args.actionItemId
       );
+      await resolveGeneratedMilestoneCompanionBinding(ctx, authorization, item);
     } catch {
       return { state: "revoked" as const };
     }
@@ -207,6 +212,17 @@ export const getBuildActionItemStructureContext = authenticatedQuery
         suspensionReason: relation.suspensionReason,
       };
     });
+    const [
+      addChecklistDecision,
+      createChildDecision,
+      linkRelationDecision,
+      repairRelationDecision,
+    ] = await Promise.all([
+      operationDecision(ctx, authorization, item, "add_checklist"),
+      operationDecision(ctx, authorization, item, "create_child"),
+      operationDecision(ctx, authorization, item, "link_relation"),
+      operationDecision(ctx, authorization, item, "repair_relation"),
+    ]);
     return {
       checklist: scopedChecklist.map((row) => ({
         checklistItemId: row._id,
@@ -224,26 +240,10 @@ export const getBuildActionItemStructureContext = authenticatedQuery
       })),
       relations,
       state: "visible" as const,
-      viewerCanAddChecklist: operationDecision(
-        authorization,
-        item,
-        "add_checklist"
-      ).allowed,
-      viewerCanCreateChild: operationDecision(
-        authorization,
-        item,
-        "create_child"
-      ).allowed,
-      viewerCanLinkRelation: operationDecision(
-        authorization,
-        item,
-        "link_relation"
-      ).allowed,
-      viewerCanRepairRelations: operationDecision(
-        authorization,
-        item,
-        "repair_relation"
-      ).allowed,
+      viewerCanAddChecklist: addChecklistDecision.allowed,
+      viewerCanCreateChild: createChildDecision.allowed,
+      viewerCanLinkRelation: linkRelationDecision.allowed,
+      viewerCanRepairRelations: repairRelationDecision.allowed,
     };
   })
   .public();
@@ -269,7 +269,12 @@ export const addBuildActionItemChecklistItem = authenticatedMutation
       args.actionItemId
     );
     assertExpectedRevision(item, args.expectedRevision);
-    const decision = assertOperation(authorization, item, "add_checklist");
+    const decision = await assertOperation(
+      ctx,
+      authorization,
+      item,
+      "add_checklist"
+    );
     const label = args.label.trim();
     if (!label) {
       throw new Error("Checklist label is required.");
@@ -352,7 +357,12 @@ export const toggleBuildActionItemChecklistItem = authenticatedMutation
       checklist.actionItemId
     );
     assertExpectedRevision(item, args.expectedRevision);
-    const decision = assertOperation(authorization, item, "toggle_checklist");
+    const decision = await assertOperation(
+      ctx,
+      authorization,
+      item,
+      "toggle_checklist"
+    );
     const completed = !checklist.completed;
     const now = Date.now();
     await ctx.db.patch(checklist._id, {
@@ -404,8 +414,21 @@ export const linkBuildActionItems = authenticatedMutation
       requireReadableActionItem(ctx, authorization, args.sourceActionItemId),
       requireReadableActionItem(ctx, authorization, args.targetActionItemId),
     ]);
-    assertCanonicalMilestoneActionItemMutable(source);
-    assertCanonicalMilestoneActionItemMutable(target);
+    const [sourceGeneratedDecision, targetGeneratedDecision] =
+      await Promise.all([
+        assertGeneratedEndpointOperation(
+          ctx,
+          authorization,
+          source,
+          "link_relation"
+        ),
+        assertGeneratedEndpointOperation(
+          ctx,
+          authorization,
+          target,
+          "link_relation"
+        ),
+      ]);
     if (source._id === target._id) {
       throw new Error("An Action Item cannot relate to itself.");
     }
@@ -421,7 +444,22 @@ export const linkBuildActionItems = authenticatedMutation
         "The governing Action Item must be one endpoint of the relationship."
       );
     }
-    const decision = assertOperation(authorization, governing, "link_relation");
+    const decision =
+      governing._id === source._id
+        ? (sourceGeneratedDecision ??
+          (await assertOperation(
+            ctx,
+            authorization,
+            governing,
+            "link_relation"
+          )))
+        : (targetGeneratedDecision ??
+          (await assertOperation(
+            ctx,
+            authorization,
+            governing,
+            "link_relation"
+          )));
     if (decision.authority === "coordinator" && !args.reason?.trim()) {
       throw new Error(
         "Manager dependency overrides require an override reason."
@@ -544,12 +582,40 @@ export const unlinkBuildActionItemRelation = authenticatedMutation
         relation.targetActionItemId
       ),
     ]);
-    assertCanonicalMilestoneActionItemMutable(source);
-    assertCanonicalMilestoneActionItemMutable(target);
+    const [sourceGeneratedDecision, targetGeneratedDecision] =
+      await Promise.all([
+        assertGeneratedEndpointOperation(
+          ctx,
+          authorization,
+          source,
+          "unlink_relation"
+        ),
+        assertGeneratedEndpointOperation(
+          ctx,
+          authorization,
+          target,
+          "unlink_relation"
+        ),
+      ]);
     const governing =
       source._id === args.governingActionItemId ? source : target;
     assertExpectedRevision(governing, args.expectedGoverningRevision);
-    const decision = assertOperation(authorization, governing, "link_relation");
+    const decision =
+      governing._id === source._id
+        ? (sourceGeneratedDecision ??
+          (await assertOperation(
+            ctx,
+            authorization,
+            governing,
+            "link_relation"
+          )))
+        : (targetGeneratedDecision ??
+          (await assertOperation(
+            ctx,
+            authorization,
+            governing,
+            "link_relation"
+          )));
     if (decision.authority === "coordinator" && !args.reason?.trim()) {
       throw new Error(
         "Manager dependency overrides require an override reason."
@@ -610,7 +676,23 @@ export const repairBuildActionItemRelation = authenticatedMutation
         relation.targetActionItemId
       ),
     ]);
-    const decision = assertRepairOperation(authorization, source);
+    const [sourceGeneratedDecision] = await Promise.all([
+      assertGeneratedEndpointOperation(
+        ctx,
+        authorization,
+        source,
+        "repair_relation"
+      ),
+      assertGeneratedEndpointOperation(
+        ctx,
+        authorization,
+        target,
+        "repair_relation"
+      ),
+    ]);
+    const decision =
+      sourceGeneratedDecision ??
+      (await assertRepairOperation(ctx, authorization, source));
     if (relation.status === "active") {
       return relation._id;
     }
@@ -1239,11 +1321,41 @@ async function quarantineRedundantRelationship(
   });
 }
 
-function operationDecision(
+async function operationDecision(
+  ctx: QueryCtx | MutationCtx,
   authorization: ActiveBuildAuthorization,
   item: Doc<"buildActionItems">,
   operation: BuildActionItemOperation
-) {
+): Promise<BuildActionItemAuthorizationDecision> {
+  const generatedBinding = await resolveGeneratedMilestoneCompanionBinding(
+    ctx,
+    authorization,
+    item
+  );
+  if (generatedBinding && isGeneratedStructureOperation(operation)) {
+    const exactExecutionOwner =
+      operation === "toggle_checklist" &&
+      (await isExactCanonicalExecutionOwner(
+        ctx,
+        authorization,
+        generatedBinding
+      ));
+    const generatedDecision =
+      authorizeGeneratedMilestoneCompanionStructureOperation({
+        activeCompanion: generatedBinding.active,
+        actor: {
+          role: authorization.effectiveRole.role,
+          workosUserId: authorization.viewer.subject,
+        },
+        exactExecutionOwner,
+        operation,
+      });
+    return {
+      allowed: generatedDecision.allowed,
+      authority: generatedDecision.authority,
+      warning: generatedDecision.reason,
+    };
+  }
   const creatorRole =
     item.creatorRole ??
     authorization.participants.find(
@@ -1267,32 +1379,136 @@ function operationDecision(
   });
 }
 
-function assertOperation(
+async function assertOperation(
+  ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
   item: Doc<"buildActionItems">,
   operation: BuildActionItemOperation
 ) {
-  assertCanonicalMilestoneActionItemMutable(item);
-  const decision = operationDecision(authorization, item, operation);
+  const generatedBinding = await resolveGeneratedMilestoneCompanionBinding(
+    ctx,
+    authorization,
+    item
+  );
+  if (!generatedBinding) {
+    assertCanonicalMilestoneActionItemMutable(item);
+  }
+  const decision = await operationDecision(ctx, authorization, item, operation);
   if (!decision.allowed) {
     throw new Error(
-      `Forbidden: Action Item ${operation.replaceAll("_", " ")} authority`
+      generatedBinding
+        ? `Forbidden: ${decision.warning ?? "generated companion structure authority"}`
+        : `Forbidden: Action Item ${operation.replaceAll("_", " ")} authority`
     );
   }
   return decision;
 }
 
-function assertRepairOperation(
+async function assertRepairOperation(
+  ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
   item: Doc<"buildActionItems">
 ) {
-  const decision = operationDecision(authorization, item, "repair_relation");
+  const decision = await assertOperation(
+    ctx,
+    authorization,
+    item,
+    "repair_relation"
+  );
   if (!decision.allowed) {
-    throw new Error(
-      "Forbidden: Action Item repair relation authority"
-    );
+    throw new Error("Forbidden: Action Item repair relation authority");
   }
   return decision;
+}
+
+async function assertGeneratedEndpointOperation(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  item: Doc<"buildActionItems">,
+  operation: GeneratedMilestoneCompanionStructureOperation
+): Promise<BuildActionItemAuthorizationDecision | undefined> {
+  const generatedBinding = await resolveGeneratedMilestoneCompanionBinding(
+    ctx,
+    authorization,
+    item
+  );
+  if (!generatedBinding) {
+    return;
+  }
+  const exactExecutionOwner =
+    operation === "toggle_checklist" &&
+    (await isExactCanonicalExecutionOwner(
+      ctx,
+      authorization,
+      generatedBinding
+    ));
+  const generatedDecision =
+    authorizeGeneratedMilestoneCompanionStructureOperation({
+      activeCompanion: generatedBinding.active,
+      actor: {
+        role: authorization.effectiveRole.role,
+        workosUserId: authorization.viewer.subject,
+      },
+      exactExecutionOwner,
+      operation,
+    });
+  if (!generatedDecision.allowed) {
+    throw new Error(
+      `Forbidden: ${generatedDecision.reason ?? "generated companion structure authority"}`
+    );
+  }
+  return {
+    allowed: true,
+    authority: generatedDecision.authority,
+    warning: generatedDecision.reason,
+  };
+}
+
+function isGeneratedStructureOperation(
+  operation: BuildActionItemOperation
+): operation is Exclude<
+  GeneratedMilestoneCompanionStructureOperation,
+  "unlink_relation"
+> {
+  return (
+    operation === "add_checklist" ||
+    operation === "toggle_checklist" ||
+    operation === "create_child" ||
+    operation === "link_relation" ||
+    operation === "repair_relation"
+  );
+}
+
+async function isExactCanonicalExecutionOwner(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  binding: {
+    canonicalBuildMilestoneId: Id<"buildMilestones">;
+    canonicalBuildSubmilestoneId: Id<"buildSubmilestones">;
+  }
+) {
+  const [milestone, submilestone] = await Promise.all([
+    ctx.db.get(binding.canonicalBuildMilestoneId),
+    ctx.db.get(binding.canonicalBuildSubmilestoneId),
+  ]);
+  if (
+    !(milestone && submilestone) ||
+    milestone.buildId !== authorization.build._id ||
+    submilestone.buildId !== authorization.build._id ||
+    submilestone.buildMilestoneId !== milestone._id
+  ) {
+    return false;
+  }
+  const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+    build: authorization.build,
+    milestone,
+    submilestone,
+    includeCompleted: true,
+  });
+  return (
+    ownership.state === "assigned" &&
+    ownership.contractor?.accountWorkosUserId === authorization.viewer.subject
+  );
 }
 
 function assertExpectedRevision(
@@ -1401,9 +1617,6 @@ async function recordRelationLifecycle(
       ? input.warnings
       : [...(input.warnings ?? []), "missing_relationship_endpoint"];
   for (const item of endpoints) {
-    if (item.systemMode === "generated_milestone_submilestone") {
-      continue;
-    }
     await recordStructuralEvent(ctx, {
       actionItemId: item._id,
       authorization: input.authorization,

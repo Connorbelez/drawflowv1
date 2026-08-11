@@ -60,7 +60,7 @@ const remediationValidator = v.object({
   workKind: v.union(
     v.literal("evidence"),
     v.literal("site_visit_remediation"),
-    v.literal("draw_blocker")
+    v.literal("draw_blocker"),
   ),
 });
 
@@ -134,6 +134,11 @@ export interface BuildCollaborationSystemEventInput {
   };
   /** Backfill-only mode: preserve source facts without operational side effects. */
   silentBackfill?: SystemPostHistoricalBackfill;
+  /**
+   * Approved-plan materialization mode. Persist canonical identity and
+   * authorization rows without making the future operation visible or unread.
+   */
+  silentPreactivation?: boolean;
   suppressNotifications?: boolean;
   systemLabel: string;
   systemPostKind?: "milestone" | "draw";
@@ -154,9 +159,10 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     references: v.optional(v.array(systemReferenceValidator)),
     remediation: v.optional(remediationValidator),
     silentBackfill: v.optional(systemPostBackfillValidator),
+    silentPreactivation: v.optional(v.boolean()),
     suppressNotifications: v.optional(v.boolean()),
     systemPostKind: v.optional(
-      v.union(v.literal("milestone"), v.literal("draw"))
+      v.union(v.literal("milestone"), v.literal("draw")),
     ),
     systemLabel: v.string(),
   })
@@ -164,7 +170,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
   .handler(async (ctx, args) => {
     const postId = await publishCanonicalBuildCollaborationSystemEvent(
       ctx,
-      args
+      args,
     );
     if (!postId) {
       throw new Error(BUILD_COLLABORATION_UNAVAILABLE_ERROR);
@@ -175,12 +181,12 @@ export const publishBuildCollaborationSystemEvent = internalMutation
 
 export async function publishCanonicalBuildCollaborationSystemEvent(
   ctx: MutationCtx,
-  input: BuildCollaborationSystemEventInput
+  input: BuildCollaborationSystemEventInput,
 ): Promise<Id<"buildCollaborationPosts"> | null> {
   const idempotencyKey = requiredBoundedText(
     input.idempotencyKey,
     "System event idempotency key",
-    500
+    500,
   );
   const scope = await resolveSystemEventScope(ctx, input, idempotencyKey);
   if (scope.status === "existing") {
@@ -195,26 +201,23 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   }
   const submittedReferences = normalizeSystemReferences(input);
   const primaryReferenceKind = submittedReferences.find(
-    (reference) => reference.primary
+    (reference) => reference.primary,
   )?.entityKind;
   const primaryReferenceId = submittedReferences.find(
-    (reference) => reference.primary
+    (reference) => reference.primary,
   )?.entityId;
-  if (
-    input.systemPostKind === "draw" &&
-    primaryReferenceKind !== "draw"
-  ) {
+  if (input.systemPostKind === "draw" && primaryReferenceKind !== "draw") {
     throw new Error("Draw System Posts must use a Draw primary reference.");
   }
   if (input.systemPostKind === "milestone") {
     if (primaryReferenceKind !== "milestone" || !primaryReferenceId) {
       throw new Error(
-        "Milestone System Posts must use a Milestone primary reference."
+        "Milestone System Posts must use a Milestone primary reference.",
       );
     }
     const milestoneId = ctx.db.normalizeId(
       "buildMilestones",
-      primaryReferenceId
+      primaryReferenceId,
     );
     const milestone = milestoneId ? await ctx.db.get(milestoneId) : null;
     if (
@@ -237,7 +240,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     throw new Error("A system event requires at least one authorized reader.");
   }
   const readerIds = readerParticipants.map(
-    (participant) => participant.workosUserId
+    (participant) => participant.workosUserId,
   );
   const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
     authorization,
@@ -247,12 +250,12 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   const plainText = requiredBoundedText(
     input.plainText,
     "System event content",
-    20_000
+    20_000,
   );
   const systemLabel = requiredBoundedText(
     input.systemLabel || "DrawFlow",
     "System label",
-    120
+    120,
   );
   const mutationAt =
     input.silentBackfill?.materializedAt ?? input.now ?? Date.now();
@@ -287,6 +290,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     source: "system",
     systemPostKind: input.systemPostKind,
     systemEventKey: idempotencyKey,
+    ...(input.silentPreactivation ? { systemLifecycle: "latent" as const } : {}),
     threadState: "open",
     threadRevision: 0,
     ...(materializedAt === undefined ? {} : { materializedAt }),
@@ -316,7 +320,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   await ctx.db.patch(postId, { currentRevisionId: revisionId });
   for (const workosUserId of audience.explicitReaderIds) {
     const participant = readerParticipants.find(
-      (candidate) => candidate.workosUserId === workosUserId
+      (candidate) => candidate.workosUserId === workosUserId,
     );
     if (!participant) {
       throw new Error("A system audience member is outside the reader set.");
@@ -339,27 +343,33 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     references,
   });
   const actionItemId =
-    !input.silentBackfill && input.remediation && input.systemPostKind !== "draw"
-    ? await createDeterministicRemediationActionItem(ctx, {
-        authorization,
-        idempotencyKey,
-        now,
-        postId,
-        references,
-        remediation: input.remediation,
-      })
-    : null;
+    !input.silentBackfill &&
+    input.remediation &&
+    input.systemPostKind !== "draw"
+      ? await createDeterministicRemediationActionItem(ctx, {
+          authorization,
+          idempotencyKey,
+          now,
+          postId,
+          references,
+          remediation: input.remediation,
+        })
+      : null;
 
   const notificationKind =
     input.notificationKind ??
     (input.remediation ? "blocker" : "ordinary_activity");
   const primaryReferenceIndex = Math.max(
     0,
-    references.findIndex((reference) => reference.primary)
+    references.findIndex((reference) => reference.primary),
   );
   const primaryReference = references[primaryReferenceIndex];
   const primaryReferenceRowId = referenceRows[primaryReferenceIndex];
-  if (!input.suppressNotifications && !input.silentBackfill) {
+  if (
+    !input.suppressNotifications &&
+    !input.silentBackfill &&
+    !input.silentPreactivation
+  ) {
     // Draw System Posts retain their canonical read audience, but admin and
     // principal-broker are silent oversight roles until they explicitly join
     // coordination. Do not turn publication into implicit coordination.
@@ -399,49 +409,218 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       });
     }
   }
-  if (!input.silentBackfill) {
+  if (!input.silentBackfill && !input.silentPreactivation) {
     await Promise.all([
       ctx.db.insert("auditEvents", {
-      actorRoles: ["system"],
-      actorWorkosUserId: "system",
-      brokerageId: build.brokerageId,
-      command: "publishBuildCollaborationSystemEvent",
-      createdAt: now,
-      entityId: postId,
-      entityType: "buildCollaborationPost",
-      eventType: "build.collaboration.system_event.published",
-      newState: JSON.stringify({
-        actionItemId,
-        idempotencyKey,
-        postId,
-        readerIds,
-        referenceCount: references.length,
-      }),
-      organizationId: input.organizationId,
-      warnings: [],
+        actorRoles: ["system"],
+        actorWorkosUserId: "system",
+        brokerageId: build.brokerageId,
+        command: "publishBuildCollaborationSystemEvent",
+        createdAt: now,
+        entityId: postId,
+        entityType: "buildCollaborationPost",
+        eventType: "build.collaboration.system_event.published",
+        newState: JSON.stringify({
+          actionItemId,
+          idempotencyKey,
+          postId,
+          readerIds,
+          referenceCount: references.length,
+        }),
+        organizationId: input.organizationId,
+        warnings: [],
       }),
       ctx.db.insert("eventOutbox", {
-      brokerageId: build.brokerageId,
-      createdAt: now,
-      eventType: "build.collaboration.system_event.published",
-      organizationId: input.organizationId,
-      payloadPreview: JSON.stringify({
-        actionItemId,
-        idempotencyKey,
-        postType: input.postType,
-        referenceCount: references.length,
-      }),
-      relatedEntityId: postId,
-      relatedEntityType: "buildCollaborationPost",
-      status: "pending",
+        brokerageId: build.brokerageId,
+        createdAt: now,
+        eventType: "build.collaboration.system_event.published",
+        organizationId: input.organizationId,
+        payloadPreview: JSON.stringify({
+          actionItemId,
+          idempotencyKey,
+          postType: input.postType,
+          referenceCount: references.length,
+        }),
+        relatedEntityId: postId,
+        relatedEntityType: "buildCollaborationPost",
+        status: "pending",
       }),
     ]);
   }
   // Search maintenance is deliberately retained for backfills so the
   // materialized post is discoverable by the same authorized index. It does
   // not create notifications, receipts, unread rows, mentions, or activity.
-  await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
+  // A latent approved-plan projection is intentionally not discoverable until
+  // the canonical Milestone activates.
+  if (!input.silentPreactivation) {
+    await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
+  }
   return postId;
+}
+
+/**
+ * Publish the operational effects for a previously silent approved-plan
+ * projection. The existing post keeps its stable identity and discussion
+ * lineage; activation only creates the first user-visible revision and unread
+ * effects. Replays are a no-op once the post leaves `latent`.
+ */
+export async function activateLatentBuildCollaborationSystemEvent(
+  ctx: MutationCtx,
+  input: BuildCollaborationSystemEventInput & {
+    postId: Id<"buildCollaborationPosts">;
+  },
+) {
+  const post = await ctx.db.get(input.postId);
+  if (!post) {
+    throw new Error("The latent System Post is unavailable.");
+  }
+  if (
+    post.buildId !== input.buildId ||
+    post.organizationId !== input.organizationId
+  ) {
+    throw new Error("Forbidden: collaboration tenant scope");
+  }
+  if (post.systemLifecycle !== "latent") {
+    return false;
+  }
+  const idempotencyKey = requiredBoundedText(
+    input.idempotencyKey,
+    "System event idempotency key",
+    500,
+  );
+  if (post.systemEventKey !== idempotencyKey) {
+    throw new Error("The latent System Post identity does not match.");
+  }
+  const scope = await resolveSystemEventScope(ctx, input, idempotencyKey, {
+    ignoreExisting: true,
+  });
+  if (scope.status !== "ready") {
+    throw new Error(BUILD_COLLABORATION_UNAVAILABLE_ERROR);
+  }
+  await requireBuildCollaborationWritable(ctx, scope.authorization);
+
+  const primaryReferenceKind = post.primaryReferenceKind;
+  const primaryReferenceId = post.primaryReferenceId;
+  const readerParticipants = await systemEventReaders(ctx, {
+    buildId: scope.build._id,
+    participants: scope.participants,
+    primaryReferenceId,
+    primaryReferenceKind,
+    systemPostKind: input.systemPostKind,
+  });
+  if (readerParticipants.length === 0) {
+    throw new Error("A system event requires at least one authorized reader.");
+  }
+  const readerIds = readerParticipants.map(
+    (participant) => participant.workosUserId,
+  );
+  const plainText = requiredBoundedText(
+    input.plainText,
+    "System event content",
+    20_000,
+  );
+  const now = input.now ?? Date.now();
+  const tiptapJson = plainTextDocument(plainText);
+  const nextRevision = post.revision + 1;
+  const revisionId = await ctx.db.insert("buildCollaborationPostRevisions", {
+    authorRole: "admin",
+    authorWorkosUserId: "system",
+    brokerageId: scope.build.brokerageId,
+    buildId: scope.build._id,
+    contentHash: stableContentHash(tiptapJson),
+    createdAt: now,
+    organizationId: input.organizationId,
+    plainText,
+    postId: post._id,
+    revision: nextRevision,
+    tiptapJson,
+  });
+  await ctx.db.patch(post._id, {
+    currentRevisionId: revisionId,
+    lastMeaningfulActivityAt: now,
+    readRevision: nextRevision,
+    revision: nextRevision,
+    systemLifecycle: "open",
+    updatedAt: now,
+  });
+
+  const primaryReference = await ctx.db
+    .query("buildCollaborationReferences")
+    .withIndex("by_postId", (query) => query.eq("postId", post._id))
+    .filter((query) =>
+      query.and(
+        query.eq(query.field("ownerKind"), "postRevision"),
+        query.eq(query.field("primary"), true),
+      ),
+    )
+    .first();
+  const notificationKind = input.notificationKind ?? "ordinary_activity";
+  if (!input.suppressNotifications) {
+    for (const recipient of readerParticipants) {
+      await emitCanonicalBuildCollaborationNotification(ctx, {
+        actionLabel: primaryReference ? "Open related work" : "Open discussion",
+        authorization: scope.authorization,
+        body: plainText,
+        dedupeKey: `build-system-event:${idempotencyKey}:${notificationKind}:${recipient.workosUserId}`,
+        entityId: primaryReference?.entityId ?? String(post._id),
+        entityLabel: primaryReference?.labelSnapshot,
+        entityType: primaryReference?.entityKind ?? "buildCollaborationPost",
+        href: buildCollaborationDeepLink({
+          buildId: scope.build._id,
+          focus: primaryReference
+            ? `${primaryReference.entityKind}:${primaryReference.entityId}`
+            : `post:${post._id}`,
+          recipientRole: recipient.role,
+        }),
+        kind: notificationKind,
+        now,
+        postId: post._id,
+        readerIds,
+        recipientWorkosUserId: recipient.workosUserId,
+        referenceId: primaryReference?._id,
+        sourceLabel: input.systemLabel,
+        title: input.notificationTitle?.trim() || plainText.slice(0, 120),
+      });
+    }
+  }
+  await Promise.all([
+    ctx.db.insert("auditEvents", {
+      actorRoles: ["system"],
+      actorWorkosUserId: "system",
+      brokerageId: scope.build.brokerageId,
+      command: "activateLatentBuildCollaborationSystemEvent",
+      createdAt: now,
+      entityId: post._id,
+      entityType: "buildCollaborationPost",
+      eventType: "build.collaboration.system_event.published",
+      newState: JSON.stringify({
+        idempotencyKey,
+        postId: post._id,
+        readerIds,
+        revision: nextRevision,
+      }),
+      organizationId: input.organizationId,
+      warnings: [],
+    }),
+    ctx.db.insert("eventOutbox", {
+      brokerageId: scope.build.brokerageId,
+      createdAt: now,
+      eventType: "build.collaboration.system_event.published",
+      organizationId: input.organizationId,
+      payloadPreview: JSON.stringify({
+        idempotencyKey,
+        postType: input.postType,
+        revision: nextRevision,
+      }),
+      relatedEntityId: post._id,
+      relatedEntityType: "buildCollaborationPost",
+      status: "pending",
+    }),
+  ]);
+  await queueBuildCollaborationSearchBuildRebuild(ctx, {
+    authorization: scope.authorization,
+  });
+  return true;
 }
 
 export type SystemEventScope =
@@ -457,19 +636,22 @@ export type SystemEventScope =
 export async function resolveSystemEventScope(
   ctx: MutationCtx,
   input: BuildCollaborationSystemEventInput,
-  idempotencyKey: string
+  idempotencyKey: string,
+  options?: { ignoreExisting?: boolean },
 ): Promise<SystemEventScope> {
-  const existing = await ctx.db
-    .query("buildCollaborationPosts")
-    .withIndex("by_buildId_and_systemEventKey", (query) =>
-      query.eq("buildId", input.buildId).eq("systemEventKey", idempotencyKey)
-    )
-    .first();
-  if (existing) {
-    if (existing.organizationId !== input.organizationId) {
-      throw new Error("Forbidden: collaboration tenant scope");
+  if (!options?.ignoreExisting) {
+    const existing = await ctx.db
+      .query("buildCollaborationPosts")
+      .withIndex("by_buildId_and_systemEventKey", (query) =>
+        query.eq("buildId", input.buildId).eq("systemEventKey", idempotencyKey),
+      )
+      .first();
+    if (existing) {
+      if (existing.organizationId !== input.organizationId) {
+        throw new Error("Forbidden: collaboration tenant scope");
+      }
+      return { postId: existing._id, status: "existing" };
     }
-    return { postId: existing._id, status: "existing" };
   }
   const build = await ctx.db.get(input.buildId);
   if (!build || build.organizationId !== input.organizationId) {
@@ -478,7 +660,7 @@ export async function resolveSystemEventScope(
   const tenantSetting = await ctx.db
     .query("buildCollaborationTenantSettings")
     .withIndex("by_organizationId", (query) =>
-      query.eq("organizationId", build.organizationId)
+      query.eq("organizationId", build.organizationId),
     )
     .unique();
   if (!tenantSetting) {
@@ -493,7 +675,7 @@ export async function resolveSystemEventScope(
     // preventing a snapshot freeze from committing state without its canonical
     // collaboration event. The caller can retry after the rehearsal completes.
     throw new Error(
-      "Build Collaboration is temporarily frozen for a rollback rehearsal snapshot. Retry the operational transition after the rehearsal completes."
+      "Build Collaboration is temporarily frozen for a rollback rehearsal snapshot. Retry the operational transition after the rehearsal completes.",
     );
   }
   if (tenantSetting.status !== "active") {
@@ -507,7 +689,7 @@ export async function resolveSystemEventScope(
   const participantRows = await ctx.db
     .query("buildParticipants")
     .withIndex("by_buildId_and_status", (query) =>
-      query.eq("buildId", build._id).eq("status", "active")
+      query.eq("buildId", build._id).eq("status", "active"),
     )
     .take(500);
   const participants = await projectActiveBuildParticipants(ctx, {
@@ -517,11 +699,11 @@ export async function resolveSystemEventScope(
   });
   const authorityParticipants = await projectOrganizationAuthorityParticipants(
     ctx,
-    build.organizationId
+    build.organizationId,
   );
   for (const authority of authorityParticipants) {
     const existingParticipant = participants.find(
-      (participant) => participant.workosUserId === authority.workosUserId
+      (participant) => participant.workosUserId === authority.workosUserId,
     );
     if (!existingParticipant) {
       participants.push(authority);
@@ -554,7 +736,7 @@ function normalizeSystemReferences(input: BuildCollaborationSystemEventInput) {
     Boolean(input.primaryReferenceId) !== Boolean(input.primaryReferenceKind)
   ) {
     throw new Error(
-      "System event references require both an entity kind and entity ID."
+      "System event references require both an entity kind and entity ID.",
     );
   }
   const references = [...(input.references ?? [])];
@@ -578,7 +760,7 @@ function normalizeSystemReferences(input: BuildCollaborationSystemEventInput) {
     return true;
   });
   const explicitPrimary = normalized.findIndex(
-    (reference) => reference.primary
+    (reference) => reference.primary,
   );
   return normalized.map((reference, index) => ({
     entityId: reference.entityId,
@@ -598,7 +780,7 @@ async function systemEventReaders(
     primaryReferenceId?: string;
     primaryReferenceKind?: BuildCollaborationSystemEventInput["primaryReferenceKind"];
     systemPostKind?: BuildCollaborationSystemEventInput["systemPostKind"];
-  }
+  },
 ) {
   if (input.systemPostKind === "milestone") {
     const milestoneId = input.primaryReferenceId
@@ -613,7 +795,7 @@ async function systemEventReaders(
           workosUserId: participant.workosUserId,
         }),
         participant,
-      }))
+      })),
     );
     return readerDecisions
       .filter((decision) => decision.allowed)
@@ -628,7 +810,7 @@ async function systemEventReaders(
           workosUserId: participant.workosUserId,
         }),
         participant,
-      }))
+      })),
     );
     return readerDecisions
       .filter((decision) => decision.allowed)
@@ -640,7 +822,7 @@ async function systemEventReaders(
   ) {
     return input.participants.filter(
       (participant) =>
-        participant.role !== "contractor" && participant.role !== "homeowner"
+        participant.role !== "contractor" && participant.role !== "homeowner",
     );
   }
   if (input.primaryReferenceKind === "document") {
@@ -656,7 +838,7 @@ async function systemEventReaders(
         participant.role !== "homeowner" &&
         (participant.role !== "contractor" ||
           document.documentType === "permit" ||
-          document.contractorVisible === true)
+          document.contractorVisible === true),
     );
   }
   if (input.primaryReferenceKind !== "siteVisit") {
@@ -672,18 +854,18 @@ async function systemEventReaders(
   const assignments = await ctx.db
     .query("milestoneContractorAssignments")
     .withIndex("by_build_milestone", (query) =>
-      query.eq("buildId", input.buildId).eq("milestoneKey", visit.milestoneKey)
+      query.eq("buildId", input.buildId).eq("milestoneKey", visit.milestoneKey),
     )
     .take(500);
   const scopedAssignments = assignments.filter(
     (assignment) =>
       assignment.status !== "removed" &&
       (!(visit.submilestoneKeys?.length && assignment.submilestoneKey) ||
-        visit.submilestoneKeys.includes(assignment.submilestoneKey))
+        visit.submilestoneKeys.includes(assignment.submilestoneKey)),
   );
   const contractorWorkosUserIds = new Set<string>();
   for (const contractorId of new Set(
-    scopedAssignments.map((assignment) => assignment.contractorId)
+    scopedAssignments.map((assignment) => assignment.contractorId),
   )) {
     const contractor = await ctx.db.get(contractorId);
     if (contractor?.accountWorkosUserId) {
@@ -694,18 +876,18 @@ async function systemEventReaders(
     (participant) =>
       participant.role !== "homeowner" &&
       (participant.role !== "contractor" ||
-        contractorWorkosUserIds.has(participant.workosUserId))
+        contractorWorkosUserIds.has(participant.workosUserId)),
   );
 }
 
 async function projectOrganizationAuthorityParticipants(
   ctx: MutationCtx,
-  organizationId: string
+  organizationId: string,
 ) {
   const memberships = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_organization", (query) =>
-      query.eq("workosOrganizationId", organizationId)
+      query.eq("workosOrganizationId", organizationId),
     )
     .take(500);
   const authorities = new Map<
@@ -741,7 +923,7 @@ async function projectOrganizationAuthorityParticipants(
       const user = await ctx.db
         .query("users")
         .withIndex("by_workos_user_id", (query) =>
-          query.eq("workosUserId", workosUserId)
+          query.eq("workosUserId", workosUserId),
         )
         .order("desc")
         .first();
@@ -752,13 +934,13 @@ async function projectOrganizationAuthorityParticipants(
         source: "derived" as const,
         workosUserId,
       };
-    })
+    }),
   );
 }
 
 function systemEventAudience(
   allParticipants: ActiveBuildParticipantProjection[],
-  readers: ActiveBuildParticipantProjection[]
+  readers: ActiveBuildParticipantProjection[],
 ) {
   if (readers.length === allParticipants.length) {
     return {
@@ -810,7 +992,7 @@ async function persistSystemReferences(
     ownerRecordId: Id<"buildCollaborationPostRevisions">;
     postId: Id<"buildCollaborationPosts">;
     references: CanonicalBuildCollaborationReference[];
-  }
+  },
 ) {
   const ids: Id<"buildCollaborationReferences">[] = [];
   for (const reference of input.references) {
@@ -828,7 +1010,7 @@ async function persistSystemReferences(
         postId: input.postId,
         primary: Boolean(reference.primary),
         summarySnapshot: reference.summary,
-      })
+      }),
     );
   }
   return ids;
@@ -843,12 +1025,12 @@ async function createDeterministicRemediationActionItem(
     postId: Id<"buildCollaborationPosts">;
     references: CanonicalBuildCollaborationReference[];
     remediation: NonNullable<BuildCollaborationSystemEventInput["remediation"]>;
-  }
+  },
 ) {
   const policyKey = requiredBoundedText(
     input.remediation.policyKey,
     "Remediation policy key",
-    240
+    240,
   );
   const primaryReference =
     input.references.find((reference) => reference.primary) ??
@@ -857,7 +1039,7 @@ async function createDeterministicRemediationActionItem(
     input.remediation.obligationKey ??
       `${primaryReference?.entityKind ?? "build"}:${primaryReference?.entityId ?? input.authorization.build._id}`,
     "Remediation obligation key",
-    500
+    500,
   );
   const policyObligationKey = `${policyKey}:${obligationTarget}`;
   const priorObligations = await ctx.db
@@ -865,11 +1047,11 @@ async function createDeterministicRemediationActionItem(
     .withIndex("by_buildId_and_policyObligationKey", (query) =>
       query
         .eq("buildId", input.authorization.build._id)
-        .eq("policyObligationKey", policyObligationKey)
+        .eq("policyObligationKey", policyObligationKey),
     )
     .take(100);
   const existingOpenObligation = priorObligations.find(
-    (item) => item.status !== "done" && item.status !== "cancelled"
+    (item) => item.status !== "done" && item.status !== "cancelled",
   );
   if (existingOpenObligation) {
     await linkBuildActionItemToPost(ctx, {
@@ -895,7 +1077,7 @@ async function createDeterministicRemediationActionItem(
       query
         .eq("postId", input.postId)
         .eq("creatorWorkosUserId", "system")
-        .eq("requestId", requestId)
+        .eq("requestId", requestId),
     )
     .first();
   if (existing) {
@@ -904,12 +1086,12 @@ async function createDeterministicRemediationActionItem(
   const title = requiredBoundedText(
     input.remediation.title,
     "Remediation title",
-    240
+    240,
   );
   const description = requiredBoundedText(
     input.remediation.description,
     "Remediation description",
-    2000
+    2000,
   );
   const dueAt = input.now + 3 * BUILD_ACTION_ITEM_DEADLINE_DAY_MS;
   const deadlineSchedule = resetBuildActionItemDeadlineSchedule(dueAt, "todo");

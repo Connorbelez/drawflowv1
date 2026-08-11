@@ -129,6 +129,8 @@ describe("QuoteFieldLedger", () => {
       screen.getAllByText("View issued scope and specifications")[0]!
     );
     expect(screen.getByText("Issued footings scope")).toBeTruthy();
+    expect(screen.getByText(/Scope v1/)).toBeTruthy();
+    expect(screen.getByText("Initial construction Scope.")).toBeTruthy();
     expect(screen.getByText(/Delivery: North gate/)).toBeTruthy();
 
     fireEvent.change(
@@ -148,6 +150,204 @@ describe("QuoteFieldLedger", () => {
         sessionToken: "browser-session-token",
       })
     );
+  });
+
+  test("blocks submission until copied response values are explicitly confirmed", async () => {
+    const access = fieldLedgerAccess();
+    const copiedDraft = {
+      answeredFieldCount: 1,
+      attachmentCount: 0,
+      attachments: [],
+      commentsHtml: undefined,
+      completedPricingLineCount: 1,
+      copiedFromQuotePackageRevisionId: "quote-package-revision-1",
+      copiedValuesConfirmationState: "pending",
+      createdAt: Date.now() - 2_000,
+      lineItems: [],
+      responses: [],
+      updatedAt: Date.now() - 1_000,
+      version: 4,
+    } as const;
+    const draftRead = { access, draft: copiedDraft, status: "available" } as const;
+    const lifecycleRead = {
+      currentSubmission: null,
+      draft: copiedDraft,
+      eligibility: { canRevise: false, canSubmit: true, canWithdraw: false },
+      revisions: [],
+      status: "available",
+    } as const;
+    convexMock.query.mockImplementation((_, args) => {
+      if (args === "skip") {
+        return undefined;
+      }
+      return "presentationNow" in args ? draftRead : lifecycleRead;
+    });
+    convexMock.mutation.mockResolvedValueOnce({
+      draft: {
+        ...copiedDraft,
+        copiedValuesConfirmationState: "confirmed",
+        version: 5,
+      },
+      status: "confirmed",
+    });
+
+    render(
+      <QuoteFieldLedger
+        access={access}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    expect(screen.getByText("Confirm copied response values")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Submit quote" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirm copied answers" })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(convexMock.mutation).toHaveBeenCalledWith({
+      expectedVersion: 4,
+      quoteRoundInvitationId: "quote-invitation-1",
+      sessionToken: "browser-session-token",
+    });
+    expect(screen.queryByText("Confirm copied response values")).toBeNull();
+    expect(screen.getByRole("button", { name: "Submit quote" })).toBeTruthy();
+  });
+
+  test("disables copied values confirmation after the response window closes", async () => {
+    const access = fieldLedgerAccess({ responseDeadline: Date.now() - 1 });
+    const copiedDraft = {
+      answeredFieldCount: 1,
+      attachmentCount: 0,
+      attachments: [],
+      commentsHtml: undefined,
+      completedPricingLineCount: 1,
+      copiedFromQuotePackageRevisionId: "quote-package-revision-1",
+      copiedValuesConfirmationState: "pending",
+      createdAt: Date.now() - 2_000,
+      lineItems: [],
+      responses: [],
+      updatedAt: Date.now() - 1_000,
+      version: 4,
+    } as const;
+    const draftRead = { access, draft: copiedDraft, status: "available" } as const;
+    const lifecycleRead = {
+      currentSubmission: null,
+      draft: copiedDraft,
+      eligibility: { canRevise: false, canSubmit: true, canWithdraw: false },
+      revisions: [],
+      status: "available",
+    } as const;
+    convexMock.query.mockImplementation((_, args) => {
+      if (args === "skip") {
+        return undefined;
+      }
+      return "presentationNow" in args ? draftRead : lifecycleRead;
+    });
+
+    render(
+      <QuoteFieldLedger
+        access={access}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    const confirmButton = screen.getByRole("button", {
+      name: "Confirm copied answers",
+    }) as HTMLButtonElement;
+    expect(screen.getByText("Response window closed")).toBeTruthy();
+    expect(confirmButton.disabled).toBe(true);
+    fireEvent.click(confirmButton);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(convexMock.mutation).not.toHaveBeenCalled();
+  });
+
+  test("flushes queued ledger edits before confirming copied response values", async () => {
+    const access = fieldLedgerAccess();
+    const copiedDraft = {
+      answeredFieldCount: 1,
+      attachmentCount: 0,
+      attachments: [],
+      commentsHtml: undefined,
+      completedPricingLineCount: 1,
+      copiedFromQuotePackageRevisionId: "quote-package-revision-1",
+      copiedValuesConfirmationState: "pending",
+      createdAt: Date.now() - 2_000,
+      lineItems: [],
+      responses: [],
+      updatedAt: Date.now() - 1_000,
+      version: 4,
+    } as const;
+    const draftRead = { access, draft: copiedDraft, status: "available" } as const;
+    const lifecycleRead = {
+      currentSubmission: null,
+      draft: copiedDraft,
+      eligibility: { canRevise: false, canSubmit: true, canWithdraw: false },
+      revisions: [],
+      status: "available",
+    } as const;
+    convexMock.query.mockImplementation((_, args) => {
+      if (args === "skip") {
+        return undefined;
+      }
+      return "presentationNow" in args ? draftRead : lifecycleRead;
+    });
+    convexMock.mutation
+      .mockResolvedValueOnce({
+        draft: { ...copiedDraft, version: 5 },
+        status: "saved",
+      })
+      .mockResolvedValueOnce({
+        draft: {
+          ...copiedDraft,
+          copiedValuesConfirmationState: "confirmed",
+          version: 6,
+        },
+        status: "confirmed",
+      });
+
+    render(
+      <QuoteFieldLedger
+        access={access}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    fireEvent.change(
+      screen.getByLabelText("Quoted amount for Foundation · Footings"),
+      { target: { value: "100" } }
+    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirm copied answers" })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(convexMock.mutation).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        expectedVersion: 4,
+        patch: expect.objectContaining({
+          linePatches: [expect.objectContaining({ quotedAmountCents: 10_000 })],
+        }),
+      })
+    );
+    expect(convexMock.mutation).toHaveBeenNthCalledWith(2, {
+      expectedVersion: 5,
+      quoteRoundInvitationId: "quote-invitation-1",
+      sessionToken: "browser-session-token",
+    });
   });
 
   test("preserves a recoverable stale-write state without leaving response controls editable", async () => {
@@ -699,6 +899,9 @@ function fieldLedgerAccess({
             ],
             type: "doc",
           }),
+          sourceScopeChangeReason: "Initial construction Scope.",
+          sourceScopeRevisionId: "scope-revision-1",
+          sourceScopeVersion: 1,
           sourceLineId: "labour-line-1",
           startDay: 2,
           submilestoneName: "Footings",

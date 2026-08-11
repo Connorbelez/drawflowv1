@@ -144,6 +144,19 @@ const detailValidator = v.union(
       canonicalPlanningState: v.optional(
         v.union(v.literal("active"), v.literal("superseded"))
       ),
+      historicalCanonicalBuildSubmilestoneId: v.optional(
+        v.id("buildSubmilestones")
+      ),
+      canonicalCompanionDisposition: v.optional(
+        v.union(
+          v.literal("active"),
+          v.literal("historical"),
+          v.literal("historical_duplicate"),
+          v.literal("quarantined")
+        )
+      ),
+      canonicalCompanionSurvivorId: v.optional(v.id("buildActionItems")),
+      canonicalCompanionSupersededAt: v.optional(v.number()),
       title: v.string(),
       updatedAt: v.number(),
       workKind: buildActionItemWorkKindValidator,
@@ -440,6 +453,11 @@ export const getBuildActionItemDetail = authenticatedQuery
         canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,
         canonicalBindingRevision: item.canonicalBindingRevision,
         canonicalPlanningState: item.canonicalPlanningState,
+        historicalCanonicalBuildSubmilestoneId:
+          item.historicalCanonicalBuildSubmilestoneId,
+        canonicalCompanionDisposition: item.canonicalCompanionDisposition,
+        canonicalCompanionSurvivorId: item.canonicalCompanionSurvivorId,
+        canonicalCompanionSupersededAt: item.canonicalCompanionSupersededAt,
         title: item.title,
         updatedAt: item.updatedAt,
         workKind: item.workKind ?? "ordinary",

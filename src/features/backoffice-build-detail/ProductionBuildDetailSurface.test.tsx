@@ -22,6 +22,18 @@ const convexMocks = vi.hoisted(() => ({
   paginatedQueryError: null as Error | null,
 }));
 
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(),
+    useRouter: () => ({
+      history: { back: vi.fn(), forward: vi.fn(), go: vi.fn() },
+    }),
+  };
+});
+
 vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
   usePaginatedQuery: () => {
@@ -44,17 +56,37 @@ vi.mock("convex/react", () => ({
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
   FieldRichTextEditor: ({
     ariaLabel,
+    editable = true,
     onChange,
+    onDocumentChange,
     value,
   }: {
     ariaLabel: string;
-    onChange: (value: string) => void;
-    value: string;
+    editable?: boolean;
+    onChange?: (value: string) => void;
+    onDocumentChange?: (document: Record<string, unknown>) => void;
+    value: unknown;
   }) => (
     <textarea
       aria-label={ariaLabel}
-      onChange={(event) => onChange(event.currentTarget.value)}
-      value={value}
+      data-editable={editable ? "true" : "false"}
+      onChange={(event) => {
+        const next = event.currentTarget.value;
+        onChange?.(next);
+        onDocumentChange?.({
+          content: next.trim()
+            ? [
+                {
+                  content: [{ text: next, type: "text" }],
+                  type: "paragraph",
+                },
+              ]
+            : [{ type: "paragraph" }],
+          type: "doc",
+        });
+      }}
+      readOnly={!editable}
+      value={typeof value === "string" ? value : JSON.stringify(value ?? "")}
     />
   ),
   FieldRichTextPreview: () => null,
@@ -88,7 +120,10 @@ vi.mock("./ActiveBuildTimelineWorkspace", () => ({
     onRequestSiteVisit,
     workspace,
   }: {
-    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    onRequestSiteVisit: (input: {
+      milestoneKey: string;
+      requestedDay?: number;
+    }) => void;
     workspace: any;
   }) => (
     <div data-testid="mock-active-build-timeline">
@@ -97,6 +132,14 @@ vi.mock("./ActiveBuildTimelineWorkspace", () => ({
         type="button"
       >
         Timeline order site visit
+      </button>
+      <button
+        onClick={() =>
+          onRequestSiteVisit({ milestoneKey: "foundation", requestedDay: 5 })
+        }
+        type="button"
+      >
+        Timeline schedule site visit
       </button>
       <div data-testid="mock-active-build-timeline-milestones">
         {workspace.milestones.length}
@@ -113,7 +156,10 @@ vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
     onRequestSiteVisit,
     workspace,
   }: {
-    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    onRequestSiteVisit: (input: {
+      milestoneKey: string;
+      requestedDay?: number;
+    }) => void;
     workspace: any;
   }) => (
     <div data-testid="mock-active-build-timeline">
@@ -122,6 +168,14 @@ vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
         type="button"
       >
         Timeline order site visit
+      </button>
+      <button
+        onClick={() =>
+          onRequestSiteVisit({ milestoneKey: "foundation", requestedDay: 5 })
+        }
+        type="button"
+      >
+        Timeline schedule site visit
       </button>
       <div data-testid="mock-active-build-timeline-milestones">
         {workspace.milestones.length}
@@ -156,10 +210,7 @@ vi.mock("./ActiveBuildGanttWorkspace", () => ({
         Gantt order site visit
       </button>
       {onStartWork ? (
-        <button
-          onClick={() => onStartWork("foundation")}
-          type="button"
-        >
+        <button onClick={() => onStartWork("foundation")} type="button">
           Gantt start work
         </button>
       ) : null}
@@ -336,16 +387,39 @@ const detail: ProductionBuildDetail = {
       name: "Foundation",
       order: 1,
       status: "in_progress",
+      workflowRevision: 3,
     },
   ],
   submilestones: [
     {
       _id: "sub-01",
+      fieldGuidance: {
+        cameraAnglesTiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Capture excavation context", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+        whatToVerifyTiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Verify excavation", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
       key: "excavation",
       milestoneKey: "foundation",
       name: "Excavation",
       order: 1,
+      proposalSubmilestoneId: "proposal-sub-01",
       status: "complete",
+      workflowRevision: 3,
     },
   ],
   auditEvents: [
@@ -547,13 +621,16 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         rail="closed"
+        timelineWorkspace={timelineWorkspace}
       />,
     );
 
-    expect(screen.getAllByRole("region", { name: "Details workspace" })).toHaveLength(
-      1,
-    );
-    expect(screen.queryByRole("region", { name: "Timeline workspace" })).toBeNull();
+    expect(
+      screen.getAllByRole("region", { name: "Details workspace" }),
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole("region", { name: "Timeline workspace" }),
+    ).toBeNull();
 
     rerender(
       <ProductionBuildDetailSurface
@@ -566,10 +643,12 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    expect(screen.getAllByRole("region", { name: "Timeline workspace" })).toHaveLength(
-      1,
-    );
-    expect(screen.queryByRole("region", { name: "Details workspace" })).toBeNull();
+    expect(
+      screen.getAllByRole("region", { name: "Timeline workspace" }),
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole("region", { name: "Details workspace" }),
+    ).toBeNull();
   });
 
   test("renders first-class milestone, contractor, and materials tabs for live builds", async () => {
@@ -603,10 +682,10 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("production-build-contractors")).toBeTruthy();
     expect(screen.getByTestId("proposal-contractor-planning")).toBeTruthy();
     expect(screen.getByTestId("contractor-card-contractor-01")).toBeTruthy();
-    expect(screen.getByTestId("proposal-milestone-drop-foundation")).toBeTruthy();
-    expect(screen.getAllByText("Site Lead Builders").length).toBeGreaterThan(
-      1,
-    );
+    expect(
+      screen.getByTestId("proposal-milestone-drop-foundation"),
+    ).toBeTruthy();
+    expect(screen.getAllByText("Site Lead Builders").length).toBeGreaterThan(1);
 
     rerender(
       <ProductionBuildDetailSurface
@@ -826,8 +905,15 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.queryByTestId("build-detail-documents")).toBeNull();
     expect(screen.queryByTestId("internal-notes")).toBeNull();
     expect(screen.queryByTestId("public-notes")).toBeNull();
-    await waitFor(() =>
-      expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy(),
+    // Build collaboration is intentionally lazy-loaded. Give the dynamic
+    // chunk enough time to resolve when the full suite is compiling several
+    // worker graphs concurrently.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByTestId("build-collaboration-unavailable"),
+        ).toBeTruthy(),
+      { timeout: 5000 },
     );
     expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
 
@@ -838,9 +924,9 @@ describe("ProductionBuildDetailSurface", () => {
       screen.getByTestId("draw-overview-availability").textContent,
     ).toContain("$0");
     expect(screen.queryByTestId("draw-overview-upcoming-draw")).toBeNull();
-    expect(screen.getByTestId("draw-overview-approval-queue").textContent).toContain(
-      "No draw requests are waiting for lender action.",
-    );
+    expect(
+      screen.getByTestId("draw-overview-approval-queue").textContent,
+    ).toContain("No draw requests are waiting for lender action.");
     expect(screen.getByText("Past draws")).toBeTruthy();
     expect(screen.getByText("Upcoming schedule")).toBeTruthy();
 
@@ -874,13 +960,16 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
-      expect(
-        screen.getByText("Collaboration is temporarily unavailable"),
-      ).toBeTruthy();
-      expect(consoleError).toHaveBeenCalled();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
+        expect(
+          screen.getByText("Collaboration is temporarily unavailable"),
+        ).toBeTruthy();
+        expect(consoleError).toHaveBeenCalled();
+      },
+      { timeout: 5000 },
+    );
   });
 
   test("keeps Build Overview operational while tenant collaboration is disabled", async () => {
@@ -902,10 +991,14 @@ describe("ProductionBuildDetailSurface", () => {
 
     expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
     await waitFor(() => {
-      expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy();
+      expect(
+        screen.getByTestId("build-collaboration-unavailable"),
+      ).toBeTruthy();
       expect(screen.getByText("Collaboration is unavailable")).toBeTruthy();
       expect(
-        screen.getByText(/has not been activated for this lender organization/i),
+        screen.getByText(
+          /has not been activated for this lender organization/i,
+        ),
       ).toBeTruthy();
     });
   });
@@ -997,7 +1090,9 @@ describe("ProductionBuildDetailSurface", () => {
     const behindSchedule = screen.getByTestId("behind-schedule-milestones");
     expect(within(behindSchedule).getByText("Foundation")).toBeTruthy();
     expect(within(behindSchedule).getByText("25 days behind")).toBeTruthy();
-    expect(within(behindSchedule).getByText("Foundation contractor")).toBeTruthy();
+    expect(
+      within(behindSchedule).getByText("Foundation contractor"),
+    ).toBeTruthy();
     expect(within(behindSchedule).getByText("Budget")).toBeTruthy();
     expect(
       within(behindSchedule).getAllByText("$225,000").length,
@@ -1068,7 +1163,6 @@ describe("ProductionBuildDetailSurface", () => {
       ),
     ).toBeTruthy();
   });
-
 
   test("uses canonical milestone progress and surfaces reconciliation warnings", () => {
     render(
@@ -1173,9 +1267,9 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBeNull();
 
     fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
-    expect(screen.getByTestId("draw-overview-past-draws").textContent).toContain(
-      "Released permit reimbursement",
-    );
+    expect(
+      screen.getByTestId("draw-overview-past-draws").textContent,
+    ).toContain("Released permit reimbursement");
     expect(
       screen.getByTestId("draw-overview-in-flight-draws").textContent,
     ).toContain("Requested foundation holdback");
@@ -1310,9 +1404,9 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
 
     expect(screen.queryByTestId("draw-overview-request-now")).toBeNull();
-    expect(screen.getByTestId("draw-overview-approval-queue").textContent).toContain(
-      "Draw approval queue",
-    );
+    expect(
+      screen.getByTestId("draw-overview-approval-queue").textContent,
+    ).toContain("Draw approval queue");
 
     fireEvent.click(
       within(screen.getByTestId("draw-overview-approval-queue")).getByTestId(
@@ -1330,7 +1424,9 @@ describe("ProductionBuildDetailSurface", () => {
       drawKey: "draw-approved",
     });
 
-    expect(screen.queryByTestId("build-detail-draw-request-draw-requested")).toBeNull();
+    expect(
+      screen.queryByTestId("build-detail-draw-request-draw-requested"),
+    ).toBeNull();
   });
 
   test("runs the B4 lender funding review workflow against production draw actions", async () => {
@@ -1402,7 +1498,7 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeTab={vi.fn()}
         rail="closed"
         viewerRole="lender"
-      />
+      />,
     );
 
     fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
@@ -1410,38 +1506,38 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("build-funding-workspace")).toBeTruthy();
     expect(screen.getByTestId("lender-funding-review")).toBeTruthy();
     expect(screen.queryByTestId("production-draws-table")).toBeNull();
-    expect(screen.queryByRole("button", { name: /request a draw/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /request a draw/i }),
+    ).toBeNull();
 
     fireEvent.click(
-      screen.getByTestId("lender-review-start-draw-requested-b4")
+      screen.getByTestId("lender-review-start-draw-requested-b4"),
     );
     await waitFor(() =>
       expect(startDrawReview).toHaveBeenCalledWith(requestedDraw),
     );
 
     fireEvent.click(
-      screen.getByTestId("lender-review-release-draw-approved-b4")
+      screen.getByTestId("lender-review-release-draw-approved-b4"),
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: "Confirm release" })
+      await screen.findByRole("button", { name: "Confirm release" }),
     );
     await waitFor(() => expect(releaseDraw).toHaveBeenCalledWith(approvedDraw));
 
     fireEvent.click(
       within(screen.getByTestId("lender-funding-review")).getByRole("button", {
         name: "Review Foundation milestone",
-      })
+      }),
     );
     const milestoneSummary = within(
-      screen.getByTestId("milestone-completion-review-summary")
+      screen.getByTestId("milestone-completion-review-summary"),
     );
     expect(milestoneSummary.getByText("$225,000.00")).toBeTruthy();
     expect(milestoneSummary.getByText("2026-07-14")).toBeTruthy();
+    expect(screen.getByText("Foundation completion photo")).toBeTruthy();
     expect(
-      screen.getByText("Foundation completion photo")
-    ).toBeTruthy();
-    expect(
-      screen.getByText("No site visit has been ordered for this milestone.")
+      screen.getByText("No site visit has been ordered for this milestone."),
     ).toBeTruthy();
   });
 
@@ -1459,7 +1555,9 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
-    expect(screen.queryByTestId("build-detail-draw-request-draw-01")).toBeNull();
+    expect(
+      screen.queryByTestId("build-detail-draw-request-draw-01"),
+    ).toBeNull();
     expect(screen.getAllByText("Planned").length).toBeGreaterThan(0);
   });
 
@@ -1478,11 +1576,13 @@ describe("ProductionBuildDetailSurface", () => {
 
     fireEvent.click(screen.getByTestId("kanban-card-foundation"));
     expect(
-      screen.getByTestId("milestone-completion-review-summary")
+      screen.getByTestId("milestone-completion-review-summary"),
     ).toBeTruthy();
     expect(screen.getByText("Builder submitted evidence")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Approve completion/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Approve completion/i }),
+    );
 
     await waitFor(() =>
       expect(approveMilestone).toHaveBeenCalledWith({
@@ -1692,13 +1792,16 @@ describe("ProductionBuildDetailSurface", () => {
     expect(within(people).getByText("Foundation contractor")).toBeTruthy();
 
     const materials = screen.getByTestId("milestone-review-materials");
-    expect(within(materials).getByText("Foundation material package")).toBeTruthy();
+    expect(
+      within(materials).getByText("Foundation material package"),
+    ).toBeTruthy();
     expect(within(materials).getByText("Apex Supply")).toBeTruthy();
     expect(within(materials).getByText("$8,000.00")).toBeTruthy();
 
     expect(screen.getByText("Foundation completion photo")).toBeTruthy();
-    expect(screen.getByText("No site visit has been ordered for this milestone."))
-      .toBeTruthy();
+    expect(
+      screen.getByText("No site visit has been ordered for this milestone."),
+    ).toBeTruthy();
     expect(screen.getByText("Reviewer decision")).toBeTruthy();
   });
 
@@ -1801,8 +1904,9 @@ describe("ProductionBuildDetailSurface", () => {
 
     fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
     expect(screen.getByText("Foundation photo")).toBeTruthy();
-    expect(screen.getByText("No site visit has been ordered for this milestone."))
-      .toBeTruthy();
+    expect(
+      screen.getByText("No site visit has been ordered for this milestone."),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Order site visit/i }));
     expect(assignSiteVisit).not.toHaveBeenCalled();
@@ -1833,9 +1937,25 @@ describe("ProductionBuildDetailSurface", () => {
   test("preflights site visit scope and editable guidance before creating the visit", async () => {
     const assignSiteVisit = vi.fn().mockResolvedValue(null);
     const whatToVerify =
-      "<ul><li>Verify excavation and footing work against the approved scope.</li></ul>";
+      JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Verify excavation", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      });
     const cameraAngles =
-      "<ul><li>Capture a wide view tying the excavation to the site.</li></ul>";
+      JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Capture context", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      });
 
     render(
       <ProductionBuildDetailSurface
@@ -1867,20 +1987,26 @@ describe("ProductionBuildDetailSurface", () => {
     const dialog = within(
       screen.getByRole("dialog", { name: "Configure site visit" }),
     );
-    expect(dialog.getByRole("heading", { name: "Configure site visit" })).toBeTruthy();
+    expect(
+      dialog.getByRole("heading", { name: "Configure site visit" }),
+    ).toBeTruthy();
     expect(assignSiteVisit).not.toHaveBeenCalled();
     expect(dialog.getByText("Foundation")).toBeTruthy();
-    expect(dialog.getByText("Excavation")).toBeTruthy();
+    expect(dialog.getAllByText("Excavation").length).toBeGreaterThan(0);
 
-    const verifyEditor = dialog.getByLabelText("What to verify");
-    const anglesEditor = dialog.getByLabelText("Required photo angles");
-    expect((verifyEditor as HTMLTextAreaElement).value).toBe(whatToVerify);
-    expect((anglesEditor as HTMLTextAreaElement).value).toBe(cameraAngles);
+    const verifyEditor = dialog.getByLabelText("Excavation what to verify");
+    const anglesEditor = dialog.getByLabelText(
+      "Excavation recommended camera angles",
+    );
+    expect((verifyEditor as HTMLTextAreaElement).value).toContain(
+      "Verify excavation",
+    );
+    expect((anglesEditor as HTMLTextAreaElement).value).toContain(
+      "Capture excavation context",
+    );
 
-    const editedVerify =
-      "<ul><li>Confirm forms, reinforcing, and concrete dimensions.</li></ul>";
-    const editedAngles =
-      "<ul><li>Capture one wide view and one reinforcing close-up.</li></ul>";
+    const editedVerify = "Confirm forms and concrete dimensions.";
+    const editedAngles = "Capture one wide view and one reinforcing close-up.";
     fireEvent.change(verifyEditor, { target: { value: editedVerify } });
     fireEvent.change(anglesEditor, { target: { value: editedAngles } });
     fireEvent.click(
@@ -1891,9 +2017,35 @@ describe("ProductionBuildDetailSurface", () => {
       expect(assignSiteVisit).toHaveBeenCalledWith({
         milestoneKey: "foundation",
         siteVisitGuidance: {
-          cameraAngles: editedAngles,
-          whatToVerify: editedVerify,
+          cameraAngles,
+          whatToVerify,
         },
+        submilestoneGuidanceSections: [
+          {
+            buildSubmilestoneId: "sub-01",
+            cameraAnglesTiptapJson: JSON.stringify({
+              content: [
+                {
+                  content: [
+                    { text: editedAngles, type: "text" },
+                  ],
+                  type: "paragraph",
+                },
+              ],
+              type: "doc",
+            }),
+            proposalSubmilestoneId: "proposal-sub-01",
+            whatToVerifyTiptapJson: JSON.stringify({
+              content: [
+                {
+                  content: [{ text: editedVerify, type: "text" }],
+                  type: "paragraph",
+                },
+              ],
+              type: "doc",
+            }),
+          },
+        ],
         submilestoneKeys: ["excavation"],
       }),
     );
@@ -1974,10 +2126,14 @@ describe("ProductionBuildDetailSurface", () => {
       ),
     );
     resolveGeneration?.(generatedGuidance);
-    await waitFor(() => expect(dialog.getByText("AI draft ready")).toBeTruthy());
+    await waitFor(() =>
+      expect(dialog.getByText("AI draft ready")).toBeTruthy(),
+    );
     expect(dialog.getByText("Draft ready")).toBeTruthy();
-    const verifyEditor = dialog.getByLabelText("What to verify");
-    const anglesEditor = dialog.getByLabelText("Required photo angles");
+    const verifyEditor = dialog.getByLabelText("Visit-wide what to verify");
+    const anglesEditor = dialog.getByLabelText(
+      "Visit-wide required photo angles",
+    );
     await waitFor(() =>
       expect((verifyEditor as HTMLTextAreaElement).value).toContain(
         "Confirm excavation depth",
@@ -1994,6 +2150,52 @@ describe("ProductionBuildDetailSurface", () => {
     });
     expect((verifyEditor as HTMLTextAreaElement).value).toBe(
       editedAfterGeneration,
+    );
+  });
+
+  test("forwards the ordered guidance snapshot array through scheduled visits", async () => {
+    const scheduleSiteVisit = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        activeBuildId="active-build-01"
+        actions={{ scheduleSiteVisit }}
+        activeTab="timeline"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        timelineWorkspace={timelineWorkspace}
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Timeline schedule site visit" }),
+    );
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Configure site visit" }),
+    );
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Confirm and order site visit" }),
+    );
+    await waitFor(() => expect(scheduleSiteVisit).toHaveBeenCalledTimes(1));
+    expect(scheduleSiteVisit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        milestoneKey: "foundation",
+        requestedDay: 5,
+        submilestoneGuidanceSections: [
+          {
+            buildSubmilestoneId: "sub-01",
+            cameraAnglesTiptapJson: expect.stringContaining(
+              "Capture excavation context",
+            ),
+            proposalSubmilestoneId: "proposal-sub-01",
+            whatToVerifyTiptapJson: expect.stringContaining(
+              "Verify excavation",
+            ),
+          },
+        ],
+      }),
     );
   });
 
@@ -2039,9 +2241,9 @@ describe("ProductionBuildDetailSurface", () => {
 
     fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
     expect(screen.getByTestId("site-visit-token-panel")).toBeTruthy();
-    expect(screen.getAllByText("Site visit in progress").length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      screen.getAllByText("Site visit in progress").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Ordered")).toBeTruthy();
     expect(screen.getAllByText("Opened").length).toBeGreaterThan(0);
     expect(screen.getByTestId("site-visit-token-value").textContent).toContain(
@@ -2177,7 +2379,9 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
-    expect(screen.getAllByText("Site visit completed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Site visit completed").length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByTestId("completed-site-visit-review")).toBeTruthy();
     expect(
       screen.getByText("Inspector verified the completed foundation scope."),
@@ -2309,7 +2513,7 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         rail="closed"
-      />
+      />,
     );
 
     fireEvent.change(screen.getByTestId("documents-supersedes"), {
@@ -2325,7 +2529,7 @@ describe("ProductionBuildDetailSurface", () => {
         documentType: "permit",
         fileName: "permit-v2.pdf",
         supersedesDocumentId: "document-01",
-      })
+      }),
     );
     expect(screen.getByText(/permit · v1/i)).toBeTruthy();
   });
@@ -2347,9 +2551,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    const documentRow = screen.getByTestId(
-      "build-detail-document-document-01",
-    );
+    const documentRow = screen.getByTestId("build-detail-document-document-01");
     await waitFor(() => expect(document.activeElement).toBe(documentRow));
     expect(documentRow.dataset.collaborationFocused).toBe("true");
     expect(scrollIntoView).toHaveBeenCalledWith({
@@ -2402,7 +2604,6 @@ describe("ProductionBuildDetailSurface", () => {
     );
   });
 
-
   test("submits an exact versioned Budget revision from the builder workspace", async () => {
     const requestBudgetRevision = vi.fn();
     render(
@@ -2425,14 +2626,16 @@ describe("ProductionBuildDetailSurface", () => {
       target: { value: "575000" },
     });
     expect(
-      (screen.getByTestId("budget-loan-percentage") as HTMLInputElement).value
+      (screen.getByTestId("budget-loan-percentage") as HTMLInputElement).value,
     ).toBe("80");
     expect(screen.getByText("Loan Percentage (%)")).toBeTruthy();
     fireEvent.change(screen.getByTestId("budget-loan-percentage"), {
       target: { value: "75" },
     });
     fireEvent.change(screen.getByLabelText("Budget revision reason"), {
-      target: { value: "Subcontractor buyout changed the governing assumptions." },
+      target: {
+        value: "Subcontractor buyout changed the governing assumptions.",
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "Request revision" }));
 
@@ -2512,7 +2715,7 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Review milestone completion" })
+      screen.getByRole("heading", { name: "Review milestone completion" }),
     ).toBeTruthy();
     expect(screen.getByText("Builder submitted evidence")).toBeTruthy();
     expect(screen.getByText("Site visit")).toBeTruthy();
@@ -2520,7 +2723,7 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(
       screen
         .getAllByRole("button", { name: "Close" })
-        .find((button) => button.textContent === "Close") as HTMLButtonElement
+        .find((button) => button.textContent === "Close") as HTMLButtonElement,
     );
     expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
   });
@@ -2621,17 +2824,15 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeTab={vi.fn()}
         rail="closed"
         viewerRole="builder"
-      />
+      />,
     );
 
-    const sheet = within(
-      screen.getByTestId("milestone-detail-sheet-panel")
-    );
+    const sheet = within(screen.getByTestId("milestone-detail-sheet-panel"));
     expect(
-      sheet.getByRole("heading", { name: "Requested changes" })
+      sheet.getByRole("heading", { name: "Requested changes" }),
     ).toBeTruthy();
     expect(
-      sheet.getByText("Upload the signed foundation inspection report.")
+      sheet.getByText("Upload the signed foundation inspection report."),
     ).toBeTruthy();
     expect(sheet.getByText("Requested 2026-07-15")).toBeTruthy();
   });
@@ -2657,14 +2858,14 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeTab={vi.fn()}
         rail="closed"
         viewerRole="builder"
-      />
+      />,
     );
 
     expect(
       within(screen.getByTestId("milestone-detail-sheet-panel")).queryByRole(
         "heading",
-        { name: "Requested changes" }
-      )
+        { name: "Requested changes" },
+      ),
     ).toBeNull();
   });
 
@@ -2683,18 +2884,14 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("milestone-detail-sheet")).toBeTruthy();
-    expect(
-      screen.queryByTestId("milestone-detail-sheet-approve"),
-    ).toBeNull();
+    expect(screen.queryByTestId("milestone-detail-sheet-approve")).toBeNull();
     expect(
       screen.queryByTestId("milestone-detail-sheet-request-info"),
     ).toBeNull();
     expect(
       screen.queryByTestId("milestone-detail-sheet-assign-visit"),
     ).toBeNull();
-    expect(
-      screen.queryByTestId("milestone-detail-sheet-reject"),
-    ).toBeNull();
+    expect(screen.queryByTestId("milestone-detail-sheet-reject")).toBeNull();
   });
 
   test("writes clicked milestone cards back to the production route search state", () => {
@@ -2803,7 +3000,9 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("contractors-open-add"));
-    fireEvent.click(screen.getByRole("button", { name: /Available Concrete/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Available Concrete/i }),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Invite Available Concrete" }),
     );
@@ -2861,9 +3060,7 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.change(screen.getByLabelText("Role"), {
       target: { value: "Masonry lead" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Confirm assignment" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm assignment" }));
 
     await waitFor(() =>
       expect(assignContractorToMilestone).toHaveBeenCalledWith({
@@ -3148,9 +3345,7 @@ describe("ProductionBuildDetailSurface", () => {
 
     fireEvent.click(screen.getByTestId("milestone-detail-sheet-start-work"));
     expect(screen.getByTestId("milestone-start-dialog")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Record start" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Record start" }));
     await waitFor(() =>
       expect(startMilestoneWork).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3158,8 +3353,8 @@ describe("ProductionBuildDetailSurface", () => {
           idempotencyKey: expect.any(String),
           milestoneKey: "foundation",
           source: "milestone_detail",
-        })
-      )
+        }),
+      ),
     );
   });
 
@@ -3183,12 +3378,10 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         viewerRole="builder"
-      />
+      />,
     );
 
-    fireEvent.click(
-      screen.getByTestId("kanban-card-start-work-foundation")
-    );
+    fireEvent.click(screen.getByTestId("kanban-card-start-work-foundation"));
     expect(screen.getByText("Milestone card")).toBeTruthy();
     expect(screen.getByTestId("milestone-start-dialog")).toBeTruthy();
   });
@@ -3215,7 +3408,7 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         viewerRole="builder"
-      />
+      />,
     );
 
     fireEvent.click(screen.getByTestId("milestone-primary-completion-action"));
@@ -3228,8 +3421,83 @@ describe("ProductionBuildDetailSurface", () => {
           actualStartedAt: expect.any(Number),
           idempotencyKey: expect.any(String),
           milestoneKey: "foundation",
-        })
-      )
+        }),
+      ),
+    );
+  });
+
+  test("routes planned submilestone execution edits through canonical start before updating", async () => {
+    const startMilestoneWork = vi.fn().mockResolvedValue({ revision: 8 });
+    const updateSubmilestoneExecution = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ startMilestoneWork, updateSubmilestoneExecution }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              status: "in_progress",
+              workflowRevision: 3,
+            },
+          ],
+          submilestones: [
+            {
+              ...detail.submilestones[0],
+              actualStartedAt: undefined,
+              status: "planned",
+              workflowRevision: 7,
+            },
+          ],
+        }}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        viewerRole="builder"
+      />,
+    );
+
+    const milestoneSheet = within(
+      screen.getByTestId("milestone-detail-sheet-panel"),
+    );
+    const excavationLabel = milestoneSheet.getByText("Excavation");
+    fireEvent.click(excavationLabel.closest("button") ?? excavationLabel);
+    const actualCost = screen.getByPlaceholderText("Not reported");
+    fireEvent.change(actualCost, { target: { value: "123.45" } });
+    fireEvent.blur(actualCost);
+
+    expect(await screen.findByTestId("milestone-start-dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Record start" }));
+
+    await waitFor(() => expect(startMilestoneWork).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(updateSubmilestoneExecution).toHaveBeenCalledTimes(1),
+    );
+
+    const startInput = startMilestoneWork.mock.calls[0][0];
+    const updateInput = updateSubmilestoneExecution.mock.calls[0][0];
+    expect(startInput).toMatchObject({
+      expectedRevision: 7,
+      milestoneKey: "foundation",
+      source: "submilestone_detail",
+      submilestoneKey: "excavation",
+    });
+    expect(startInput.idempotencyKey).toEqual(expect.any(String));
+    expect(updateInput).toMatchObject({
+      actualCostCents: 12_345,
+      actualStartedAt: expect.any(Number),
+      expectedRevision: 8,
+      milestoneKey: "foundation",
+      submilestoneKey: "excavation",
+    });
+    expect(updateInput.idempotencyKey).toBe(
+      `${startInput.idempotencyKey}:execution`,
+    );
+    expect(startMilestoneWork.mock.invocationCallOrder[0]).toBeLessThan(
+      updateSubmilestoneExecution.mock.invocationCallOrder[0],
     );
   });
 
@@ -3250,11 +3518,33 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("milestone-detail-sheet")).toBeTruthy();
-    expect(screen.getByText("Assignments · buildContractorAssignments")).toBeTruthy();
-    expect(screen.getByText("Recent events · activeBuildAuditEvents")).toBeTruthy();
+    expect(
+      screen.getByText("Assignments · buildContractorAssignments"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Recent events · activeBuildAuditEvents"),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("milestone-detail-sheet-close"));
     expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
+  });
+
+  test("does not stack a parent Milestone sheet behind a typed detail target", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        focusedReference="actionItem:action-item-01"
+        milestoneKey="foundation"
+        onChangeMilestone={vi.fn()}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        viewerRole="builder"
+      />,
+    );
+
+    expect(screen.queryByTestId("milestone-detail-sheet")).toBeNull();
   });
 
   test("writes clicked milestone cards back to the production route search state", () => {
@@ -3406,7 +3696,7 @@ describe("ProductionBuildDetailSurface", () => {
         timelineWorkspace={timelineWorkspace}
         viewerRole="builder"
         workosOrganizationId="org_test"
-      />
+      />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Gantt start work" }));

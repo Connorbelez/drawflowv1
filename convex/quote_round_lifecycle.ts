@@ -28,15 +28,25 @@ import {
   clearPreferredForRound,
 } from "./quote_preferred";
 import { migratePriorRevisionDraftForAccess } from "./quote_response_drafts";
+import { prepareEffectiveLabourLinesForPackageRevision } from "./quote_rounds";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_REOPEN_CLONE_SERIALIZED_BYTES = 12 * 1024 * 1024;
+const MAX_PACKAGE_REVISION_HISTORY = 20;
 
 const quoteRoundStateValidator = v.union(
   v.literal("draft"),
   v.literal("open"),
   v.literal("closed"),
   v.literal("cancelled")
+);
+
+const republishDeadlinePolicyValidator = v.union(
+  v.object({ kind: v.literal("keep") }),
+  v.object({
+    kind: v.literal("replace"),
+    responseDeadline: v.number(),
+  })
 );
 
 const lifecycleResultValidator = v.object({
@@ -470,10 +480,10 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
     buildId: v.id("activeBuilds"),
     changedFieldKeys: v.optional(v.array(v.string())),
     confirmed: v.boolean(),
+    deadlinePolicy: republishDeadlinePolicyValidator,
     expectedRevision: v.number(),
     quoteRoundId: v.id("quoteRounds"),
     reason: v.string(),
-    responseDeadline: v.number(),
     workosOrganizationId: v.string(),
   })
   .returns(lifecycleResultValidator)
@@ -493,8 +503,10 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
       args.quoteRoundId
     );
     assertExpectedRevision(round, args.expectedRevision);
-    if (round.state !== "closed") {
-      throw new ConvexError("Only a closed Quote Round may be reopened.");
+    if (round.state !== "closed" && round.state !== "open") {
+      throw new ConvexError(
+        "Only a published Quote Round may receive a new Package Revision."
+      );
     }
     const previous = round.currentPackageRevisionId
       ? await ctx.db.get(round.currentPackageRevisionId)
@@ -504,13 +516,35 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
         "A closed Quote Round requires a current Package Revision."
       );
     }
-    const now = Date.now();
-    assertSafeFutureDeadline(args.responseDeadline, now);
-    if (args.responseDeadline <= previous.responseDeadline) {
+    const packageRevisionHistory = await ctx.db
+      .query("quotePackageRevisions")
+      .withIndex("by_quoteRoundId_and_revision", (query) =>
+        query.eq("quoteRoundId", round._id)
+      )
+      .take(MAX_PACKAGE_REVISION_HISTORY + 1);
+    if (packageRevisionHistory.length >= MAX_PACKAGE_REVISION_HISTORY) {
       throw new ConvexError(
-        "A reopened Quote Round requires an extended future deadline."
+        "Quote Round has reached the 20 Package Revision limit."
       );
     }
+    const now = Date.now();
+    const responseDeadline =
+      args.deadlinePolicy.kind === "keep"
+        ? previous.responseDeadline
+        : args.deadlinePolicy.responseDeadline;
+    assertSafeFutureDeadline(
+      responseDeadline,
+      now,
+      args.deadlinePolicy.kind === "keep"
+        ? "Kept Quote Response Deadline (choose replace when expired)"
+        : "Replacement Quote Response Deadline"
+    );
+    const effectiveLabourLines =
+      await prepareEffectiveLabourLinesForPackageRevision(
+        ctx,
+        authorization,
+        previous._id
+      );
     await clearPreferredForRound(ctx, round, {
       actor: {
         actorRoles: authorization.viewer.roles,
@@ -520,13 +554,23 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
       reason:
         "Quote Package Revision supersession cleared the Preferred Quote.",
     });
-    const changedFieldKeys = normalizeChangedFieldKeys([
-      ...(args.changedFieldKeys ?? []),
-      "responseDeadline",
-    ]);
+    const changedScopeFieldKeys = effectiveLabourLines
+      .filter(
+        ({ previousLine, sourceScopeRevisionId }) =>
+          previousLine.sourceScopeRevisionId !== sourceScopeRevisionId
+      )
+      .map(
+        ({ previousLine }) =>
+          `scope:${String(previousLine.buildSubmilestoneId)}`
+      );
+    const changedFieldKeys = normalizeChangedFieldKeysWithScopeSummary({
+      changedScopeFieldKeys,
+      explicitFieldKeys: args.changedFieldKeys,
+      responseDeadlineChanged: responseDeadline !== previous.responseDeadline,
+    });
     const accessExpiresAt = defaultQuoteInvitationAccessExpiry({
       publishedAt: now,
-      responseDeadline: args.responseDeadline,
+      responseDeadline,
     });
     const revisionNumber = previous.revision + 1;
     const packageRevisionId = await ctx.db.insert("quotePackageRevisions", {
@@ -540,7 +584,7 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
       publishedAt: now,
       publishedByWorkosUserId: authorization.viewer.subject,
       quoteRoundId: round._id,
-      responseDeadline: args.responseDeadline,
+      responseDeadline,
       revision: revisionNumber,
       roadmapSnapshotFingerprint: previous.roadmapSnapshotFingerprint,
       siteAddressSnapshot: previous.siteAddressSnapshot,
@@ -563,7 +607,8 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
       packageRevisionId,
       round._id,
       authorization,
-      now
+      now,
+      effectiveLabourLines
     );
     const packageRevision = await ctx.db.get(packageRevisionId);
     if (!packageRevision) {
@@ -612,7 +657,7 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
           reason,
         },
         quoteRound: round,
-        responseDeadline: args.responseDeadline,
+        responseDeadline,
       });
       await ctx.db.insert("quoteInvitationPackageRevisionAcknowledgements", {
         acknowledgedFieldKeys: [],
@@ -662,14 +707,14 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
         newState: {
           invitationCount: invitationIds.length,
           packageRevision: revisionNumber,
-          responseDeadline: args.responseDeadline,
+          responseDeadline,
           revision,
           state: "open",
         },
         payloadPreview: {
           invitationCount: invitationIds.length,
           packageRevision: revisionNumber,
-          responseDeadline: args.responseDeadline,
+          responseDeadline,
           revision,
           state: "open",
         },
@@ -686,7 +731,7 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
       packageRevisionNumber: revisionNumber,
       quoteRoundId: round._id,
       revision,
-      responseDeadline: args.responseDeadline,
+      responseDeadline,
       state: "open" as const,
       status: "reopened" as const,
     };
@@ -1343,6 +1388,65 @@ function normalizeChangedFieldKeys(values: string[] | undefined) {
   return keys;
 }
 
+const MAX_CHANGED_FIELD_KEYS = 100;
+const ADDITIONAL_SCOPE_CHANGES_FIELD_KEY = "scope:additional";
+
+function normalizeChangedFieldKeysWithScopeSummary(input: {
+  changedScopeFieldKeys: string[];
+  explicitFieldKeys?: string[];
+  responseDeadlineChanged: boolean;
+}) {
+  const explicit = normalizeChangedFieldKeys(input.explicitFieldKeys);
+  const responseDeadlineKey = "responseDeadline";
+  const includesResponseDeadline = explicit.includes(responseDeadlineKey);
+  const requiredKeys =
+    input.responseDeadlineChanged && !includesResponseDeadline
+      ? [responseDeadlineKey]
+      : [];
+  if (explicit.length + requiredKeys.length > MAX_CHANGED_FIELD_KEYS) {
+    throw new ConvexError(
+      "A Quote Package Revision may identify at most 100 changed fields."
+    );
+  }
+
+  const existing = new Set([...explicit, ...requiredKeys]);
+  const changedScopeFieldKeys = [
+    ...new Set(
+      input.changedScopeFieldKeys
+        .map((key) => key.trim())
+        .filter(Boolean)
+        .filter((key) => !existing.has(key))
+    ),
+  ];
+  const available = MAX_CHANGED_FIELD_KEYS - existing.size;
+  if (changedScopeFieldKeys.length <= available) {
+    return normalizeChangedFieldKeys([
+      ...explicit,
+      ...requiredKeys,
+      ...changedScopeFieldKeys,
+    ]);
+  }
+
+  // Keep the acknowledgement payload bounded while preserving a truthful
+  // signal that more Scope changes exist than can be listed individually.
+  const summaryAlreadyPresent = existing.has(
+    ADDITIONAL_SCOPE_CHANGES_FIELD_KEY
+  );
+  if (available === 0 && !summaryAlreadyPresent) {
+    throw new ConvexError(
+      "A Quote Package Revision may identify at most 100 changed fields."
+    );
+  }
+  const summarySlots = summaryAlreadyPresent ? 0 : 1;
+  const specificCapacity = Math.max(0, available - summarySlots);
+  return normalizeChangedFieldKeys([
+    ...explicit,
+    ...requiredKeys,
+    ...changedScopeFieldKeys.slice(0, specificCapacity),
+    ...(summaryAlreadyPresent ? [] : [ADDITIONAL_SCOPE_CHANGES_FIELD_KEY]),
+  ]);
+}
+
 function assertAcknowledgedFieldKeysBounds(values: string[]) {
   if (values.length > 100) {
     throw new ConvexError(
@@ -1389,38 +1493,34 @@ async function clonePackageRevisionRows(
   packageRevisionId: Id<"quotePackageRevisions">,
   quoteRoundId: Id<"quoteRounds">,
   authorization: ActiveBuildAuthorization,
-  now: number
+  now: number,
+  effectiveLabourLines: Awaited<
+    ReturnType<typeof prepareEffectiveLabourLinesForPackageRevision>
+  >
 ) {
-  const [attachments, labourLines, materialLines, responseFields] =
-    await Promise.all([
-      ctx.db
-        .query("quotePackageRevisionAttachments")
-        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
-          query.eq("quotePackageRevisionId", previous._id)
-        )
-        .take(201),
-      ctx.db
-        .query("quotePackageRevisionLabourLines")
-        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
-          query.eq("quotePackageRevisionId", previous._id)
-        )
-        .take(101),
-      ctx.db
-        .query("quotePackageRevisionMaterialLines")
-        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
-          query.eq("quotePackageRevisionId", previous._id)
-        )
-        .take(101),
-      ctx.db
-        .query("quotePackageRevisionResponseFields")
-        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
-          query.eq("quotePackageRevisionId", previous._id)
-        )
-        .take(101),
-    ]);
+  const [attachments, materialLines, responseFields] = await Promise.all([
+    ctx.db
+      .query("quotePackageRevisionAttachments")
+      .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+        query.eq("quotePackageRevisionId", previous._id)
+      )
+      .take(201),
+    ctx.db
+      .query("quotePackageRevisionMaterialLines")
+      .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+        query.eq("quotePackageRevisionId", previous._id)
+      )
+      .take(101),
+    ctx.db
+      .query("quotePackageRevisionResponseFields")
+      .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+        query.eq("quotePackageRevisionId", previous._id)
+      )
+      .take(101),
+  ]);
   if (
     attachments.length > 200 ||
-    labourLines.length > 100 ||
+    effectiveLabourLines.length > 100 ||
     materialLines.length > 100 ||
     responseFields.length > 100
   ) {
@@ -1448,7 +1548,13 @@ async function clonePackageRevisionRows(
   }
   const serializedBytes = [
     ...attachments,
-    ...labourLines,
+    ...effectiveLabourLines.map((line) => ({
+      previousLine: line.previousLine,
+      scopeOfWorkTiptapJson: line.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: line.sourceScopeChangeReason,
+      sourceScopeRevisionId: line.sourceScopeRevisionId,
+      sourceScopeVersion: line.sourceScopeVersion,
+    })),
     ...materialLines,
     ...responseFields,
     ...Array.from(assignmentsByMaterialLineId.values()).flat(),
@@ -1478,7 +1584,8 @@ async function clonePackageRevisionRows(
       storageIdSnapshot: row.storageIdSnapshot,
     });
   }
-  for (const row of labourLines) {
+  for (const effectiveLine of effectiveLabourLines) {
+    const row = effectiveLine.previousLine;
     await ctx.db.insert("quotePackageRevisionLabourLines", {
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
@@ -1493,7 +1600,10 @@ async function clonePackageRevisionRows(
       organizationId: authorization.organizationId,
       quotePackageRevisionId: packageRevisionId,
       quoteRoundId,
-      scopeOfWorkTiptapJson: row.scopeOfWorkTiptapJson,
+      scopeOfWorkTiptapJson: effectiveLine.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: effectiveLine.sourceScopeChangeReason,
+      sourceScopeRevisionId: effectiveLine.sourceScopeRevisionId,
+      sourceScopeVersion: effectiveLine.sourceScopeVersion,
       startDay: row.startDay,
       submilestoneKey: row.submilestoneKey,
       submilestoneName: row.submilestoneName,

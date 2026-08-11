@@ -184,9 +184,14 @@ describe("TimelineSettingsWorkspace", () => {
             {
               description: "Pour the foundation",
               durationDays: 6,
+              fieldGuidance: {
+                cameraAnglesTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Foundation pour camera"}]}]}',
+                whatToVerifyTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Foundation pour verification"}]}]}',
+              },
               name: "Foundation pour",
               order: 1,
               percentageBps: 2000,
+              scopeOfWorkTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Pour footings and walls"}]}]}',
               submilestoneKey: "foundation-pour",
             },
           ],
@@ -199,9 +204,14 @@ describe("TimelineSettingsWorkspace", () => {
             {
               description: "Frame the shell",
               durationDays: 12,
+              fieldGuidance: {
+                cameraAnglesTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Framing camera"}]}]}',
+                whatToVerifyTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Framing verification"}]}]}',
+              },
               name: "Frame shell",
               order: 0,
               percentageBps: 5000,
+              scopeOfWorkTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Frame walls and roof"}]}]}',
               submilestoneKey: "framing-shell",
             },
           ],
@@ -276,7 +286,15 @@ describe("TimelineSettingsWorkspace", () => {
         percentageBps: 2857,
         submilestones: [
           {
+            fieldGuidance: {
+              cameraAnglesTiptapJson:
+                '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Foundation pour camera"}]}]}',
+              whatToVerifyTiptapJson:
+                '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Foundation pour verification"}]}]}',
+            },
             percentageBps: 2857,
+            scopeOfWorkTiptapJson:
+              '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Pour footings and walls"}]}]}',
             submilestoneKey: "foundation-pour",
           },
         ],
@@ -286,7 +304,15 @@ describe("TimelineSettingsWorkspace", () => {
         percentageBps: 7143,
         submilestones: [
           {
+            fieldGuidance: {
+              cameraAnglesTiptapJson:
+                '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Framing camera"}]}]}',
+              whatToVerifyTiptapJson:
+                '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Framing verification"}]}]}',
+            },
             percentageBps: 7143,
+            scopeOfWorkTiptapJson:
+              '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Frame walls and roof"}]}]}',
             submilestoneKey: "framing-shell",
           },
         ],

@@ -31,6 +31,7 @@ export interface RecordMilestoneStartInput {
   actualStartedAt: number;
   build: Doc<"activeBuilds">;
   dependencyOverrideReason?: string;
+  expectedRevision: number;
   idempotencyKey: string;
   milestone: Doc<"buildMilestones">;
   milestones: Doc<"buildMilestones">[];
@@ -46,6 +47,7 @@ export interface MilestoneStartResult {
   parentStarted: boolean;
   replayed: boolean;
   reportedAt: number;
+  revision: number;
   submilestoneKey?: string;
 }
 
@@ -53,6 +55,7 @@ export interface AmendMilestoneStartInput {
   actor: MilestoneStartActor;
   actualStartedAt?: number;
   build: Doc<"activeBuilds">;
+  expectedRevision: number;
   idempotencyKey: string;
   milestone: Doc<"buildMilestones">;
   reason: string;
@@ -84,6 +87,7 @@ export async function recordMilestoneStart(
   }
 
   const target = input.submilestone ?? input.milestone;
+  assertExpectedWorkflowRevision(target, input.expectedRevision);
   if (target.actualStartedAt !== undefined) {
     throw new ConvexError({
       actualStartedAt: target.actualStartedAt,
@@ -144,6 +148,7 @@ export async function recordMilestoneStart(
     input.milestone.actualStartedAt === undefined &&
     input.milestone.status === "planned"
   ) {
+    const parentRevision = workflowRevision(input.milestone) + 1;
     const parentEventId = await appendStartEvent(ctx, {
       ...input,
       dependencySnapshot,
@@ -153,6 +158,7 @@ export async function recordMilestoneStart(
       reason,
       reportedAt,
       submilestone: undefined,
+      workflowRevision: parentRevision,
       warnings,
     });
     await ctx.db.patch(input.milestone._id, {
@@ -162,12 +168,14 @@ export async function recordMilestoneStart(
       startedByWorkosUserId: input.actor.workosUserId,
       startSource: input.source,
       status: "in_progress",
+      workflowRevision: parentRevision,
       updatedAt: reportedAt,
     });
     eventIds.push(parentEventId);
     parentStarted = true;
   }
 
+  const targetRevision = workflowRevision(target) + 1;
   const targetEventId = await appendStartEvent(ctx, {
     ...input,
     dependencySnapshot,
@@ -175,6 +183,7 @@ export async function recordMilestoneStart(
     priorLifecycleState: target.status,
     reason,
     reportedAt,
+    workflowRevision: targetRevision,
     warnings,
   });
   await ctx.db.patch(target._id, {
@@ -184,6 +193,7 @@ export async function recordMilestoneStart(
     startedByWorkosUserId: input.actor.workosUserId,
     startSource: input.source,
     status: "in_progress",
+    workflowRevision: targetRevision,
     updatedAt: reportedAt,
   });
   eventIds.push(targetEventId);
@@ -225,6 +235,7 @@ export async function recordMilestoneStart(
     parentStarted,
     replayed: false,
     reportedAt,
+    revision: targetRevision,
     ...(input.submilestone ? { submilestoneKey: input.submilestone.key } : {}),
   };
 }
@@ -240,6 +251,7 @@ export async function correctMilestoneStart(
     return replay;
   }
   const target = input.submilestone ?? input.milestone;
+  assertExpectedWorkflowRevision(target, input.expectedRevision);
   const completedWork =
     target.status === "complete" ||
     input.milestone.status === "complete" ||
@@ -251,6 +263,7 @@ export async function correctMilestoneStart(
     });
   }
   const reportedAt = Date.now();
+  const nextRevision = workflowRevision(target) + 1;
   const eventId = await appendAmendmentEvent(ctx, {
     ...input,
     eventType: "start_corrected",
@@ -262,6 +275,7 @@ export async function correctMilestoneStart(
     priorLifecycleState: target.status,
     reason,
     reportedAt,
+    workflowRevision: nextRevision,
   });
   await ctx.db.patch(target._id, {
     actualStartedAt: input.actualStartedAt,
@@ -270,9 +284,10 @@ export async function correctMilestoneStart(
     startedByWorkosUserId: input.actor.workosUserId,
     startSource: input.source,
     status: target.status === "planned" ? "in_progress" : target.status,
+    workflowRevision: nextRevision,
     updatedAt: reportedAt,
   });
-  return amendmentResult(input, eventId, reportedAt, input.actualStartedAt);
+  return amendmentResult(input, eventId, reportedAt, input.actualStartedAt, nextRevision);
 }
 
 export async function retractMilestoneStart(
@@ -286,6 +301,7 @@ export async function retractMilestoneStart(
     return replay;
   }
   const target = input.submilestone ?? input.milestone;
+  assertExpectedWorkflowRevision(target, input.expectedRevision);
   if (target.actualStartedAt === undefined) {
     throw new ConvexError({
       code: "START_NOT_RECORDED",
@@ -293,6 +309,7 @@ export async function retractMilestoneStart(
     });
   }
   const reportedAt = Date.now();
+  const nextRevision = workflowRevision(target) + 1;
   const nextLifecycleState = lifecycleAfterRetraction(target);
   const eventId = await appendAmendmentEvent(ctx, {
     ...input,
@@ -304,6 +321,7 @@ export async function retractMilestoneStart(
     priorLifecycleState: target.status,
     reason,
     reportedAt,
+    workflowRevision: nextRevision,
   });
   await ctx.db.patch(target._id, {
     actualStartedAt: undefined,
@@ -312,9 +330,10 @@ export async function retractMilestoneStart(
     startedByWorkosUserId: undefined,
     startSource: undefined,
     status: nextLifecycleState,
+    workflowRevision: nextRevision,
     updatedAt: reportedAt,
   });
-  return amendmentResult(input, eventId, reportedAt, target.actualStartedAt);
+  return amendmentResult(input, eventId, reportedAt, target.actualStartedAt, nextRevision);
 }
 
 function validateStartInput(input: RecordMilestoneStartInput) {
@@ -455,6 +474,9 @@ async function findIdempotentAmendment(
     parentStarted: false,
     replayed: true,
     reportedAt: event.reportedAt,
+    revision:
+      event.workflowRevision ??
+      workflowRevision(input.submilestone ?? input.milestone),
     ...(event.submilestoneKey
       ? { submilestoneKey: event.submilestoneKey }
       : {}),
@@ -472,6 +494,7 @@ async function appendAmendmentEvent(
     priorLifecycleState: WorkLifecycle;
     reason: string;
     reportedAt: number;
+    workflowRevision: number;
   }
 ) {
   const eventId = await ctx.db.insert("milestoneStartEvents", {
@@ -499,6 +522,7 @@ async function appendAmendmentEvent(
     reason: input.reason,
     reportedAt: input.reportedAt,
     source: input.source,
+    workflowRevision: input.workflowRevision,
     warnings: [],
   });
   const webhookEventType =
@@ -522,6 +546,7 @@ async function appendAmendmentEvent(
     reportedAt: input.reportedAt,
     source: input.source,
     submilestoneKey: input.submilestone?.key,
+    workflowRevision: input.workflowRevision,
   };
   await ctx.db.insert("auditEvents", {
     actorRoles: input.actor.roles,
@@ -561,7 +586,8 @@ function amendmentResult(
   input: AmendMilestoneStartInput,
   eventId: Id<"milestoneStartEvents">,
   reportedAt: number,
-  actualStartedAt: number
+  actualStartedAt: number,
+  revision: number,
 ): MilestoneStartResult {
   return {
     actualStartedAt,
@@ -570,8 +596,30 @@ function amendmentResult(
     parentStarted: false,
     replayed: false,
     reportedAt,
+    revision,
     ...(input.submilestone ? { submilestoneKey: input.submilestone.key } : {}),
   };
+}
+
+function workflowRevision(
+  target: Doc<"buildMilestones"> | Doc<"buildSubmilestones">
+) {
+  return target.workflowRevision ?? 0;
+}
+
+function assertExpectedWorkflowRevision(
+  target: Doc<"buildMilestones"> | Doc<"buildSubmilestones">,
+  expectedRevision: number,
+) {
+  const actualRevision = workflowRevision(target);
+  if (expectedRevision !== actualRevision) {
+    throw new ConvexError({
+      code: "STALE_WORKFLOW_REVISION",
+      message: "Work changed; refresh before retrying the start command.",
+      actualRevision,
+      expectedRevision,
+    });
+  }
 }
 
 function lifecycleAfterRetraction(
@@ -663,6 +711,9 @@ async function findIdempotentStart(
     ),
     replayed: true,
     reportedAt: targetEvent.reportedAt,
+    revision:
+      targetEvent.workflowRevision ??
+      workflowRevision(input.submilestone ?? input.milestone),
     ...(targetEvent.submilestoneKey
       ? { submilestoneKey: targetEvent.submilestoneKey }
       : {}),
@@ -704,6 +755,7 @@ async function appendStartEvent(
     reason?: string;
     reportedAt: number;
     warnings: string[];
+    workflowRevision: number;
   }
 ) {
   const eventId = await ctx.db.insert("milestoneStartEvents", {
@@ -731,6 +783,7 @@ async function appendStartEvent(
     source: input.source,
     startParentRequested: input.startParent ?? false,
     warnings: input.warnings,
+    workflowRevision: input.workflowRevision,
   });
   const payload = {
     actualStartedAt: input.actualStartedAt,
@@ -749,6 +802,7 @@ async function appendStartEvent(
     source: input.source,
     submilestoneKey: input.submilestone?.key,
     warnings: input.warnings,
+    workflowRevision: input.workflowRevision,
   };
   await ctx.db.insert("auditEvents", {
     actorRoles: input.actor.roles,

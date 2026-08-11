@@ -5,6 +5,7 @@ import type {
   TimelineMilestoneWorksheetContractorOption,
   TimelineMilestoneWorksheetRow,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import type { TimelineSubmilestoneFieldGuidance } from "#/features/timeline-workspace/-timeline-milestone-submilestones.ts";
 import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
 import type { ProposalGanttMilestoneDraft } from "./ProductionProposalGanttWorkspace.tsx";
@@ -41,15 +42,19 @@ export interface ProductionProposalWorksheetDetail {
   proposal: {
     proposedStartDate?: string;
     status: string;
+    submittedAt?: number;
     totalBudgetCents: number;
   };
   submilestones?: Array<{
+    _id?: string;
     budgetCents?: number;
     durationDays?: number;
+    fieldGuidance?: TimelineSubmilestoneFieldGuidance;
     key: string;
     milestoneKey: string;
     name: string;
     order?: number;
+    scopeOfWorkTiptapJson?: string;
     startDay?: number;
   }>;
 }
@@ -256,11 +261,22 @@ export function productionProposalDetailToWorksheetRows(
           budgetText: formatCents(budgetCents),
           description: "",
           durationText: String(submilestone.durationDays ?? 1),
+          ...(submilestone.fieldGuidance === undefined
+            ? {}
+            : { fieldGuidance: submilestone.fieldGuidance }),
           id: submilestone.key,
           name: submilestone.name,
           percentageBps: subPercentageBps,
           percentageText: formatBps(subPercentageBps),
+          ...(submilestone.scopeOfWorkTiptapJson === undefined
+            ? {}
+            : {
+                scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
+              }),
           startDay: submilestone.startDay ?? milestone.dayStart,
+          ...(submilestone._id === undefined
+            ? {}
+            : { proposalSubmilestoneId: String(submilestone._id) }),
         };
       });
       const availableSubMilestoneIds = new Set(
@@ -364,9 +380,17 @@ export function productionProposalDetailToDraftMilestones(
           .map((submilestone, subIndex) => ({
             budgetCents: submilestone.budgetCents,
             durationDays: submilestone.durationDays,
+            ...(submilestone.fieldGuidance === undefined
+              ? {}
+              : { fieldGuidance: submilestone.fieldGuidance }),
             key: submilestone.key,
             name: submilestone.name,
             order: submilestone.order ?? subIndex + 1,
+            ...(submilestone.scopeOfWorkTiptapJson === undefined
+              ? {}
+              : {
+                  scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
+                }),
             startDay: submilestone.startDay,
           })),
       };
@@ -434,9 +458,17 @@ export function worksheetRowsToGanttMilestoneDrafts(
               submilestone.durationText,
               scheduleSubmilestone?.durationDays ?? 1
             ),
+            ...(submilestone.fieldGuidance === undefined
+              ? {}
+              : { fieldGuidance: submilestone.fieldGuidance }),
             key: submilestone.id,
             name: submilestone.name,
             order: subIndex + 1,
+            ...(submilestone.scopeOfWorkTiptapJson === undefined
+              ? {}
+              : {
+                  scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
+                }),
             ...(submilestone.startDay === undefined &&
             scheduleSubmilestone?.startDay === undefined
               ? {}

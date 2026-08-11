@@ -1,5 +1,9 @@
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import {
+  type BuildSubmilestoneDetailTab,
+  normalizeBuildSubmilestoneDetailTab,
+} from "#/features/build-detail-targets/buildDetailTab.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   type CostDocumentRouteSearch,
@@ -7,6 +11,7 @@ import {
 } from "#/features/cost-documents/costDocumentRouteState.ts";
 
 export interface BuildDetailSearch extends CostDocumentRouteSearch {
+  detailTab?: BuildSubmilestoneDetailTab;
   focus?: string;
   milestone?: string;
   rail?: "open" | "closed";
@@ -41,6 +46,7 @@ export function validateBuildDetailSearch(
       ? search.roundId.trim()
       : undefined;
   const focus = normalizeBuildCollaborationFocus(search.focus);
+  const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
   const rail =
     search.rail === "closed" || search.rail === "open"
       ? (search.rail as BuildDetailSearch["rail"])
@@ -59,6 +65,9 @@ export function validateBuildDetailSearch(
       costDocumentSearch.costDocumentDraft
   );
   const out: BuildDetailSearch = {};
+  if (detailTab !== undefined) {
+    out.detailTab = detailTab;
+  }
   if (focus !== undefined) {
     out.focus = focus;
   }
