@@ -47,6 +47,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import type { Id } from "../../../convex/_generated/dataModel";
 import {
   AnimatedCurvedTimeline,
   type TimelineItem,
@@ -92,7 +93,6 @@ import {
 } from "#/lib/evidence-image-normalization.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { MilestoneCard, type MilestoneCardUpdate } from "./-MilestoneCard.tsx";
 import "./timeline-route-header.css";
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
@@ -645,6 +645,7 @@ export interface TimelineWorkspaceProps {
   initialState?: TimelineShareState;
   lockedBannerActions?: ReactNode;
   modificationRequests?: TimelineModificationRequestView[];
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   persistence?: TimelineWorkspacePersistence;
   readOnly?: boolean;
   shareUrlPath?: string;
@@ -847,6 +848,7 @@ export function TimelineWorkspace({
   initialState,
   modificationRequests:
     initialModificationRequests = EMPTY_TIMELINE_MODIFICATION_REQUESTS,
+  onOpenSubmilestone,
   persistence,
   readOnly: forcedReadOnly = false,
   shareUrlPath = DEFAULT_TIMELINE_SHARE_PATH,
@@ -5188,6 +5190,7 @@ export function TimelineWorkspace({
                   setMobileDetailDrawerRequested(false);
                 }
               }}
+              onOpenSubmilestone={onOpenSubmilestone}
               onRecordMilestoneSiteVisit={recordMilestoneSiteVisit}
               onRemoveEvidenceAsset={removeEvidenceAsset}
               onRequestMilestoneSiteVisit={requestMilestoneSiteVisit}
@@ -5379,6 +5382,7 @@ export function TimelineWorkspace({
                       onReviewDrawRequest={reviewDrawRequest}
                       onReviewMilestoneCompletion={reviewMilestoneCompletion}
                       onReviewModificationRequest={reviewModificationRequest}
+                      onOpenSubmilestone={onOpenSubmilestone}
                       onSubmitDrawRequest={submitDrawRequest}
                       onUpdateEvidenceAsset={updateEvidenceAsset}
                       onUpdateMilestoneDrawAvailability={
@@ -7877,6 +7881,7 @@ function SelectedDrawMobileDrawer({
   onRequestMilestoneSiteVisit,
   onRecordMilestoneSiteVisit,
   onRemoveEvidenceAsset,
+  onOpenSubmilestone,
   onReviewDrawRequest,
   modificationRequests,
   onReviewModificationRequest,
@@ -7906,6 +7911,7 @@ function SelectedDrawMobileDrawer({
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
   onOpenChange: (open: boolean) => void;
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   onCompleteMilestone: (
     itemId: string,
     claim: TimelineCompletionClaimInput
@@ -7998,6 +8004,7 @@ function SelectedDrawMobileDrawer({
               onCreateMilestoneSiteVisit={onCreateMilestoneSiteVisit}
               onRecordMilestoneSiteVisit={onRecordMilestoneSiteVisit}
               onRemoveEvidenceAsset={onRemoveEvidenceAsset}
+              onOpenSubmilestone={onOpenSubmilestone}
               onRequestMilestoneSiteVisit={onRequestMilestoneSiteVisit}
               onReviewDrawRequest={onReviewDrawRequest}
               onReviewMilestoneCompletion={onReviewMilestoneCompletion}
@@ -8038,6 +8045,7 @@ function SelectedContextPanel({
   onRequestMilestoneSiteVisit,
   onRecordMilestoneSiteVisit,
   onRemoveEvidenceAsset,
+  onOpenSubmilestone,
   onReviewDrawRequest,
   modificationRequests,
   onReviewModificationRequest,
@@ -8082,6 +8090,7 @@ function SelectedContextPanel({
     request: TimelineSiteVisitRequestInput
   ) => Promise<unknown>;
   onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   onReviewDrawRequest: (
     drawId: string,
     review: { note?: string; status: "approved" | "rejected" }
@@ -8144,6 +8153,7 @@ function SelectedContextPanel({
         onUpdateMilestoneDrawAvailability={onUpdateMilestoneDrawAvailability}
         onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
         onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
+        onOpenSubmilestone={onOpenSubmilestone}
         overview={overview}
         range={range}
       />
@@ -8194,6 +8204,7 @@ function SelectedContextPanel({
           onRecordMilestoneSiteVisit={onRecordMilestoneSiteVisit}
           onRequestMilestoneSiteVisit={onRequestMilestoneSiteVisit}
           onReviewMilestoneCompletion={onReviewMilestoneCompletion}
+          onOpenSubmilestone={onOpenSubmilestone}
           overview={overview}
         />
       </div>
@@ -8211,6 +8222,7 @@ function SelectedContextPanel({
       onUpdateEvidenceAsset={onUpdateEvidenceAsset}
       onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
       onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
+      onOpenSubmilestone={onOpenSubmilestone}
       overview={overview}
       range={range}
     />
@@ -8271,6 +8283,7 @@ function MilestonePlanSummaryPanel({
   activeItem,
   contractorPlanning,
   drawAvailabilityData,
+  onOpenSubmilestone,
   onUpdateMilestoneDrawAvailability,
   onUpdateSubmilestoneBudget,
   onUpdateSubmilestoneDuration,
@@ -8281,6 +8294,7 @@ function MilestonePlanSummaryPanel({
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
   drawAvailabilityData: DrawAvailabilityDatum[];
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
@@ -8421,6 +8435,7 @@ function MilestonePlanSummaryPanel({
       <TimelineMilestoneSubmilestoneList
         fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
+        onOpenSubmilestone={onOpenSubmilestone}
         onUpdateBudget={
           onUpdateSubmilestoneBudget
             ? (submilestoneKey, budgetCents) =>
@@ -8637,6 +8652,7 @@ function MilestoneOperationsPanel({
   addEvidenceFiles,
   activeItem,
   contractorPlanning,
+  onOpenSubmilestone,
   onCompleteMilestone,
   onRemoveEvidenceAsset,
   onUpdateEvidenceAsset,
@@ -8649,6 +8665,7 @@ function MilestoneOperationsPanel({
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   onCompleteMilestone: (
     itemId: string,
     claim: TimelineCompletionClaimInput
@@ -8787,6 +8804,7 @@ function MilestoneOperationsPanel({
       <TimelineMilestoneSubmilestoneList
         fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
+        onOpenSubmilestone={onOpenSubmilestone}
         onUpdateBudget={
           onUpdateSubmilestoneBudget
             ? (submilestoneKey, budgetCents) =>
@@ -8840,6 +8858,7 @@ function LenderMilestoneReviewPanel({
   canApproveMilestoneCompletion,
   contractorPlanning,
   items,
+  onOpenSubmilestone,
   onCreateMilestoneSiteVisit,
   onRequestMilestoneSiteVisit,
   onRecordMilestoneSiteVisit,
@@ -8850,6 +8869,7 @@ function LenderMilestoneReviewPanel({
   canApproveMilestoneCompletion: boolean;
   contractorPlanning?: ContractorPlanningModel | null;
   items: TimelineItem<DemoMilestone>[];
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   onCreateMilestoneSiteVisit?: (
     itemId: string,
     request: TimelineSiteVisitRequestInput
@@ -9107,6 +9127,7 @@ function LenderMilestoneReviewPanel({
       <TimelineMilestoneSubmilestoneList
         fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
+        onOpenSubmilestone={onOpenSubmilestone}
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-lender-milestone-submilestone"
       />

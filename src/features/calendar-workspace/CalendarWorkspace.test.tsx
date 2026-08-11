@@ -132,6 +132,19 @@ const workspaceWithReminder: DrawFlowCalendarWorkspaceData = {
   ],
 };
 
+const workspaceWithSubmilestone: DrawFlowCalendarWorkspaceData = {
+  ...workspace,
+  events: [
+    {
+      ...workspace.events[0],
+      entity: { id: "submilestone-1", type: "submilestone" },
+      id: "proposal:submilestone:forms",
+      kind: "submilestone",
+      title: "Forms",
+    },
+  ],
+};
+
 const workspaceWithCancelledReminder: DrawFlowCalendarWorkspaceData = {
   ...workspaceWithReminder,
   events: workspaceWithReminder.events.map((event) =>
@@ -351,6 +364,85 @@ describe("CalendarWorkspace", () => {
 
     fireEvent.click(screen.getAllByLabelText("Foundation actions")[0]);
     expect(screen.getByText("Open detail")).toBeTruthy();
+  });
+
+  test("routes Open detail through the typed callback when provided", () => {
+    const onOpenDetail = vi.fn();
+
+    render(
+      <CalendarWorkspace onOpenDetail={onOpenDetail} workspace={workspace} />,
+    );
+
+    fireEvent.click(screen.getAllByLabelText("Foundation actions")[0]);
+    fireEvent.click(screen.getByText("Open detail"));
+
+    expect(onOpenDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entity: { id: "milestone-1", key: "foundation", type: "milestone" },
+        id: "proposal:milestone:foundation",
+      }),
+    );
+  });
+
+  test("lets a handled submilestone Open detail action stay outside the drawer", () => {
+    const onOpenDetail = vi.fn(() => "handled" as const);
+
+    render(
+      <CalendarWorkspace
+        onOpenDetail={onOpenDetail}
+        workspace={workspaceWithSubmilestone}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByLabelText("Forms actions")[0]);
+    fireEvent.click(screen.getByText("Open detail"));
+
+    expect(onOpenDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entity: { id: "submilestone-1", type: "submilestone" },
+      }),
+    );
+    expect(screen.queryByRole("heading", { name: "Forms" })).toBeNull();
+  });
+
+  test("lets a handled milestone Open detail action stay outside the drawer", () => {
+    const onOpenDetail = vi.fn(() => "handled" as const);
+
+    render(
+      <CalendarWorkspace onOpenDetail={onOpenDetail} workspace={workspace} />,
+    );
+
+    fireEvent.click(screen.getAllByLabelText("Foundation actions")[0]);
+    fireEvent.click(screen.getByText("Open detail"));
+
+    expect(onOpenDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entity: { id: "milestone-1", key: "foundation", type: "milestone" },
+      }),
+    );
+    expect(screen.queryByRole("heading", { name: "Foundation" })).toBeNull();
+  });
+
+  test("preserves the default drawer when a non-child Open detail action falls back", () => {
+    const onOpenDetail = vi.fn(() => "fallback" as const);
+
+    render(
+      <CalendarWorkspace onOpenDetail={onOpenDetail} workspace={workspace} />,
+    );
+
+    fireEvent.click(
+      screen.getAllByLabelText("Foundation reimbursement actions")[0],
+    );
+    fireEvent.click(screen.getByText("Open detail"));
+
+    expect(onOpenDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entity: { id: "draw-1", key: "draw-1", type: "draw" },
+      }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Foundation reimbursement" }),
+    ).toBeTruthy();
   });
 
   test("does not render audit history or borrower exposure as calendar events", () => {

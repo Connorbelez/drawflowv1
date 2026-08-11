@@ -42,6 +42,7 @@ import {
   type BuildSubmilestoneDetailTab,
   normalizeBuildSubmilestoneDetailTab,
 } from "#/features/build-detail-targets/buildDetailTab.ts";
+import { BuildDetailSheetHost } from "#/features/build-detail-targets/BuildDetailSheetHost.tsx";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { BuildCollaborationRole } from "../../../../../convex/build_collaboration_model";
@@ -484,7 +485,7 @@ export function BuilderBuildWorkspaceRoute({
     navigate({
       params: { buildId },
       replace: !focus || focus === search.focus,
-      search: { ...search, focus, tab },
+      search: { ...search, focus: focus ?? search.focus, tab },
       to: `${routeBase}/builds/$buildId`,
     } as never);
   const onChangeRail = (rail: "open" | "closed") =>
@@ -861,6 +862,14 @@ export function BuilderBuildWorkspaceRoute({
 
   return (
     <>
+      <BuildDetailSheetHost
+        buildId={activeBuildId as Id<"activeBuilds">}
+        detailTab={search.detailTab}
+        focus={search.focus}
+        organizationId={workosOrganizationId}
+        viewerCapacity={requestedCostDocumentCapacity}
+      >
+        {(detailSheetHost) => (
       <ProductionBuildDetailSurface
         actions={surfaceActions}
         activeBuildId={activeBuildId}
@@ -931,6 +940,7 @@ export function BuilderBuildWorkspaceRoute({
           )
         }
         detail={detail}
+        detailSheetHost={detailSheetHost}
         detailTab={search.detailTab}
         focusedReference={search.focus}
         fundingWorkspaceEnabled
@@ -945,6 +955,7 @@ export function BuilderBuildWorkspaceRoute({
         onChangeMilestone={onChangeMilestone}
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
+        onOpenCanonicalTarget={detailSheetHost.controller.openTarget}
         prototypeMilestoneStartTrigger={milestoneStartPrototypeEnabled}
         quotes={
           <QuoteRoundsSurface
@@ -1008,6 +1019,8 @@ export function BuilderBuildWorkspaceRoute({
         }
         workosOrganizationId={workosOrganizationId}
       />
+        )}
+      </BuildDetailSheetHost>
       {milestoneStartPrototypeEnabled ? (
         <MilestoneStartWorkflowPrototype
           detail={detail}

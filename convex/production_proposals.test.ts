@@ -242,6 +242,20 @@ async function grantOrgMembership(
   });
 }
 
+async function runAuditEventBuildIdBackfill(t: any) {
+  let cursor: string | null = null;
+  let isDone = false;
+  while (!isDone) {
+    const result: { continueCursor: string; isDone: boolean } =
+      await t.mutation(
+        (internal as any).audit_event_migrations.backfillAuditEventBuildId,
+        { batchSize: 25, cursor, dryRun: false, oneBatchOnly: true },
+      );
+    cursor = result.continueCursor;
+    isDone = result.isDone;
+  }
+}
+
 function productionTemplateSettingsArgs(
   template: any,
   scenarios = template.scenarios,
@@ -1406,7 +1420,7 @@ describe("production proposal foundation", () => {
   });
 
   test("scopes active-build material commands to canonical revisions and receipts", async () => {
-    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(admin, seed, {
       buildName: "Scoped material command build",
       location: "18 Scoped Material Lane",
@@ -1594,6 +1608,73 @@ describe("production proposal foundation", () => {
     );
     expect(detail.costItems).toHaveLength(0);
     expect(detail.submilestones[0].workflowRevision).toBe(3);
+    expect(
+      detail.auditEvents.some(
+        (event: any) =>
+          event.entityType === "buildSubmilestone" &&
+          event.canonicalTarget?.submilestoneId === String(submilestoneId),
+      ),
+    ).toBe(true);
+
+    await runAuditEventBuildIdBackfill(admin);
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_material_audit_resource_only",
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ material: { canView: true } }),
+        staffWorkosUserId: "user_material_audit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const materialResourceOnly = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_material_audit_resource_only",
+    );
+    const materialResourceOnlyDetail = await materialResourceOnly.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const materialCommands = new Set([
+      "createActiveBuildCostItem",
+      "updateActiveBuildCostItem",
+      "deleteActiveBuildCostItem",
+    ]);
+    expect(
+      materialResourceOnlyDetail.auditEvents.some(
+        (event: any) =>
+          materialCommands.has(event.command) &&
+          event.entityType === "buildSubmilestone",
+      ),
+    ).toBe(false);
+
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          material: { canView: true },
+          submilestone: { canView: true },
+        }),
+        staffWorkosUserId: "user_material_audit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const materialAllowedDetail = await materialResourceOnly.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      materialAllowedDetail.auditEvents.some(
+        (event: any) =>
+          materialCommands.has(event.command) &&
+          event.canonicalTarget?.submilestoneId === String(submilestoneId),
+      ),
+    ).toBe(true);
 
     await admin.run(async (ctx: any) => {
       await ctx.db.patch(submilestoneId, { workflowRevision: undefined });
@@ -6984,6 +7065,81 @@ describe("production proposal foundation", () => {
       name: "Site Lead Builders",
       role: "Foundation contractor",
     });
+    const excavation = workspace.submilestones.find(
+      (submilestone: any) => submilestone.key === "excavation",
+    );
+    expect(siteVisit.submilestoneId).toBe(excavation?._id);
+    expect(
+      workspace.auditEvents.find(
+        (event: any) => event.eventType === "active_build.site_visit.requested",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        canonicalTarget: {
+          kind: "submilestone",
+          submilestoneId: excavation?._id,
+        },
+        canonicalTargetContext: { selectedTab: "review" },
+      }),
+    );
+    await runAuditEventBuildIdBackfill(t);
+    await grantOrgMembership(t, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_site_visit_resource_only",
+    });
+    await t.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ evidence: { canView: true } }),
+        staffWorkosUserId: "user_site_visit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const resourceOnlyStaff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_site_visit_resource_only",
+    );
+    const resourceOnlyWorkspace = await resourceOnlyStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      resourceOnlyWorkspace.auditEvents.some(
+        (event: any) =>
+          event.eventType === "active_build.site_visit.requested",
+      ),
+    ).toBe(false);
+
+    await t.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          evidence: { canView: true },
+          submilestone: { canView: true },
+        }),
+        staffWorkosUserId: "user_site_visit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const allowedWorkspace = await resourceOnlyStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      allowedWorkspace.auditEvents.find(
+        (event: any) => event.eventType === "active_build.site_visit.requested",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        canonicalTarget: {
+          kind: "submilestone",
+          submilestoneId: excavation?._id,
+        },
+      }),
+    );
     expect(workspace.draws[0]).toMatchObject({
       amountCents: 20_000_000,
       requestNote: "Foundation reimbursement requested.",
@@ -7135,6 +7291,1428 @@ describe("production proposal foundation", () => {
     expect(detail.submilestones[0].workflowRevision).toBe(3);
   });
 
+  test("requires evidence and Sub-milestone view for canonical evidence audits", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Canonical evidence audit build",
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
+        buildId: closing.buildId,
+        expectedRevision: 0,
+        idempotencyKey: "canonical-evidence-start-001",
+        milestoneKey: "foundation",
+        source: "submilestone_detail",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const storageId = await admin.run(async (ctx: any) =>
+      ctx.storage.store(new Blob(["canonical evidence"], { type: "image/jpeg" })),
+    );
+    await builder.mutation(
+      (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+      {
+        buildId: closing.buildId,
+        evidence: {
+          fileName: "forms.jpg",
+          mimeType: "image/jpeg",
+          sizeBytes: 128,
+          storageId,
+        },
+        expectedRevision: 1,
+        idempotencyKey: "canonical-evidence-add-001",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const adminDetail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const evidenceEvent = adminDetail.auditEvents.find(
+      (event: any) => event.command === "addActiveBuildSubmilestoneEvidence",
+    );
+    expect(evidenceEvent).toEqual(
+      expect.objectContaining({
+        canonicalTarget: {
+          kind: "submilestone",
+          submilestoneId: String(adminDetail.submilestones[0]._id),
+        },
+      }),
+    );
+
+    await runAuditEventBuildIdBackfill(admin);
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_evidence_audit_resource_only",
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ evidence: { canView: true } }),
+        staffWorkosUserId: "user_evidence_audit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const evidenceResourceOnly = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_evidence_audit_resource_only",
+    );
+    const evidenceResourceOnlyDetail = await evidenceResourceOnly.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      evidenceResourceOnlyDetail.auditEvents.some(
+        (event: any) =>
+          event.command === "addActiveBuildSubmilestoneEvidence" &&
+          event.entityType === "buildSubmilestone",
+      ),
+    ).toBe(false);
+
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          evidence: { canView: true },
+          submilestone: { canView: true },
+        }),
+        staffWorkosUserId: "user_evidence_audit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const evidenceAllowedDetail = await evidenceResourceOnly.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      evidenceAllowedDetail.auditEvents.some(
+        (event: any) =>
+          event.command === "addActiveBuildSubmilestoneEvidence" &&
+          event.canonicalTarget?.submilestoneId ===
+            String(evidenceAllowedDetail.submilestones[0]._id),
+      ),
+    ).toBe(true);
+  });
+
+  test("projects active-build submilestones as canonical calendar child entities", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(t, seed, {
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getActiveBuildCalendarWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    const child = workspace.events.find(
+      (event: any) => event.kind === "submilestone",
+    );
+    const parent = workspace.events.find(
+      (event: any) => event.kind === "milestone",
+    );
+
+    expect(child).toEqual(
+      expect.objectContaining({
+        entity: {
+          id: expect.any(String),
+          type: "submilestone",
+        },
+      }),
+    );
+    expect(parent?.entity).toEqual(
+      expect.objectContaining({ type: "milestone" }),
+    );
+  });
+
+  test("keeps active-build calendar child event IDs unique when display keys repeat", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(t, seed, {
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            { budgetCents: 20_000_000, key: "forms", name: "Forms", order: 1 },
+          ] as never[],
+        },
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 40,
+          dayStart: 20,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "framing",
+          name: "Framing",
+          order: 2,
+          submilestones: [
+            { budgetCents: 20_000_000, key: "forms", name: "Forms", order: 1 },
+          ] as never[],
+        },
+      ],
+    });
+    const canonicalIds = await t.run(async (ctx: any) => {
+      const rows = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .collect();
+      return rows.map((row: any) => String(row._id)).sort();
+    });
+    const workspace = await t.query(
+      (api as any).production_proposals.getActiveBuildCalendarWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    const children = workspace.events.filter(
+      (event: any) => event.kind === "submilestone",
+    );
+
+    expect(children).toHaveLength(2);
+    expect(children.map((event: any) => event.entity.id).sort()).toEqual(
+      canonicalIds,
+    );
+    expect(new Set(children.map((event: any) => event.id)).size).toBe(2);
+    expect(children[0].entity.id).not.toBe(children[1].entity.id);
+  });
+
+  test("projects only real build submilestone audit identities as canonical child targets", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(t, seed, {
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const submilestone = await t.run(async (ctx: any) => {
+      const row = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .filter((q: any) => q.eq(q.field("key"), "forms"))
+        .unique();
+      const build = await ctx.db.get(closing.buildId);
+      if (!(row && build)) {
+        throw new Error("Canonical submilestone audit fixture is unavailable.");
+      }
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        buildId: closing.buildId,
+        command: "reviewActiveBuildSubmilestone",
+        createdAt: Date.now(),
+        entityId: String(row._id),
+        entityType: "buildSubmilestone",
+        eventType: "active_build.submilestone.reviewed",
+        resourceType: "submilestone",
+        newState: JSON.stringify({ status: "in_review" }),
+        organizationId: build.organizationId,
+        priorState: JSON.stringify({ status: "planned" }),
+        warnings: [],
+      });
+      return row;
+    });
+
+    const detail = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const childEvent = detail.auditEvents.find(
+      (event: any) => event.entityType === "buildSubmilestone",
+    );
+
+    expect(childEvent).toEqual(
+      expect.objectContaining({
+        canonicalTarget: {
+          kind: "submilestone",
+          submilestoneId: String(submilestone._id),
+        },
+      }),
+    );
+    expect(
+      detail.auditEvents
+        .filter((event: any) => event.entityType !== "buildSubmilestone")
+        .some((event: any) => event.canonicalTarget),
+    ).toBe(false);
+  });
+
+  test("redacts child audit details when builder staff lacks submilestone view", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_limited_child_audit",
+    });
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Sensitive forms", order: 1 }],
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        staffWorkosUserId: "user_limited_child_audit",
+        workosOrganizationId: ORG,
+      },
+    );
+    const child = await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      const row = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .unique();
+      if (!(build && row)) {
+        throw new Error("Limited child audit fixture is unavailable.");
+      }
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        buildId: closing.buildId,
+        command: "reviewActiveBuildSubmilestone",
+        createdAt: Date.now(),
+        entityId: String(row._id),
+        entityType: "buildSubmilestone",
+        eventType: "active_build.submilestone.sensitive_reviewed",
+        newState: JSON.stringify({ status: "in_review" }),
+        organizationId: build.organizationId,
+        priorState: JSON.stringify({ status: "planned" }),
+        reason: "Sensitive child audit reason",
+        warnings: ["Sensitive child warning"],
+      });
+      return row;
+    });
+
+    const staff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_limited_child_audit",
+    );
+    const detail = await staff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+
+    expect(detail.submilestones).toEqual([]);
+    expect(
+      detail.auditEvents.some(
+        (event: any) => event.entityId === String(child._id),
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(detail.auditEvents)).not.toContain("Sensitive forms");
+    expect(JSON.stringify(detail.auditEvents)).not.toContain(
+      "Sensitive child audit reason",
+    );
+    expect(JSON.stringify(detail.auditEvents)).not.toContain(
+      "Sensitive child warning",
+    );
+    expect(
+      detail.auditEvents.some((event: any) => event.canonicalTarget),
+    ).toBe(false);
+  });
+
+  test("redacts every canonical audit resource without its Builder Staff view grant", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_limited_audit_resources",
+    });
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Permission-scoped audit build",
+      submilestones: [{ key: "forms", name: "Sensitive forms", order: 1 }],
+    });
+    const entityIds = await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .unique();
+      if (!(build && milestone && submilestone)) {
+        throw new Error("Permission audit entities are unavailable.");
+      }
+      const now = Date.now();
+      const drawId = await ctx.db.insert("activeBuildDrawRequests", {
+        amountCents: 1_000_000,
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        clientOperationId: "permission-audit-draw-001",
+        createdAt: now,
+        displayId: "DR-PERMISSION",
+        label: "Permission audit draw",
+        organizationId: build.organizationId,
+        requestedAt: new Date(now).toISOString(),
+        requestedByWorkosUserId: "user_admin",
+        requestKey: "permission-audit-draw",
+        status: "requested",
+        updatedAt: now,
+      });
+      const siteVisitId = await ctx.db.insert("buildSiteVisits", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildMilestoneId: milestone._id,
+        createdAt: now,
+        milestoneKey: milestone.key,
+        organizationId: build.organizationId,
+        requestedAt: new Date(now).toISOString(),
+        requestedDay: 1,
+        status: "requested",
+        tokenExpiresAt: now + 86_400_000,
+        updatedAt: now,
+        url: `/site-visits/${String(build._id)}/permission-audit`,
+        visitId: "permission-audit-site-visit",
+      });
+      const evidenceId = await ctx.db.insert("buildEvidenceAssets", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        evidenceKey: "permission-audit-evidence",
+        fileName: "permission-audit.jpg",
+        label: "Permission audit evidence",
+        locationVerified: true,
+        milestoneKey: milestone.key,
+        mimeType: "image/jpeg",
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        siteVisitId,
+        sizeBytes: 1_024,
+        source: "test",
+        tag: "Permission audit",
+        updatedAt: now,
+      });
+      const events = [
+        {
+          entityId: String(milestone._id),
+          entityType: "buildMilestone",
+          eventType: "permission.milestone",
+        },
+        {
+          entityId: String(submilestone._id),
+          entityType: "buildSubmilestone",
+          eventType: "permission.submilestone",
+        },
+        {
+          entityId: String(drawId),
+          entityType: "draw",
+          eventType: "permission.draw",
+        },
+        {
+          entityId: String(evidenceId),
+          entityType: "evidencePackage",
+          eventType: "permission.evidence",
+        },
+        {
+          entityId: String(siteVisitId),
+          entityType: "siteVisit",
+          eventType: "permission.siteVisit",
+        },
+        {
+          entityId: String(build._id),
+          entityType: "activeBuild",
+          eventType: "permission.material",
+          resourceType: "material",
+        },
+      ];
+      for (const event of events) {
+        await ctx.db.insert("auditEvents", {
+          actorRoles: ["admin"],
+          actorWorkosUserId: "user_admin",
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          command: "permissionAuditProbe",
+          createdAt: now,
+          entityId: event.entityId,
+          entityType: event.entityType,
+          eventType: event.eventType,
+          resourceType:
+            event.resourceType ??
+            (event.entityType === "buildMilestone"
+              ? "milestone"
+              : event.entityType === "buildSubmilestone"
+                ? "submilestone"
+                : event.entityType === "draw"
+                  ? "draw"
+                  : event.entityType === "evidencePackage"
+                    ? "evidence"
+                    : "siteVisit"),
+          organizationId: build.organizationId,
+          reason:
+            event.entityType === "buildMilestone"
+              ? "Visible milestone audit reason"
+              : `Sensitive ${event.entityType} reason`,
+          warnings:
+            event.entityType === "buildMilestone"
+              ? ["Visible milestone audit warning"]
+              : [`Sensitive ${event.entityType} warning`],
+        });
+      }
+      return { buildId: build._id, eventTypes: events.map((event) => event.eventType) };
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ milestone: { canView: true } }),
+        staffWorkosUserId: "user_limited_audit_resources",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const staff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_limited_audit_resources",
+    );
+    const restricted = await staff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(entityIds.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      restricted.auditEvents.map((event: any) => event.eventType),
+    ).toContain("permission.milestone");
+    for (const eventType of entityIds.eventTypes.filter(
+      (eventType: string) => eventType !== "permission.milestone",
+    )) {
+      expect(
+        restricted.auditEvents.some(
+          (event: any) => event.eventType === eventType,
+        ),
+      ).toBe(false);
+    }
+    expect(JSON.stringify(restricted.auditEvents)).not.toContain(
+      "Sensitive",
+    );
+
+    const adminDetail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(entityIds.buildId), workosOrganizationId: ORG },
+    );
+    for (const eventType of entityIds.eventTypes) {
+      expect(
+        adminDetail.auditEvents.some(
+          (event: any) => event.eventType === eventType,
+        ),
+      ).toBe(true);
+    }
+    const lender = withIdentity(base, ["broker"], "user_lender_audit_reader");
+    const lenderDetail = await lender.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(entityIds.buildId), workosOrganizationId: ORG },
+    );
+    for (const eventType of entityIds.eventTypes) {
+      expect(
+        lenderDetail.auditEvents.some(
+          (event: any) => event.eventType === eventType,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("backfills legacy canonical audit rows to an active Build id idempotently", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Audit event build-id migration build",
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const legacyEventId = await admin.run(async (ctx: any) => {
+      const child = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .unique();
+      const build = await ctx.db.get(closing.buildId);
+      if (!(child && build)) {
+        throw new Error("Audit migration fixture is unavailable.");
+      }
+      return ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        command: "legacyChildAudit",
+        createdAt: Date.now(),
+        entityId: String(child._id),
+        entityType: "buildSubmilestone",
+        eventType: "submilestone.legacy_audit",
+        organizationId: build.organizationId,
+        reason: "Legacy row requiring Build backfill.",
+        warnings: [],
+      });
+    });
+    await expect(
+      admin.run(async (ctx: any) => {
+        const event = await ctx.db.get(legacyEventId);
+        return event?.buildId;
+      }),
+    ).resolves.toBeNull();
+
+    let cursor: string | null = null;
+    let isDone = false;
+    let processed = 0;
+    while (!isDone) {
+      const result: {
+        continueCursor: string;
+        isDone: boolean;
+        processed: number;
+      } = await admin.mutation(
+        (internal as any).audit_event_migrations.backfillAuditEventBuildId,
+        {
+          batchSize: 25,
+          cursor,
+          dryRun: false,
+          oneBatchOnly: true,
+        },
+      );
+      processed += result.processed;
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+    }
+    expect(processed).toBeGreaterThan(0);
+    await expect(
+      admin.run(async (ctx: any) => {
+        const event = await ctx.db.get(legacyEventId);
+        return event?.buildId;
+      }),
+    ).resolves.toBe(closing.buildId);
+
+    const replay = await admin.mutation(
+      (internal as any).audit_event_migrations.backfillAuditEventBuildId,
+      { batchSize: 25, cursor: null, dryRun: false, oneBatchOnly: true },
+    );
+    await expect(
+      admin.run(async (ctx: any) => {
+        const event = await ctx.db.get(legacyEventId);
+        return event?.buildId;
+      }),
+    ).resolves.toBe(closing.buildId);
+    expect(replay.processed).toBeGreaterThan(0);
+  });
+
+  test("repairs validated child payload identity and rejects mismatched tenant rows", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Audit identity repair build",
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const ids = await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const child = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .unique();
+      if (!(build && milestone && child)) {
+        throw new Error("Audit identity repair fixture is unavailable.");
+      }
+      const startEventId = await ctx.db.insert("milestoneStartEvents", {
+        actualStartedAt: Date.parse("2026-05-03T12:00:00.000Z"),
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildMilestoneId: milestone._id,
+        buildSubmilestoneId: child._id,
+        dependencySnapshot: [],
+        eventType: "started",
+        idempotencyKey: "legacy-start-event-001",
+        milestoneKey: milestone.key,
+        newLifecycleState: "in_progress",
+        organizationId: build.organizationId,
+        priorLifecycleState: "planned",
+        reportedAt: Date.parse("2026-05-03T12:00:00.000Z"),
+        source: "legacy",
+        submilestoneKey: child.key,
+        warnings: [],
+      });
+      const repairedId = await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        command: "updateActiveBuildSubmilestoneProgress",
+        createdAt: Date.now(),
+        entityId: String(build._id),
+        entityType: "activeBuild",
+        eventType: "active_build.submilestone.progress_updated",
+        newState: JSON.stringify({ buildSubmilestoneId: String(child._id) }),
+        organizationId: build.organizationId,
+        warnings: [],
+      });
+      const eventIdPayloadId = await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        command: "recordMilestoneStart",
+        createdAt: Date.now() + 1,
+        entityId: String(build._id),
+        entityType: "activeBuild",
+        eventType: "milestone.started",
+        newState: JSON.stringify({
+          eventId: String(startEventId),
+          milestoneKey: milestone.key,
+          submilestoneKey: child.key,
+        }),
+        organizationId: build.organizationId,
+        warnings: [],
+      });
+      const keyPayloadId = await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        command: "recordMilestoneStart",
+        createdAt: Date.now() + 2,
+        entityId: String(build._id),
+        entityType: "activeBuild",
+        eventType: "milestone.started",
+        newState: JSON.stringify({
+          milestoneKey: milestone.key,
+          submilestoneKey: child.key,
+        }),
+        organizationId: build.organizationId,
+        warnings: [],
+      });
+      const legacyLifecycleIds: Record<string, any> = {};
+      for (const lifecycle of [
+        {
+          command: "correctMilestoneStart",
+          eventType: "milestone.start_corrected",
+          key: "corrected",
+        },
+        {
+          command: "retractMilestoneStart",
+          eventType: "milestone.start_retracted",
+          key: "retracted",
+        },
+      ]) {
+        legacyLifecycleIds[lifecycle.key] = await ctx.db.insert(
+          "auditEvents",
+          {
+            actorRoles: ["admin"],
+            actorWorkosUserId: "user_admin",
+            brokerageId: build.brokerageId,
+            buildId: build._id,
+            command: lifecycle.command,
+            createdAt: Date.now() + 3,
+            entityId: String(child._id),
+            entityType: "buildSubmilestone",
+            eventType: lifecycle.eventType,
+            newState: JSON.stringify({
+              milestoneKey: milestone.key,
+              submilestoneKey: child.key,
+            }),
+            organizationId: build.organizationId,
+            warnings: [],
+          },
+        );
+      }
+      const specializedResourceIds: Record<string, any> = {};
+      for (const resourceType of [
+        "evidence",
+        "material",
+        "contractor",
+        "siteVisit",
+      ]) {
+        specializedResourceIds[resourceType] = await ctx.db.insert(
+          "auditEvents",
+          {
+            actorRoles: ["admin"],
+            actorWorkosUserId: "user_admin",
+            brokerageId: build.brokerageId,
+            command: `legacyChild${resourceType}`,
+            createdAt: Date.now() + 2,
+            entityId: String(build._id),
+            entityType: "activeBuild",
+            eventType: `active_build.submilestone.${resourceType}_changed`,
+            newState: JSON.stringify({
+              buildSubmilestoneId: String(child._id),
+            }),
+            organizationId: build.organizationId,
+            resourceType,
+            warnings: [],
+          },
+        );
+      }
+      const legacyChildResourceIds: Record<string, any> = {};
+      for (const legacyChildResource of [
+        {
+          command: "addActiveBuildSubmilestoneEvidence",
+          eventType: "active_build.submilestone.evidence_added",
+          key: "evidence",
+        },
+        {
+          command: "approveActiveBuildSubmilestone",
+          eventType: "active_build.submilestone.review.approved",
+          key: "review",
+        },
+        {
+          command: "waiveActiveBuildSubmilestoneSiteVisit",
+          eventType: "active_build.submilestone.site_visit.waived",
+          key: "siteVisit",
+        },
+      ]) {
+        legacyChildResourceIds[legacyChildResource.key] = await ctx.db.insert(
+          "auditEvents",
+          {
+            actorRoles: ["admin"],
+            actorWorkosUserId: "user_admin",
+            brokerageId: build.brokerageId,
+            buildId: build._id,
+            command: legacyChildResource.command,
+            createdAt: Date.now() + 3,
+            entityId: String(child._id),
+            entityType: "buildSubmilestone",
+            eventType: legacyChildResource.eventType,
+            newState: JSON.stringify({
+              milestoneKey: milestone.key,
+              submilestoneKey: child.key,
+            }),
+            organizationId: build.organizationId,
+            warnings: [],
+          },
+        );
+      }
+      const unknownChildResourceId = await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        command: "legacyChildUnknownChange",
+        createdAt: Date.now() + 4,
+        entityId: String(child._id),
+        entityType: "buildSubmilestone",
+        eventType: "active_build.submilestone.unmapped_change",
+        newState: JSON.stringify({
+          milestoneKey: milestone.key,
+          submilestoneKey: child.key,
+        }),
+        organizationId: build.organizationId,
+        warnings: [],
+      });
+      const mismatchedTenantId = await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        command: "foreignTenantAudit",
+        createdAt: Date.now(),
+        entityId: String(child._id),
+        entityType: "buildSubmilestone",
+        eventType: "active_build.submilestone.foreign_tenant",
+        organizationId: "org_foreign_tenant",
+        warnings: [],
+      });
+      return {
+        childId: child._id,
+        eventIdPayloadId,
+        keyPayloadId,
+        legacyLifecycleIds,
+        mismatchedTenantId,
+        repairedId,
+        legacyChildResourceIds,
+        unknownChildResourceId,
+        specializedResourceIds,
+      };
+    });
+
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone) {
+      const result: { continueCursor: string; isDone: boolean } =
+        await admin.mutation(
+          (internal as any).audit_event_migrations.backfillAuditEventBuildId,
+          { batchSize: 25, cursor, dryRun: false, oneBatchOnly: true },
+        );
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+    }
+
+    await expect(
+      admin.run(async (ctx: any) => {
+        const event = await ctx.db.get(ids.repairedId);
+        return {
+          buildId: event?.buildId,
+          entityId: event?.entityId,
+          entityType: event?.entityType,
+          resourceType: event?.resourceType,
+        };
+      }),
+    ).resolves.toEqual({
+      buildId: closing.buildId,
+      entityId: String(ids.childId),
+      entityType: "buildSubmilestone",
+      resourceType: "submilestone",
+    });
+    await expect(
+      admin.run(async (ctx: any) => {
+        const event = await ctx.db.get(ids.mismatchedTenantId);
+        return { buildId: event?.buildId, resourceType: event?.resourceType };
+      }),
+    ).resolves.toEqual({ buildId: undefined, resourceType: undefined });
+
+    await expect(
+      admin.run(async (ctx: any) => {
+        const events = await Promise.all([
+          ctx.db.get(ids.eventIdPayloadId),
+          ctx.db.get(ids.keyPayloadId),
+        ]);
+        return events.map((event: any) => ({
+          buildId: event?.buildId,
+          entityId: event?.entityId,
+          entityType: event?.entityType,
+          resourceType: event?.resourceType,
+        }));
+      }),
+    ).resolves.toEqual([
+      {
+        buildId: closing.buildId,
+        entityId: String(ids.childId),
+        entityType: "buildSubmilestone",
+        resourceType: "submilestone",
+      },
+      {
+        buildId: closing.buildId,
+        entityId: String(ids.childId),
+        entityType: "buildSubmilestone",
+        resourceType: "submilestone",
+      },
+    ]);
+    await expect(
+      admin.run(async (ctx: any) =>
+        Promise.all(
+          Object.entries(ids.legacyLifecycleIds).map(
+            async ([lifecycle, eventId]) => {
+              const event = await ctx.db.get(eventId);
+              return {
+                lifecycle,
+                command: event?.command,
+                eventType: event?.eventType,
+                entityType: event?.entityType,
+                resourceType: event?.resourceType,
+              };
+            },
+          ),
+        ),
+      ),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        {
+          lifecycle: "corrected",
+          command: "correctMilestoneStart",
+          eventType: "milestone.start_corrected",
+          entityType: "buildSubmilestone",
+          resourceType: "submilestone",
+        },
+        {
+          lifecycle: "retracted",
+          command: "retractMilestoneStart",
+          eventType: "milestone.start_retracted",
+          entityType: "buildSubmilestone",
+          resourceType: "submilestone",
+        },
+      ]),
+    );
+    const migratedHistory = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(migratedHistory.auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: "recordMilestoneStart",
+          eventType: "milestone.started",
+          entityType: "buildSubmilestone",
+          canonicalTarget: {
+            kind: "submilestone",
+            submilestoneId: String(ids.childId),
+          },
+        }),
+        expect.objectContaining({
+          command: "correctMilestoneStart",
+          eventType: "milestone.start_corrected",
+          entityType: "buildSubmilestone",
+          canonicalTarget: {
+            kind: "submilestone",
+            submilestoneId: String(ids.childId),
+          },
+        }),
+        expect.objectContaining({
+          command: "retractMilestoneStart",
+          eventType: "milestone.start_retracted",
+          entityType: "buildSubmilestone",
+          canonicalTarget: {
+            kind: "submilestone",
+            submilestoneId: String(ids.childId),
+          },
+        }),
+      ]),
+    );
+    await expect(
+      admin.run(async (ctx: any) =>
+        Promise.all(
+          Object.entries(ids.specializedResourceIds).map(
+            async ([resourceType, eventId]) => {
+              const event = await ctx.db.get(eventId);
+              return {
+                resourceType,
+                entityId: event?.entityId,
+                entityType: event?.entityType,
+                storedResourceType: event?.resourceType,
+              };
+            },
+          ),
+        ),
+      ),
+    ).resolves.toEqual(
+      expect.arrayContaining(
+        ["evidence", "material", "contractor", "siteVisit"].map(
+          (resourceType) => ({
+            resourceType,
+            entityId: String(ids.childId),
+            entityType: "buildSubmilestone",
+            storedResourceType: resourceType,
+          }),
+        ),
+      ),
+    );
+    await expect(
+      admin.run(async (ctx: any) =>
+        Promise.all(
+          Object.entries(ids.legacyChildResourceIds).map(
+            async ([resourceType, eventId]) => {
+              const event = await ctx.db.get(eventId);
+              return {
+                resourceType,
+                command: event?.command,
+                eventType: event?.eventType,
+                storedResourceType: event?.resourceType,
+              };
+            },
+          ),
+        ),
+      ),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        {
+          resourceType: "evidence",
+          command: "addActiveBuildSubmilestoneEvidence",
+          eventType: "active_build.submilestone.evidence_added",
+          storedResourceType: "evidence",
+        },
+        {
+          resourceType: "review",
+          command: "approveActiveBuildSubmilestone",
+          eventType: "active_build.submilestone.review.approved",
+          storedResourceType: "evidence",
+        },
+        {
+          resourceType: "siteVisit",
+          command: "waiveActiveBuildSubmilestoneSiteVisit",
+          eventType: "active_build.submilestone.site_visit.waived",
+          storedResourceType: "siteVisit",
+        },
+      ]),
+    );
+    await expect(
+      admin.run(async (ctx: any) => {
+        const event = await ctx.db.get(ids.unknownChildResourceId);
+        return event?.resourceType;
+      }),
+    ).resolves.toBeNull();
+
+    const ambiguousId = await admin.run(async (ctx: any) => {
+      const child = await ctx.db.get(ids.childId);
+      const build = await ctx.db.get(closing.buildId);
+      if (!(child && build)) {
+        throw new Error("Ambiguous migration fixture is unavailable.");
+      }
+      const { _id: _childId, _creationTime: _createdAt, ...childFields } = child;
+      await ctx.db.insert("buildSubmilestones", {
+        ...childFields,
+        name: "Duplicate Forms",
+      });
+      return ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        command: "legacyAmbiguousChildExecution",
+        createdAt: Date.now() + 3,
+        entityId: String(build._id),
+        entityType: "activeBuild",
+        eventType: "active_build.submilestone.execution_updated",
+        newState: JSON.stringify({
+          milestoneKey: child.milestoneKey,
+          submilestoneKey: child.key,
+        }),
+        organizationId: build.organizationId,
+        warnings: [],
+      });
+    });
+    const ambiguousReplay = await admin.mutation(
+      (internal as any).audit_event_migrations.backfillAuditEventBuildId,
+      { batchSize: 25, cursor: null, dryRun: false, oneBatchOnly: true },
+    );
+    expect(ambiguousReplay.processed).toBeGreaterThan(0);
+    await expect(
+      admin.run(async (ctx: any) => {
+        const event = await ctx.db.get(ambiguousId);
+        return {
+          buildId: event?.buildId,
+          entityId: event?.entityId,
+          entityType: event?.entityType,
+          resourceType: event?.resourceType,
+        };
+      }),
+    ).resolves.toEqual({
+      buildId: closing.buildId,
+      entityId: String(closing.buildId),
+      entityType: "activeBuild",
+      resourceType: undefined,
+    });
+
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_ambiguous_child_milestone_only",
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ milestone: { canView: true } }),
+        staffWorkosUserId: "user_ambiguous_child_milestone_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const milestoneOnlyStaff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_ambiguous_child_milestone_only",
+    );
+    const milestoneOnlyDetail = await milestoneOnlyStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      milestoneOnlyDetail.auditEvents.some(
+        (event: any) => event.command === "legacyAmbiguousChildExecution",
+      ),
+    ).toBe(false);
+
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_legacy_child_submilestone_only",
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          submilestone: { canView: true },
+        }),
+        staffWorkosUserId: "user_legacy_child_submilestone_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const legacyChildStaff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_legacy_child_submilestone_only",
+    );
+    const submilestoneOnlyDetail = await legacyChildStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      submilestoneOnlyDetail.auditEvents.some((event: any) =>
+        [
+          "addActiveBuildSubmilestoneEvidence",
+          "approveActiveBuildSubmilestone",
+          "waiveActiveBuildSubmilestoneSiteVisit",
+        ].includes(event.command),
+      ),
+    ).toBe(false);
+
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          evidence: { canView: true },
+          submilestone: { canView: true },
+        }),
+        staffWorkosUserId: "user_legacy_child_submilestone_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const compoundDetail = await legacyChildStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      compoundDetail.auditEvents.map((event: any) => event.command),
+    ).toEqual(
+      expect.arrayContaining([
+        "addActiveBuildSubmilestoneEvidence",
+        "approveActiveBuildSubmilestone",
+        "waiveActiveBuildSubmilestoneSiteVisit",
+      ]),
+    );
+  });
+
+  test("scopes active-build audit events before applying the 100-event cap", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const target = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Scoped target build",
+      submilestones: [{ key: "forms", name: "Target forms", order: 1 }],
+    });
+    const crowded = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Crowded unrelated build",
+    });
+    const targetChild = await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(target.buildId);
+      const row = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", target.buildId))
+        .unique();
+      const crowdedBuild = await ctx.db.get(crowded.buildId);
+      if (!(build && row && crowdedBuild)) {
+        throw new Error("Scoped audit crowding fixture is unavailable.");
+      }
+      const now = Date.now();
+      for (let index = 0; index < 125; index += 1) {
+        await ctx.db.insert("auditEvents", {
+          actorRoles: ["admin"],
+          actorWorkosUserId: "user_admin",
+          brokerageId: crowdedBuild.brokerageId,
+          buildId: crowded.buildId,
+          command: "crowdUnrelatedBuildAudit",
+          createdAt: now + index,
+          entityId: String(crowdedBuild._id),
+          entityType: "activeBuild",
+          eventType: "active_build.crowded_unrelated_event",
+          organizationId: crowdedBuild.organizationId,
+          reason: "Crowded unrelated build",
+          warnings: [],
+        });
+      }
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        buildId: target.buildId,
+        command: "reviewActiveBuildSubmilestone",
+        createdAt: now + 1_000,
+        entityId: String(row._id),
+        entityType: "buildSubmilestone",
+        eventType: "active_build.submilestone.scoped_reviewed",
+        resourceType: "submilestone",
+        organizationId: build.organizationId,
+        reason: "Target child event",
+        warnings: [],
+      });
+      return row;
+    });
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(target.buildId), workosOrganizationId: ORG },
+    );
+
+    expect(detail.auditEvents.length).toBeLessThanOrEqual(100);
+    expect(
+      detail.auditEvents.some(
+        (event: any) =>
+          event.canonicalTarget?.submilestoneId === String(targetChild._id),
+      ),
+    ).toBe(true);
+    expect(
+      detail.auditEvents.some(
+        (event: any) => event.reason === "Crowded unrelated build",
+      ),
+    ).toBe(false);
+  });
+
+  test("preserves legacy parent and child audit events for the selected Build", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const target = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Legacy audit target build",
+      submilestones: [{ key: "forms", name: "Target forms", order: 1 }],
+    });
+    const unrelated = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Legacy audit unrelated build",
+    });
+
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(target.buildId);
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", target.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const child = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", target.buildId))
+        .unique();
+      const unrelatedMilestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", unrelated.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      if (!(build && milestone && child && unrelatedMilestone)) {
+        throw new Error("Legacy audit preservation fixture is unavailable.");
+      }
+      const common = {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        command: "legacyAuditProbe",
+        createdAt: Date.now(),
+        organizationId: build.organizationId,
+        warnings: [],
+      };
+      await ctx.db.insert("auditEvents", {
+        ...common,
+        entityId: String(milestone._id),
+        entityType: "buildMilestone",
+        eventType: "legacy.parent.audit",
+        resourceType: "milestone",
+        newState: JSON.stringify({ status: "in_progress" }),
+      });
+      await ctx.db.insert("auditEvents", {
+        ...common,
+        entityId: String(child._id),
+        entityType: "buildSubmilestone",
+        eventType: "legacy.child.audit",
+        resourceType: "submilestone",
+        newState: JSON.stringify({ status: "complete" }),
+        reason: "Legacy child audit remains visible.",
+      });
+      await ctx.db.insert("auditEvents", {
+        ...common,
+        entityId: String(unrelatedMilestone._id),
+        entityType: "buildMilestone",
+        eventType: "legacy.unrelated.audit",
+      });
+    });
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(target.buildId), workosOrganizationId: ORG },
+    );
+
+    expect(detail.auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: "legacy.parent.audit" }),
+        expect.objectContaining({ eventType: "legacy.child.audit" }),
+      ]),
+    );
+    expect(
+      detail.auditEvents.some(
+        (event: any) => event.eventType === "legacy.unrelated.audit",
+      ),
+    ).toBe(false);
+  });
+
+  test("filters same-Build irrelevant audits before applying the 100-event cap", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const target = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Same-build audit target",
+      submilestones: [{ key: "forms", name: "Target forms", order: 1 }],
+    });
+
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(target.buildId);
+      const child = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", target.buildId))
+        .unique();
+      if (!(build && child)) {
+        throw new Error("Same-build audit crowding fixture is unavailable.");
+      }
+      const now = Date.now();
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        command: "updateActiveBuildSubmilestoneProgress",
+        createdAt: now,
+        entityId: String(child._id),
+        entityType: "buildSubmilestone",
+        eventType: "active_build.submilestone.progress_updated",
+        resourceType: "submilestone",
+        organizationId: build.organizationId,
+        warnings: [],
+      });
+      for (let index = 0; index < 525; index += 1) {
+        await ctx.db.insert("auditEvents", {
+          actorRoles: ["admin"],
+          actorWorkosUserId: "user_admin",
+          brokerageId: build.brokerageId,
+          buildId: target.buildId,
+          command: "costDocumentAuditCrowding",
+          createdAt: now + index + 1,
+          entityId: `cost-document-${index}`,
+          entityType: "costDocument",
+          eventType: "same_build.irrelevant_cost_document",
+          resourceType: "material",
+          organizationId: build.organizationId,
+          warnings: [],
+        });
+      }
+    });
+
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone) {
+      const result: { continueCursor: string; isDone: boolean } =
+        await admin.mutation(
+          (internal as any).audit_event_migrations.backfillAuditEventBuildId,
+          { batchSize: 25, cursor, dryRun: false, oneBatchOnly: true },
+        );
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+    }
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(target.buildId), workosOrganizationId: ORG },
+    );
+
+    expect(detail.auditEvents.length).toBeLessThanOrEqual(100);
+    expect(
+      detail.auditEvents.some(
+        (event: any) =>
+          event.eventType === "active_build.submilestone.progress_updated",
+      ),
+    ).toBe(true);
+    expect(
+      detail.auditEvents.some(
+        (event: any) => event.eventType === "same_build.irrelevant_cost_document",
+      ),
+    ).toBe(false);
+  });
+
   test("projects build quick actions from unresolved domain state instead of audit payloads", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(admin, seed);
@@ -7269,7 +8847,11 @@ describe("production proposal foundation", () => {
       budgetCents: detailMilestone.budgetCents,
       drawAvailabilityCents: detailMilestone.drawAvailabilityCents,
       submilestoneSnapshot: [
-        expect.objectContaining({ key: "forms", name: "Forms" }),
+        expect.objectContaining({
+          canonicalId: String(detail.submilestones[0]._id),
+          key: "forms",
+          name: "Forms",
+        }),
       ],
     });
     expect(assignmentCount).toBe(1);
@@ -7442,9 +9024,47 @@ describe("production proposal foundation", () => {
       }),
       progressPercent: 100,
     });
-    expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
-      "active_build.submilestone.execution_updated",
+    const childExecutionEvent = detail.auditEvents.find(
+      (event: any) =>
+        event.eventType === "active_build.submilestone.execution_updated",
     );
+    expect(childExecutionEvent).toEqual(
+      expect.objectContaining({
+        canonicalTarget: {
+          kind: "submilestone",
+          submilestoneId: String(detail.submilestones[0]._id),
+        },
+      }),
+    );
+
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_real_child_audit_limited",
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ milestone: { canView: true } }),
+        staffWorkosUserId: "user_real_child_audit_limited",
+        workosOrganizationId: ORG,
+      },
+    );
+    const limitedStaff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_real_child_audit_limited",
+    );
+    const limitedDetail = await limitedStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      limitedDetail.auditEvents.some(
+        (event: any) =>
+          event.eventType === "active_build.submilestone.execution_updated",
+      ),
+    ).toBe(false);
   });
 
   test("does not restamp superseded submilestones when an approved timeline update replays", async () => {
@@ -8357,12 +9977,28 @@ describe("production proposal foundation", () => {
             .eq("entityId", String(closing.buildId)),
         )
         .collect();
+      const childAuditEvents = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("entityType", "buildSubmilestone")
+            .eq("entityId", String(submilestones[0]._id)),
+        )
+        .collect();
       const outboxEvents = await ctx.db
         .query("eventOutbox")
         .withIndex("by_entity", (query: any) =>
           query
             .eq("relatedEntityType", "activeBuild")
             .eq("relatedEntityId", String(closing.buildId)),
+        )
+        .collect();
+      const childOutboxEvents = await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("relatedEntityType", "buildSubmilestone")
+            .eq("relatedEntityId", String(submilestones[0]._id)),
         )
         .collect();
       expect(milestone).toMatchObject({
@@ -8379,18 +10015,24 @@ describe("production proposal foundation", () => {
       expect(events[1].originalEventId).toBe(events[0]._id);
       expect(events[2].originalEventId).toBe(events[1]._id);
       expect(
-        auditEvents
+        childAuditEvents
           .filter((event: any) =>
-            ["milestone.start_corrected", "milestone.start_retracted"].includes(
+            [
+              "submilestone.start_corrected",
+              "submilestone.start_retracted",
+            ].includes(
               event.eventType,
             ),
           )
           .map((event: any) => JSON.parse(event.newState).workflowRevision),
       ).toEqual([2, 3]);
       expect(
-        outboxEvents
+        childOutboxEvents
           .filter((event: any) =>
-            ["milestone.start_corrected", "milestone.start_retracted"].includes(
+            [
+              "submilestone.start_corrected",
+              "submilestone.start_retracted",
+            ].includes(
               event.eventType,
             ),
           )
@@ -8961,8 +10603,8 @@ describe("production proposal foundation", () => {
         .query("auditEvents")
         .withIndex("by_entity", (q: any) =>
           q
-            .eq("entityType", "activeBuild")
-            .eq("entityId", String(closing.buildId)),
+            .eq("entityType", "buildSubmilestone")
+            .eq("entityId", String(assignedTarget.id)),
         )
         .filter((q: any) =>
           q.eq(q.field("command"), "assignActiveBuildContractorToMilestone"),
@@ -9092,8 +10734,8 @@ describe("production proposal foundation", () => {
         .query("auditEvents")
         .withIndex("by_entity", (q: any) =>
           q
-            .eq("entityType", "activeBuild")
-            .eq("entityId", String(closing.buildId)),
+            .eq("entityType", "buildSubmilestone")
+            .eq("entityId", String(removedRevision.id)),
         )
         .filter((q: any) =>
           q.eq(
@@ -9138,6 +10780,65 @@ describe("production proposal foundation", () => {
         },
       ),
     ).rejects.toThrow(/IDEMPOTENCY_KEY_REUSED|idempotency key/i);
+
+    await runAuditEventBuildIdBackfill(admin);
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_assignment_audit_resource_only",
+    });
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ contractor: { canView: true } }),
+        staffWorkosUserId: "user_assignment_audit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const assignmentResourceOnly = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_assignment_audit_resource_only",
+    );
+    const assignmentResourceOnlyDetail = await assignmentResourceOnly.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const assignmentCommands = new Set([
+      "assignActiveBuildContractorToMilestone",
+      "removeActiveBuildContractorFromMilestone",
+    ]);
+    expect(
+      assignmentResourceOnlyDetail.auditEvents.some(
+        (event: any) =>
+          assignmentCommands.has(event.command) &&
+          event.entityType === "buildSubmilestone",
+      ),
+    ).toBe(false);
+
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          contractor: { canView: true },
+          submilestone: { canView: true },
+        }),
+        staffWorkosUserId: "user_assignment_audit_resource_only",
+        workosOrganizationId: ORG,
+      },
+    );
+    const assignmentAllowedDetail = await assignmentResourceOnly.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      assignmentAllowedDetail.auditEvents.some(
+        (event: any) =>
+          assignmentCommands.has(event.command) &&
+          event.canonicalTarget?.submilestoneId === String(assignedTarget.id),
+      ),
+    ).toBe(true);
   });
 
   test("multi-target assignment canonicalizes keys and accepts per-target revisions", async () => {
@@ -9231,17 +10932,34 @@ describe("production proposal foundation", () => {
     expect(revisions).toMatchObject({ forms: 2, waterproofing: 1 });
 
     const multiTargetAuditAndReceipts = await builder.run(async (ctx: any) => {
-      const auditEvents = await ctx.db
-        .query("auditEvents")
-        .withIndex("by_entity", (q: any) =>
-          q
-            .eq("entityType", "activeBuild")
-            .eq("entityId", String(closing.buildId)),
-        )
-        .filter((q: any) =>
-          q.eq(q.field("command"), "assignActiveBuildContractorToMilestone"),
-        )
+      const submilestones = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect();
+      const auditEvents = (
+        await Promise.all(
+          submilestones
+            .filter((row: any) =>
+              ["forms", "waterproofing"].includes(row.key),
+            )
+            .map((row: any) =>
+              ctx.db
+                .query("auditEvents")
+                .withIndex("by_entity", (q: any) =>
+                  q
+                    .eq("entityType", "buildSubmilestone")
+                    .eq("entityId", String(row._id)),
+                )
+                .filter((q: any) =>
+                  q.eq(
+                    q.field("command"),
+                    "assignActiveBuildContractorToMilestone",
+                  ),
+                )
+                .collect(),
+            ),
+        )
+      ).flat();
       const receipts = await ctx.db
         .query("buildSubmilestoneCommandReceipts")
         .filter((q: any) =>
@@ -10753,6 +12471,7 @@ describe("production proposal foundation", () => {
         name: "Foundation",
       }),
     );
+
   });
 
   test("active build draw requests keep approved availability when actual cost is lower", async () => {

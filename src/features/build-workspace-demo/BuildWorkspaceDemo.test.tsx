@@ -279,6 +279,36 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
     expect(within(sheet).getByText("FOUR-PLEX-DRAW-01.1 / DC/ED")).toBeTruthy();
   });
 
+  test("opens a canonical submilestone from the Gantt detail sheet", () => {
+    const onOpenSubmilestone = vi.fn();
+    const fixture = workspaceFixture();
+    renderWorkspace(
+      {
+        milestones: [
+          {
+            ...fixture.milestones[0],
+            submilestones: [
+              {
+                canonicalId: "sub-01",
+                key: "excavation",
+                name: "Excavation",
+              },
+            ],
+          },
+          ...fixture.milestones.slice(1),
+        ],
+      },
+      { onOpenSubmilestone },
+    );
+
+    fireEvent.click(screen.getByTestId("timeline-milestone-dc-ed"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Sub-milestone Excavation" }),
+    );
+
+    expect(onOpenSubmilestone).toHaveBeenCalledWith("sub-01");
+  });
+
   test("moves a proposal submilestone to another parent from the detail sheet", () => {
     const moveSubmilestoneToParent = vi.fn().mockResolvedValue(undefined);
     renderWorkspace({
@@ -312,6 +342,7 @@ function renderWorkspace(
   overrides: Partial<BuildWorkspaceAdapter> = {},
   options: {
     canFinalizeMilestones?: boolean;
+    onOpenSubmilestone?: (submilestoneId: string) => void;
     showPrimaryAction?: boolean;
     showRoleSelector?: boolean;
     viewer?: "builder" | "lender";
@@ -322,6 +353,7 @@ function renderWorkspace(
       <BuildWorkspaceDemo
         canFinalizeMilestones={options.canFinalizeMilestones}
         layout="embedded"
+        onOpenSubmilestone={options.onOpenSubmilestone}
         showPrimaryAction={options.showPrimaryAction}
         showRoleSelector={options.showRoleSelector}
         viewer={options.viewer}

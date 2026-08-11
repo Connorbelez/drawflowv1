@@ -1,9 +1,11 @@
 import type { DemoMilestone } from "./-timeline-share-snapshot.ts";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 export type DemoSubmilestoneStatus = "todo" | "in_progress" | "done";
 
 export interface DemoSubmilestone {
   budgetCents?: number;
+  canonicalId?: Id<"buildSubmilestones">;
   description?: string;
   durationDays?: number;
   fieldGuidance?: TimelineSubmilestoneFieldGuidance;
@@ -22,6 +24,7 @@ export interface TimelineSubmilestoneFieldGuidance {
 
 export interface TimelineSubmilestoneSnapshotRow {
   budgetCents?: number;
+  canonicalId?: Id<"buildSubmilestones">;
   description?: string;
   durationDays?: number;
   fieldGuidance?: TimelineSubmilestoneFieldGuidance;
@@ -42,6 +45,7 @@ export function mapSubmilestoneSnapshotRows(
       ...(row.budgetCents === undefined
         ? {}
         : { budgetCents: row.budgetCents }),
+      ...(row.canonicalId ? { canonicalId: row.canonicalId } : {}),
       ...(row.description?.trim()
         ? { description: row.description.trim() }
         : {}),

@@ -3999,10 +3999,11 @@ export default defineSchema({
   })
     .index("by_entity", ["entityType", "entityId"])
     .index("by_brokerage", ["brokerageId"])
-    .index("by_buildId_and_resourceType_and_createdAt", {
-      fields: ["buildId", "resourceType", "createdAt"],
-      staged: true,
-    })
+    .index("by_buildId_and_resourceType_and_createdAt", [
+      "buildId",
+      "resourceType",
+      "createdAt",
+    ])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
     .index("by_organizationId_and_reconciliationKey", [
       "organizationId",

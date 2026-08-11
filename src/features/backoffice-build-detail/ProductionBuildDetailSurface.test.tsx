@@ -719,6 +719,124 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("Apex Supply")).toBeTruthy();
   });
 
+  test("routes production calendar Open detail to the canonical Sub-milestone target", async () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="calendar"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("drawflow-event-manager")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getAllByLabelText("Excavation actions")[0]);
+    fireEvent.click(screen.getAllByText("Open detail")[0]);
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "sub-01",
+      },
+      { selectedTab: "overview" },
+    );
+  });
+
+  test("routes the server-shaped active-build Sub-milestone menu item once", async () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="calendar"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("drawflow-event-manager")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getAllByLabelText("Excavation actions")[0]);
+
+    let openDetailItems: HTMLElement[] = [];
+    await waitFor(() => {
+      openDetailItems = screen.getAllByText("Open detail");
+      expect(openDetailItems).toHaveLength(1);
+    });
+    fireEvent.click(openDetailItems[0]);
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledTimes(1);
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "sub-01",
+      },
+      { selectedTab: "overview" },
+    );
+    expect(screen.queryByRole("heading", { name: "Excavation" })).toBeNull();
+  });
+
+  test("keeps production calendar parent milestones on the parent detail surface", async () => {
+    const onOpenCanonicalTarget = vi.fn();
+    const onChangeTab = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="calendar"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={onChangeTab}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("drawflow-event-manager")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getAllByLabelText("Foundation actions")[0]);
+    fireEvent.click(screen.getAllByText("Open detail")[0]);
+
+    expect(onOpenCanonicalTarget).not.toHaveBeenCalled();
+    expect(onChangeTab).toHaveBeenCalledWith("details");
+  });
+
+  test("routes a Kanban child action to the canonical Sub-milestone target", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="milestones"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Sub-milestone Excavation" }),
+    );
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "sub-01",
+      },
+      { selectedTab: "overview" },
+    );
+  });
+
   test("renders Google Maps satellite imagery for the build site photos", () => {
     vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
 
@@ -867,6 +985,89 @@ describe("ProductionBuildDetailSurface", () => {
       screen.getAllByRole("button", { name: /Open milestone/i })[0],
     );
     expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+  });
+
+  test("routes evidence that identifies one canonical sub-milestone to the shared target", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="evidence"
+        detail={{
+          ...detail,
+          evidenceAssets: [
+            {
+              _id: "evidence-excavation-01",
+              evidenceKey: "excavation-photo-01",
+              fileName: "excavation-photo.jpg",
+              label: "Excavation photo",
+              locationVerified: true,
+              milestoneKey: "foundation",
+              mimeType: "image/jpeg",
+              previewUrl: "https://example.com/excavation-photo.jpg",
+              sizeBytes: 100,
+              source: "active_build_timeline_upload",
+              submilestoneId: "sub-01",
+              submilestoneKey: "excavation",
+              tag: "Excavation",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Open sub-milestone/i }),
+    );
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "sub-01",
+      },
+      { selectedTab: "evidence" },
+    );
+  });
+
+  test("keeps aggregate evidence parent-scoped when it has only a display sub-milestone key", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="evidence"
+        detail={{
+          ...detail,
+          evidenceAssets: [
+            {
+              _id: "aggregate-foundation-evidence",
+              evidenceKey: "foundation-package",
+              fileName: "foundation-package.jpg",
+              label: "Foundation package",
+              locationVerified: true,
+              milestoneKey: "foundation",
+              mimeType: "image/jpeg",
+              sizeBytes: 100,
+              source: "active_build_timeline_upload",
+              submilestoneKey: "excavation",
+              tag: "Foundation",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /Open sub-milestone/i }),
+    ).toBeNull();
+    expect(onOpenCanonicalTarget).not.toHaveBeenCalled();
   });
 
   test("renders the current overview as the default build details card tab", async () => {
@@ -1805,6 +2006,46 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("Reviewer decision")).toBeTruthy();
   });
 
+  test("routes lender child review scope to the shared child target on Review", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="milestones"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("kanban-card-foundation"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Sub-milestone Excavation" }),
+    );
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "sub-01",
+      },
+      { selectedTab: "review" },
+    );
+  });
+
   test("keeps milestone review in the canonical milestone kanban", () => {
     render(
       <ProductionBuildDetailSurface
@@ -2326,6 +2567,7 @@ describe("ProductionBuildDetailSurface", () => {
   });
 
   test("displays completed site visit reports in the completion review sheet", () => {
+    const onOpenCanonicalTarget = vi.fn();
     render(
       <ProductionBuildDetailSurface
         activeTab="details"
@@ -2368,12 +2610,15 @@ describe("ProductionBuildDetailSurface", () => {
               requestedAt: "2026-06-24T12:00:00.000Z",
               requestedDay: 30,
               status: "complete",
+              submilestoneIds: ["sub-01"],
+              submilestoneKeys: ["excavation"],
               visitId: "visit-foundation-01",
             },
           ],
         }}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
         rail="closed"
       />,
     );
@@ -2387,6 +2632,18 @@ describe("ProductionBuildDetailSurface", () => {
       screen.getByText("Inspector verified the completed foundation scope."),
     ).toBeTruthy();
     expect(screen.getByText("Foundation site visit report")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open Sub-milestone evidence for Foundation",
+      }),
+    );
+    expect(onOpenCanonicalTarget).toHaveBeenLastCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "sub-01",
+      },
+      { selectedTab: "review" },
+    );
   });
 
   test("requests the upcoming draw with the amount clipped to availability", async () => {

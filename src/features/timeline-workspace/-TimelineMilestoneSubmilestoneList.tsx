@@ -4,6 +4,8 @@ import {
   EditableFilterChip,
   EditableNumberChip,
 } from "#/components/ui/editable-chip.tsx";
+import { Button } from "#/components/ui/button.tsx";
+import type { Id } from "../../../convex/_generated/dataModel";
 import type { DemoSubmilestone } from "./-timeline-milestone-submilestones.ts";
 
 const money = (value: number) =>
@@ -48,6 +50,7 @@ export function TimelineMilestoneSubmilestoneList({
   disabled = false,
   fallbackBudgetCents,
   milestoneKey,
+  onOpenSubmilestone,
   onUpdateBudget,
   onUpdateDuration,
   submilestones,
@@ -56,6 +59,7 @@ export function TimelineMilestoneSubmilestoneList({
   disabled?: boolean;
   fallbackBudgetCents?: number;
   milestoneKey: string;
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   onUpdateBudget?: (submilestoneKey: string, budgetCents: number) => void;
   onUpdateDuration?: (submilestoneKey: string, durationDays: number) => void;
   submilestones: DemoSubmilestone[];
@@ -115,18 +119,41 @@ export function TimelineMilestoneSubmilestoneList({
               key={submilestone.key}
             >
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-                <EditableFilterChip
-                  className="w-full justify-start"
-                  Icon={
-                    submilestone.status ? (
-                      <SubmilestoneStatusIcon status={submilestone.status} />
-                    ) : undefined
-                  }
-                  labelKey={submilestone.name}
-                  testId={`${testIdPrefix}-chip-${submilestone.key}`}
-                  tone={budgetCents <= 0 ? "neutral" : "accent"}
-                  type="value"
-                />
+                {submilestone.canonicalId && onOpenSubmilestone ? (
+                  <Button
+                    aria-label={`Open Sub-milestone ${submilestone.name}`}
+                    className="min-w-0 justify-start p-0"
+                    onClick={() => onOpenSubmilestone(submilestone.canonicalId!)}
+                    type="button"
+                    variant="ghost"
+                  >
+                    <EditableFilterChip
+                      className="w-full justify-start"
+                      Icon={
+                        submilestone.status ? (
+                          <SubmilestoneStatusIcon status={submilestone.status} />
+                        ) : undefined
+                      }
+                      labelKey={submilestone.name}
+                      testId={`${testIdPrefix}-chip-${submilestone.key}`}
+                      tone={budgetCents <= 0 ? "neutral" : "accent"}
+                      type="value"
+                    />
+                  </Button>
+                ) : (
+                  <EditableFilterChip
+                    className="w-full justify-start"
+                    Icon={
+                      submilestone.status ? (
+                        <SubmilestoneStatusIcon status={submilestone.status} />
+                      ) : undefined
+                    }
+                    labelKey={submilestone.name}
+                    testId={`${testIdPrefix}-chip-${submilestone.key}`}
+                    tone={budgetCents <= 0 ? "neutral" : "accent"}
+                    type="value"
+                  />
+                )}
                 <EditableNumberChip
                   ariaLabel={`${submilestone.name} budget`}
                   disabled={disabled || !canEditBudget}

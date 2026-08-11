@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   MilestoneDetailSheet,
@@ -109,6 +117,7 @@ const sheetData: MilestoneSheetData = {
       endDate: "2026-08-08",
       evidence: [],
       key: "forms",
+      submilestoneId: "submilestone-forms",
       materials: [
         {
           id: "material-forms",
@@ -142,6 +151,7 @@ const sheetData: MilestoneSheetData = {
       endDate: "2026-08-21",
       evidence: [],
       key: "pour",
+      submilestoneId: "submilestone-pour",
       materials: [],
       name: "Concrete pour",
       order: 2,
@@ -243,6 +253,60 @@ describe("MilestoneDetailSheet", () => {
         milestoneKey: "foundation",
       }),
     );
+  });
+
+  test("opens the canonical child Review sheet from Complete remaining scope", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("milestone-primary-completion-action"));
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "review" },
+    );
+    expect(screen.queryByText("Guided completion")).toBeNull();
+  });
+
+  test("routes a canonical guided child selector to its Overview sheet", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <MilestoneDetailSheet
+        data={{
+          ...sheetData,
+          submilestones: [
+            { ...sheetData.submilestones?.[0], submilestoneId: undefined },
+            sheetData.submilestones?.[1],
+          ],
+        }}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("milestone-primary-completion-action"));
+    expect(screen.getByText("Guided completion")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Concrete pour" }));
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-pour",
+      },
+      { selectedTab: "overview" },
+    );
+    expect(screen.queryByText("Guided completion")).toBeNull();
   });
 
   test("opens a submilestone detail surface with system-backed tabs", () => {
@@ -633,6 +697,113 @@ describe("MilestoneDetailSheet", () => {
     await waitFor(() => expect(onUpdateSubmilestone).toHaveBeenCalledTimes(1));
     expect(screen.getByText("Milestone execution")).toBeTruthy();
   });
+  test("routes canonical nested child interactions through the shared target callback", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Footing forms/ }));
+    expect(onOpenCanonicalTarget).toHaveBeenLastCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "overview" },
+    );
+
+    const footingCard = screen.getByText("Footing forms").closest("li");
+    expect(footingCard).toBeTruthy();
+    fireEvent.click(
+      within(footingCard as HTMLElement).getByRole("button", {
+        name: "1 attached",
+      }),
+    );
+    expect(onOpenCanonicalTarget).toHaveBeenLastCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "materials" },
+    );
+  });
+
+  test("maps nested assignment and evidence affordances to the shared child tabs", () => {
+    const assignmentTarget = vi.fn();
+    const scopedData: MilestoneSheetData = {
+      ...sheetData,
+      submilestones: [
+        {
+          ...sheetData.submilestones?.[0],
+          assignments: [
+            {
+              contractorId: "contractor-01",
+              name: "Site Lead Builders",
+              role: "Foundation contractor",
+              status: "active",
+            },
+          ],
+          evidence: [
+            {
+              evidenceKey: "forms-photo",
+              fileName: "forms.jpg",
+              label: "Forms photo",
+              locationVerified: false,
+              mimeType: "image/jpeg",
+              sizeBytes: 100,
+              tag: "Forms",
+            },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <MilestoneDetailSheet
+        data={scopedData}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={assignmentTarget}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Site Lead Builders/ }),
+    );
+    expect(assignmentTarget).toHaveBeenLastCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "people" },
+    );
+
+    cleanup();
+    const evidenceTarget = vi.fn();
+    render(
+      <MilestoneDetailSheet
+        data={scopedData}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={evidenceTarget}
+      />,
+    );
+    fireEvent.click(
+      screen.getByText(
+        "Location-unverified evidence is retained for lender review.",
+      ),
+    );
+    expect(evidenceTarget).toHaveBeenLastCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "evidence" },
+    );
+  });
 
   test("attributes submilestone starts to ledger, detail, and guided entry sources", () => {
     const onStartSubmilestone = vi.fn();
@@ -671,6 +842,164 @@ describe("MilestoneDetailSheet", () => {
       "foundation",
       "forms",
       "guided_field_workflow"
+    );
+  });
+
+  test("opens canonical child overview before starting work when a stable ID exists", () => {
+    const onOpenCanonicalTarget = vi.fn();
+    const onStartSubmilestone = vi.fn();
+
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        onStartSubmilestone={onStartSubmilestone}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("submilestone-start-work-forms"));
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "overview" },
+    );
+    expect(onStartSubmilestone).not.toHaveBeenCalled();
+  });
+
+  test("opens canonical child People before assigning an unassigned contractor", () => {
+    const onOpenCanonicalTarget = vi.fn();
+    const onAssignContractor = vi.fn();
+
+    render(
+      <MilestoneDetailSheet
+        data={{
+          ...sheetData,
+          submilestones: [
+            { ...sheetData.submilestones?.[0], assignments: [] },
+          ],
+        }}
+        onAssignContractor={onAssignContractor}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Assign contractor" }));
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "people" },
+    );
+    expect(onAssignContractor).not.toHaveBeenCalled();
+  });
+
+  test("routes canonical child cost, evidence, notes, completion, and start controls to shared tabs", async () => {
+    const onOpenCanonicalTarget = vi.fn();
+    const onUpdateSubmilestone = vi.fn().mockResolvedValue(undefined);
+    const onUploadEvidence = vi.fn().mockResolvedValue(undefined);
+    const onAmendStart = vi.fn();
+
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        onAmendStart={onAmendStart}
+        onClose={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        onUpdateSubmilestone={onUpdateSubmilestone}
+        onUploadEvidence={onUploadEvidence}
+      />,
+    );
+
+    const actualCostInput = screen.getByLabelText(/Actual realized cost/, {
+      selector: "#actual-cost-forms",
+    });
+    fireEvent.change(actualCostInput, {
+      target: { value: "1234" },
+    });
+    fireEvent.blur(actualCostInput);
+    await waitFor(() =>
+      expect(onOpenCanonicalTarget).toHaveBeenLastCalledWith(
+        {
+          kind: "submilestone",
+          submilestoneId: "submilestone-forms",
+        },
+        { selectedTab: "materials" },
+      ),
+    );
+    expect(onUpdateSubmilestone).not.toHaveBeenCalled();
+
+    const evidenceInput = screen.getByLabelText("Evidence 0", {
+      selector: "#milestone-evidence-forms-compact",
+    });
+    fireEvent.change(evidenceInput, {
+      target: { files: [new File(["evidence"], "forms.jpg", { type: "image/jpeg" })] },
+    });
+    await waitFor(() =>
+      expect(onOpenCanonicalTarget).toHaveBeenLastCalledWith(
+        {
+          kind: "submilestone",
+          submilestoneId: "submilestone-forms",
+        },
+        { selectedTab: "evidence" },
+      ),
+    );
+    expect(onUploadEvidence).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    expect(onOpenCanonicalTarget).toHaveBeenLastCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "submilestone-forms",
+      },
+      { selectedTab: "review" },
+    );
+
+    cleanup();
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        onClose={vi.fn()}
+        onUpdateSubmilestone={onUpdateSubmilestone}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Footing forms/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Notes & history" }));
+    fireEvent.change(screen.getByLabelText("Field note"), {
+      target: { value: "Observed from the parent sheet" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save field note" }));
+    await waitFor(() => expect(onUpdateSubmilestone).toHaveBeenCalled());
+
+    cleanup();
+    render(
+      <MilestoneDetailSheet
+        data={{
+          ...sheetData,
+          submilestones: [
+            {
+              ...sheetData.submilestones?.[0],
+              actualStartedAt: Date.parse("2026-08-05T12:00:00Z"),
+              status: "in_progress",
+            },
+          ],
+        }}
+        onAmendStart={onAmendStart}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Footing forms/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Correct start" }));
+    expect(onAmendStart).toHaveBeenCalledWith(
+      "correct",
+      "foundation",
+      "forms",
     );
   });
 

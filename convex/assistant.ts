@@ -5752,12 +5752,24 @@ async function writeProposalAudit(
     priorState?: unknown;
     reason?: string;
     warnings?: string[];
+    buildId?: Id<"activeBuilds">;
+    resourceType?:
+      | "milestone"
+      | "submilestone"
+      | "draw"
+      | "evidence"
+      | "material"
+      | "siteVisit"
+      | "contractor"
+      | "capitalEvent"
+      | "reminder";
   }
 ) {
   await ctx.db.insert("auditEvents", {
     actorRoles: auth.roles,
     actorWorkosUserId: auth.subject,
     brokerageId: auth.brokerage._id,
+    buildId: input.buildId,
     command: input.command,
     createdAt: Date.now(),
     entityId: input.entityId,
@@ -5773,6 +5785,9 @@ async function writeProposalAudit(
         ? undefined
         : JSON.stringify(sanitizeForPersistence(input.priorState)),
     reason: input.reason,
+    resourceType:
+      input.resourceType ??
+      deriveAssistantAuditResourceType(input.entityType, input.eventType),
     warnings: input.warnings ?? [],
   });
 }
@@ -5791,7 +5806,54 @@ async function writeActiveBuildAudit(
     warnings?: string[];
   }
 ) {
-  await writeProposalAudit(ctx, auth, input);
+  await writeProposalAudit(ctx, auth, {
+    ...input,
+    buildId: auth.build._id,
+  });
+}
+
+function deriveAssistantAuditResourceType(
+  entityType: string,
+  eventType: string,
+):
+  | "milestone"
+  | "submilestone"
+  | "draw"
+  | "evidence"
+  | "material"
+  | "siteVisit"
+  | "contractor"
+  | "capitalEvent"
+  | "reminder" {
+  if (entityType === "buildSubmilestone" || entityType === "submilestone") {
+    return "submilestone";
+  }
+  if (entityType === "buildSiteVisit" || entityType === "siteVisit") {
+    return "siteVisit";
+  }
+  if (entityType === "capitalEvent") {
+    return "capitalEvent";
+  }
+  const signal = `${entityType} ${eventType}`.toLowerCase();
+  if (signal.includes("site_visit") || signal.includes("site visit")) {
+    return "siteVisit";
+  }
+  if (signal.includes("draw")) {
+    return "draw";
+  }
+  if (signal.includes("evidence") || signal.includes("photo")) {
+    return "evidence";
+  }
+  if (signal.includes("material") || signal.includes("cost")) {
+    return "material";
+  }
+  if (signal.includes("contractor") || signal.includes("assign")) {
+    return "contractor";
+  }
+  if (signal.includes("reminder")) {
+    return "reminder";
+  }
+  return "milestone";
 }
 
 async function writeReminderAudit(

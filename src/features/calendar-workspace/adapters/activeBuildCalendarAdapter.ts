@@ -123,6 +123,9 @@ export function buildActiveBuildCalendarWorkspaceFromDetail(
   }
 
   for (const submilestone of detail.submilestones ?? []) {
+    if (!submilestone._id) {
+      continue;
+    }
     const parent = milestones.find(
       (milestone: any) => milestone.key === submilestone.milestoneKey
     );
@@ -144,11 +147,10 @@ export function buildActiveBuildCalendarWorkspaceFromDetail(
           Math.max(1, submilestone.durationDays ?? 1)
         ),
         entity: {
-          id: String(submilestone._id ?? submilestone.key),
-          key: submilestone.key,
-          type: "milestone",
+          id: submilestone._id,
+          type: "submilestone",
         },
-        id: `activeBuild:submilestone:${submilestone.key}`,
+        id: `activeBuild:submilestone:${submilestone._id}`,
         kind: "submilestone",
         metrics: { budgetCents: submilestone.budgetCents },
         milestoneKey: submilestone.milestoneKey,
@@ -304,23 +306,10 @@ export function buildActiveBuildCalendarWorkspaceFromDetail(
 
 export function buildActiveBuildCalendarActions(
   actions: ActiveBuildCalendarAdapterActions,
-  options: {
-    baseDate?: string;
-    onOpenEvent?: (event: DrawFlowCalendarEvent) => void;
-  } = {}
+  options: { baseDate?: string } = {}
 ): CalendarAction[] {
   const baseDate = options.baseDate ?? "2026-06-01";
   return [
-    eventAction(
-      "open-active-build-event",
-      "Open detail",
-      "Review this calendar event.",
-      async (context) => {
-        if (context.event) {
-          options.onOpenEvent?.(context.event);
-        }
-      }
-    ),
     eventAction(
       "start-milestone-work",
       "Start milestone work",

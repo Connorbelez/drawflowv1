@@ -19,12 +19,16 @@ import {
   SheetPanel,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
+import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
 import { formatRelative } from "./format";
 
 interface RailEvent {
   _id: string;
   actionLabel: string;
   body: string;
+  canonicalTarget?: BuildDetailTarget;
+  canonicalTargetContext?: BuildDetailTargetContext;
   createdAt: number;
   entityLabel: string;
   entityType: string;
@@ -53,10 +57,16 @@ interface AuditEvent {
   eventType: string;
   reason?: string;
   warnings?: string[];
+  canonicalTarget?: BuildDetailTarget;
+  canonicalTargetContext?: BuildDetailTargetContext;
 }
 
 interface EventRailPanelProps {
   auditEvents: AuditEvent[];
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onResolve?: (event: RailEvent) => void;
   onView?: (event: RailEvent) => void;
   quickActionEvents: RailEvent[];
@@ -225,6 +235,7 @@ function mostCommonEntityLabel(events: AuditEvent[]): string | undefined {
 export function EventRailPanel({
   quickActionEvents,
   auditEvents,
+  onOpenCanonicalTarget,
   onView,
   onResolve,
 }: EventRailPanelProps): ReactNode {
@@ -265,7 +276,17 @@ export function EventRailPanel({
                   <div className="flex gap-2">
                     <Button
                       data-testid={`rail-quick-event-view-${event._id}`}
-                      onClick={() => onView?.(event)}
+                      onClick={(clickEvent) => {
+                        if (event.canonicalTarget && onOpenCanonicalTarget) {
+                          clickEvent.preventDefault();
+                          onOpenCanonicalTarget(
+                            event.canonicalTarget,
+                            event.canonicalTargetContext,
+                          );
+                          return;
+                        }
+                        onView?.(event);
+                      }}
                       render={
                         // biome-ignore lint/a11y/useAnchorContent: Button merges its children into the rendered anchor.
                         <a aria-label={event.actionLabel} href={event.href} />
@@ -383,6 +404,23 @@ export function EventRailPanel({
                       </div>
                     ) : null}
 
+                    {event.canonicalTarget && onOpenCanonicalTarget ? (
+                      <Button
+                        className="mt-3"
+                        onClick={() =>
+                          onOpenCanonicalTarget(
+                            event.canonicalTarget as BuildDetailTarget,
+                            event.canonicalTargetContext,
+                          )
+                        }
+                        size="xs"
+                        type="button"
+                        variant="outline"
+                      >
+                        Open detail
+                      </Button>
+                    ) : null}
+
                     <p className="mt-3 flex items-center gap-1.5 text-muted-foreground text-xs">
                       <UserRound aria-hidden="true" className="size-3.5" />
                       {event.actorPersona}
@@ -402,6 +440,7 @@ export function EventRailPanel({
 
 export function EventRailSheet({
   auditEvents,
+  onOpenCanonicalTarget,
   onOpenChange,
   onResolve,
   onView,
@@ -427,6 +466,7 @@ export function EventRailSheet({
         <SheetPanel className="px-6 pt-2 pb-6">
           <EventRailPanel
             auditEvents={auditEvents}
+            onOpenCanonicalTarget={onOpenCanonicalTarget}
             onResolve={onResolve}
             onView={onView}
             quickActionEvents={quickActionEvents}
@@ -441,6 +481,7 @@ export function EventRailSheet({
 export function EventRail({
   quickActionEvents,
   auditEvents,
+  onOpenCanonicalTarget,
   onView,
   onResolve,
   collapsed = false,
@@ -452,6 +493,7 @@ export function EventRail({
   return (
     <EventRailSheet
       auditEvents={auditEvents}
+      onOpenCanonicalTarget={onOpenCanonicalTarget}
       onOpenChange={(open) => {
         if (open !== !collapsed) {
           onToggleCollapsed?.();

@@ -527,8 +527,16 @@ async function appendAmendmentEvent(
   });
   const webhookEventType =
     input.eventType === "start_corrected"
-      ? "milestone.start_corrected"
-      : "milestone.start_retracted";
+      ? input.submilestone
+        ? "submilestone.start_corrected"
+        : "milestone.start_corrected"
+      : input.submilestone
+        ? "submilestone.start_retracted"
+        : "milestone.start_retracted";
+  const auditEntityId = String(input.submilestone?._id ?? input.build._id);
+  const auditEntityType = input.submilestone
+    ? "buildSubmilestone"
+    : "activeBuild";
   const payload = {
     actualStartedAt: input.newActualStartedAt,
     actorRoles: input.actor.roles,
@@ -552,14 +560,16 @@ async function appendAmendmentEvent(
     actorRoles: input.actor.roles,
     actorWorkosUserId: input.actor.workosUserId,
     brokerageId: input.actor.brokerageId,
+    buildId: input.build._id,
     command:
       input.eventType === "start_corrected"
         ? "correctMilestoneStart"
         : "retractMilestoneStart",
     createdAt: input.reportedAt,
-    entityId: String(input.build._id),
-    entityType: "activeBuild",
+    entityId: auditEntityId,
+    entityType: auditEntityType,
     eventType: webhookEventType,
+    resourceType: input.submilestone ? "submilestone" : "milestone",
     newState: JSON.stringify(payload),
     organizationId: input.actor.organizationId,
     priorState: JSON.stringify({
@@ -575,8 +585,8 @@ async function appendAmendmentEvent(
     eventType: webhookEventType,
     organizationId: input.actor.organizationId,
     payloadPreview: JSON.stringify(payload),
-    relatedEntityId: input.build._id,
-    relatedEntityType: "activeBuild",
+    relatedEntityId: auditEntityId,
+    relatedEntityType: auditEntityType,
     status: "pending",
   });
   return eventId;
@@ -758,6 +768,14 @@ async function appendStartEvent(
     workflowRevision: number;
   }
 ) {
+  const canonicalChild = input.submilestone;
+  const auditEntityId = String(canonicalChild?._id ?? input.build._id);
+  const auditEntityType = canonicalChild
+    ? "buildSubmilestone"
+    : "activeBuild";
+  const auditEventType = canonicalChild
+    ? "submilestone.started"
+    : "milestone.started";
   const eventId = await ctx.db.insert("milestoneStartEvents", {
     actualStartedAt: input.actualStartedAt,
     actorRoles: input.actor.roles,
@@ -808,11 +826,13 @@ async function appendStartEvent(
     actorRoles: input.actor.roles,
     actorWorkosUserId: input.actor.workosUserId,
     brokerageId: input.actor.brokerageId,
+    buildId: input.build._id,
     command: "recordMilestoneStart",
     createdAt: input.reportedAt,
-    entityId: String(input.build._id),
-    entityType: "activeBuild",
-    eventType: "milestone.started",
+    entityId: auditEntityId,
+    entityType: auditEntityType,
+    eventType: auditEventType,
+    resourceType: input.submilestone ? "submilestone" : "milestone",
     newState: JSON.stringify(payload),
     organizationId: input.actor.organizationId,
     priorState: JSON.stringify({
@@ -825,11 +845,11 @@ async function appendStartEvent(
   await ctx.db.insert("eventOutbox", {
     brokerageId: input.actor.brokerageId,
     createdAt: input.reportedAt,
-    eventType: "milestone.started",
+    eventType: auditEventType,
     organizationId: input.actor.organizationId,
     payloadPreview: JSON.stringify(payload),
-    relatedEntityId: input.build._id,
-    relatedEntityType: "activeBuild",
+    relatedEntityId: auditEntityId,
+    relatedEntityType: auditEntityType,
     status: "pending",
   });
   return eventId;

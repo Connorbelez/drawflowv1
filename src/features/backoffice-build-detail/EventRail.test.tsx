@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { EventRailPanel } from "./EventRail.tsx";
 
 describe("EventRailPanel", () => {
@@ -88,5 +88,66 @@ describe("EventRailPanel", () => {
     expect(
       screen.getByText("No audit events have been recorded.")
     ).toBeTruthy();
+  });
+
+  test("opens canonical child targets from quick work and audit entries", () => {
+    const onOpenCanonicalTarget = vi.fn();
+    const onView = vi.fn();
+    const target = {
+      kind: "submilestone" as const,
+      submilestoneId: "submilestone-01",
+    };
+
+    render(
+      <EventRailPanel
+        auditEvents={[
+          {
+            _id: "audit-submilestone-01",
+            actorPersona: "Builder",
+            canonicalTarget: target,
+            canonicalTargetContext: { selectedTab: "review" },
+            createdAt: Date.now(),
+            entityType: "submilestone",
+            eventType: "active_build.submilestone.execution_updated",
+          },
+        ]}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        onView={onView}
+        quickActionEvents={[
+          {
+            _id: "delivery-submilestone-01",
+            actionLabel: "Review Sub-milestone",
+            body: "Review the child work.",
+            canonicalTarget: target,
+            canonicalTargetContext: { selectedTab: "review" },
+            createdAt: Date.now(),
+            entityLabel: "Foundation · Footings",
+            entityType: "submilestone",
+            href: "/backoffice/builds/build-01?rail=open",
+            resolutionMode: "domain",
+            sourceLabel: "Lender Operations",
+            title: "Sub-milestone review",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByTestId("rail-quick-event-view-delivery-submilestone-01"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open detail" }));
+
+    expect(onView).not.toHaveBeenCalled();
+    expect(onOpenCanonicalTarget).toHaveBeenCalledTimes(2);
+    expect(onOpenCanonicalTarget).toHaveBeenNthCalledWith(
+      1,
+      target,
+      { selectedTab: "review" },
+    );
+    expect(onOpenCanonicalTarget).toHaveBeenNthCalledWith(
+      2,
+      target,
+      { selectedTab: "review" },
+    );
   });
 });

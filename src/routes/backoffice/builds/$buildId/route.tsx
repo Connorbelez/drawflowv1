@@ -19,6 +19,7 @@ import {
   type ProductionBuildDetailActions,
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
+import { BuildDetailSheetHost } from "#/features/build-detail-targets/BuildDetailSheetHost.tsx";
 import { SiteVisitScheduleIntentRegistry } from "#/features/backoffice-build-detail/siteVisitScheduleIntent.ts";
 import {
   canUseAppPermission,
@@ -251,7 +252,7 @@ function RouteComponent() {
         costDocument: tab === "costs" ? search.costDocument : undefined,
         costDocumentDraft:
           tab === "costs" ? search.costDocumentDraft : undefined,
-        focus,
+        focus: focus ?? search.focus,
         roundId: tab === "quotes" ? search.roundId : undefined,
         tab,
       },
@@ -813,6 +814,14 @@ function RouteComponent() {
       detail.submilestones ?? [],
     );
     return (
+      <BuildDetailSheetHost
+        buildId={activeBuildId as Id<"activeBuilds">}
+        detailTab={search.detailTab}
+        focus={search.focus}
+        organizationId={workosOrganizationId}
+        viewerCapacity={selectedViewerCapacity}
+      >
+        {(detailSheetHost) => (
       <ProductionBuildDetailSurface
         actions={actions}
         activeBuildId={activeBuildId}
@@ -822,6 +831,8 @@ function RouteComponent() {
         contractorDetailHrefFor={(contractorId) =>
           `/backoffice/contractors/${contractorId}`
         }
+        detailSheetHost={detailSheetHost}
+        onOpenCanonicalTarget={detailSheetHost.controller.openTarget}
         costs={
           <Suspense fallback={<BuildDetailTabFallback label="costs" />}>
             {costDocumentActorCapacity ? (
@@ -979,6 +990,8 @@ function RouteComponent() {
         viewerRole="lender"
         workosOrganizationId={workosOrganizationId}
       />
+        )}
+      </BuildDetailSheetHost>
     );
   }
 

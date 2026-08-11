@@ -40,6 +40,25 @@ const activeBuildDetail = {
 const navigate = vi.fn();
 const useMutation = vi.fn();
 const useQuery = vi.fn();
+const buildDetailSheetHostRender = vi.fn();
+const buildDetailSheetHostProps = vi.fn();
+const buildDetailTargetController = {
+  back: vi.fn(),
+  canGoBack: false,
+  canGoForward: false,
+  close: vi.fn(),
+  forward: vi.fn(),
+  openFocus: vi.fn(),
+  openTarget: vi.fn(),
+  selectTab: vi.fn(),
+};
+const buildDetailSheetHostState = {
+  controller: buildDetailTargetController,
+  integrityError: undefined,
+  readOnly: false,
+  resolutionState: "visible" as const,
+  target: undefined,
+};
 
 vi.mock("convex/react", () => ({
   useAction: (ref: unknown) => useAction(ref),
@@ -195,6 +214,8 @@ vi.mock(
       costs,
       viewerCapacity,
       viewerRole,
+      detailSheetHost,
+      onChangeTab,
     }: {
       activeTab?: string;
       actions?: {
@@ -224,11 +245,25 @@ vi.mock(
       costs?: React.ReactNode;
       viewerCapacity?: string;
       viewerRole?: string;
+      detailSheetHost?: unknown;
+      onChangeTab?: (tab: string) => void;
     }) => (
       <div data-testid="production-build-surface">
         <span data-testid="active-build-tab">{activeTab}</span>
         <span data-testid="viewer-capacity">{viewerCapacity}</span>
         <span data-testid="viewer-role">{viewerRole}</span>
+        <span data-testid="detail-sheet-host-injected">
+          {detailSheetHost ? "yes" : "no"}
+        </span>
+        {onChangeTab ? (
+          <button
+            data-testid="change-main-tab"
+            onClick={() => onChangeTab("gantt")}
+            type="button"
+          >
+            Change main tab
+          </button>
+        ) : null}
         {activeTab === "costs" && costs ? (
           <div data-testid="costs-slot-present">{costs}</div>
         ) : null}
@@ -313,6 +348,21 @@ vi.mock(
   })
 );
 
+vi.mock("#/features/build-detail-targets/BuildDetailSheetHost.tsx", () => ({
+  BuildDetailIntegritySheet: () => null,
+  BuildDetailSheetHost: ({
+    children,
+    ...props
+  }: {
+    children: (state: typeof buildDetailSheetHostState) => React.ReactNode;
+    [key: string]: unknown;
+  }) => {
+    buildDetailSheetHostRender();
+    buildDetailSheetHostProps(props);
+    return <>{children(buildDetailSheetHostState)}</>;
+  },
+}));
+
 import {
   BuilderBuildWorkspaceRoute,
   createBuildAvailabilityReference,
@@ -344,6 +394,44 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
       .mockReturnValueOnce(createAndAttachContractor)
       .mockReturnValueOnce(sendContractorInvite)
       .mockReturnValueOnce(submitMilestoneCompletion);
+  });
+
+  test("owns one canonical detail host and preserves focus/detailTab on pure tab changes", () => {
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{
+          detailTab: "evidence",
+          focus: "submilestone:submilestone-01",
+          tab: "timeline",
+        }}
+        workosOrganizationId="org_builder"
+      />,
+    );
+
+    expect(buildDetailSheetHostRender).toHaveBeenCalledTimes(1);
+    expect(buildDetailSheetHostProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        detailTab: "evidence",
+        focus: "submilestone:submilestone-01",
+      }),
+    );
+    expect(screen.getByTestId("detail-sheet-host-injected").textContent).toBe(
+      "yes",
+    );
+    fireEvent.click(screen.getByTestId("change-main-tab"));
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: expect.objectContaining({
+          detailTab: "evidence",
+          focus: "submilestone:submilestone-01",
+          tab: "gantt",
+        }),
+      }),
+    );
   });
 
   test("keeps the Cost Document batch sheet route-addressable", () => {

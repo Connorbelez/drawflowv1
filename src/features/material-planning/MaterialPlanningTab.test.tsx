@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 import { MaterialPlanningTab } from "./MaterialPlanningTab";
 
@@ -57,6 +58,36 @@ describe("MaterialPlanningTab", () => {
     expect(screen.getAllByText("Forms and pour").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$200,000").length).toBeGreaterThan(0);
     expect(screen.getByText("$80,000 x 2.5")).toBeTruthy();
+  });
+
+  test("opens a canonical child target from an attached sub-milestone", () => {
+    const onOpenSubmilestone = vi.fn();
+    const canonicalSubmilestoneId = "sub-01" as Id<"buildSubmilestones">;
+
+    render(
+      <MaterialPlanningTab
+        items={[]}
+        milestones={[
+          {
+            ...milestones[0],
+            submilestones: [
+              {
+                ...milestones[0].submilestones[0],
+                canonicalId: canonicalSubmilestoneId,
+              },
+            ],
+          },
+        ]}
+        onOpenSubmilestone={onOpenSubmilestone}
+        scopeLabel="Build Proposal"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Sub-milestone Forms and pour" }),
+    );
+
+    expect(onOpenSubmilestone).toHaveBeenCalledWith(canonicalSubmilestoneId);
   });
 
   test("shows one selected-milestone list and one scoped creation action", () => {

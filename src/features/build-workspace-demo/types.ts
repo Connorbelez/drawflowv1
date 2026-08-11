@@ -1,4 +1,5 @@
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 import type {
   BuildWorkspaceAssignContractorInput,
@@ -192,6 +193,11 @@ export interface Milestone {
   reviewReports: ReviewReportSummary[];
   siteVisitRequested: boolean;
   siteVisits: SiteVisitSummary[];
+  submilestones?: Array<{
+    canonicalId?: Id<"buildSubmilestones">;
+    key: string;
+    name: string;
+  }>;
   staffRecommendation: string;
   startAt: Date;
   status: MilestoneStatus;

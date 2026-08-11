@@ -456,11 +456,13 @@ async function recordActiveSubmilestoneEvidencePackageFreezeAudit(
     actorRoles: input.actorRoles,
     actorWorkosUserId: input.actorWorkosUserId,
     brokerageId: input.build.brokerageId,
+    buildId: input.build._id,
     command: "freezeActiveSubmilestoneEvidencePackage",
     createdAt: input.timestamp,
     entityId: String(input.submilestone._id),
     entityType: "buildSubmilestone",
     eventType: "active_build.submilestone.evidence_package_frozen",
+    resourceType: "evidence",
     newState: JSON.stringify({
       evidencePackageRevisionId: input.packageRevision._id,
       frozenAt: input.timestamp,
@@ -495,12 +497,14 @@ async function recordActiveSubmilestoneEvidencePackageSupersessionAudit(
     actorRoles: input.actorRoles,
     actorWorkosUserId: input.actorWorkosUserId,
     brokerageId: input.build.brokerageId,
+    buildId: input.build._id,
     command: "ensureActiveSubmilestoneEvidencePackageDraft",
     createdAt: input.timestamp,
     entityId: String(input.submilestone._id),
     entityType: "buildSubmilestone",
     eventType:
       "active_build.submilestone.evidence_package_revision_superseded",
+    resourceType: "evidence",
     newState: JSON.stringify({
       evidencePackageRevisionId: input.newRevision._id,
       revision: input.newRevision.revision,

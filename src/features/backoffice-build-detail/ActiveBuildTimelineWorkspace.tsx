@@ -20,6 +20,8 @@ import {
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildDetailTarget } from "#/features/build-detail-targets/buildDetailTarget.ts";
+import type { BuildDetailTargetContext } from "#/features/build-detail-targets/useBuildDetailTargetController.ts";
 import type { SiteVisitOrderRequest } from "./SiteVisitOrderDialog.tsx";
 
 export interface ActiveBuildTimelineWorkspaceProps {
@@ -34,6 +36,10 @@ export interface ActiveBuildTimelineWorkspaceProps {
   canReviewDraws?: boolean;
   initialRole?: "builder" | "lender";
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   workosOrganizationId: string;
   workspace: ConvexTimelineWorkspace & {
     modificationRequests?: TimelineModificationRequestView[];
@@ -59,6 +65,7 @@ export function ActiveBuildTimelineWorkspace({
   canReviewDraws = false,
   initialRole = "lender",
   onRequestSiteVisit,
+  onOpenCanonicalTarget,
   workspace,
   workosOrganizationId,
 }: ActiveBuildTimelineWorkspaceProps) {
@@ -469,6 +476,18 @@ export function ActiveBuildTimelineWorkspace({
       initialRole={initialRole}
       initialState={initialState}
       modificationRequests={workspace.modificationRequests ?? []}
+      onOpenSubmilestone={
+        onOpenCanonicalTarget
+          ? (submilestoneId) =>
+              onOpenCanonicalTarget(
+                {
+                  kind: "submilestone",
+                  submilestoneId,
+                },
+                { selectedTab: "overview" },
+              )
+          : undefined
+      }
       persistence={persistence}
       readOnly={!hasTimelineEditPermission}
       timelineSettingsProjection={null}

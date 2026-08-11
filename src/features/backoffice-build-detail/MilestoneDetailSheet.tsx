@@ -52,6 +52,10 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
 import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
+import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
+import type { BuildSubmilestoneDetailTab } from "../build-detail-targets/buildDetailTab.ts";
+import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
 import { ActiveBuildSubmilestoneGuidanceController } from "../submilestone-guidance/ActiveBuildSubmilestoneGuidanceController.tsx";
 import { ProposalSubmilestoneScopeController } from "../submilestone-scope/ProposalSubmilestoneScopeController.tsx";
 import {
@@ -69,6 +73,12 @@ type CanonicalDirtySection = "guidance" | "scope";
 interface PendingCanonicalNavigation {
   action: () => void;
   label: string;
+}
+
+function canonicalSubmilestoneTab(
+  tab: DetailTab,
+): BuildSubmilestoneDetailTab {
+  return tab === "notes" ? "collaboration" : tab;
 }
 
 export interface MilestoneSheetSubmilestone {
@@ -109,6 +119,7 @@ export interface MilestoneSheetSubmilestone {
   buildSubmilestoneId?: string;
   proposalSubmilestoneId?: string;
   key: string;
+  submilestoneId?: Id<"buildSubmilestones">;
   materials: Array<{
     description?: string;
     id: string;
@@ -197,6 +208,10 @@ interface MilestoneDetailSheetProps {
   onAssignContractor?: (milestoneKey: string, submilestoneKey?: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
   onClose: () => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onReject?: (milestoneKey: string) => void;
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
@@ -322,6 +337,7 @@ export function MilestoneDetailSheet({
   onAssignContractor,
   onAssignVisit,
   onClose,
+  onOpenCanonicalTarget,
   onReject,
   onRequestInfo,
   onStartWork,
@@ -436,6 +452,75 @@ export function MilestoneDetailSheet({
         : sheetIdentity.proposalSubmilestoneId,
     };
   };
+  const openCanonicalForRow = (
+    row: MilestoneSheetSubmilestone | undefined,
+    tab: BuildSubmilestoneDetailTab,
+  ) => {
+    if (!(onOpenCanonicalTarget && row?.submilestoneId)) {
+      return false;
+    }
+    requestNavigation(
+      () => {
+        // Leave the parent sheet on its ledger before handing control to the
+        // route-owned canonical child sheet. This prevents the legacy inline
+        // detail/guided workflow from remaining visible behind the shared sheet.
+        setView("ledger");
+        onOpenCanonicalTarget(
+          {
+            kind: "submilestone",
+            submilestoneId: row.submilestoneId,
+          },
+          { selectedTab: tab },
+        );
+      },
+      "open the canonical Sub-milestone detail",
+    );
+    return true;
+  };
+  const openSubmilestoneDetail = (key: string, tab: DetailTab = "overview") => {
+    const row = rows.find((candidate) => candidate.key === key);
+    if (openCanonicalForRow(row, canonicalSubmilestoneTab(tab))) {
+      return;
+    }
+    setSelectedKey(key);
+    setDetailTab(tab);
+    setView("detail");
+  };
+  const assignSubmilestoneContractor = (
+    milestoneKey: string,
+    submilestoneKey?: string,
+  ) => {
+    const row = rows.find((candidate) => candidate.key === submilestoneKey);
+    if (openCanonicalForRow(row, "people")) {
+      return;
+    }
+    onAssignContractor?.(milestoneKey, submilestoneKey);
+  };
+  const startSubmilestone = (
+    milestoneKey: string,
+    submilestoneKey: string,
+    source:
+      | "guided_field_workflow"
+      | "submilestone_detail"
+      | "submilestone_ledger",
+  ) => {
+    const row = rows.find((candidate) => candidate.key === submilestoneKey);
+    if (openCanonicalForRow(row, "overview")) {
+      return;
+    }
+    onStartSubmilestone?.(milestoneKey, submilestoneKey, source);
+  };
+  const amendSubmilestoneStart = (
+    action: "correct" | "retract",
+    milestoneKey: string,
+    submilestoneKey?: string,
+  ) => {
+    const row = rows.find((candidate) => candidate.key === submilestoneKey);
+    if (openCanonicalForRow(row, "review")) {
+      return;
+    }
+    onAmendStart?.(action, milestoneKey, submilestoneKey);
+  };
   useEffect(() => {
     if (
       focusedSubmilestoneKey &&
@@ -459,12 +544,22 @@ export function MilestoneDetailSheet({
     input: Omit<SubmilestoneUpdateInput, "expectedRevision" | "milestoneKey">,
     optimistic: Partial<MilestoneSheetSubmilestone>
   ) => {
+    const target = rows.find((row) => row.key === input.submilestoneKey);
+    const canonicalTab = Object.hasOwn(input, "actualCostCents")
+      ? "materials"
+      : Object.hasOwn(input, "fieldNote")
+        ? "collaboration"
+        : Object.hasOwn(input, "status")
+          ? "review"
+          : "overview";
+    if (openCanonicalForRow(target, canonicalTab)) {
+      return;
+    }
     if (readOnly || !onUpdateSubmilestone) {
       return;
     }
     setPendingKey(input.submilestoneKey);
     setLocalError(null);
-    const target = rows.find((row) => row.key === input.submilestoneKey);
     const expectedRevision = target?.workflowRevision;
     if (expectedRevision === undefined) {
       const error = new Error(
@@ -514,9 +609,22 @@ export function MilestoneDetailSheet({
     }
   };
 
+  const uploadSubmilestoneEvidence = async (
+    input: EvidenceUploaderUploadInput,
+  ) => {
+    const row = rows.find((candidate) => candidate.key === input.submilestoneKey);
+    if (openCanonicalForRow(row, "evidence")) {
+      return;
+    }
+    await onUploadEvidence?.(input);
+  };
+
   const openGuidedCompletion = () => {
+    const firstIncomplete = incomplete[0];
+    if (firstIncomplete && openCanonicalForRow(firstIncomplete, "review")) {
+      return;
+    }
     requestNavigation(() => {
-      const firstIncomplete = incomplete[0];
       if (firstIncomplete) {
         setSelectedKey(firstIncomplete.key);
       }
@@ -677,15 +785,11 @@ export function MilestoneDetailSheet({
           {view === "ledger" ? (
             <LedgerView
               data={data}
-              onAssignContractor={onAssignContractor}
-              onOpenDetail={(key, tab = "overview") => {
-                setSelectedKey(key);
-                setDetailTab(tab);
-                setView("detail");
-              }}
+              onAssignContractor={assignSubmilestoneContractor}
+              onOpenDetail={openSubmilestoneDetail}
               onUpdate={updateSubmilestone}
-              onStartSubmilestone={onStartSubmilestone}
-              onUploadEvidence={onUploadEvidence}
+              onStartSubmilestone={startSubmilestone}
+              onUploadEvidence={uploadSubmilestoneEvidence}
               pendingKey={pendingKey}
               readOnly={readOnly}
               rows={rows}
@@ -703,14 +807,14 @@ export function MilestoneDetailSheet({
                 activeTab={detailTab}
                 data={data}
                 item={selected}
-                onAssignContractor={onAssignContractor}
-                onAmendStart={onAmendStart}
+                onAssignContractor={assignSubmilestoneContractor}
+                onAmendStart={amendSubmilestoneStart}
                 onBack={handleBackToLedger}
                 onDirtyChange={onCanonicalDirtyChange}
                 onTabChange={handleDetailTabChange}
-                onStartSubmilestone={onStartSubmilestone}
+                onStartSubmilestone={startSubmilestone}
                 onUpdate={updateSubmilestone}
-                onUploadEvidence={onUploadEvidence}
+                onUploadEvidence={uploadSubmilestoneEvidence}
                 pendingKey={pendingKey}
                 canonicalIdentity={canonicalIdentityFor(selected)}
                 readOnly={readOnly}
@@ -723,15 +827,21 @@ export function MilestoneDetailSheet({
             <GuidedView
               data={data}
               item={selected}
-              onAssignContractor={onAssignContractor}
+              onAssignContractor={assignSubmilestoneContractor}
               onCompleteAndAdvance={completeAndAdvance}
               onDirtyChange={onCanonicalDirtyChange}
               onBackToLedger={handleBackToLedger}
-              onSelect={handleGuidedSelect}
+              onSelect={(key) => {
+                const row = rows.find((candidate) => candidate.key === key);
+                if (openCanonicalForRow(row, "overview")) {
+                  return;
+                }
+                handleGuidedSelect(key);
+              }}
               onStepChange={handleGuidedStepChange}
               onUpdate={updateSubmilestone}
-              onStartSubmilestone={onStartSubmilestone}
-              onUploadEvidence={onUploadEvidence}
+              onStartSubmilestone={startSubmilestone}
+              onUploadEvidence={uploadSubmilestoneEvidence}
               pendingKey={pendingKey}
               rows={rows}
               step={guidedStep}

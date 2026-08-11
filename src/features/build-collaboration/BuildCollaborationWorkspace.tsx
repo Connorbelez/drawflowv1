@@ -14,11 +14,13 @@ import {
   type BuildDetailTarget,
   parseBuildDetailFocus,
 } from "../build-detail-targets/buildDetailTarget.ts";
+import type { BuildDetailSheetHostState } from "../build-detail-targets/BuildDetailSheetHost.tsx";
 import type { BuildSubmilestoneDetailTab } from "../build-detail-targets/buildDetailTab.ts";
 import { BuildCollaborationFeed } from "./BuildCollaborationFeed.tsx";
 
 export function BuildCollaborationWorkspace({
   buildId,
+  detailSheetHost,
   detailTab,
   focusedReference,
   organizationId,
@@ -27,6 +29,7 @@ export function BuildCollaborationWorkspace({
   viewerCapacity,
 }: {
   buildId: string;
+  detailSheetHost?: BuildDetailSheetHostState;
   detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   organizationId?: string;
@@ -89,16 +92,7 @@ export function BuildCollaborationWorkspace({
     );
   }
 
-  return (
-    <BuildDetailSheetHost
-      buildId={buildId as Id<"activeBuilds">}
-      detailTab={detailTab}
-      focus={localFocusedReference}
-      onTargetResolved={onResolvedDetailTarget}
-      organizationId={organizationId}
-      viewerCapacity={viewerCapacity}
-    >
-      {(host) => {
+  const renderWithHost = (host: BuildDetailSheetHostState) => {
         const openReference = (reference: {
           entityId: string;
           entityKind: string;
@@ -153,13 +147,13 @@ export function BuildCollaborationWorkspace({
               organizationId={organizationId}
               resolvedDetailTarget={host.target}
             />
-            {host.integrityError ? (
+            {!detailSheetHost && host.integrityError ? (
               <BuildDetailIntegritySheet
                 error={host.integrityError}
                 onClose={closeDetailTarget}
               />
             ) : null}
-            {host.target?.kind === "submilestone" ? (
+            {!detailSheetHost && host.target?.kind === "submilestone" ? (
               <SubmilestoneDetailSheet
                 buildId={buildId as Id<"activeBuilds">}
                 buildSubmilestoneId={host.target.submilestoneId}
@@ -187,7 +181,22 @@ export function BuildCollaborationWorkspace({
             ) : null}
           </>
         );
-      }}
+      };
+
+  if (detailSheetHost) {
+    return renderWithHost(detailSheetHost);
+  }
+
+  return (
+    <BuildDetailSheetHost
+      buildId={buildId as Id<"activeBuilds">}
+      detailTab={detailTab}
+      focus={localFocusedReference}
+      onTargetResolved={onResolvedDetailTarget}
+      organizationId={organizationId}
+      viewerCapacity={viewerCapacity}
+    >
+      {renderWithHost}
     </BuildDetailSheetHost>
   );
 }

@@ -54,7 +54,12 @@ describe("convexWorkspaceToTimelineState", () => {
           policyState: "Released",
           status: "complete",
           submilestoneSnapshot: [
-            { key: "foundation-sub-01", name: "Forms", order: 1 },
+            {
+              canonicalId: "sub-01",
+              key: "foundation-sub-01",
+              name: "Forms",
+              order: 1,
+            },
             { key: "foundation-sub-02", name: "Pour", order: 2 },
           ],
           x: 12,
@@ -95,7 +100,12 @@ describe("convexWorkspaceToTimelineState", () => {
       },
       subMilestones: ["Forms", "Pour"],
       submilestoneDetails: [
-        expect.objectContaining({ key: "foundation-sub-01", name: "Forms", order: 1 }),
+        expect.objectContaining({
+          canonicalId: "sub-01",
+          key: "foundation-sub-01",
+          name: "Forms",
+          order: 1,
+        }),
         expect.objectContaining({ key: "foundation-sub-02", name: "Pour", order: 2 }),
       ],
     });

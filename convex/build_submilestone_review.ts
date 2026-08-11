@@ -708,11 +708,15 @@ async function recordReviewAudit(
     actorRoles: normalizeRoleSlugs(auth.roles),
     actorWorkosUserId: auth.viewer.subject,
     brokerageId: auth.brokerage._id,
+    buildId: auth.build._id,
     command: input.command,
     createdAt: now,
     entityId: input.entityId,
     entityType: input.entityType,
     eventType: input.eventType,
+    resourceType: input.eventType.includes("site_visit")
+      ? "evidence"
+      : "submilestone",
     newState: input.newState,
     organizationId: auth.organizationId,
     priorState: input.priorState,

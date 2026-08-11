@@ -8,6 +8,16 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const ORG = "org_production_foundation";
+const APP_PERMISSION_RESOURCES = [
+  "milestone",
+  "submilestone",
+  "draw",
+  "evidence",
+  "contractor",
+  "material",
+  "capitalEvent",
+  "reminder",
+] as const;
 
 function tiptap(text: string) {
   return JSON.stringify({
@@ -40,7 +50,38 @@ async function seededAdmin() {
     (api as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORG }
   );
-  return { seed, t };
+  return { base, seed, t };
+}
+
+function appPermissionGrants(
+  allowed: Partial<Record<(typeof APP_PERMISSION_RESOURCES)[number], { canView?: boolean }>>,
+) {
+  return APP_PERMISSION_RESOURCES.map((resourceType) => ({
+    canCreate: false,
+    canDelete: false,
+    canUpdate: false,
+    canView: allowed[resourceType]?.canView ?? false,
+    resourceType,
+  }));
+}
+
+async function grantOrgMembership(t: any, subject: string) {
+  await t.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.insert("workosOrganizationMemberships", {
+      createdAt: now,
+      directoryManaged: false,
+      roleSlug: "builder-staff",
+      roleSlugs: ["builder-staff"],
+      sourceEventId: `test_membership_${subject}`,
+      sourceEventType: "test.production_calendar",
+      status: "active",
+      updatedAt: now,
+      workosMembershipId: `test_membership_${subject}`,
+      workosOrganizationId: ORG,
+      workosUserId: subject,
+    });
+  });
 }
 
 async function createCalendarProposal(t: any, seed: any) {
@@ -343,7 +384,7 @@ describe("production calendar workspace", () => {
   });
 
   test("projects active build calendar events and audits schedule revisions", async () => {
-    const { seed, t } = await seededAdmin();
+    const { base, seed, t } = await seededAdmin();
     const proposalId = await createCalendarProposal(t, seed);
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
@@ -380,18 +421,91 @@ describe("production calendar workspace", () => {
         workosOrganizationId: ORG,
       }
     );
-    await t.mutation((api as any).production_proposals.scheduleActiveBuildSiteVisit, {
+    const scheduledSiteVisit = await t.mutation((api as any).production_proposals.scheduleActiveBuildSiteVisit, {
       buildId: closing.buildId,
       idempotencyKey: "calendar-foundation-site-visit",
       milestoneKey: "foundation",
       note: "Inspect revised foundation window.",
       requestedDay: 24,
+      submilestoneKeys: ["forms"],
       workosOrganizationId: ORG,
     });
 
     const workspace = await t.query(
       (api as any).production_proposals.getActiveBuildCalendarWorkspace,
       { buildId: closing.buildId, workosOrganizationId: ORG }
+    );
+    const detail = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const forms = detail.submilestones.find(
+      (submilestone: any) => submilestone.key === "forms",
+    );
+    expect(scheduledSiteVisit.submilestoneId).toBe(forms?._id);
+    expect(
+      detail.auditEvents.find(
+        (event: any) => event.eventType === "site_visit.scheduled",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        canonicalTarget: {
+          kind: "submilestone",
+          submilestoneId: forms?._id,
+        },
+        canonicalTargetContext: { selectedTab: "review" },
+      }),
+    );
+
+    const limitedSubject = "user_calendar_site_visit_resource_only";
+    await grantOrgMembership(t, limitedSubject);
+    await t.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({ evidence: { canView: true } }),
+        staffWorkosUserId: limitedSubject,
+        workosOrganizationId: ORG,
+      },
+    );
+    const limitedStaff = withIdentity(base, ["builder-staff"], limitedSubject);
+    const resourceOnlyDetail = await limitedStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      resourceOnlyDetail.auditEvents.some(
+        (event: any) => event.eventType === "site_visit.scheduled",
+      ),
+    ).toBe(false);
+
+    await t.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId: closing.buildId,
+        permissions: appPermissionGrants({
+          evidence: { canView: true },
+          submilestone: { canView: true },
+        }),
+        staffWorkosUserId: limitedSubject,
+        workosOrganizationId: ORG,
+      },
+    );
+    const allowedDetail = await limitedStaff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      allowedDetail.auditEvents.find(
+        (event: any) => event.eventType === "site_visit.scheduled",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        canonicalTarget: {
+          kind: "submilestone",
+          submilestoneId: forms?._id,
+        },
+      }),
     );
 
     expect(workspace.surface).toBe("activeBuild");
