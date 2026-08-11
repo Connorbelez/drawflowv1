@@ -34,6 +34,7 @@ import {
   SortableItemHandle,
 } from "#/components/reui/sortable.tsx";
 import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
+import { tiptapJsonEqual } from "#/components/rich-text/tiptap-json.ts";
 import {
   ContractorQuickAddDrawer,
   type ContractorDrawerAvailableContractor,
@@ -4271,7 +4272,7 @@ function SubMilestoneDetailEditor({
   const [scopeSaving, setScopeSaving] = useState(false);
   const [scopeSaveError, setScopeSaveError] = useState<string | null>(null);
   const scopeCanonicalValueRef = useRef(initialScopeValue);
-  const scopeDirty = scopeDraft !== savedScopeDraft;
+  const scopeDirty = !tiptapJsonEqual(scopeDraft, savedScopeDraft);
   const valueFieldLabelId = activeSubMilestone
     ? `timeline-submilestone-value-label-${activeSubMilestone.id}`
     : undefined;

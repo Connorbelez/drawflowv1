@@ -122,6 +122,30 @@ describe("SubmilestoneFieldGuidanceEditor", () => {
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   });
 
+  test("keeps save disabled when TipTap JSON only differs by object-key order", () => {
+    render(
+      <SubmilestoneFieldGuidanceEditor
+        canEdit
+        guidance={{
+          cameraAnglesTiptapJson:
+            '{"content":[{"type":"paragraph"}],"type":"doc"}',
+          whatToVerifyTiptapJson:
+            '{"content":[{"type":"paragraph"}],"type":"doc"}',
+        }}
+        id="footings"
+        onSave={vi.fn()}
+        subMilestoneName="Footing forms"
+        testIdPrefix="test"
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole("button", { name: "Save field guidance" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
   test("retains both local sections and retry affordance after a failed save", async () => {
     const onSave = vi
       .fn()

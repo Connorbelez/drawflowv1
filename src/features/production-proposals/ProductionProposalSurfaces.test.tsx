@@ -1399,10 +1399,10 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Milestones" }));
 
     const budgetInput = screen.getByTestId(
-      "timeline-setup-submilestone-budget-forms",
+      "timeline-setup-table-subrow-budget-forms",
     );
     const durationInput = screen.getByTestId(
-      "timeline-setup-submilestone-duration-forms",
+      "timeline-setup-table-subrow-duration-forms",
     );
 
     fireEvent.change(budgetInput, { target: { value: "$15,000" } });

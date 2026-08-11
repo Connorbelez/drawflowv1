@@ -117,7 +117,6 @@ async function seedFieldGuidanceFixture() {
         organizationId: ORG,
         proposalId,
         proposalMilestoneId,
-        scopeOfWorkTiptapJson: tiptap("Contractual Scope remains separate."),
         startDay: 0,
         updatedAt: now,
       },
@@ -277,7 +276,7 @@ async function seedFieldGuidanceFixture() {
 const guidanceApi = (api as any).submilestone_field_guidance;
 
 describe("Sub-milestone Field Guidance", () => {
-  test("saves both exact TipTap documents, keeps Scope separate, and reports readiness", async () => {
+  test("saves both exact TipTap documents without legacy Scope storage and reports readiness", async () => {
     const {
       admin,
       base,
@@ -358,8 +357,8 @@ describe("Sub-milestone Field Guidance", () => {
       buildSubmilestoneId,
       whatToVerifyTiptapJson: verification,
     });
-    expect(state.proposalSubmilestone.scopeOfWorkTiptapJson).toBe(
-      tiptap("Contractual Scope remains separate."),
+    expect(state.proposalSubmilestone).not.toHaveProperty(
+      "scopeOfWorkTiptapJson",
     );
   });
 

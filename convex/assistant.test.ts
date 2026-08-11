@@ -688,6 +688,7 @@ describe("DrawFlow assistant HITL backend", () => {
             input: {
               actualStartedAt,
               buildId,
+              expectedRevision: 0,
               idempotencyKey: "assistant-start-foundation-01",
               milestoneKey: "foundation",
             },

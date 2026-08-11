@@ -325,7 +325,12 @@ describe("CanonicalSubmilestoneTabPanel", () => {
         onRetry={onRetry}
       />,
     );
-    mutationState.nextError = "stale workflow revision conflict";
+    mutationState.nextError = new Error(
+      JSON.stringify({
+        code: "STALE_WORKFLOW_REVISION",
+        message: "stale workflow revision conflict",
+      }),
+    );
 
     fireEvent.change(screen.getByRole("spinbutton", { name: "Progress percent" }), {
       target: { value: "55" },
@@ -864,7 +869,12 @@ describe("CanonicalSubmilestoneTabPanel", () => {
       expect(onRetry).toHaveBeenCalledTimes(1);
     });
 
-    mutationState.nextError = "STALE_SUBMILESTONE_REVISION: refresh required";
+    mutationState.nextError = new Error(
+      JSON.stringify({
+        code: "STALE_SUBMILESTONE_REVISION",
+        message: "refresh required",
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Remove assignment" }));
     fireEvent.change(screen.getByLabelText("Removal reason"), {
       target: { value: "Retry after a concurrent allocation update." },

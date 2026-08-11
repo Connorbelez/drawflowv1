@@ -12,12 +12,14 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import {
-  buildCashUseSummary,
-  formatTimelineDay,
-  toDemoTimelinePlanStateMutationInput,
   TimelineWorkspace,
   type TimelineWorkspaceProps,
 } from "./index.tsx";
+import {
+  buildCashUseSummary,
+  formatTimelineDay,
+  toDemoTimelinePlanStateMutationInput,
+} from "./TimelineWorkspace.tsx";
 import type {
   DemoCapitalSpike,
   DemoDraw,

@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
@@ -578,7 +579,11 @@ describe("TimelineSetupFlow budget import", () => {
       ).toContain("Imported 2 milestones and 4 budget lines");
     });
 
-    expect(screen.getByText("Draw/Milestone 1")).toBeTruthy();
+    expect(
+      within(
+        screen.getByTestId("timeline-setup-table-row-draw-milestone-1"),
+      ).getByText("Draw/Milestone 1"),
+    ).toBeTruthy();
     fireEvent.click(screen.getByTestId("timeline-setup-complete"));
 
     await waitFor(() => {

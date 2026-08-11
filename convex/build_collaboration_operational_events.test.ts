@@ -1389,6 +1389,35 @@ describe("Build Collaboration operational events", () => {
         }),
         ctx.db.patch(companion._id, { currentRevision: 17 }),
       ]);
+      const siteVisitRequirementId = await ctx.db.insert(
+        "buildSubmilestoneSiteVisitRequirements",
+        {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          buildMilestoneId: latentPost.canonicalBuildMilestoneId!,
+          buildSubmilestoneId: submilestoneId,
+          createdAt: now,
+          evaluatedAt: now,
+          manualRequired: false,
+          manualSignals: [],
+          milestoneKey: "framing",
+          organizationId: ORGANIZATION_ID,
+          policyRequired: false,
+          policySignals: [],
+          required: false,
+          reviewRound: 1,
+          riskRequired: false,
+          riskSignals: [],
+          status: "not_required",
+          submilestoneKey: "frame-walls",
+          updatedAt: now,
+        },
+      );
+      await ctx.db.patch(submilestoneId, {
+        evidenceReviewState: "in_review",
+        reviewDecisionState: "in_review",
+        siteVisitRequirementId,
+      });
       const commentIds = [];
       for (let index = 0; index < 55; index += 1) {
         commentIds.push(

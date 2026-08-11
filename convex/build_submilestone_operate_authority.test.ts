@@ -25,11 +25,11 @@ describe("Sub-milestone operate authority helpers", () => {
       ],
       [
         "assignment_required",
-        "Assign a tradesperson before a Contractor can start.",
+        "Assignment required: only the exact assigned Contractor may operate; assign a tradesperson before a Contractor can start.",
       ],
       [
         "lender_review_only",
-        "Review-only on this surface; field operate requires Builder or Admin authority.",
+        "Review-only on this surface; lender staff cannot execute Builder work without Builder or Admin authority.",
       ],
       ["already_started", "Work has already started on this Sub-milestone."],
       ["completed", "This Sub-milestone is already complete."],

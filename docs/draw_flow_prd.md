@@ -409,18 +409,40 @@ A Milestone includes:
 
 Milestones are the primary units of roadmap planning and draw eligibility in v1.
 
-## 7.7 Subtask
+## 7.7 Sub-milestone, Scope, and Field Guidance
 
-A Subtask is an optional lower-level work unit inside a Milestone.
+A Sub-milestone is the stable lower-level work unit inside a Milestone. Its
+Proposal identity continues into the active Build. Scope and Field Guidance use
+that same lineage, but they are separate domain records with separate save and
+authorization rules.
 
-Subtasks may be used for:
+**Sub-milestone Scope** is the contractual description of the work. Scope is
+stored as TipTap JSON in one versioned contract:
 
-- internal builder progress tracking,
-- evidence checklist decomposition,
-- partial completion reporting,
-- future partial draw support.
+- before first Proposal submission, authorized Proposal editors update one
+  mutable `v1` draft;
+- first submission publishes and makes `v1` effective;
+- later edits create one successor draft from a selected published revision;
+- publishing freezes the successor bytes and records actor, time, source
+  revision, and change reason; and
+- borrower acknowledgement, lender-admin approval, and audited override rules
+  control when a published successor becomes effective.
 
-For MVP, milestone-level completion is the default draw eligibility model. Subtask-based partial reimbursement is a lender-configurable future/stretched capability unless explicitly pulled into v1.
+**Field Guidance** is mutable operational instruction for the people who verify
+the work. It contains two independent rich-text fields: **What to verify** and
+**Recommended camera angles**. One explicit save replaces the complete pair.
+Field Guidance is not Scope, has no revision history, and never enters a Quote
+Package.
+
+Both editors keep changes local until the user selects Save. A keystroke,
+debounce timer, navigation event, or shared description field must not write
+Scope or Field Guidance. Unsaved navigation uses the common keep-editing or
+discard confirmation pattern.
+
+For MVP, Milestone completion remains the default draw eligibility model.
+Sub-milestones support roadmap planning, evidence decomposition, Site Visit
+instruction, Quote Package labour lines, and completion reporting without
+creating an independent partial-reimbursement rule.
 
 ## 7.8 Draw
 
@@ -568,6 +590,25 @@ A Site Visit includes:
 - recommendation,
 - submission timestamp,
 - admin review state.
+
+Every newly ordered Site Visit snapshots the complete Field Guidance pair for
+each selected Sub-milestone in stable roadmap order. Later canonical Guidance
+edits do not change an issued Visit. Historical Visits may retain their older
+Visit-wide guidance snapshot, but live milestone guidance is not a fallback for
+a new order or an existing token.
+
+## 7.14 Quote Package Revision
+
+A Quote Package Revision is the immutable contractor-facing package published
+from a Quote Round. Each labour line stores the exact effective Sub-milestone
+Scope revision ID, version, rich-text bytes, and optional change reason used at
+publication. A successor Scope draft never enters a Package until it is
+published, becomes effective, and the Round is explicitly refreshed or
+republished.
+
+Field Guidance and execution notes are not contractor Quote Scope. They must
+not appear in Quote composition, Package projections, invitation access, or
+historical response revisions.
 
 ---
 
@@ -1093,15 +1134,22 @@ The product should avoid splitting roadmap, draw, evidence, and approval state i
 ## 11.5 Site Visit Flow
 
 1. Staff or admin requests site visit.
-2. Site visit appears in kanban queue.
-3. Site staff claims or receives assignment.
-4. Staff opens mobile/tablet site visit flow.
-5. Staff views target milestone(s), site address, checklist, and prior evidence.
-6. Staff captures photos/videos/notes.
-7. System attempts geofence/location verification where permitted.
-8. Staff submits structured site visit report.
-9. If offline, report and evidence are stored locally and synced when connection returns.
-10. Admin reviews report before final approval.
+2. The order dialog loads current Field Guidance for every selected
+   Sub-milestone and blocks confirmation until both rich-text fields are
+   complete for each row.
+3. Staff may edit the Guidance pair. Confirmation saves those canonical values
+   and creates ordered immutable Visit snapshot sections atomically.
+4. Site visit appears in kanban queue.
+5. Site staff claims or receives assignment.
+6. Staff opens mobile/tablet site visit flow.
+7. Staff views the saved Sub-milestone Guidance snapshots, site address,
+   checklist, and prior evidence.
+8. Staff captures photos/videos/notes.
+9. System attempts geofence/location verification where permitted.
+10. Staff submits structured site visit report.
+11. If offline, report and evidence are stored locally and synced when
+    connection returns.
+12. Admin reviews report before final approval.
 
 ## 11.6 Milestone Approval and Draw Release Flow
 

@@ -277,6 +277,36 @@ describe("SubmilestoneScopeRevisionSurface", () => {
     await waitFor(() => expect((editor as HTMLTextAreaElement).disabled).toBe(false));
   });
 
+  test("keeps a draft clean when TipTap JSON key order changes", async () => {
+    renderSurface({
+      activeDraftRevision: draftV2,
+      capabilities: {
+        canEditDraft: true,
+        canLoadUnpublishedDraft: true,
+        canPublishDraft: true,
+        canStartDraft: false,
+      },
+      onSaveDraft: vi.fn(),
+      selectedRevisionContent: content(
+        draftV2.id,
+        '{"type":"doc","content":[{"type":"paragraph"}]}',
+      ),
+      selectedRevisionId: draftV2.id,
+    });
+
+    const editor = await screen.findByTestId("submilestone-scope-revision-editor");
+    fireEvent.change(editor, {
+      target: {
+        value: '{"content":[{"type":"paragraph"}],"type":"doc"}',
+      },
+    });
+
+    expect(
+      (screen.getByTestId("submilestone-scope-save-draft") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
   test("keeps local content and dirty state after a failed save", async () => {
     const onSaveDraft = vi.fn(async () => {
       throw new Error("Save failed");

@@ -2492,6 +2492,12 @@ function CanonicalMaterialsPanel({
           assertCanonicalMaterialId(item._id);
           const scopedPayload = {
             ...withoutActiveBuildBudgetTarget(payload),
+            // Active-build editors do not expose budget-target controls, but
+            // the canonical record still owns those values. Carry the
+            // existing target/treatment through unchanged so an edit cannot
+            // accidentally drop the server's budget semantics.
+            budgetSubmilestoneKey: item.budgetSubmilestoneKey ?? null,
+            budgetTreatment: item.budgetTreatment ?? "add",
             buildId,
             itemId: item._id,
             relevantSubmilestoneKeys: scopedRelevantSubmilestoneKeys(

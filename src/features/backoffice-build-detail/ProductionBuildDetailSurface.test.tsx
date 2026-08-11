@@ -905,10 +905,15 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.queryByTestId("build-detail-documents")).toBeNull();
     expect(screen.queryByTestId("internal-notes")).toBeNull();
     expect(screen.queryByTestId("public-notes")).toBeNull();
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("build-collaboration-unavailable"),
-      ).toBeTruthy(),
+    // Build collaboration is intentionally lazy-loaded. Give the dynamic
+    // chunk enough time to resolve when the full suite is compiling several
+    // worker graphs concurrently.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByTestId("build-collaboration-unavailable"),
+        ).toBeTruthy(),
+      { timeout: 5000 },
     );
     expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
 
@@ -955,13 +960,16 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
-      expect(
-        screen.getByText("Collaboration is temporarily unavailable"),
-      ).toBeTruthy();
-      expect(consoleError).toHaveBeenCalled();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
+        expect(
+          screen.getByText("Collaboration is temporarily unavailable"),
+        ).toBeTruthy();
+        expect(consoleError).toHaveBeenCalled();
+      },
+      { timeout: 5000 },
+    );
   });
 
   test("keeps Build Overview operational while tenant collaboration is disabled", async () => {

@@ -136,17 +136,11 @@ async function seedClosedBuild() {
 describe("active Build Sub-milestone workspace Scope boundary", () => {
   test("returns the canonical Proposal Sub-milestone ID and never projects legacy Scope or description", async () => {
     const fixture = await seedClosedBuild();
-    const legacy = await fixture.base.run(async (ctx: any) => {
+    await fixture.base.run(async (ctx: any) => {
       await ctx.db.patch(fixture.buildSubmilestone._id, {
         fieldNote: "Execution note only",
-        scopeOfWorkTiptapJson: tiptap("Legacy Build Scope clone"),
       });
-      await ctx.db.patch(fixture.proposalSubmilestone._id, {
-        scopeOfWorkTiptapJson: tiptap("Legacy Proposal Scope clone"),
-      });
-      return null;
     });
-    void legacy;
 
     const bootstrap = await fixture.admin.query(
       (api as any).build_submilestone_workspace
@@ -167,8 +161,6 @@ describe("active Build Sub-milestone workspace Scope boundary", () => {
     expect(bootstrap.overview).not.toHaveProperty("scopeOfWorkTiptapJson");
     expect(bootstrap.overview).not.toHaveProperty("description");
     expect(bootstrap.submilestone).not.toHaveProperty("description");
-    expect(JSON.stringify(bootstrap)).not.toContain("Legacy Build Scope clone");
-    expect(JSON.stringify(bootstrap)).not.toContain("Legacy Proposal Scope clone");
     expect(bootstrap.execution).toMatchObject({ fieldNote: "Execution note only" });
     expect(bootstrap.overview).toMatchObject({ fieldNote: "Execution note only" });
   });

@@ -7,6 +7,7 @@ import {
   FieldRichTextEditor,
   FieldRichTextPreview,
 } from "#/components/rich-text/field-rich-text.tsx";
+import { tiptapJsonEqual } from "#/components/rich-text/tiptap-json.ts";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -248,7 +249,7 @@ export function SubmilestoneScopeRevisionSurface({
   const dirty = Boolean(
     selectedRevision &&
       selectedRevision.status === "draft" &&
-      editorValue !== savedEditorValue
+      !tiptapJsonEqual(editorValue, savedEditorValue)
   );
   const selectedIndex = selectedRevision
     ? allRevisions.findIndex((revision) => revision.id === selectedRevision.id)

@@ -7,6 +7,7 @@ import {
   FieldRichTextEditor,
   FieldRichTextPreview,
 } from "#/components/rich-text/field-rich-text.tsx";
+import { tiptapJsonEqual } from "#/components/rich-text/tiptap-json.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { cn } from "#/lib/utils.ts";
@@ -60,8 +61,11 @@ function guidanceEqual(
   right: SubmilestoneFieldGuidance
 ) {
   return (
-    left.whatToVerifyTiptapJson === right.whatToVerifyTiptapJson &&
-    left.cameraAnglesTiptapJson === right.cameraAnglesTiptapJson
+    tiptapJsonEqual(
+      left.whatToVerifyTiptapJson,
+      right.whatToVerifyTiptapJson
+    ) &&
+    tiptapJsonEqual(left.cameraAnglesTiptapJson, right.cameraAnglesTiptapJson)
   );
 }
 
