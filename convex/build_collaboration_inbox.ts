@@ -12,6 +12,7 @@ import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { BuildCollaborationNotificationKind } from "./build_collaboration_notifications";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { isBuildCollaborationValidationError } from "./build_collaboration_validation";
 import { canReadDrawCoordination } from "./build_draw_coordination";
 import type { Doc, Id, QueryCtx } from "./types";
 
@@ -229,8 +230,11 @@ export async function projectAuthorizedCollaborationDelivery(
         }),
         title: canonicalNotificationTitle(record.collaborationEventKind),
       });
-    } catch {
-      return null;
+    } catch (error) {
+      if (isBuildCollaborationValidationError(error)) {
+        return null;
+      }
+      throw error;
     }
   }
   if (record.collaborationActionItemId) {
@@ -264,8 +268,11 @@ export async function projectAuthorizedCollaborationDelivery(
             }),
             title: canonicalNotificationTitle(record.collaborationEventKind),
           });
-        } catch {
-          return null;
+        } catch (error) {
+          if (isBuildCollaborationValidationError(error)) {
+            return null;
+          }
+          throw error;
         }
       }
       return projectStoredDelivery(record, {

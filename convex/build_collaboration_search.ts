@@ -990,8 +990,7 @@ async function loadSearchOwnerDescriptor(
     canonicalPresentation?.bindingState === "valid"
       ? item.canonicalBuildSubmilestoneId
       : undefined;
-  const generatedSubmilestone =
-    item.systemMode === "generated_milestone_submilestone";
+  const generatedSubmilestone = validCanonicalSubmilestoneId !== undefined;
   const canonicalStatus = canonicalSearchStatus(canonicalPresentation?.column);
   return {
     assetOwnerKind: "actionItem" as const,
@@ -1372,8 +1371,7 @@ async function refreshIndexedSearchCandidate(
         presentation?.bindingState === "valid"
           ? item.canonicalBuildSubmilestoneId
           : undefined;
-      const generatedSubmilestone =
-        item.systemMode === "generated_milestone_submilestone";
+      const generatedSubmilestone = canonicalSubmilestoneId !== undefined;
       candidate = {
         ...candidate,
         assigneeWorkosUserId: generatedSubmilestone
@@ -1489,7 +1487,7 @@ function currentSearchCandidateHref(
   }
   return buildCollaborationDeepLink({
     buildId: post.buildId,
-    ...(candidate.resultType === "submilestone"
+    ...(candidate.focusEntityKind === "submilestone"
       ? { detailTab: "collaboration" }
       : {}),
     focus: `${candidate.focusEntityKind ?? candidate.resultType}:${candidate.focusEntityId ?? candidate.id}`,

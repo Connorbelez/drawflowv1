@@ -3,7 +3,11 @@ import {
   type ActiveBuildAuthorization,
   authorizeActiveBuildAccessForViewer,
 } from "./activeBuildAccess";
-import { authenticatedMutation, authenticatedQuery } from "./authz";
+import {
+  type RoleSlug,
+  authenticatedMutation,
+  authenticatedQuery,
+} from "./authz";
 import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
 import { enqueueBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery";
 import { externalDeliveryPlan } from "./build_collaboration_delivery_model";
@@ -17,7 +21,10 @@ import { resolveCurrentBuildCollaborationReference } from "./build_collaboration
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
-import { buildCollaborationValidationError } from "./build_collaboration_validation";
+import {
+  buildCollaborationValidationError,
+  isBuildCollaborationValidationError,
+} from "./build_collaboration_validation";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -38,6 +45,7 @@ export type BuildCollaborationNotificationKind =
 interface CanonicalNotificationTarget {
   canonicalSubmilestone?: Doc<"buildSubmilestones">;
   generatedCompanion?: Doc<"buildActionItems">;
+  unavailable?: true;
 }
 
 interface CanonicalNotificationInput {
@@ -145,6 +153,9 @@ export async function emitCanonicalBuildCollaborationNotification(
     return null;
   }
   const canonicalTarget = await resolveCanonicalNotificationTarget(ctx, input);
+  if (canonicalTarget.unavailable) {
+    return null;
+  }
   if (
     !(await canRecipientReadCanonicalNotificationTarget(
       ctx,
@@ -307,9 +318,7 @@ async function resolveCanonicalNotificationTarget(
         input.authorization.organizationId ||
       canonicalSubmilestone.brokerageId !== input.authorization.brokerage._id)
   ) {
-    throw buildCollaborationValidationError(
-      "The notification Sub-milestone is unavailable."
-    );
+    return { unavailable: true };
   }
   return {
     canonicalSubmilestone: canonicalSubmilestone ?? undefined,
@@ -326,13 +335,23 @@ async function canRecipientReadCanonicalNotificationTarget(
     return true;
   }
   let recipientAuthorization: ActiveBuildAuthorization;
+  const projectedRecipient = input.authorization.participants?.find(
+    (participant) => participant.workosUserId === input.recipientWorkosUserId
+  );
+  const projectedRecipientRoles: RoleSlug[] = projectedRecipient
+    ? [
+        projectedRecipient.role === "homeowner"
+          ? "member"
+          : projectedRecipient.role,
+      ]
+    : [];
   try {
     recipientAuthorization = await authorizeActiveBuildAccessForViewer(
       ctx,
       {
         capability: "authenticated",
         organizationId: input.authorization.organizationId,
-        roles: [],
+        roles: projectedRecipientRoles,
         subject: input.recipientWorkosUserId,
         tokenIdentifier: `build-collaboration-notification:${input.recipientWorkosUserId}`,
       },
@@ -352,8 +371,11 @@ async function canRecipientReadCanonicalNotificationTarget(
         entityKind: "submilestone",
       });
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (isBuildCollaborationValidationError(error)) {
+        return false;
+      }
+      throw error;
     }
   }
   return target.generatedCompanion

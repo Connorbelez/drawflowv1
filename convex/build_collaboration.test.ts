@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { authorizeActiveBuildAccessForViewer } from "./activeBuildAccess";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import schema from "./schema";
@@ -5014,13 +5015,17 @@ describe("Build collaboration canonical reference authorization", () => {
 
   test("stores and projects generated companion notifications as canonical Sub-milestones", async () => {
     const fixture = await seedActiveBuild();
-    await addBuildParticipant(fixture.base, {
-      buildId: fixture.buildId,
-      displayName: "Broker Reviewer",
-      role: "broker",
-      subject: "user_broker",
-    });
     const entities = await seedCollaborationReferenceEntities(fixture);
+    const unavailableSubmilestoneId = await fixture.base.run(async (ctx) => {
+      const source = await ctx.db.get(entities.submilestoneId);
+      if (!source) {
+        throw new Error("Canonical notification Sub-milestone is unavailable.");
+      }
+      const { _creationTime, _id, ...value } = source;
+      const staleId = await ctx.db.insert("buildSubmilestones", value);
+      await ctx.db.delete(staleId);
+      return staleId;
+    });
     await fixture.base.run(async (ctx) => {
       await ctx.db.patch(entities.actionItemId, {
         canonicalBindingRevision: 1,
@@ -5038,15 +5043,21 @@ describe("Build collaboration canonical reference authorization", () => {
       if (!(build && brokerage)) {
         throw new Error("Active Build notification fixture is unavailable.");
       }
+      const authorization = await authorizeActiveBuildAccessForViewer(
+        ctx,
+        {
+          capability: "authenticated",
+          organizationId: ORGANIZATION_ID,
+          roles: ["admin", "principle-broker"],
+          subject: "user_admin",
+          tokenIdentifier: "build-collaboration-notification:user_admin",
+        },
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+      );
       const notification = {
         actionItemId: entities.actionItemId,
         actionLabel: "Open Action Item",
-        authorization: {
-          brokerage,
-          build,
-          organizationId: ORGANIZATION_ID,
-          viewer: { subject: "user_admin" },
-        } as never,
+        authorization,
         body: "Generic companion body",
         dedupeKey: "generated-companion:canonical-notification",
         entityId: entities.actionItemId,
@@ -5068,6 +5079,14 @@ describe("Build collaboration canonical reference authorization", () => {
         notification,
       );
       expect(replay).toBe(first);
+      await expect(
+        emitCanonicalBuildCollaborationNotification(ctx as never, {
+          ...notification,
+          actionItemId: undefined,
+          buildSubmilestoneId: unavailableSubmilestoneId,
+          dedupeKey: "generated-companion:unavailable-submilestone",
+        }),
+      ).resolves.toBeNull();
       await expect(
         emitCanonicalBuildCollaborationNotification(ctx as never, {
           ...notification,

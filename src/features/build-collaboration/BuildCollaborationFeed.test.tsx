@@ -2076,6 +2076,34 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
   });
 
+  test("updates canonical Sub-milestone focus when no route callback is provided", () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/builder/builds/build-1?tab=details&filter=mine",
+    );
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    const actionCard = screen
+      .getAllByRole("button", { name: "Open Sub-milestone: Excavate" })
+      .find((button) => button.hasAttribute("aria-describedby"));
+    if (!actionCard) {
+      throw new Error("Expected the Collaboration Sub-milestone card.");
+    }
+    fireEvent.click(actionCard);
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/builder/builds/build-1?tab=details&filter=mine&focus=submilestone%3Asubmilestone-1&detailTab=collaboration",
+    );
+  });
+
   test("uses the same feed for Active operations and renders archived historical facts as read-only", () => {
     const activeEntry = canonicalMilestoneSystemPostEntryFixture() as any;
     activeEntry.post._id = "active-system-post";

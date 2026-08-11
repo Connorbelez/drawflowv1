@@ -1248,10 +1248,16 @@ describe("Build Collaboration operational events", () => {
       if (!assignment) {
         throw new Error("Expected the fixture contractor assignment.");
       }
+      const submilestone = await ctx.db.get(
+        excavateCompanion.canonicalBuildSubmilestoneId as Id<"buildSubmilestones">
+      );
+      if (!submilestone) {
+        throw new Error("Expected the canonical Sub-milestone.");
+      }
       await ctx.db.patch(assignment._id, {
         buildSubmilestoneId:
           excavateCompanion.canonicalBuildSubmilestoneId,
-        submilestoneKey: "foundation-1",
+        submilestoneKey: submilestone.key,
         updatedAt: Date.now(),
       });
     });
@@ -1403,6 +1409,53 @@ describe("Build Collaboration operational events", () => {
     ).resolves.toMatchObject({
       state: "revoked",
     });
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(excavateCompanion._id, {
+        canonicalBuildSubmilestoneId: undefined,
+        updatedAt: Date.now(),
+      });
+    });
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await finishSearchMaintenance(fixture.base);
+    const invalidBindingSubmilestoneSearch = await fixture.admin.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["submilestone"] },
+        organizationId: ORGANIZATION_ID,
+        query: "Excavate",
+      },
+    );
+    expect(
+      invalidBindingSubmilestoneSearch.page.some(
+        (candidate: any) => candidate.actionItemId === excavateCompanion._id,
+      ),
+    ).toBe(false);
+    const invalidBindingActionItemSearch = await fixture.admin.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["actionItem"] },
+        organizationId: ORGANIZATION_ID,
+        query: "Excavate",
+      },
+    );
+    const integrityCandidate = invalidBindingActionItemSearch.page.find(
+      (candidate: any) => candidate.actionItemId === excavateCompanion._id,
+    );
+    expect(integrityCandidate).toMatchObject({
+      focusEntityId: excavateCompanion._id,
+      focusEntityKind: "actionItem",
+      resultType: "actionItem",
+    });
+    expect(integrityCandidate?.href).toContain(
+      `focus=actionItem%3A${String(excavateCompanion._id)}`,
+    );
+    expect(integrityCandidate?.href).not.toContain("detailTab=");
     const auditEvents = await fixture.base.run(async (ctx) =>
       ctx.db
         .query("auditEvents")

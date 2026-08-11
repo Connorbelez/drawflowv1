@@ -1076,10 +1076,15 @@ function BuildCollaborationFeedContent({
   const openDetailTarget = (target: BuildDetailTarget) => {
     if (target.kind === "submilestone") {
       setActionItemSheetTarget(null);
-      onOpenReference?.({
+      const href = buildDetailTargetSheetHref(window.location.href, target);
+      if (!onOpenReference) {
+        window.history.replaceState(window.history.state, "", href);
+        return;
+      }
+      onOpenReference({
         entityId: target.submilestoneId,
         entityKind: "submilestone",
-        href: buildDetailTargetSheetHref(window.location.href, target),
+        href,
       });
       return;
     }
