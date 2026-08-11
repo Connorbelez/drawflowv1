@@ -46,6 +46,7 @@ function BuilderStaffProposalRoute() {
       proposalId={proposalId}
       routeBase="/builder-staff"
       search={search}
+      viewerCapacity="builder-staff"
       workosOrganizationId={context.organizationId as string}
     />
   );

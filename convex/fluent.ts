@@ -1,13 +1,282 @@
 import type { Auth, UserIdentity } from "convex/server";
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { createBuilder } from "fluent-convex";
 import { WithZod } from "fluent-convex/zod";
 import { z } from "zod/v4";
 
-import type { DataModel } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./types";
 
 export const fluent = createBuilder<DataModel>();
+
+/**
+ * The shared Proposal -> active Build lineage key used by canonical
+ * Sub-milestone domains.  Domain helpers add their own owner-row lookup, but
+ * the identity and tenant checks must remain identical across those domains.
+ */
+export interface ExactBuildLineageInput {
+  brokerageId: Id<"brokerages">;
+  organizationId: string;
+  proposalId: Id<"buildProposals">;
+  proposalSubmilestoneId: Id<"proposalSubmilestones">;
+}
+
+export interface ExactBuildLineageAttachmentInput
+  extends ExactBuildLineageInput {
+  buildId?: Id<"activeBuilds">;
+  buildSubmilestoneId?: Id<"buildSubmilestones">;
+}
+
+export interface ExactBuildLineage {
+  build: Doc<"activeBuilds">;
+  buildSubmilestone: Doc<"buildSubmilestones">;
+}
+
+type BuildLineageOwner =
+  | (Doc<"submilestoneScopeContracts"> & ExactBuildLineageAttachmentInput)
+  | (Doc<"submilestoneFieldGuidance"> & ExactBuildLineageAttachmentInput);
+
+export type ExactBuildLineageOwnerLookup = (
+  ctx: MutationCtx,
+  proposalSubmilestoneId: Id<"proposalSubmilestones">
+) => Promise<BuildLineageOwner | null>;
+
+type BuildLineageConflictReason =
+  | "missing_build_proposal"
+  | "missing_proposal_submilestone"
+  | "cross_tenant_owner"
+  | "missing_build"
+  | "missing_build_milestone"
+  | "conflicting_refs"
+  | "duplicate_owner"
+  | "fanout_limit_exceeded";
+
+const BUILD_LINEAGE_CONFLICT_CODE = "SUBMILESTONE_BUILD_LINEAGE_CONFLICT";
+
+function throwBuildLineageConflict(
+  conflictMessage: string,
+  reason: BuildLineageConflictReason
+): never {
+  throw new ConvexError({
+    code: BUILD_LINEAGE_CONFLICT_CODE,
+    message: conflictMessage,
+    reason,
+  });
+}
+
+async function requireBuildLineageProposalSubmilestone(
+  ctx: MutationCtx,
+  input: ExactBuildLineageInput,
+  conflictMessage: string
+): Promise<Doc<"proposalSubmilestones">> {
+  const proposalSubmilestone = await ctx.db.get(input.proposalSubmilestoneId);
+  if (!proposalSubmilestone) {
+    throwBuildLineageConflict(conflictMessage, "missing_proposal_submilestone");
+  }
+  if (
+    proposalSubmilestone.brokerageId !== input.brokerageId ||
+    proposalSubmilestone.organizationId !== input.organizationId
+  ) {
+    throwBuildLineageConflict(conflictMessage, "cross_tenant_owner");
+  }
+  if (proposalSubmilestone.proposalId !== input.proposalId) {
+    throwBuildLineageConflict(conflictMessage, "conflicting_refs");
+  }
+  return proposalSubmilestone;
+}
+
+async function requireBuildLineageProposal(
+  ctx: MutationCtx,
+  input: ExactBuildLineageInput,
+  conflictMessage: string
+): Promise<Doc<"buildProposals">> {
+  const proposal = await ctx.db.get(input.proposalId);
+  if (!proposal) {
+    throwBuildLineageConflict(conflictMessage, "missing_build_proposal");
+  }
+  if (
+    proposal.brokerageId !== input.brokerageId ||
+    proposal.organizationId !== input.organizationId
+  ) {
+    throwBuildLineageConflict(conflictMessage, "cross_tenant_owner");
+  }
+  return proposal;
+}
+
+async function resolveBuildLineageOwner(
+  ctx: MutationCtx,
+  row: Doc<"buildSubmilestones">,
+  proposalSubmilestone: Doc<"proposalSubmilestones">,
+  input: ExactBuildLineageInput,
+  conflictMessage: string
+): Promise<ExactBuildLineage> {
+  if (
+    row.brokerageId !== input.brokerageId ||
+    row.organizationId !== input.organizationId
+  ) {
+    throwBuildLineageConflict(conflictMessage, "cross_tenant_owner");
+  }
+  if (row.proposalSubmilestoneId !== input.proposalSubmilestoneId) {
+    throwBuildLineageConflict(conflictMessage, "conflicting_refs");
+  }
+
+  const build = await ctx.db.get(row.buildId);
+  if (!build) {
+    throwBuildLineageConflict(conflictMessage, "missing_build");
+  }
+  if (
+    build.brokerageId !== input.brokerageId ||
+    build.organizationId !== input.organizationId
+  ) {
+    throwBuildLineageConflict(conflictMessage, "cross_tenant_owner");
+  }
+  if (build.proposalId !== input.proposalId) {
+    throwBuildLineageConflict(conflictMessage, "conflicting_refs");
+  }
+
+  const buildMilestone = await ctx.db.get(row.buildMilestoneId);
+  if (!buildMilestone) {
+    throwBuildLineageConflict(conflictMessage, "missing_build_milestone");
+  }
+  if (
+    buildMilestone.brokerageId !== input.brokerageId ||
+    buildMilestone.organizationId !== input.organizationId
+  ) {
+    throwBuildLineageConflict(conflictMessage, "cross_tenant_owner");
+  }
+  if (
+    buildMilestone.buildId !== build._id ||
+    buildMilestone.proposalMilestoneId !==
+      proposalSubmilestone.proposalMilestoneId
+  ) {
+    throwBuildLineageConflict(conflictMessage, "conflicting_refs");
+  }
+
+  return { build, buildSubmilestone: row };
+}
+
+/**
+ * Resolve the single active-Build Sub-milestone for a Proposal
+ * Sub-milestone.  This helper is deliberately fail-closed: a missing owner
+ * is allowed before Build close, while a cross-tenant row, missing parent, or
+ * duplicate owner is a lineage conflict.  Keep the indexed read bounded so a
+ * corrupt or unexpectedly large lineage cannot turn an authoring mutation
+ * into an unbounded read.
+ */
+export async function resolveExactBuildLineage(
+  ctx: MutationCtx,
+  input: ExactBuildLineageInput,
+  conflictMessage: string
+): Promise<ExactBuildLineage | null> {
+  const proposalSubmilestone = await requireBuildLineageProposalSubmilestone(
+    ctx,
+    input,
+    conflictMessage
+  );
+  await requireBuildLineageProposal(ctx, input, conflictMessage);
+
+  const rows = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_proposalSubmilestoneId", (query) =>
+      query.eq("proposalSubmilestoneId", input.proposalSubmilestoneId)
+    )
+    .take(501);
+  if (rows.length > 500) {
+    throwBuildLineageConflict(conflictMessage, "fanout_limit_exceeded");
+  }
+
+  const owners: ExactBuildLineage[] = [];
+  for (const row of rows) {
+    owners.push(
+      await resolveBuildLineageOwner(
+        ctx,
+        row,
+        proposalSubmilestone,
+        input,
+        conflictMessage
+      )
+    );
+  }
+
+  if (owners.length > 1) {
+    throwBuildLineageConflict(conflictMessage, "duplicate_owner");
+  }
+  return owners[0] ?? null;
+}
+
+/**
+ * Attach an existing canonical owner row to the exact active-Build owner.
+ * Domain-specific content and audit fields remain untouched; only missing
+ * Build references are patched.  The owner-row lookup is supplied by the
+ * domain so Scope and Field Guidance cannot accidentally share a data row.
+ */
+export async function attachExactBuildLineage(
+  ctx: MutationCtx,
+  input: ExactBuildLineageAttachmentInput,
+  options: {
+    conflictMessage: string;
+    findOwner: ExactBuildLineageOwnerLookup;
+  }
+): Promise<"missing" | "attached" | "already_attached"> {
+  const owner = await resolveExactBuildLineage(
+    ctx,
+    input,
+    options.conflictMessage
+  );
+  if (!owner) {
+    return "missing";
+  }
+
+  if (
+    (input.buildId !== undefined && input.buildId !== owner.build._id) ||
+    (input.buildSubmilestoneId !== undefined &&
+      input.buildSubmilestoneId !== owner.buildSubmilestone._id)
+  ) {
+    throwBuildLineageConflict(options.conflictMessage, "conflicting_refs");
+  }
+
+  const ownerRow = await options.findOwner(ctx, input.proposalSubmilestoneId);
+  if (!ownerRow) {
+    return "missing";
+  }
+
+  if (
+    ownerRow.brokerageId !== input.brokerageId ||
+    ownerRow.organizationId !== input.organizationId
+  ) {
+    throwBuildLineageConflict(options.conflictMessage, "cross_tenant_owner");
+  }
+  if (
+    ownerRow.proposalId !== input.proposalId ||
+    ownerRow.proposalSubmilestoneId !== input.proposalSubmilestoneId
+  ) {
+    throwBuildLineageConflict(options.conflictMessage, "conflicting_refs");
+  }
+  if (
+    (ownerRow.buildId !== undefined && ownerRow.buildId !== owner.build._id) ||
+    (ownerRow.buildSubmilestoneId !== undefined &&
+      ownerRow.buildSubmilestoneId !== owner.buildSubmilestone._id)
+  ) {
+    throwBuildLineageConflict(options.conflictMessage, "conflicting_refs");
+  }
+
+  const patch: {
+    buildId?: Id<"activeBuilds">;
+    buildSubmilestoneId?: Id<"buildSubmilestones">;
+  } = {};
+  if (ownerRow.buildId === undefined) {
+    patch.buildId = owner.build._id;
+  }
+  if (ownerRow.buildSubmilestoneId === undefined) {
+    patch.buildSubmilestoneId = owner.buildSubmilestone._id;
+  }
+  if (Object.keys(patch).length > 0) {
+    await ctx.db.patch(ownerRow._id, patch);
+    return "attached";
+  }
+  return "already_attached";
+}
 
 export const todoValidator = v.object({
   _id: v.id("todos"),

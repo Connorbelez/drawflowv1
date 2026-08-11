@@ -41,6 +41,7 @@ import { cn } from "#/lib/utils.ts";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api as apiRef } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
   MilestoneStartDialog,
   type MilestoneStartConfirmation,
@@ -60,6 +61,8 @@ import {
   type MaterialPlanningMilestone,
   type MaterialPlanningPayload,
 } from "../material-planning/MaterialPlanningTab.tsx";
+import { ActiveBuildSubmilestoneGuidanceController } from "../submilestone-guidance/ActiveBuildSubmilestoneGuidanceController.tsx";
+import { ProposalSubmilestoneScopeController } from "../submilestone-scope/ProposalSubmilestoneScopeController.tsx";
 
 /**
  * The workspace query is intentionally consumed through this small adapter.
@@ -77,16 +80,19 @@ interface NavigationProps {
   onRetry?: () => void;
   organizationId: string;
   readOnly: boolean;
-  viewerCapacity?: string;
+  viewerCapacity?: BuildCollaborationRole;
 }
 
 interface CanonicalTabPanelProps extends NavigationProps {
   bootstrap: CanonicalWorkspaceBootstrap;
-  collection: CanonicalWorkspaceCollection | undefined;
+  collection?: CanonicalWorkspaceCollection | undefined;
   requirementsCollection?: CanonicalWorkspaceCollection | undefined;
   historyCollection?: CanonicalWorkspaceCollection | undefined;
+  onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
   tab: "evidence" | "materials" | "overview" | "people";
 }
+
+export type CanonicalDirtySection = "guidance" | "scope";
 
 type RetryAction = () => Promise<unknown>;
 
@@ -357,7 +363,6 @@ function overviewFor(bootstrap: CanonicalWorkspaceBootstrap) {
         overview.completionForecastDate ??
         execution.completionForecastDate,
     ),
-    description: stringValue(overview.description ?? submilestone.description),
     fieldNote: stringValue(overview.fieldNote ?? execution.fieldNote),
     plannedDurationDays: optionalNumber(
       overview.plannedDurationDays ?? schedule.durationDays,
@@ -369,11 +374,19 @@ function overviewFor(bootstrap: CanonicalWorkspaceBootstrap) {
       overview.progressPercent ?? execution.progressPercent,
       0,
     ),
-    scopeOfWorkTiptapJson: stringValue(
-      overview.scopeOfWorkTiptapJson ?? submilestone.scopeOfWorkTiptapJson,
-    ),
     status: stringValue(overview.status ?? submilestone.status, "planned"),
   };
+}
+
+function proposalSubmilestoneIdFor(
+  bootstrap: CanonicalWorkspaceBootstrap,
+): string | undefined {
+  const submilestone = object(bootstrap.submilestone);
+  return (
+    stringValue(
+      submilestone.proposalSubmilestoneId ?? bootstrap.proposalSubmilestoneId,
+    ) || undefined
+  );
 }
 
 function formatCents(value: unknown, fractionDigits = 0) {
@@ -440,17 +453,6 @@ function statusVariant(value: unknown): "outline" | "success" | "warning" {
     return "warning";
   }
   return "outline";
-}
-
-function parseRichText(value: string) {
-  if (!value.trim()) {
-    return "";
-  }
-  try {
-    return JSON.parse(value) as Record<string, unknown>;
-  } catch {
-    return value;
-  }
 }
 
 function plannedDate(bootstrap: CanonicalWorkspaceBootstrap) {
@@ -539,6 +541,7 @@ export function CanonicalSubmilestoneTabPanel({
   requirementsCollection,
   historyCollection,
   companionActionItemId,
+  onDirtyChange,
   onRetry,
   organizationId,
   readOnly,
@@ -552,6 +555,7 @@ export function CanonicalSubmilestoneTabPanel({
         buildId={buildId}
         buildSubmilestoneId={buildSubmilestoneId}
         companionActionItemId={companionActionItemId}
+        onDirtyChange={onDirtyChange}
         onRetry={onRetry}
         organizationId={organizationId}
         readOnly={readOnly}
@@ -611,11 +615,15 @@ function CanonicalOverviewPanel({
   buildId,
   buildSubmilestoneId,
   companionActionItemId: _companionActionItemId,
+  onDirtyChange,
   onRetry,
   organizationId,
   readOnly,
-  viewerCapacity: _viewerCapacity,
-}: NavigationProps & { bootstrap: CanonicalWorkspaceBootstrap }) {
+  viewerCapacity,
+}: NavigationProps & {
+  bootstrap: CanonicalWorkspaceBootstrap;
+  onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
+}) {
   const updateProgress = useMutation(
     apiRef.production_proposals.updateActiveBuildSubmilestoneProgress,
   );
@@ -632,6 +640,7 @@ function CanonicalOverviewPanel({
     apiRef.production_proposals.retractActiveBuildMilestoneStart,
   );
   const details = overviewFor(bootstrap);
+  const proposalSubmilestoneId = proposalSubmilestoneIdFor(bootstrap);
   const [progress, setProgress] = useState(String(details.progressPercent));
   const [actualCost, setActualCost] = useState(
     currencyInputValue(details.actualCostCents),
@@ -964,32 +973,28 @@ function CanonicalOverviewPanel({
   const parent = object(bootstrap.milestone);
   return (
     <div className="space-y-4" data-testid="submilestone-detail-overview">
-      <Frame>
-        <FramePanel className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <FileImage
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-              <p className="font-medium text-sm">Approved roadmap scope</p>
-            </div>
-            <Badge variant="outline">Roadmap source</Badge>
-          </div>
-          {details.description || details.scopeOfWorkTiptapJson ? (
-            <FieldRichTextPreview
-              ariaLabel="Canonical Sub-milestone scope and description"
-              value={parseRichText(
-                details.scopeOfWorkTiptapJson || details.description,
-              )}
-            />
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              No scope description recorded.
-            </p>
-          )}
-        </FramePanel>
-      </Frame>
+      {proposalSubmilestoneId ? (
+        <ProposalSubmilestoneScopeController
+          onDirtyChange={(dirty) => onDirtyChange?.("scope", dirty)}
+          proposalSubmilestoneId={proposalSubmilestoneId}
+          readOnly={readOnly}
+          scopeRoute="active-build"
+          viewerCapacity={viewerCapacity}
+          workosOrganizationId={organizationId}
+        />
+      ) : null}
+      {proposalSubmilestoneId ? (
+        <ActiveBuildSubmilestoneGuidanceController
+          buildSubmilestoneId={String(buildSubmilestoneId)}
+          onDirtyChange={(dirty) => onDirtyChange?.("guidance", dirty)}
+          proposalSubmilestoneId={proposalSubmilestoneId}
+          readOnly={readOnly}
+          rowName={milestoneNameFor(bootstrap)}
+          subMilestoneName={submilestoneNameFor(bootstrap)}
+          viewerCapacity={viewerCapacity}
+          workosOrganizationId={organizationId}
+        />
+      ) : null}
 
       <Frame>
         <FramePanel className="space-y-4">

@@ -28,6 +28,7 @@ import {
   getPreferredState,
   preferredPointerFromState,
 } from "./quote_preferred";
+import { resolveEffectiveScopeRevisionForBuildSubmilestone } from "./submilestone_scope_contracts";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_DRAFT_LABOUR_LINES = 100;
@@ -581,18 +582,6 @@ function normalizeTiptapJson(value: string | undefined, label: string) {
   return normalized;
 }
 
-function plainTextTiptapJson(value: string) {
-  return JSON.stringify({
-    content: [
-      {
-        content: [{ text: value, type: "text" }],
-        type: "paragraph",
-      },
-    ],
-    type: "doc",
-  });
-}
-
 function assertAuthoringRole(viewer: AuthorizedViewer) {
   assertQuoteAuthoringRole(viewer.roles);
 }
@@ -927,6 +916,64 @@ async function requireBuildSubmilestone(
     );
   }
   return { milestone, submilestone };
+}
+
+/**
+ * Resolve the Quote-visible Scope for a Build Sub-milestone during the SFG-08
+ * to SFG-10 cutover.  A published canonical revision wins whenever the
+ * Proposal-to-Build lineage has one.  Existing explicit Build Scope bytes are
+ * retained as a temporary compatibility bridge for pre-cutover rows; the
+ * execution-only note is deliberately never a Scope source.
+ */
+function quoteScopeLineageInput(
+  authorization: ActiveBuildAuthorization,
+  submilestone: Doc<"buildSubmilestones">
+) {
+  return {
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    buildSubmilestoneId: submilestone._id,
+    organizationId: authorization.organizationId,
+    proposalId: authorization.proposal._id,
+    proposalSubmilestoneId: submilestone.proposalSubmilestoneId,
+  };
+}
+
+function quoteScopeFromEffectiveRevisionOrLegacy(
+  submilestone: Doc<"buildSubmilestones">,
+  effectiveRevision: Awaited<
+    ReturnType<typeof resolveEffectiveScopeRevisionForBuildSubmilestone>
+  >
+) {
+  if (effectiveRevision) {
+    return normalizeTiptapJson(
+      effectiveRevision.scopeOfWorkTiptapJson,
+      "Effective Sub-milestone Scope"
+    );
+  }
+  if (submilestone.scopeOfWorkTiptapJson) {
+    return normalizeTiptapJson(
+      submilestone.scopeOfWorkTiptapJson,
+      "Sub-milestone Scope of Work"
+    );
+  }
+  return null;
+}
+
+async function quoteScopeForBuildSubmilestone(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  submilestone: Doc<"buildSubmilestones">
+) {
+  const effectiveRevision =
+    await resolveEffectiveScopeRevisionForBuildSubmilestone(
+      ctx,
+      quoteScopeLineageInput(authorization, submilestone)
+    );
+  return quoteScopeFromEffectiveRevisionOrLegacy(
+    submilestone,
+    effectiveRevision
+  );
 }
 
 async function validateLabourSubmilestoneIds(
@@ -1777,14 +1824,16 @@ async function preparedLabourLines(
         authorization,
         scope.buildSubmilestoneId
       );
-      const scopeOfWorkTiptapJson = submilestone.scopeOfWorkTiptapJson
-        ? normalizeTiptapJson(
-            submilestone.scopeOfWorkTiptapJson,
-            "Sub-milestone Scope of Work"
-          )
-        : plainTextTiptapJson(
-            submilestone.fieldNote?.trim() || submilestone.name
-          );
+      const scopeOfWorkTiptapJson = await quoteScopeForBuildSubmilestone(
+        ctx,
+        authorization,
+        submilestone
+      );
+      if (!scopeOfWorkTiptapJson) {
+        throw new ConvexError(
+          "An effective Sub-milestone Scope is required before publishing a Labour Quote Package."
+        );
+      }
       return { milestone, scopeOfWorkTiptapJson, submilestone };
     })
   );
@@ -2371,46 +2420,74 @@ export const getQuoteRoundComposer = authenticatedQuery
     const milestoneById = new Map(
       milestones.map((milestone) => [milestone._id, milestone])
     );
-    const labourSubmilestones = submilestones
-      .filter(
-        (submilestone) =>
-          submilestone.organizationId === authorization.organizationId &&
-          submilestone.brokerageId === authorization.brokerage._id
-      )
-      .sort(
-        (left, right) =>
-          left.order - right.order || left.name.localeCompare(right.name)
-      )
-      .map((submilestone) => {
-        const milestone = milestoneById.get(submilestone.buildMilestoneId);
-        if (
-          !milestone ||
-          milestone.organizationId !== authorization.organizationId ||
-          milestone.brokerageId !== authorization.brokerage._id
-        ) {
-          throw new ConvexError("Build roadmap source is inconsistent.");
-        }
-        return {
-          _id: submilestone._id,
-          budgetCents: submilestone.budgetCents,
-          buildMilestoneId: milestone._id,
-          durationDays: submilestone.durationDays,
-          milestoneKey: milestone.key,
-          milestoneName: milestone.name,
-          name: submilestone.name,
-          order: submilestone.order,
-          scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson
-            ? normalizeTiptapJson(
-                submilestone.scopeOfWorkTiptapJson,
-                "Sub-milestone Scope of Work"
-              )
-            : plainTextTiptapJson(
-                submilestone.fieldNote?.trim() || submilestone.name
-              ),
-          startDay: submilestone.startDay,
-          submilestoneKey: submilestone.key,
-        };
-      });
+    const labourSubmilestoneRows = await Promise.all(
+      submilestones
+        .filter(
+          (submilestone) =>
+            submilestone.organizationId === authorization.organizationId &&
+            submilestone.brokerageId === authorization.brokerage._id
+        )
+        .sort(
+          (left, right) =>
+            left.order - right.order || left.name.localeCompare(right.name)
+        )
+        .map(async (submilestone) => {
+          const milestone = milestoneById.get(submilestone.buildMilestoneId);
+          if (
+            !milestone ||
+            milestone.organizationId !== authorization.organizationId ||
+            milestone.brokerageId !== authorization.brokerage._id
+          ) {
+            throw new ConvexError("Build roadmap source is inconsistent.");
+          }
+          let effectiveRevision: Awaited<
+            ReturnType<typeof resolveEffectiveScopeRevisionForBuildSubmilestone>
+          >;
+          try {
+            effectiveRevision =
+              await resolveEffectiveScopeRevisionForBuildSubmilestone(
+                ctx,
+                quoteScopeLineageInput(authorization, submilestone)
+              );
+          } catch (error) {
+            // A corrupt canonical lineage makes this row unavailable for
+            // selection.  Do not turn unrelated database/runtime failures
+            // into an apparently empty composer row.
+            if (error instanceof ConvexError) {
+              return null;
+            }
+            throw error;
+          }
+          const scopeOfWorkTiptapJson = quoteScopeFromEffectiveRevisionOrLegacy(
+            submilestone,
+            effectiveRevision
+          );
+          // Rows without an effective or pre-cutover explicit Scope remain
+          // unavailable for Quote selection.  They are not synthesized from
+          // execution notes or display names; SFG-10 will make this omission a
+          // hard publication validation for selected rows.
+          if (!scopeOfWorkTiptapJson) {
+            return null;
+          }
+          return {
+            _id: submilestone._id,
+            budgetCents: submilestone.budgetCents,
+            buildMilestoneId: milestone._id,
+            durationDays: submilestone.durationDays,
+            milestoneKey: milestone.key,
+            milestoneName: milestone.name,
+            name: submilestone.name,
+            order: submilestone.order,
+            scopeOfWorkTiptapJson,
+            startDay: submilestone.startDay,
+            submilestoneKey: submilestone.key,
+          };
+        })
+    );
+    const labourSubmilestones = labourSubmilestoneRows.filter(
+      (submilestone): submilestone is Exclude<typeof submilestone, null> =>
+        submilestone !== null
+    );
     const materialCostItems = costItems
       .filter(
         (item) =>

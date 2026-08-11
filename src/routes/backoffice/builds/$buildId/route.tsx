@@ -31,6 +31,7 @@ import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { validateBuildDetailSearch } from "./-route-search.ts";
+import { resolveBackofficeBuildViewerCapacity } from "./-route-capacity.ts";
 
 export { validateBuildDetailSearch } from "./-route-search.ts";
 
@@ -297,8 +298,9 @@ function RouteComponent() {
     const detail = effectiveProductionBuild as ProductionBuildDetail;
     const activeBuildId = detail.build._id as any;
     const workosOrganizationId = context.organizationId as string;
-    const appPermissions = detail.appPermissions;
     const viewerRoles = [context.role, ...(context.roles ?? [])];
+    const viewerCapacity = resolveBackofficeBuildViewerCapacity(viewerRoles);
+    const appPermissions = detail.appPermissions;
     const canMakeFinalDecision = canMakeActiveBuildFinalDecision(viewerRoles);
     const costDocumentActorCapacity = viewerRoles.includes("admin")
       ? "admin"
@@ -969,6 +971,8 @@ function RouteComponent() {
           )
         }
         timelineWorkspace={effectiveTimelineWorkspace as any}
+        viewerCapacity={viewerCapacity}
+        viewerRole="lender"
         workosOrganizationId={workosOrganizationId}
       />
     );

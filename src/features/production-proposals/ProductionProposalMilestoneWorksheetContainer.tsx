@@ -9,6 +9,7 @@ import type {
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import type { ScopeRevisionSurfaceRoute } from "../submilestone-scope/SubmilestoneScopeRevisionSurface.tsx";
 
 import { syncMilestonesToProductionTimeline } from "./ProductionProposalGanttWorkspace.tsx";
@@ -28,6 +29,7 @@ export function ProductionProposalMilestoneWorksheetContainer({
   persistenceMode = "noop",
   proposalId,
   scopeRoute,
+  viewerCapacity,
   showHeading = false,
   templateTitle,
   workosOrganizationId,
@@ -40,6 +42,7 @@ export function ProductionProposalMilestoneWorksheetContainer({
   persistenceMode?: "convex" | "noop";
   proposalId: Id<"buildProposals">;
   scopeRoute?: ScopeRevisionSurfaceRoute;
+  viewerCapacity?: BuildCollaborationRole;
   showHeading?: boolean;
   templateTitle: string;
   workosOrganizationId: string;
@@ -219,6 +222,7 @@ export function ProductionProposalMilestoneWorksheetContainer({
       scopeWorkosOrganizationId={workosOrganizationId}
       showHeading={showHeading}
       templateTitle={templateTitle}
+      viewerCapacity={viewerCapacity}
     />
   );
 }

@@ -10,6 +10,10 @@ import {
   builderQuery,
   destructiveWriteMutation,
 } from "./authz";
+import {
+  attachExactBuildLineage,
+  type ExactBuildLineageAttachmentInput,
+} from "./fluent";
 import type { MutationCtx, QueryCtx } from "./types";
 
 const EMPTY_TIPTAP_DOCUMENT = JSON.stringify({
@@ -148,12 +152,20 @@ async function authorizeContract(
   if (contract.organizationId !== workosOrganizationId) {
     throw new Error("Forbidden: organization scope");
   }
-  return await authorizeProposalSubmilestone(
+  const authorized = await authorizeProposalSubmilestone(
     ctx,
     viewer,
     contract.proposalSubmilestoneId,
     workosOrganizationId
   );
+  // The Sub-milestone lookup is the source of truth for Proposal lineage.
+  // Never trust a contract's denormalized proposalId when it disagrees with
+  // that validated parent; otherwise a corrupt contract could authorize a
+  // revision under the wrong Proposal while preserving the tenant ID.
+  if (authorized.proposal._id !== contract.proposalId) {
+    throw new Error("Forbidden: organization scope");
+  }
+  return authorized;
 }
 
 function isBuilderScopeViewer(viewer: AuthorizedViewer) {
@@ -410,6 +422,88 @@ async function findContract(
 }
 
 /**
+ * Resolve the immutable Scope revision that is effective for one active-Build
+ * Sub-milestone.  This is intentionally a read-only bridge for downstream
+ * consumers that have not yet migrated their snapshots to revision identity
+ * fields (for example the Quote Package cutover in SFG-10).  It never creates,
+ * patches, or clones canonical Scope records.
+ *
+ * A missing contract or effective pointer is represented by `null`; a present
+ * but corrupt lineage fails closed so a caller cannot accidentally use a
+ * revision belonging to another Proposal, tenant, or Build.
+ */
+export async function resolveEffectiveScopeRevisionForBuildSubmilestone(
+  ctx: ScopeContext,
+  input: {
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+    buildSubmilestoneId: Id<"buildSubmilestones">;
+    organizationId: string;
+    proposalId: Id<"buildProposals">;
+    proposalSubmilestoneId: Id<"proposalSubmilestones">;
+  }
+) {
+  const contract = await findContract(ctx, input.proposalSubmilestoneId);
+  if (!contract) {
+    return null;
+  }
+  if (
+    contract.brokerageId !== input.brokerageId ||
+    contract.organizationId !== input.organizationId ||
+    contract.proposalId !== input.proposalId ||
+    contract.proposalSubmilestoneId !== input.proposalSubmilestoneId ||
+    (contract.buildId !== undefined && contract.buildId !== input.buildId) ||
+    (contract.buildSubmilestoneId !== undefined &&
+      contract.buildSubmilestoneId !== input.buildSubmilestoneId)
+  ) {
+    throw new ConvexError("Scope contract Build lineage is unavailable.");
+  }
+  if (!contract.effectiveRevisionId) {
+    return null;
+  }
+
+  const revision = await ctx.db.get(contract.effectiveRevisionId);
+  if (
+    !revision ||
+    revision.status !== "published" ||
+    revision.brokerageId !== contract.brokerageId ||
+    revision.organizationId !== contract.organizationId ||
+    revision.proposalId !== contract.proposalId ||
+    revision.proposalSubmilestoneId !== contract.proposalSubmilestoneId ||
+    revision.contractId !== contract._id
+  ) {
+    throw new ConvexError("Effective Scope revision is unavailable.");
+  }
+  return revision;
+}
+
+type AttachScopeBuildLineageInput = ExactBuildLineageAttachmentInput;
+
+const SCOPE_BUILD_LINEAGE_CONFLICT =
+  "Scope Build lineage is unavailable or conflicting.";
+
+/**
+ * Attach an existing canonical Scope contract to the exact active-Build
+ * owner.  The helper never creates Scope rows and never changes revision
+ * pointers, version counters, or content bytes.  If no contract exists (or
+ * the Build has not closed yet), it is a no-op so closing can remain tolerant
+ * of optional Scope authoring.
+ *
+ * Callers that already inserted a Build row may pass its IDs.  Late canonical
+ * Scope creation omits them and lets the helper resolve the exact owner by
+ * Proposal lineage.
+ */
+export async function attachSubmilestoneScopeBuildLineage(
+  ctx: MutationCtx,
+  input: AttachScopeBuildLineageInput
+) {
+  return await attachExactBuildLineage(ctx, input, {
+    conflictMessage: SCOPE_BUILD_LINEAGE_CONFLICT,
+    findOwner: findContract,
+  });
+}
+
+/**
  * Persist the one pre-submission v1 draft owned by a Proposal Sub-milestone.
  *
  * Proposal package generation already runs inside a Convex mutation.  Calling
@@ -466,6 +560,12 @@ export async function upsertSubmilestoneScopeV1Draft(
       savedAt: input.now,
     });
     await ctx.db.patch(contractId, { activeDraftRevisionId: revisionId });
+    await attachSubmilestoneScopeBuildLineage(ctx, {
+      brokerageId: input.brokerageId,
+      organizationId: input.organizationId,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: input.proposalSubmilestoneId,
+    });
     return revisionId;
   }
 
@@ -492,6 +592,12 @@ export async function upsertSubmilestoneScopeV1Draft(
       savedAt: input.now,
     });
     await ctx.db.patch(existing._id, { updatedAt: input.now });
+    await attachSubmilestoneScopeBuildLineage(ctx, {
+      brokerageId: input.brokerageId,
+      organizationId: input.organizationId,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: input.proposalSubmilestoneId,
+    });
     return activeDraft._id;
   }
 
@@ -523,6 +629,12 @@ export async function upsertSubmilestoneScopeV1Draft(
       activeDraftRevisionId: existingV1._id,
       updatedAt: input.now,
     });
+    await attachSubmilestoneScopeBuildLineage(ctx, {
+      brokerageId: input.brokerageId,
+      organizationId: input.organizationId,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: input.proposalSubmilestoneId,
+    });
     return existingV1._id;
   }
 
@@ -542,6 +654,12 @@ export async function upsertSubmilestoneScopeV1Draft(
   await ctx.db.patch(existing._id, {
     activeDraftRevisionId: revisionId,
     updatedAt: input.now,
+  });
+  await attachSubmilestoneScopeBuildLineage(ctx, {
+    brokerageId: input.brokerageId,
+    organizationId: input.organizationId,
+    proposalId: input.proposalId,
+    proposalSubmilestoneId: input.proposalSubmilestoneId,
   });
   return revisionId;
 }
@@ -950,6 +1068,12 @@ export const createSubmilestoneScopeDraft = backofficeMutation
         savedAt: now,
       });
       await ctx.db.patch(contractId, { activeDraftRevisionId: revisionId });
+      await attachSubmilestoneScopeBuildLineage(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        proposalSubmilestoneId: submilestone._id,
+      });
       return revisionId;
     }
     await authorizeContract(
@@ -963,6 +1087,12 @@ export const createSubmilestoneScopeDraft = backofficeMutation
       if (!activeDraft || activeDraft.status !== "draft") {
         throw new Error("Scope contract has an invalid active draft pointer.");
       }
+      await attachSubmilestoneScopeBuildLineage(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        proposalSubmilestoneId: submilestone._id,
+      });
       return activeDraft._id;
     }
     const sourceRevision = args.basedOnRevisionId
@@ -999,6 +1129,12 @@ export const createSubmilestoneScopeDraft = backofficeMutation
       activeDraftRevisionId: revisionId,
       latestVersion: version,
       updatedAt: now,
+    });
+    await attachSubmilestoneScopeBuildLineage(ctx, {
+      brokerageId: proposal.brokerageId,
+      organizationId: proposal.organizationId,
+      proposalId: proposal._id,
+      proposalSubmilestoneId: submilestone._id,
     });
     return revisionId;
   })

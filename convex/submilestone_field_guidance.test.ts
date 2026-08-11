@@ -278,7 +278,13 @@ const guidanceApi = (api as any).submilestone_field_guidance;
 
 describe("Sub-milestone Field Guidance", () => {
   test("saves both exact TipTap documents, keeps Scope separate, and reports readiness", async () => {
-    const { admin, base, proposalSubmilestoneId } =
+    const {
+      admin,
+      base,
+      buildId,
+      buildSubmilestoneId,
+      proposalSubmilestoneId,
+    } =
       await seedFieldGuidanceFixture();
     const args = {
       proposalSubmilestoneId,
@@ -348,11 +354,99 @@ describe("Sub-milestone Field Guidance", () => {
     expect(state.guidanceRows).toHaveLength(1);
     expect(state.guidanceRows[0]).toMatchObject({
       cameraAnglesTiptapJson: cameraAngles,
+      buildId,
+      buildSubmilestoneId,
       whatToVerifyTiptapJson: verification,
     });
     expect(state.proposalSubmilestone.scopeOfWorkTiptapJson).toBe(
       tiptap("Contractual Scope remains separate."),
     );
+  });
+
+  test("allows Guidance authoring before a Build owner exists without inventing references", async () => {
+    const { admin, base, buildSubmilestoneId, proposalSubmilestoneId } =
+      await seedFieldGuidanceFixture();
+    await base.run(async (ctx: any) => {
+      await ctx.db.delete(buildSubmilestoneId);
+    });
+
+    const whatToVerify = tiptap("Verify the excavation depth.");
+    const cameraAngles = tiptap("Capture north and east elevations.");
+    await admin.mutation(guidanceApi.saveSubmilestoneFieldGuidance, {
+      cameraAnglesTiptapJson: cameraAngles,
+      proposalSubmilestoneId,
+      whatToVerifyTiptapJson: whatToVerify,
+      workosOrganizationId: ORG,
+    });
+
+    const state = await base.run(async (ctx: any) => ({
+      guidance: await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", proposalSubmilestoneId),
+        )
+        .unique(),
+    }));
+    expect(state.guidance).toMatchObject({
+      cameraAnglesTiptapJson: cameraAngles,
+      proposalSubmilestoneId,
+      whatToVerifyTiptapJson: whatToVerify,
+    });
+    expect(state.guidance).not.toHaveProperty("buildId");
+    expect(state.guidance).not.toHaveProperty("buildSubmilestoneId");
+  });
+
+  test("fails closed and rolls back Guidance creation when Build ownership conflicts", async () => {
+    const {
+      admin,
+      base,
+      buildId,
+      buildMilestoneId,
+      buildSubmilestoneId,
+      proposalSubmilestoneId,
+    } = await seedFieldGuidanceFixture();
+    await base.run(async (ctx: any) => {
+      const source = await ctx.db.get(buildSubmilestoneId);
+      if (!source) {
+        throw new Error("Guidance conflict fixture is unavailable.");
+      }
+      await ctx.db.insert("buildSubmilestones", {
+        brokerageId: source.brokerageId,
+        buildId,
+        buildMilestoneId,
+        createdAt: Date.now(),
+        durationDays: source.durationDays,
+        key: "excavation-duplicate",
+        milestoneKey: source.milestoneKey,
+        name: source.name,
+        order: source.order + 1,
+        organizationId: source.organizationId,
+        proposalSubmilestoneId,
+        status: "planned",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const error = await admin
+      .mutation(guidanceApi.saveSubmilestoneFieldGuidance, {
+        cameraAnglesTiptapJson: tiptap("Capture all four elevations."),
+        proposalSubmilestoneId,
+        whatToVerifyTiptapJson: tiptap("Verify the completed excavation."),
+        workosOrganizationId: ORG,
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      data: {
+        code: "SUBMILESTONE_BUILD_LINEAGE_CONFLICT",
+        message: expect.stringMatching(/unavailable or conflicting/i),
+        reason: "duplicate_owner",
+      },
+    });
+
+    const state = await base.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+    }));
+    expect(state.guidance).toEqual([]);
   });
 
   test("allows backoffice, linked builder, and exact assigned contractor reads", async () => {

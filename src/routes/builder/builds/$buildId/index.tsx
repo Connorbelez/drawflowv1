@@ -44,6 +44,7 @@ import {
 } from "#/features/build-detail-targets/buildDetailTab.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../../../convex/build_collaboration_model";
 
 export interface BuilderBuildSearch {
   costBatch?: string;
@@ -828,7 +829,7 @@ export function BuilderBuildWorkspaceRoute({
       : undefined,
   } as ProductionBuildDetailActions;
   const surfaceActions: ProductionBuildDetailActions = actions;
-  const requestedCostDocumentCapacity =
+  const requestedCostDocumentCapacity: BuildCollaborationRole =
     routeBase === "/builder-staff" ? "builder-staff" : "builder";
   const backofficeCostDocumentCapacity = viewerRoles.includes("admin")
     ? "admin"

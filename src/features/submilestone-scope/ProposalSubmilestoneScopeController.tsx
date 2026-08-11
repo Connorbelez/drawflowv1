@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
   type ScopeRevisionContent,
   type ScopeRevisionLoadResult,
@@ -16,7 +17,9 @@ import {
 export interface ProposalSubmilestoneScopeControllerProps {
   onDirtyChange?: (dirty: boolean) => void;
   proposalSubmilestoneId?: string;
+  readOnly?: boolean;
   scopeRoute: ScopeRevisionSurfaceRoute;
+  viewerCapacity?: BuildCollaborationRole;
   workosOrganizationId?: string;
 }
 
@@ -44,20 +47,62 @@ interface ScopeContent {
   scopeOfWorkTiptapJson: string;
 }
 
-function isBackofficeRoute(route: ScopeRevisionSurfaceRoute) {
-  return route === "backoffice-proposal";
+type ScopeAuthority = "backoffice" | "builder" | "none";
+
+const BACKOFFICE_CAPACITIES = new Set<BuildCollaborationRole>([
+  "admin",
+  "principle-broker",
+  "broker",
+  "broker-staff",
+]);
+
+function authorityForRoute(
+  route: ScopeRevisionSurfaceRoute,
+  viewerCapacity?: BuildCollaborationRole
+): ScopeAuthority {
+  // Proposal routes are explicit capability boundaries. A backoffice route
+  // must carry a backoffice capacity; otherwise a mis-mounted Builder,
+  // contractor, or homeowner viewer must fail closed rather than inheriting
+  // lender draft access from the route name alone.
+  if (route === "backoffice-proposal") {
+    return viewerCapacity && BACKOFFICE_CAPACITIES.has(viewerCapacity)
+      ? "backoffice"
+      : "none";
+  }
+  // Builder proposal routes remain route-first. A dual-role admin visiting a
+  // Builder route reads the published Builder projection and receives no
+  // backoffice draft actions.
+  if (route === "builder-proposal") {
+    return "builder";
+  }
+  if (viewerCapacity && BACKOFFICE_CAPACITIES.has(viewerCapacity)) {
+    return "backoffice";
+  }
+  if (
+    viewerCapacity === undefined ||
+    viewerCapacity === "builder" ||
+    viewerCapacity === "builder-staff"
+  ) {
+    return "builder";
+  }
+  // Contractors and homeowners do not get Scope on the active Build surface.
+  return "none";
 }
 
-function isBuilderRoute(route: ScopeRevisionSurfaceRoute) {
-  return route === "builder-proposal" || route === "active-build";
+function isBackofficeAuthority(authority: ScopeAuthority) {
+  return authority === "backoffice";
+}
+
+function isBuilderAuthority(authority: ScopeAuthority) {
+  return authority === "builder";
 }
 
 function historyForRoute(
-  route: ScopeRevisionSurfaceRoute,
+  authority: ScopeAuthority,
   backofficeHistory: ScopeHistory | null | undefined,
   builderHistory: ScopeHistory | null | undefined
 ) {
-  return isBackofficeRoute(route) ? backofficeHistory : builderHistory;
+  return isBackofficeAuthority(authority) ? backofficeHistory : builderHistory;
 }
 
 function toRevisionSummary(
@@ -87,11 +132,15 @@ function toRevisionSummary(
 export function ProposalSubmilestoneScopeController({
   onDirtyChange,
   proposalSubmilestoneId,
+  readOnly = false,
   scopeRoute,
+  viewerCapacity,
   workosOrganizationId,
 }: ProposalSubmilestoneScopeControllerProps) {
+  const authority = authorityForRoute(scopeRoute, viewerCapacity);
+  const canRead = authority !== "none";
   const queryArgs =
-    proposalSubmilestoneId && workosOrganizationId
+    canRead && proposalSubmilestoneId && workosOrganizationId
       ? {
           proposalSubmilestoneId:
             proposalSubmilestoneId as Id<"proposalSubmilestones">,
@@ -100,31 +149,27 @@ export function ProposalSubmilestoneScopeController({
       : "skip";
   const backofficeHistory = useQuery(
     api.submilestone_scope_contracts.getSubmilestoneScopeHistory,
-    isBackofficeRoute(scopeRoute) ? queryArgs : "skip"
+    isBackofficeAuthority(authority) ? queryArgs : "skip"
   ) as ScopeHistory | null | undefined;
   const builderHistory = useQuery(
     api.submilestone_scope_contracts.getBuilderSubmilestoneScopeHistory,
-    isBuilderRoute(scopeRoute) ? queryArgs : "skip"
+    isBuilderAuthority(authority) ? queryArgs : "skip"
   ) as ScopeHistory | null | undefined;
 
-  const history = historyForRoute(
-    scopeRoute,
-    backofficeHistory,
-    builderHistory
-  );
+  const history = historyForRoute(authority, backofficeHistory, builderHistory);
   const revisions = useMemo(
     () => (history?.revisions ?? []).map(toRevisionSummary),
     [history?.revisions]
   );
   const activeDraftRevision = useMemo(() => {
-    if (!(isBackofficeRoute(scopeRoute) && history?.activeDraftRevisionId)) {
+    if (!(isBackofficeAuthority(authority) && history?.activeDraftRevisionId)) {
       return null;
     }
     const revision = revisions.find(
       (candidate) => candidate.id === history.activeDraftRevisionId
     );
     return revision?.status === "draft" ? revision : null;
-  }, [history?.activeDraftRevisionId, revisions, scopeRoute]);
+  }, [authority, history?.activeDraftRevisionId, revisions]);
   const effectiveRevisionId = history?.effectiveRevisionId ?? null;
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(
     effectiveRevisionId
@@ -141,11 +186,11 @@ export function ProposalSubmilestoneScopeController({
   }, [effectiveRevisionId, revisions, selectedRevisionId]);
 
   const selectedContentResult = useQuery(
-    isBackofficeRoute(scopeRoute)
+    isBackofficeAuthority(authority)
       ? api.submilestone_scope_contracts.getSubmilestoneScopeRevisionContent
       : api.submilestone_scope_contracts
           .getBuilderSubmilestoneScopeRevisionContent,
-    selectedRevisionId && workosOrganizationId
+    canRead && selectedRevisionId && workosOrganizationId
       ? {
           revisionId: selectedRevisionId as Id<"submilestoneScopeRevisions">,
           workosOrganizationId,
@@ -173,7 +218,15 @@ export function ProposalSubmilestoneScopeController({
   // SFG-05 borrower/lender decisions (or an admin override) alone advance the
   // effective revision after submission.
   const canAuthor =
-    isBackofficeRoute(scopeRoute) && Boolean(workosOrganizationId);
+    isBackofficeAuthority(authority) &&
+    !readOnly &&
+    Boolean(workosOrganizationId && proposalSubmilestoneId);
+
+  useEffect(() => {
+    if (!canRead) {
+      onDirtyChange?.(false);
+    }
+  }, [canRead, onDirtyChange]);
 
   const onCreateDraftFromRevision = canAuthor
     ? async (
@@ -190,6 +243,7 @@ export function ProposalSubmilestoneScopeController({
         // its ID here makes the editor switch immediately without inventing a
         // client-side revision summary or content payload.
         setSelectedRevisionId(String(revisionId));
+        return;
       }
     : undefined;
 
@@ -228,6 +282,10 @@ export function ProposalSubmilestoneScopeController({
         });
       }
     : undefined;
+
+  if (!canRead) {
+    return null;
+  }
 
   return (
     <SubmilestoneScopeRevisionSurface

@@ -7442,7 +7442,8 @@ export default defineSchema({
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
     // Canonical scope content for recipient-visible Quote Package snapshots.
-    // Legacy fieldNote remains a plain-text fallback until this field is set.
+    // Legacy fieldNote remains an execution note; Quote consumers must never
+    // synthesize contractual Scope from it.
     scopeOfWorkTiptapJson: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     completionForecastDate: v.optional(v.string()),

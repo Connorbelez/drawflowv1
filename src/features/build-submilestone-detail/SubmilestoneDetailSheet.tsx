@@ -5,6 +5,15 @@ import type { FunctionReturnType } from "convex/server";
 import { CalendarDays, RotateCcw, ShieldAlert, UserRound } from "lucide-react";
 import { type ComponentProps, useEffect, useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "#/components/ui/alert-dialog.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -25,6 +34,7 @@ import type { BuildCollaborationRole } from "../../../convex/build_collaboration
 import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import {
   CanonicalSubmilestoneTabPanel,
+  type CanonicalDirtySection,
   isCanonicalSubmilestoneSuperseded,
   type CanonicalWorkspaceBootstrap,
   type CanonicalWorkspaceCollection,
@@ -72,6 +82,11 @@ interface CollectionPaginationState {
 interface CollectionPaginationStore {
   byCollection: Partial<Record<WorkspaceCollection, CollectionPaginationState>>;
   targetKey: string;
+}
+
+interface PendingCanonicalNavigation {
+  action: () => void;
+  label: string;
 }
 
 type SheetFocusTarget =
@@ -174,6 +189,46 @@ export function SubmilestoneDetailSheet({
       byCollection: {},
       targetKey: paginationTargetKey,
     });
+  const [dirtySections, setDirtySections] = useState<
+    Record<CanonicalDirtySection, boolean>
+  >({
+    guidance: false,
+    scope: false,
+  });
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingCanonicalNavigation | null>(null);
+  const hasUnsavedCanonicalChanges =
+    dirtySections.scope || dirtySections.guidance;
+  const onCanonicalDirtyChange = (
+    section: CanonicalDirtySection,
+    dirty: boolean,
+  ) => {
+    setDirtySections((current) =>
+      current[section] === dirty ? current : { ...current, [section]: dirty },
+    );
+  };
+  const requestNavigation = (action: () => void, label: string) => {
+    if (!hasUnsavedCanonicalChanges) {
+      action();
+      return;
+    }
+    setPendingNavigation({ action, label });
+  };
+  const discardCanonicalChangesAndContinue = () => {
+    const action = pendingNavigation?.action;
+    setPendingNavigation(null);
+    setDirtySections({ guidance: false, scope: false });
+    action?.();
+  };
+  const handleClose = () =>
+    requestNavigation(
+      () => onOpenChange(false),
+      "close this Sub-milestone detail",
+    );
+  const handleGoBack = () =>
+    requestNavigation(onGoBack, "open the previous Sub-milestone");
+  const handleGoForward = () =>
+    requestNavigation(onGoForward, "open the next Sub-milestone");
   const paginationByCollection =
     paginationStore.targetKey === paginationTargetKey
       ? paginationStore.byCollection
@@ -184,6 +239,8 @@ export function SubmilestoneDetailSheet({
         byCollection: {},
         targetKey: paginationTargetKey,
       });
+      setDirtySections({ guidance: false, scope: false });
+      setPendingNavigation(null);
     }
   }, [open, paginationTargetKey]);
   const bootstrap = useQuery(
@@ -314,20 +371,37 @@ export function SubmilestoneDetailSheet({
   };
 
   const handleTabChange = (nextTab: BuildSubmilestoneDetailTab) => {
-    if (!isControlled) {
-      setUncontrolledTab(nextTab);
+    if (nextTab === activeTab) {
+      return;
     }
-    onSelectedTabChange?.(nextTab);
+    requestNavigation(
+      () => {
+        if (!isControlled) {
+          setUncontrolledTab(nextTab);
+        }
+        onSelectedTabChange?.(nextTab);
+      },
+      "leave the Overview draft",
+    );
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      onOpenChange(true);
+      return;
+    }
+    handleClose();
   };
 
   return (
-    <Sheet modal onOpenChange={onOpenChange} open={open}>
-      <SheetPopup
-        aria-modal="true"
-        className="min-w-0 overflow-x-hidden motion-reduce:transform-none motion-reduce:transition-none max-sm:h-svh max-sm:max-h-svh max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:pb-[env(safe-area-inset-bottom)] sm:h-[calc(100svh-2rem)] sm:max-h-[calc(100svh-2rem)] sm:w-[min(52rem,calc(100vw-2rem))] sm:max-w-[52rem]"
-        finalFocus={finalFocus}
-        initialFocus={initialFocus}
-        onKeyDown={(event) => {
+    <>
+      <Sheet modal onOpenChange={handleOpenChange} open={open}>
+        <SheetPopup
+          aria-modal="true"
+          className="min-w-0 overflow-x-hidden motion-reduce:transform-none motion-reduce:transition-none max-sm:h-svh max-sm:max-h-svh max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:pb-[env(safe-area-inset-bottom)] sm:h-[calc(100svh-2rem)] sm:max-h-[calc(100svh-2rem)] sm:w-[min(52rem,calc(100vw-2rem))] sm:max-w-[52rem]"
+          finalFocus={finalFocus}
+          initialFocus={initialFocus}
+          onKeyDown={(event) => {
           const historyShortcut =
             event.altKey &&
             !(event.ctrlKey || event.metaKey || event.shiftKey) &&
@@ -337,40 +411,40 @@ export function SubmilestoneDetailSheet({
           }
           event.preventDefault();
           if (event.key === "ArrowLeft" && canGoBack) {
-            onGoBack();
+            handleGoBack();
           }
           if (event.key === "ArrowRight" && canGoForward) {
-            onGoForward();
+            handleGoForward();
           }
-        }}
-        showCloseButton={false}
-        side="right"
-        variant="inset"
-      >
+          }}
+          showCloseButton={false}
+          side="right"
+          variant="inset"
+        >
         {bootstrap === undefined ? (
           <LoadingState
             canGoBack={canGoBack}
             canGoForward={canGoForward}
-            onClose={() => onOpenChange(false)}
-            onGoBack={onGoBack}
-            onGoForward={onGoForward}
+            onClose={handleClose}
+            onGoBack={handleGoBack}
+            onGoForward={handleGoForward}
           />
         ) : bootstrap.state === "revoked" ? (
           <UnavailableState
             canGoBack={canGoBack}
             canGoForward={canGoForward}
-            onClose={() => onOpenChange(false)}
-            onGoBack={onGoBack}
-            onGoForward={onGoForward}
+            onClose={handleClose}
+            onGoBack={handleGoBack}
+            onGoForward={handleGoForward}
           />
         ) : bootstrap.state === "integrity_error" ? (
           <IntegrityState
             canGoBack={canGoBack}
             canGoForward={canGoForward}
             error={bootstrap}
-            onClose={() => onOpenChange(false)}
-            onGoBack={onGoBack}
-            onGoForward={onGoForward}
+            onClose={handleClose}
+            onGoBack={handleGoBack}
+            onGoForward={handleGoForward}
             onRetry={onRetry}
           />
         ) : (
@@ -386,9 +460,10 @@ export function SubmilestoneDetailSheet({
             requirementsCollection={evidenceRequirementsCollection}
             historyCollection={peopleHistoryCollection}
             loadingMore={loadingMore}
-            onClose={() => onOpenChange(false)}
-            onGoBack={onGoBack}
-            onGoForward={onGoForward}
+            onClose={handleClose}
+            onDirtyChange={onCanonicalDirtyChange}
+            onGoBack={handleGoBack}
+            onGoForward={handleGoForward}
             onLoadMore={loadMore}
             onOpenTarget={onOpenTarget}
             onRetry={onRetry}
@@ -399,8 +474,41 @@ export function SubmilestoneDetailSheet({
             viewerCapacity={viewerCapacity}
           />
         )}
-      </SheetPopup>
-    </Sheet>
+        </SheetPopup>
+      </Sheet>
+      <AlertDialog
+        onOpenChange={(dialogOpen) => {
+          if (!dialogOpen) {
+            setPendingNavigation(null);
+          }
+        }}
+        open={pendingNavigation !== null}
+      >
+        <AlertDialogContent data-testid="submilestone-detail-unsaved-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Discard unsaved Scope and Field Guidance changes?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Your Scope or Field Guidance edits have not been saved. Continue
+              to {pendingNavigation?.label} and discard them?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="outline">Keep editing</Button>}
+            />
+            <Button
+              data-testid="submilestone-detail-unsaved-discard"
+              onClick={discardCanonicalChangesAndContinue}
+              variant="destructive"
+            >
+              Discard changes
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -571,6 +679,7 @@ function VisibleState({
   onRetry,
   onReferenceOpen,
   onOpenTarget,
+  onDirtyChange,
   onTabChange,
   organizationId,
   readOnly,
@@ -589,6 +698,7 @@ function VisibleState({
   onRetry?: () => void;
   onReferenceOpen?: SubmilestoneDetailSheetProps["onReferenceOpen"];
   onOpenTarget?: SubmilestoneDetailSheetProps["onOpenTarget"];
+  onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
   onTabChange: (tab: BuildSubmilestoneDetailTab) => void;
   organizationId: string;
   readOnly: boolean;
@@ -688,7 +798,9 @@ function VisibleState({
                     }
                     buildId={buildId}
                     buildSubmilestoneId={buildSubmilestoneId}
+                    collection={undefined}
                     companionActionItemId={companionActionItemId}
+                    onDirtyChange={onDirtyChange}
                     onRetry={onRetry}
                     organizationId={organizationId}
                     readOnly={readOnly}

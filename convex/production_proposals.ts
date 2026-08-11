@@ -113,6 +113,10 @@ import {
   withQueryTiming,
 } from "./fluent";
 import {
+  attachSubmilestoneFieldGuidanceBuildLineage,
+} from "./submilestone_field_guidance";
+import {
+  attachSubmilestoneScopeBuildLineage,
   publishSavedV1ScopeDraftsForProposal,
   upsertSubmilestoneScopeV1Draft,
 } from "./submilestone_scope_contracts";
@@ -747,6 +751,40 @@ const productionTimelineMilestoneInput = v.object({
   policyState: v.string(),
   status: v.optional(v.string()),
   submilestones: v.optional(v.array(submilestoneInput)),
+  tone: v.optional(v.string()),
+  x: v.number(),
+});
+
+// Active-Build planning owns schedule and execution projections only.  Scope
+// and Field Guidance are canonical Proposal-lineage records and are therefore
+// intentionally absent from this mutation input.  Their history must never be
+// overwritten by a timeline edit.
+const activeBuildSubmilestoneInput = v.object({
+  budgetCents: v.optional(v.number()),
+  durationDays: v.optional(v.number()),
+  key: v.string(),
+  name: v.string(),
+  order: v.number(),
+  startDay: v.optional(v.number()),
+});
+
+const activeBuildTimelineMilestoneInput = v.object({
+  budgetCents: v.number(),
+  dayEnd: v.number(),
+  dayStart: v.number(),
+  dependencyKeys: v.optional(v.array(v.string())),
+  drawAvailabilityCents: v.optional(v.number()),
+  durationDays: v.number(),
+  evidenceState: v.string(),
+  icon: v.optional(v.string()),
+  lane: v.optional(v.number()),
+  markerLabel: v.optional(v.string()),
+  milestoneKey: v.string(),
+  name: v.string(),
+  order: v.number(),
+  policyState: v.string(),
+  status: v.optional(v.string()),
+  submilestones: v.optional(v.array(activeBuildSubmilestoneInput)),
   tone: v.optional(v.string()),
   x: v.number(),
 });
@@ -2220,9 +2258,15 @@ async function upsertProposalSubmilestoneFieldGuidance(
       updatedByWorkosUserId: input.auth.subject,
       whatToVerifyTiptapJson,
     });
+    await attachSubmilestoneFieldGuidanceBuildLineage(ctx, {
+      brokerageId: input.auth.brokerage._id,
+      organizationId: input.workosOrganizationId,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: input.proposalSubmilestoneId,
+    });
     return existing._id;
   }
-  return await ctx.db.insert("submilestoneFieldGuidance", {
+  const guidanceId = await ctx.db.insert("submilestoneFieldGuidance", {
     brokerageId: input.auth.brokerage._id,
     cameraAnglesTiptapJson,
     createdAt: input.now,
@@ -2233,6 +2277,13 @@ async function upsertProposalSubmilestoneFieldGuidance(
     updatedByWorkosUserId: input.auth.subject,
     whatToVerifyTiptapJson,
   });
+  await attachSubmilestoneFieldGuidanceBuildLineage(ctx, {
+    brokerageId: input.auth.brokerage._id,
+    organizationId: input.workosOrganizationId,
+    proposalId: input.proposalId,
+    proposalSubmilestoneId: input.proposalSubmilestoneId,
+  });
+  return guidanceId;
 }
 
 async function insertDraftProposalMilestoneDraw(
@@ -6053,6 +6104,22 @@ export const recordOfflineClosing = authenticatedMutation
         startDay: submilestone.startDay,
         status: "planned",
         updatedAt: now,
+      });
+      await attachSubmilestoneScopeBuildLineage(ctx, {
+        brokerageId: auth.brokerage._id,
+        buildId,
+        buildSubmilestoneId,
+        organizationId: args.workosOrganizationId,
+        proposalId: args.proposalId,
+        proposalSubmilestoneId: submilestone._id,
+      });
+      await attachSubmilestoneFieldGuidanceBuildLineage(ctx, {
+        brokerageId: auth.brokerage._id,
+        buildId,
+        buildSubmilestoneId,
+        organizationId: args.workosOrganizationId,
+        proposalId: args.proposalId,
+        proposalSubmilestoneId: submilestone._id,
       });
       submilestoneIdByProposalSubmilestone.set(
         submilestone._id,
@@ -18154,7 +18221,7 @@ export const scheduleActiveBuildMilestonePlanningReconciliation =
 export const createActiveBuildTimelineMilestone = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
-    milestone: productionTimelineMilestoneInput,
+    milestone: activeBuildTimelineMilestoneInput,
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -18238,7 +18305,7 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
         v.literal("complete"),
       ),
     ),
-    submilestones: v.optional(v.array(submilestoneInput)),
+    submilestones: v.optional(v.array(activeBuildSubmilestoneInput)),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -18308,7 +18375,6 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
               key: submilestone.key,
               name: submilestone.name,
               order: submilestone.order,
-              scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
               startDay:
                 submilestone.startDay === undefined
                   ? undefined
@@ -20223,7 +20289,6 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     milestoneKey: v.string(),
     progressPercent: v.optional(v.number()),
     reason: v.optional(v.string()),
-    scopeOfWorkTiptapJson: v.optional(v.union(v.string(), v.null())),
     status: v.optional(
       v.union(
         v.literal("planned"),
@@ -20404,9 +20469,8 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
       canonicalOperate?.allowed === true &&
       canonicalOperate.basis === "contractor_assignee";
     if (
-      args.scopeOfWorkTiptapJson !== undefined ||
-      ((args.actualCostCents !== undefined || args.fieldNote !== undefined) &&
-        !exactContractorLifecycleCommand)
+      (args.actualCostCents !== undefined || args.fieldNote !== undefined) &&
+      !exactContractorLifecycleCommand
     ) {
       await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
     }
@@ -20497,17 +20561,6 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
       ...(args.progressPercent === undefined
         ? {}
         : { progressPercent: Math.round(args.progressPercent) }),
-      ...(args.scopeOfWorkTiptapJson === undefined
-        ? {}
-        : {
-            scopeOfWorkTiptapJson:
-              args.scopeOfWorkTiptapJson === null
-                ? undefined
-                : normalizeOptionalTiptapJson(
-                    args.scopeOfWorkTiptapJson,
-                    "Sub-milestone Scope of Work",
-                  ),
-          }),
       ...(args.status === undefined
         ? {}
         : {
@@ -20557,7 +20610,6 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         fieldNote: patch.fieldNote,
         milestoneKey: milestone.key,
         progressPercent: patch.progressPercent,
-        scopeOfWorkTiptapJson: patch.scopeOfWorkTiptapJson,
         status: nextStatus,
         submilestoneKey: submilestone.key,
         workflowRevision: nextWorkflowRevision,
@@ -20567,7 +20619,6 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         completionForecastDate: submilestone.completionForecastDate,
         fieldNote: submilestone.fieldNote,
         progressPercent: submilestone.progressPercent,
-        scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
         status: submilestone.status,
         workflowRevision: submilestone.workflowRevision ?? 0,
       }),
@@ -35116,7 +35167,6 @@ async function insertActiveBuildMilestoneFromInput(
       key: string;
       name: string;
       order: number;
-      scopeOfWorkTiptapJson?: string;
       startDay?: number;
     }[];
   },
@@ -35221,7 +35271,6 @@ async function replaceActiveBuildSubmilestones(
       key: string;
       name: string;
       order: number;
-      scopeOfWorkTiptapJson?: string;
       startDay?: number;
     }[];
   },
@@ -35309,10 +35358,6 @@ async function replaceActiveBuildSubmilestones(
         name: normalizedName,
         order: Math.max(1, Math.round(row.order)),
         planningState: "active",
-        scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
-          row.scopeOfWorkTiptapJson,
-          "Sub-milestone Scope of Work",
-        ),
         startDay: row.startDay,
         supersededAt: undefined,
         supersededByPlanningRevision: undefined,
@@ -35326,10 +35371,6 @@ async function replaceActiveBuildSubmilestones(
           key: row.key,
           name: normalizedName,
           order: Math.max(1, Math.round(row.order)),
-          scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
-            row.scopeOfWorkTiptapJson,
-            "Sub-milestone Scope of Work",
-          ),
           startDay: row.startDay,
           updatedAt: now,
         });
@@ -35348,10 +35389,6 @@ async function replaceActiveBuildSubmilestones(
       organizationId: auth.build.organizationId,
       proposalId: auth.proposal._id,
       proposalMilestoneId: input.milestone.proposalMilestoneId,
-      scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
-        row.scopeOfWorkTiptapJson,
-        "Sub-milestone Scope of Work",
-      ),
       startDay: row.startDay,
       updatedAt: now,
     });
@@ -35369,10 +35406,6 @@ async function replaceActiveBuildSubmilestones(
       organizationId: auth.build.organizationId,
       proposalSubmilestoneId,
       planningState: "active",
-      scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
-        row.scopeOfWorkTiptapJson,
-        "Sub-milestone Scope of Work",
-      ),
       startDay: row.startDay,
       status: "planned",
       updatedAt: now,
@@ -40436,10 +40469,25 @@ async function seedCloseProposal(
       order: submilestone.order,
       organizationId: input.organizationId,
       proposalSubmilestoneId: submilestone._id,
-      scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
       startDay: submilestone.startDay,
       status: "planned",
       updatedAt: input.now,
+    });
+    await attachSubmilestoneScopeBuildLineage(ctx, {
+      brokerageId: input.auth.brokerage._id,
+      buildId,
+      buildSubmilestoneId,
+      organizationId: input.organizationId,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: submilestone._id,
+    });
+    await attachSubmilestoneFieldGuidanceBuildLineage(ctx, {
+      brokerageId: input.auth.brokerage._id,
+      buildId,
+      buildSubmilestoneId,
+      organizationId: input.organizationId,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: submilestone._id,
     });
     buildSubmilestoneIds.set(submilestone._id, buildSubmilestoneId);
   }

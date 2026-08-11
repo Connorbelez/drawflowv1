@@ -22,6 +22,37 @@ vi.mock("convex/react", () => ({
   useQuery: (reference: unknown, args: unknown) => useQuery(reference, args),
 }));
 
+vi.mock("../submilestone-scope/ProposalSubmilestoneScopeController.tsx", () => ({
+  ProposalSubmilestoneScopeController: ({
+    onDirtyChange,
+  }: {
+    onDirtyChange?: (dirty: boolean) => void;
+  }) => (
+    <button
+      data-testid="active-build-scope-dirty"
+      onClick={() => onDirtyChange?.(true)}
+      type="button"
+    />
+  ),
+}));
+
+vi.mock(
+  "../submilestone-guidance/ActiveBuildSubmilestoneGuidanceController.tsx",
+  () => ({
+    ActiveBuildSubmilestoneGuidanceController: ({
+      onDirtyChange,
+    }: {
+      onDirtyChange?: (dirty: boolean) => void;
+    }) => (
+      <button
+        data-testid="active-build-guidance-dirty"
+        onClick={() => onDirtyChange?.(true)}
+        type="button"
+      />
+    ),
+  }),
+);
+
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
@@ -768,6 +799,58 @@ describe("SubmilestoneDetailSheet", () => {
 
     expect(
       screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  test("guards close once Scope or Guidance is dirty, with keep and discard actions", () => {
+    bootstrap = makeBootstrap({
+      submilestone: {
+        ...(makeBootstrap().submilestone as Record<string, unknown>),
+        proposalSubmilestoneId: "proposal-submilestone-1",
+      },
+    });
+    const onOpenChange = vi.fn();
+    renderSheet({ onOpenChange, viewerCapacity: "builder" });
+
+    fireEvent.click(screen.getByTestId("active-build-scope-dirty"));
+    fireEvent.click(screen.getByTestId("active-build-guidance-dirty"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close Sub-milestone detail" }),
+    );
+
+    expect(screen.getByTestId("submilestone-detail-unsaved-dialog")).toBeTruthy();
+    expect(screen.getByText(/close this Sub-milestone detail/)).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByTestId("submilestone-detail-unsaved-dialog")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close Sub-milestone detail" }),
+    );
+    fireEvent.click(screen.getByTestId("submilestone-detail-unsaved-discard"));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  test("guards active-Build tab navigation and discards the local canonical draft", () => {
+    bootstrap = makeBootstrap({
+      submilestone: {
+        ...makeBootstrap().submilestone,
+        proposalSubmilestoneId: "proposal-submilestone-1",
+      },
+    });
+    renderSheet({ viewerCapacity: "builder" });
+
+    fireEvent.click(screen.getByTestId("active-build-scope-dirty"));
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
+
+    expect(screen.getByTestId("submilestone-detail-unsaved-dialog")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("submilestone-detail-unsaved-discard"));
+
+    expect(
+      screen.getByRole("tab", { name: "Evidence" }).getAttribute("aria-selected"),
     ).toBe("true");
   });
 

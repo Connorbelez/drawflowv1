@@ -309,6 +309,76 @@ describe("Sub-milestone Scope contract", () => {
     );
   });
 
+  test("rejects a contract whose Proposal ID disagrees with its Sub-milestone parent without writing", async () => {
+    const { admin, base, proposalSubmilestone } = await seedScopeFixture();
+    const revisionId = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Initial contractual scope.",
+    );
+    const mismatchedProposalId = await base.run(async (ctx: any) => {
+      const now = Date.now();
+      return await ctx.db.insert("buildProposals", {
+        assignedBrokerWorkosUserId: ADMIN_USER,
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 35_000_000,
+        borrowerWorkingCapitalLimitCents: 35_000_000,
+        borrowerCoPayCents: 700_000,
+        brokerageId: proposalSubmilestone.brokerageId,
+        buildName: "Mismatched Scope Proposal",
+        createdAt: now,
+        createdByWorkosUserId: ADMIN_USER,
+        interestAnnualBps: 925,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        location: "10 Mismatch Lane",
+        organizationId: ORG,
+        reviewOutcome: "none",
+        status: "draft",
+        totalBudgetCents: 25_000_000,
+        updatedAt: now,
+        updatedByWorkosUserId: ADMIN_USER,
+      });
+    });
+    const contractBefore = await base.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+        )
+        .unique();
+      if (!contract) {
+        throw new Error("Expected Scope contract fixture row.");
+      }
+      await ctx.db.patch(contract._id, { proposalId: mismatchedProposalId });
+      return contract;
+    });
+
+    await expect(
+      admin.mutation(scopeApi.createSubmilestoneScopeDraft, {
+        proposalSubmilestoneId: proposalSubmilestone._id,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Forbidden: organization scope");
+
+    const stateAfter = await base.run(async (ctx: any) => {
+      const contract = await ctx.db.get(contractBefore._id);
+      const revisions = await ctx.db
+        .query("submilestoneScopeRevisions")
+        .withIndex("by_contractId_and_version", (query: any) =>
+          query.eq("contractId", contractBefore._id),
+        )
+        .collect();
+      return { contract, revisions };
+    });
+    expect(stateAfter.contract).toMatchObject({
+      _id: contractBefore._id,
+      latestVersion: 1,
+      proposalId: mismatchedProposalId,
+    });
+    expect(stateAfter.revisions).toHaveLength(1);
+    expect(stateAfter.revisions[0]._id).toBe(revisionId);
+  });
+
   test("updates one v1 draft, publishes it effective, and sequences one successor", async () => {
     const { admin, proposalSubmilestone } = await seedScopeFixture();
     const args = {
@@ -584,6 +654,320 @@ describe("Sub-milestone Scope contract", () => {
         args,
       ),
     ).rejects.toThrow(/supported limit/i);
+  });
+
+  test("attaches late Scope authoring to the exact Build owner without changing revision lineage", async () => {
+    const { admin, base, proposalId, proposalSubmilestone } =
+      await seedScopeFixture();
+    const lineage = await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const proposalMilestone = await ctx.db.get(
+        proposalSubmilestone.proposalMilestoneId,
+      );
+      if (!(proposal && proposalMilestone)) {
+        throw new Error("Scope Build lineage fixture is unavailable.");
+      }
+      const now = Date.now();
+      const workflowRuleId = await ctx.db.insert("workflowRules", {
+        allowPermitWaiverByRoles: ["admin"],
+        brokerageId: proposal.brokerageId,
+        createdAt: now,
+        organizationId: ORG,
+        proposalStates: ["draft", "submitted", "approved", "closed"],
+        requirePermitForApproval: false,
+        ruleKey: "scope-lineage-test",
+        settings: {},
+        status: "active",
+        updatedAt: now,
+        version: 1,
+      });
+      const workflowRuleSnapshotId = await ctx.db.insert(
+        "workflowRuleSnapshots",
+        {
+          allowPermitWaiverByRoles: ["admin"],
+          brokerageId: proposal.brokerageId,
+          createdAt: now,
+          organizationId: ORG,
+          proposalId,
+          proposalStates: ["draft", "submitted", "approved", "closed"],
+          requirePermitForApproval: false,
+          ruleKey: "scope-lineage-test",
+          settings: {},
+          version: 1,
+          workflowRuleId,
+        },
+      );
+      const buildId = await ctx.db.insert("activeBuilds", {
+        brokerageId: proposal.brokerageId,
+        buildName: "Scope lineage Build",
+        builderProfileId: proposal.builderProfileId,
+        createdAt: now,
+        location: proposal.location,
+        organizationId: ORG,
+        proposalId,
+        startDate: "2026-08-01",
+        status: "active",
+        totalBudgetCents: proposal.totalBudgetCents,
+        updatedAt: now,
+        workflowRuleSnapshotId,
+      });
+      const buildMilestoneId = await ctx.db.insert("buildMilestones", {
+        brokerageId: proposal.brokerageId,
+        budgetCents: proposalMilestone.budgetCents,
+        buildId,
+        createdAt: now,
+        dayEnd: proposalMilestone.dayEnd,
+        dayStart: proposalMilestone.dayStart,
+        dependencyKeys: proposalMilestone.dependencyKeys,
+        drawAvailabilityCents: proposalMilestone.drawAvailabilityCents,
+        durationDays: proposalMilestone.durationDays,
+        key: proposalMilestone.key,
+        name: proposalMilestone.name,
+        order: proposalMilestone.order,
+        organizationId: ORG,
+        proposalMilestoneId: proposalMilestone._id,
+        status: "planned",
+        updatedAt: now,
+      });
+      const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
+        brokerageId: proposal.brokerageId,
+        buildId,
+        buildMilestoneId,
+        createdAt: now,
+        durationDays: proposalSubmilestone.durationDays,
+        key: proposalSubmilestone.key,
+        milestoneKey: proposalSubmilestone.milestoneKey,
+        name: proposalSubmilestone.name,
+        order: proposalSubmilestone.order,
+        organizationId: ORG,
+        proposalSubmilestoneId: proposalSubmilestone._id,
+        status: "planned",
+        updatedAt: now,
+      });
+      await ctx.db.patch(proposalId, {
+        activeBuildId: buildId,
+        status: "closed",
+      });
+      return { buildId, buildSubmilestoneId };
+    });
+
+    const args = {
+      proposalSubmilestoneId: proposalSubmilestone._id,
+      workosOrganizationId: ORG,
+    };
+    const v1 = await admin.mutation(scopeApi.createSubmilestoneScopeDraft, args);
+    const v1Content = tiptap("Scope v1 survives Build closing byte-for-byte.");
+    await admin.mutation(scopeApi.saveSubmilestoneScopeDraft, {
+      revisionId: v1,
+      scopeOfWorkTiptapJson: v1Content,
+      workosOrganizationId: ORG,
+    });
+    await admin.mutation(scopeApi.publishSubmilestoneScopeRevision, {
+      revisionId: v1,
+      workosOrganizationId: ORG,
+    });
+
+    const afterV1 = await base.run(async (ctx: any) => {
+      const revision = await ctx.db.get(v1);
+      const contract = revision ? await ctx.db.get(revision.contractId) : null;
+      return { contract, revision };
+    });
+    expect(afterV1.revision).toMatchObject({
+      _id: v1,
+      scopeOfWorkTiptapJson: v1Content,
+      status: "published",
+      version: 1,
+    });
+    expect(afterV1.contract).toMatchObject({
+      buildId: lineage.buildId,
+      buildSubmilestoneId: lineage.buildSubmilestoneId,
+      latestVersion: 1,
+    });
+
+    const v2 = await admin.mutation(scopeApi.createSubmilestoneScopeDraft, args);
+    const v2Content = tiptap("Scope v2 adds the revised excavation limits.");
+    await admin.mutation(scopeApi.saveSubmilestoneScopeDraft, {
+      revisionId: v2,
+      scopeOfWorkTiptapJson: v2Content,
+      workosOrganizationId: ORG,
+    });
+    await admin.mutation(scopeApi.publishSubmilestoneScopeRevision, {
+      changeReason: "Record the revised excavation limits.",
+      revisionId: v2,
+      workosOrganizationId: ORG,
+    });
+
+    const afterV2 = await base.run(async (ctx: any) => {
+      const v1Row = await ctx.db.get(v1);
+      const v2Row = await ctx.db.get(v2);
+      const contract = v1Row ? await ctx.db.get(v1Row.contractId) : null;
+      return { contract, v1: v1Row, v2: v2Row };
+    });
+    expect(afterV2.contract).toMatchObject({
+      buildId: lineage.buildId,
+      buildSubmilestoneId: lineage.buildSubmilestoneId,
+      latestVersion: 2,
+    });
+    expect(afterV2.v1).toMatchObject({
+      scopeOfWorkTiptapJson: v1Content,
+      status: "published",
+      version: 1,
+    });
+    expect(afterV2.v2).toMatchObject({
+      scopeOfWorkTiptapJson: v2Content,
+      status: "published",
+      version: 2,
+    });
+  });
+
+  test("allows Scope authoring before a Build owner exists without inventing references", async () => {
+    const { admin, base, proposalSubmilestone } = await seedScopeFixture();
+    const revisionId = await admin.mutation(
+      scopeApi.createSubmilestoneScopeDraft,
+      {
+        proposalSubmilestoneId: proposalSubmilestone._id,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const state = await base.run(async (ctx: any) => {
+      const revision = await ctx.db.get(revisionId);
+      const contract = revision ? await ctx.db.get(revision.contractId) : null;
+      return {
+        contract,
+        revision,
+        submilestones: await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_proposalSubmilestoneId", (query: any) =>
+            query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+          )
+          .collect(),
+      };
+    });
+    expect(state.submilestones).toEqual([]);
+    expect(state.contract).toMatchObject({ latestVersion: 1 });
+    expect(state.contract).not.toHaveProperty("buildId");
+    expect(state.contract).not.toHaveProperty("buildSubmilestoneId");
+    expect(state.revision).toMatchObject({
+      _id: revisionId,
+      status: "draft",
+      version: 1,
+    });
+  });
+
+  test("fails closed and rolls back Scope creation when Build ownership conflicts", async () => {
+    const { admin, base, proposalId, proposalSubmilestone } =
+      await seedScopeFixture();
+
+    await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const proposalMilestone = await ctx.db.get(
+        proposalSubmilestone.proposalMilestoneId,
+      );
+      if (!(proposal && proposalMilestone)) {
+        throw new Error("Scope conflict fixture is unavailable.");
+      }
+      const now = Date.now();
+      const workflowRuleId = await ctx.db.insert("workflowRules", {
+        allowPermitWaiverByRoles: ["admin"],
+        brokerageId: proposal.brokerageId,
+        createdAt: now,
+        organizationId: ORG,
+        proposalStates: ["draft", "submitted", "approved", "closed"],
+        requirePermitForApproval: false,
+        ruleKey: "scope-conflict-test",
+        settings: {},
+        status: "active",
+        updatedAt: now,
+        version: 1,
+      });
+      const workflowRuleSnapshotId = await ctx.db.insert(
+        "workflowRuleSnapshots",
+        {
+          allowPermitWaiverByRoles: ["admin"],
+          brokerageId: proposal.brokerageId,
+          createdAt: now,
+          organizationId: ORG,
+          proposalId,
+          proposalStates: ["draft", "submitted", "approved", "closed"],
+          requirePermitForApproval: false,
+          ruleKey: "scope-conflict-test",
+          settings: {},
+          version: 1,
+          workflowRuleId,
+        },
+      );
+      const buildId = await ctx.db.insert("activeBuilds", {
+        brokerageId: proposal.brokerageId,
+        buildName: "Conflicting Scope Build",
+        builderProfileId: proposal.builderProfileId,
+        createdAt: now,
+        location: proposal.location,
+        organizationId: ORG,
+        proposalId,
+        startDate: "2026-08-01",
+        status: "active",
+        totalBudgetCents: proposal.totalBudgetCents,
+        updatedAt: now,
+        workflowRuleSnapshotId,
+      });
+      const buildMilestoneId = await ctx.db.insert("buildMilestones", {
+        brokerageId: proposal.brokerageId,
+        budgetCents: proposalMilestone.budgetCents,
+        buildId,
+        createdAt: now,
+        dayEnd: proposalMilestone.dayEnd,
+        dayStart: proposalMilestone.dayStart,
+        dependencyKeys: proposalMilestone.dependencyKeys,
+        drawAvailabilityCents: proposalMilestone.drawAvailabilityCents,
+        durationDays: proposalMilestone.durationDays,
+        key: proposalMilestone.key,
+        name: proposalMilestone.name,
+        order: proposalMilestone.order,
+        organizationId: ORG,
+        proposalMilestoneId: proposalMilestone._id,
+        status: "planned",
+        updatedAt: now,
+      });
+      for (const duplicate of [1, 2]) {
+        await ctx.db.insert("buildSubmilestones", {
+          brokerageId: proposal.brokerageId,
+          buildId,
+          buildMilestoneId,
+          createdAt: now,
+          durationDays: proposalSubmilestone.durationDays,
+          key: `${proposalSubmilestone.key}-${duplicate}`,
+          milestoneKey: proposalSubmilestone.milestoneKey,
+          name: proposalSubmilestone.name,
+          order: duplicate,
+          organizationId: ORG,
+          proposalSubmilestoneId: proposalSubmilestone._id,
+          status: "planned",
+          updatedAt: now,
+        });
+      }
+    });
+
+    const error = await admin
+      .mutation(scopeApi.createSubmilestoneScopeDraft, {
+        proposalSubmilestoneId: proposalSubmilestone._id,
+        workosOrganizationId: ORG,
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      data: {
+        code: "SUBMILESTONE_BUILD_LINEAGE_CONFLICT",
+        message: expect.stringMatching(/unavailable or conflicting/i),
+        reason: "duplicate_owner",
+      },
+    });
+
+    const state = await base.run(async (ctx: any) => ({
+      contracts: await ctx.db.query("submilestoneScopeContracts").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+    }));
+    expect(state.contracts).toEqual([]);
+    expect(state.revisions).toEqual([]);
   });
 
   test("rejects cross-organization history and mutation access", async () => {

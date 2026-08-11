@@ -107,6 +107,7 @@ import {
   type MaterialPlanningPayload,
   MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import { toggleSubmilestoneSelection } from "#/features/assistant/assistantPlanningFocus.ts";
 import { usePlanningFocus } from "#/features/assistant/assistantPlanningFocus.ts";
 import {
@@ -128,6 +129,7 @@ import {
 import type { TimelineSubmilestoneFieldGuidance } from "./-timeline-milestone-submilestones.ts";
 import { ProposalSubmilestoneScopeController } from "../submilestone-scope/ProposalSubmilestoneScopeController.tsx";
 import type { ScopeRevisionSurfaceRoute } from "../submilestone-scope/SubmilestoneScopeRevisionSurface.tsx";
+import { SubmilestoneFieldGuidanceEditor } from "../submilestone-guidance/SubmilestoneFieldGuidanceEditor.tsx";
 import "./-timeline-setup-flow.css";
 import {
   ScheduleWindowPicker,
@@ -362,6 +364,7 @@ export function TimelineMilestoneWorksheetTable({
   showHeading = false,
   targetBudgetCents,
   templateTitle,
+  viewerCapacity,
 }: {
   cascadeBudgetEdits?: boolean;
   cashText?: string;
@@ -394,6 +397,7 @@ export function TimelineMilestoneWorksheetTable({
   showHeading?: boolean;
   targetBudgetCents?: number;
   templateTitle: string;
+  viewerCapacity?: BuildCollaborationRole;
 }) {
   const [expanded, setExpanded] = useState<ExpandedState>(() =>
     rows[0]?.key ? { [rows[0].key]: mode === "setup" } : {}
@@ -1298,6 +1302,7 @@ export function TimelineMilestoneWorksheetTable({
           scopeEditorResetVersion={scopeEditorResetVersion}
           scopeRoute={scopeRoute}
           scopeWorkosOrganizationId={scopeWorkosOrganizationId}
+          viewerCapacity={viewerCapacity}
         />
         {mode === "settings" && placement === "sheet" ? (
           <Button
@@ -1744,6 +1749,7 @@ export function TimelineMilestoneWorksheetTable({
                 scopeRoute={scopeRoute}
                 scopeWorkosOrganizationId={scopeWorkosOrganizationId}
                 subMilestone={detailsSheetSubMilestone}
+                viewerCapacity={viewerCapacity}
               />
             ) : detailsSheetRow ? (
               renderMilestoneDetailTabs(detailsSheetRow, "sheet")
@@ -4005,16 +4011,6 @@ function stringifyTiptapDocument(document: JSONContent) {
   return JSON.stringify(document);
 }
 
-function areFieldGuidanceEqual(
-  left: TimelineSubmilestoneFieldGuidance,
-  right: TimelineSubmilestoneFieldGuidance
-) {
-  return (
-    left.whatToVerifyTiptapJson === right.whatToVerifyTiptapJson &&
-    left.cameraAnglesTiptapJson === right.cameraAnglesTiptapJson
-  );
-}
-
 function SubMilestoneEditor({
   activeSubMilestoneId,
   mode,
@@ -4033,6 +4029,7 @@ function SubMilestoneEditor({
   scopeRoute,
   scopeWorkosOrganizationId,
   scopeEditorResetVersion = 0,
+  viewerCapacity,
 }: {
   activeSubMilestoneId?: string;
   mode: WorksheetMode;
@@ -4060,6 +4057,7 @@ function SubMilestoneEditor({
   scopeRoute?: ScopeRevisionSurfaceRoute;
   scopeWorkosOrganizationId?: string;
   scopeEditorResetVersion?: number;
+  viewerCapacity?: BuildCollaborationRole;
 }) {
   const subMilestones = row.subMilestoneDetails;
   const activeSubMilestone =
@@ -4229,6 +4227,7 @@ function SubMilestoneEditor({
           scheduleDisplayMode={scheduleDisplayMode}
           scopeRoute={scopeRoute}
           scopeWorkosOrganizationId={scopeWorkosOrganizationId}
+          viewerCapacity={viewerCapacity}
         />
       </section>
     </div>
@@ -4249,6 +4248,7 @@ function SubMilestoneDetailEditor({
   scheduleDisplayMode,
   scopeRoute,
   scopeWorkosOrganizationId,
+  viewerCapacity,
 }: {
   activeSubMilestone?: TimelineMilestoneWorksheetSubMilestone;
   mode: WorksheetMode;
@@ -4267,6 +4267,7 @@ function SubMilestoneDetailEditor({
   scheduleDisplayMode: TimelineScheduleDisplayMode;
   scopeRoute?: ScopeRevisionSurfaceRoute;
   scopeWorkosOrganizationId?: string;
+  viewerCapacity?: BuildCollaborationRole;
 }) {
   const valueLabel = mode === "settings" ? "PoC" : "Budget";
   const initialScopeValue = activeSubMilestone?.scopeOfWorkTiptapJson ?? "";
@@ -4399,6 +4400,7 @@ function SubMilestoneDetailEditor({
           onDirtyChange={onDirtyChange}
           proposalSubmilestoneId={activeSubMilestone.proposalSubmilestoneId}
           scopeRoute={scopeRoute}
+          viewerCapacity={viewerCapacity}
           workosOrganizationId={scopeWorkosOrganizationId}
         />
       ) : (
@@ -4671,6 +4673,7 @@ function SubMilestoneFocusedTabs({
   scopeEditorResetVersion = 0,
   scopeRoute,
   scopeWorkosOrganizationId,
+  viewerCapacity,
 }: {
   activeTab?: TimelineDetailTab;
   contractorActions?: WorksheetContractorActions;
@@ -4709,6 +4712,7 @@ function SubMilestoneFocusedTabs({
   scopeEditorResetVersion?: number;
   scopeRoute?: ScopeRevisionSurfaceRoute;
   scopeWorkosOrganizationId?: string;
+  viewerCapacity?: BuildCollaborationRole;
 }) {
   const subMilestoneName = sanitizeSubMilestoneName(subMilestone.name);
   const reportScopeDirty = useCallback(
@@ -4783,6 +4787,7 @@ function SubMilestoneFocusedTabs({
             scheduleDisplayMode={scheduleDisplayMode}
             scopeRoute={scopeRoute}
             scopeWorkosOrganizationId={scopeWorkosOrganizationId}
+            viewerCapacity={viewerCapacity}
           />
         </section>
       </TabsPanel>
@@ -4852,163 +4857,32 @@ function SubMilestoneFieldGuidanceEditor({
   row: TimelineMilestoneWorksheetRow;
   subMilestone: TimelineMilestoneWorksheetSubMilestone;
 }) {
-  const subMilestoneName = sanitizeSubMilestoneName(subMilestone.name);
-  const initialGuidance = subMilestone.fieldGuidance ?? {
-    cameraAnglesTiptapJson: "",
-    whatToVerifyTiptapJson: "",
-  };
-  const [guidanceDraft, setGuidanceDraft] = useState(initialGuidance);
-  const [savedGuidance, setSavedGuidance] = useState(initialGuidance);
-  const [guidanceSaving, setGuidanceSaving] = useState(false);
-  const [guidanceSaveError, setGuidanceSaveError] = useState<string | null>(
-    null
-  );
-  const guidanceIdentityRef = useRef(subMilestone.id);
-  const guidanceCanonicalRef = useRef(initialGuidance);
-  const guidanceDirty =
-    guidanceDraft.whatToVerifyTiptapJson !==
-      savedGuidance.whatToVerifyTiptapJson ||
-    guidanceDraft.cameraAnglesTiptapJson !==
-      savedGuidance.cameraAnglesTiptapJson;
-
-  useEffect(() => {
-    if (guidanceIdentityRef.current !== subMilestone.id) {
-      guidanceIdentityRef.current = subMilestone.id;
-      guidanceCanonicalRef.current = initialGuidance;
-      setGuidanceDraft(initialGuidance);
-      setSavedGuidance(initialGuidance);
-      setGuidanceSaveError(null);
-      return;
-    }
-    if (
-      !(guidanceDirty || guidanceSaving) &&
-      !areFieldGuidanceEqual(guidanceCanonicalRef.current, initialGuidance)
-    ) {
-      guidanceCanonicalRef.current = initialGuidance;
-      setGuidanceDraft(initialGuidance);
-      setSavedGuidance(initialGuidance);
-      setGuidanceSaveError(null);
-    }
-  }, [guidanceDirty, guidanceSaving, initialGuidance, subMilestone.id]);
-
-  useEffect(() => {
-    const reportDirty = onDirtyChange;
-    reportDirty(guidanceDirty);
-    return () => {
-      // Capture the callback and sub-milestone identity from this render so
-      // unmounting the editor clears only the key it reported.
-      reportDirty(false);
-    };
-  }, [guidanceDirty, onDirtyChange, subMilestone.id]);
-
-  const saveGuidance = async () => {
-    if (!guidanceDirty || guidanceSaving) {
-      return;
-    }
-    setGuidanceSaving(true);
-    setGuidanceSaveError(null);
-    try {
-      await onUpdateSubMilestone(
-        subMilestone.id,
-        { fieldGuidance: guidanceDraft },
-        {
-          commit: true,
-          save: {
-            group: "fieldGuidance",
-            rowKey: row.key,
-            subMilestoneId: subMilestone.id,
-          },
-        }
-      );
-      setSavedGuidance(guidanceDraft);
-    } catch (caught) {
-      setGuidanceSaveError(
-        caught instanceof Error ? caught.message : "Field Guidance save failed."
-      );
-    } finally {
-      setGuidanceSaving(false);
-    }
-  };
-
   return (
-    <section
-      aria-label={`${subMilestoneName} field guidance`}
-      className="timeline-blueprint-field-guidance timeline-submilestone-focused-guidance"
-      data-testid={`timeline-focused-submilestone-guidance-${subMilestone.id}`}
-    >
-      <div className="timeline-blueprint-planning-pane-heading">
-        <div>
-          <Badge className="timeline-blueprint-mini-badge" variant="outline">
-            Field Guidance
-          </Badge>
-          <strong>{subMilestoneName}</strong>
-          <p>{row.name}</p>
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        <span>Field Guidance</span>
-        <Button
-          data-testid={`timeline-setup-submilestone-field-guidance-save-${subMilestone.id}`}
-          disabled={!guidanceDirty || guidanceSaving}
-          onClick={saveGuidance}
-          size="sm"
-          type="button"
-        >
-          {guidanceSaving ? "Saving…" : "Save field guidance"}
-        </Button>
-      </div>
-      <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
-        <span>What to verify</span>
-        <FieldRichTextEditor
-          ariaLabel={`${subMilestoneName} what to verify`}
-          editable={!guidanceSaving}
-          editorMinHeightClass="[&_.ProseMirror]:min-h-44"
-          onChange={(html) =>
-            setGuidanceDraft((current) => ({
-              ...current,
-              whatToVerifyTiptapJson: html,
-            }))
-          }
-          onDocumentChange={(document) =>
-            setGuidanceDraft((current) => ({
-              ...current,
-              whatToVerifyTiptapJson: stringifyTiptapDocument(document),
-            }))
-          }
-          placeholder="Add a concise verification checklist…"
-          testId={`timeline-setup-submilestone-guidance-description-${subMilestone.id}`}
-          value={parseTiptapEditorValue(guidanceDraft.whatToVerifyTiptapJson)}
-        />
-      </div>
-      <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
-        <span>Recommended camera angles</span>
-        <FieldRichTextEditor
-          ariaLabel={`${subMilestoneName} recommended camera angles`}
-          editable={!guidanceSaving}
-          editorMinHeightClass="[&_.ProseMirror]:min-h-44"
-          onChange={(html) =>
-            setGuidanceDraft((current) => ({
-              ...current,
-              cameraAnglesTiptapJson: html,
-            }))
-          }
-          onDocumentChange={(document) =>
-            setGuidanceDraft((current) => ({
-              ...current,
-              cameraAnglesTiptapJson: stringifyTiptapDocument(document),
-            }))
-          }
-          placeholder="Describe recommended photo angles and framing…"
-          testId={`timeline-setup-submilestone-guidance-camera-${subMilestone.id}`}
-          value={parseTiptapEditorValue(guidanceDraft.cameraAnglesTiptapJson)}
-        />
-      </div>
-      {guidanceSaveError ? (
-        <p className="text-destructive text-xs" role="alert">
-          {guidanceSaveError}
-        </p>
-      ) : null}
-    </section>
+    <SubmilestoneFieldGuidanceEditor
+      canEdit
+      className="timeline-submilestone-focused-guidance"
+      guidance={subMilestone.fieldGuidance}
+      id={subMilestone.id}
+      onDirtyChange={onDirtyChange}
+      onSave={(guidance) =>
+        onUpdateSubMilestone(
+          subMilestone.id,
+          { fieldGuidance: guidance },
+          {
+            commit: true,
+            save: {
+              group: "fieldGuidance",
+              rowKey: row.key,
+              subMilestoneId: subMilestone.id,
+            },
+          },
+        )
+      }
+      rowName={row.name}
+      sectionTestId={`timeline-focused-submilestone-guidance-${subMilestone.id}`}
+      subMilestoneName={sanitizeSubMilestoneName(subMilestone.name)}
+      testIdPrefix="timeline-setup-submilestone"
+    />
   );
 }
 
@@ -5041,6 +4915,7 @@ function MilestoneExpandedTabs({
   scheduleDisplayMode,
   scopeRoute,
   scopeWorkosOrganizationId,
+  viewerCapacity,
 }: {
   activeSubMilestoneId?: string;
   activeTab?: TimelineDetailTab;
@@ -5084,6 +4959,7 @@ function MilestoneExpandedTabs({
   scheduleDisplayMode: TimelineScheduleDisplayMode;
   scopeRoute?: ScopeRevisionSurfaceRoute;
   scopeWorkosOrganizationId?: string;
+  viewerCapacity?: BuildCollaborationRole;
 }) {
   return (
     <Tabs
@@ -5139,6 +5015,7 @@ function MilestoneExpandedTabs({
           scopeEditorResetVersion={scopeEditorResetVersion}
           scopeRoute={scopeRoute}
           scopeWorkosOrganizationId={scopeWorkosOrganizationId}
+          viewerCapacity={viewerCapacity}
         />
       </TabsPanel>
       {mode === "setup" ? (

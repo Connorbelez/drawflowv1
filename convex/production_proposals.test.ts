@@ -12908,6 +12908,338 @@ describe("production proposal foundation", () => {
 });
 
 describe("Sub-milestone Scope and Field Guidance lineage", () => {
+  test("closing preserves canonical Scope and Guidance IDs, bytes, and active Build references", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Scope closing lineage proposal",
+      "18 Scope Closing Lane",
+    );
+    const scope = '{ "type":"doc", "content": [{"type":"paragraph","content":[{"type":"text","text":"Exact Scope bytes before closing"}]}] }';
+    const guidance = {
+      cameraAnglesTiptapJson: tiptapDocument(
+        "Capture north and east faces before the pour.",
+      ),
+      whatToVerifyTiptapJson: tiptapDocument(
+        "Verify excavation depth and form dimensions.",
+      ),
+    };
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "scope-closing-permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 128,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 50_000_000,
+                durationDays: 12,
+                fieldGuidance: guidance,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+                scopeOfWorkTiptapJson: scope,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    const before = await t.run(async (ctx: any) => {
+      const proposalSubmilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .unique();
+      const proposalMilestone = proposalSubmilestone
+        ? await ctx.db.get(proposalSubmilestone.proposalMilestoneId)
+        : null;
+      const proposalDraws = await ctx.db
+        .query("proposalDrawScheduleRows")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      const contract = proposalSubmilestone
+        ? await ctx.db
+            .query("submilestoneScopeContracts")
+            .withIndex("by_proposalSubmilestoneId", (query: any) =>
+              query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+            )
+            .unique()
+        : null;
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      const guidanceRow = proposalSubmilestone
+        ? await ctx.db
+            .query("submilestoneFieldGuidance")
+            .withIndex("by_proposalSubmilestoneId", (query: any) =>
+              query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+            )
+            .unique()
+        : null;
+      return {
+        contract,
+        guidance: guidanceRow,
+        proposalMilestone,
+        proposalDraws,
+        proposalSubmilestone,
+        revision,
+      };
+    });
+    expect(before.revision).toMatchObject({
+      scopeOfWorkTiptapJson: scope,
+      status: "draft",
+      version: 1,
+    });
+    expect(before.guidance).toMatchObject(guidance);
+
+    await t.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.patch(before.proposalSubmilestone.brokerageId, {
+        principalBrokerWorkosUserId: "user_admin",
+      });
+      await ctx.db.insert("users", {
+        authId: "user_admin",
+        createdAt: now,
+        email: "user_admin@example.com",
+        name: "Scope Closing Admin",
+        sourceEventId: "scope_closing_admin_user",
+        sourceEventType: "test.production_proposals",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_admin",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "principle-broker",
+        roleSlugs: ["principle-broker"],
+        sourceEventId: "scope_closing_admin_membership",
+        sourceEventType: "test.production_proposals",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "scope_closing_admin_membership",
+        workosOrganizationId: ORG,
+        workosUserId: "user_admin",
+      });
+    });
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Scope closing lineage is approved.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-08-20",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Close the approved Scope package.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const after = await t.run(async (ctx: any) => {
+      const contract = before.contract
+        ? await ctx.db.get(before.contract._id)
+        : null;
+      const revision = before.revision
+        ? await ctx.db.get(before.revision._id)
+        : null;
+      const guidanceRow = before.guidance
+        ? await ctx.db.get(before.guidance._id)
+        : null;
+      const buildSubmilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", before.proposalSubmilestone._id),
+        )
+        .unique();
+      const buildMilestone = buildSubmilestone
+        ? await ctx.db.get(buildSubmilestone.buildMilestoneId)
+        : null;
+      const plannedDraws = await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build", (query: any) => query.eq("buildId", closing.buildId))
+        .collect();
+      const evidenceAssets = await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (query: any) => query.eq("buildId", closing.buildId))
+        .collect();
+      return {
+        buildMilestone,
+        buildSubmilestone,
+        contract,
+        evidenceAssets,
+        guidance: guidanceRow,
+        plannedDraws,
+        revision,
+      };
+    });
+    expect(after.buildMilestone).toMatchObject({
+      budgetCents: 50_000_000,
+      dayEnd: before.proposalMilestone.dayEnd,
+      dayStart: before.proposalMilestone.dayStart,
+      durationDays: before.proposalMilestone.durationDays,
+      key: "foundation",
+      name: "Foundation",
+      planningState: "active",
+      status: "planned",
+    });
+    expect(after.buildSubmilestone).toMatchObject({
+      buildId: closing.buildId,
+      budgetCents: 50_000_000,
+      durationDays: 12,
+      key: "forms",
+      name: "Forms and pour",
+      order: 1,
+      proposalSubmilestoneId: before.proposalSubmilestone._id,
+      planningState: "active",
+      startDay: before.proposalSubmilestone.startDay,
+      status: "planned",
+    });
+    expect(after.buildSubmilestone).not.toHaveProperty(
+      "scopeOfWorkTiptapJson",
+    );
+    expect(after.buildSubmilestone).not.toHaveProperty("actualCostCents");
+    expect(after.buildSubmilestone).not.toHaveProperty("fieldNote");
+    expect(after.buildSubmilestone).not.toHaveProperty("progressPercent");
+    expect(after.buildSubmilestone).not.toHaveProperty(
+      "completionForecastDate",
+    );
+    expect(after.buildSubmilestone).not.toHaveProperty(
+      "evidencePackageRevisionId",
+    );
+    expect(after.buildSubmilestone).not.toHaveProperty("evidenceReviewState");
+    expect(after.buildSubmilestone).not.toHaveProperty("reviewDecisionState");
+    expect(after.buildSubmilestone).not.toHaveProperty("actualStartedAt");
+    expect(after.buildSubmilestone).not.toHaveProperty("completedAt");
+    expect(after.plannedDraws).toHaveLength(before.proposalDraws.length);
+    expect(after.plannedDraws).toEqual(
+      expect.arrayContaining(
+        before.proposalDraws.map((draw: any) =>
+          expect.objectContaining({
+            amountCents: draw.amountCents,
+            drawKey: draw.drawKey,
+            label: draw.label,
+            milestoneKey: draw.milestoneKey,
+            order: draw.order,
+            status: "planned",
+            timingDay: draw.timingDay,
+          }),
+        ),
+      ),
+    );
+    expect(after.evidenceAssets).toEqual([]);
+    expect(after.contract).toMatchObject({
+      _id: before.contract._id,
+      buildId: closing.buildId,
+      buildSubmilestoneId: after.buildSubmilestone._id,
+      effectiveRevisionId: before.revision._id,
+      latestVersion: 1,
+    });
+    expect(after.guidance).toMatchObject({
+      _id: before.guidance._id,
+      buildId: closing.buildId,
+      buildSubmilestoneId: after.buildSubmilestone._id,
+      ...guidance,
+    });
+    expect(after.revision).toMatchObject({
+      _id: before.revision._id,
+      scopeOfWorkTiptapJson: scope,
+      status: "published",
+      version: 1,
+    });
+  });
+
+  test("rejects legacy active-Build Scope writes in execution and planning inputs", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { budgetCents: 20_000_000, key: "forms", name: "Forms", order: 1 },
+      ],
+    });
+    const before = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals
+          .updateActiveBuildSubmilestoneExecution,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          scopeOfWorkTiptapJson: tiptapDocument(
+            "Legacy active execution Scope must be rejected.",
+          ),
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        } as any,
+      ),
+    ).rejects.toThrow(/scopeOfWorkTiptapJson|extra|validator/i);
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          submilestones: [
+            {
+              budgetCents: 20_000_000,
+              durationDays: 10,
+              key: "forms",
+              name: "Forms",
+              order: 1,
+              scopeOfWorkTiptapJson: tiptapDocument(
+                "Legacy active planning Scope must be rejected.",
+              ),
+            },
+          ],
+          workosOrganizationId: ORG,
+        } as any,
+      ),
+    ).rejects.toThrow(/scopeOfWorkTiptapJson|extra|validator/i);
+
+    const after = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+    expect(after).toEqual(before);
+  });
+
   test("materializes dedicated Scope and Field Guidance owners from a draft package", async () => {
     const { proposalId, t } = await directAdminProposalFixture(
       "Canonical authoring proposal",

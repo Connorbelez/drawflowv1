@@ -34,6 +34,47 @@ vi.mock("convex/react", () => ({
   },
 }));
 
+vi.mock("../submilestone-scope/ProposalSubmilestoneScopeController.tsx", () => ({
+  ProposalSubmilestoneScopeController: (
+    props: Record<string, unknown> & {
+      onDirtyChange?: (dirty: boolean) => void;
+    },
+  ) => (
+    <>
+      <output data-testid="canonical-scope-controller">
+        {JSON.stringify(props)}
+      </output>
+      <button
+        data-testid="canonical-scope-dirty"
+        onClick={() => props.onDirtyChange?.(true)}
+        type="button"
+      />
+    </>
+  ),
+}));
+
+vi.mock(
+  "../submilestone-guidance/ActiveBuildSubmilestoneGuidanceController.tsx",
+  () => ({
+    ActiveBuildSubmilestoneGuidanceController: (
+      props: Record<string, unknown> & {
+        onDirtyChange?: (dirty: boolean) => void;
+      },
+    ) => (
+      <>
+        <output data-testid="canonical-guidance-controller">
+          {JSON.stringify(props)}
+        </output>
+        <button
+          data-testid="canonical-guidance-dirty"
+          onClick={() => props.onDirtyChange?.(true)}
+          type="button"
+        />
+      </>
+    ),
+  }),
+);
+
 const buildId = "build-01" as Id<"activeBuilds">;
 const buildSubmilestoneId = "submilestone-01" as Id<"buildSubmilestones">;
 
@@ -146,6 +187,51 @@ afterEach(() => {
 });
 
 describe("CanonicalSubmilestoneTabPanel", () => {
+  test("mounts canonical Scope and Guidance from the Proposal lineage", () => {
+    const bootstrap = makeBootstrap({
+      proposalSubmilestoneId: "proposal-submilestone-1",
+      overview: {
+        ...(makeBootstrap().overview as Record<string, unknown>),
+        description: "Legacy roadmap description must not render.",
+        scopeOfWorkTiptapJson: "legacy-scope-json",
+      },
+      submilestone: {
+        ...(makeBootstrap().submilestone as Record<string, unknown>),
+        proposalSubmilestoneId: "proposal-submilestone-1",
+        scopeOfWorkTiptapJson: "legacy-submilestone-scope-json",
+      },
+    });
+
+    render(<CanonicalSubmilestoneTabPanel {...panelProps(bootstrap)} />);
+
+    expect(screen.getByTestId("canonical-scope-controller")).toBeTruthy();
+    expect(screen.getByTestId("canonical-guidance-controller")).toBeTruthy();
+    expect(screen.queryByText("Approved roadmap scope")).toBeNull();
+    expect(screen.getByText("Keep the trench dry.")).toBeTruthy();
+  });
+
+  test("routes Scope and Guidance dirty state to the active-Build host", () => {
+    const onDirtyChange = vi.fn();
+    const bootstrap = makeBootstrap({
+      proposalSubmilestoneId: "proposal-submilestone-1",
+    });
+
+    render(
+      <CanonicalSubmilestoneTabPanel
+        {...panelProps(bootstrap)}
+        onDirtyChange={onDirtyChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("canonical-scope-dirty"));
+    fireEvent.click(screen.getByTestId("canonical-guidance-dirty"));
+
+    expect(onDirtyChange.mock.calls).toEqual([
+      ["scope", true],
+      ["guidance", true],
+    ]);
+  });
+
   test("applies capability/read-only gating without exposing Draw controls", () => {
     const bootstrap = makeBootstrap({
       overview: {

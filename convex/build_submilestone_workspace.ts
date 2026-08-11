@@ -140,7 +140,6 @@ const bootstrapVisibleValidator = v.object({
     actualCostCents: v.optional(v.number()),
     actualStartedAt: v.optional(v.number()),
     budgetCents: v.optional(v.number()),
-    description: v.optional(v.string()),
     executionOwnership: v.object({
       contractorId: v.optional(v.id("contractorProfiles")),
       contractorName: v.optional(v.string()),
@@ -152,7 +151,6 @@ const bootstrapVisibleValidator = v.object({
     plannedDurationDays: v.optional(v.number()),
     plannedStartDay: v.optional(v.number()),
     progressPercent: v.number(),
-    scopeOfWorkTiptapJson: v.optional(v.string()),
     status: v.string(),
   }),
   people: v.object({
@@ -235,7 +233,7 @@ const bootstrapVisibleValidator = v.object({
     key: v.string(),
     name: v.string(),
     planningState: v.string(),
-    scopeOfWorkTiptapJson: v.optional(v.string()),
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
     status: v.string(),
     supersededAt: v.optional(v.number()),
   }),
@@ -698,7 +696,6 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
         actualCostCents: submilestone.actualCostCents,
         actualStartedAt: submilestone.actualStartedAt,
         budgetCents: submilestone.budgetCents,
-        description: undefined,
         executionOwnership: {
           ...(canReadPeopleIdentity && ownership.contractor?._id
             ? { contractorId: ownership.contractor._id }
@@ -716,9 +713,6 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
         plannedStartDay:
           submilestone.startDay ?? proposalSubmilestone?.startDay,
         progressPercent: submilestone.progressPercent ?? 0,
-        scopeOfWorkTiptapJson:
-          submilestone.scopeOfWorkTiptapJson ??
-          proposalSubmilestone?.scopeOfWorkTiptapJson,
         status: submilestone.status,
       },
       people: {
@@ -803,7 +797,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
         key: submilestone.key,
         name: submilestone.name,
         planningState: submilestone.planningState ?? "active",
-        scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
+        proposalSubmilestoneId: submilestone.proposalSubmilestoneId,
         status: submilestone.status,
         supersededAt: submilestone.supersededAt,
       },

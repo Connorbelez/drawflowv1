@@ -8,6 +8,7 @@ import {
   type TimelineScheduleDisplayMode,
   type WorksheetContractorActions,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import type { ScopeRevisionSurfaceRoute } from "../submilestone-scope/SubmilestoneScopeRevisionSurface.tsx";
 
 import {
@@ -29,6 +30,7 @@ export function ProductionProposalMilestoneWorksheet({
   scopeWorkosOrganizationId,
   showHeading = false,
   templateTitle,
+  viewerCapacity,
 }: {
   contractorActions?: WorksheetContractorActions;
   contractorPlanning?: ContractorPlanningModel | null;
@@ -42,6 +44,7 @@ export function ProductionProposalMilestoneWorksheet({
   scopeWorkosOrganizationId?: string;
   showHeading?: boolean;
   templateTitle: string;
+  viewerCapacity?: BuildCollaborationRole;
 }) {
   const contractorOptions = useMemo(
     () => contractorOptionsFromPlanning(contractorPlanning),
@@ -143,6 +146,7 @@ export function ProductionProposalMilestoneWorksheet({
       scopeWorkosOrganizationId={scopeWorkosOrganizationId}
       showHeading={showHeading}
       templateTitle={templateTitle}
+      viewerCapacity={viewerCapacity}
     />
   );
 }

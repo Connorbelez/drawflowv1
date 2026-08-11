@@ -102,6 +102,24 @@ function setHistoryForRoute(route: "backoffice-proposal" | "builder-proposal") {
   });
 }
 
+function setHistoryForActiveBuild(
+  viewerCapacity: "admin" | "builder" | "contractor" | "homeowner",
+) {
+  useQueryMock.mockImplementation((_query: unknown, args: unknown) => {
+    if (args === "skip") {
+      return undefined;
+    }
+    if (args && typeof args === "object" && "revisionId" in args) {
+      return {
+        _id: (args as { revisionId: string }).revisionId,
+        scopeOfWorkTiptapJson:
+          '{"type":"doc","content":[{"type":"paragraph"}]}',
+      };
+    }
+    return viewerCapacity === "admin" ? backofficeHistory : builderHistory;
+  });
+}
+
 describe("ProposalSubmilestoneScopeController", () => {
   test("selects only the backoffice history/content queries and exposes draft actions", async () => {
     setHistoryForRoute("backoffice-proposal");
@@ -110,6 +128,7 @@ describe("ProposalSubmilestoneScopeController", () => {
       <ProposalSubmilestoneScopeController
         proposalSubmilestoneId="proposal-submilestone-1"
         scopeRoute="backoffice-proposal"
+        viewerCapacity="admin"
         workosOrganizationId="org-1"
       />
     );
@@ -175,6 +194,26 @@ describe("ProposalSubmilestoneScopeController", () => {
     expect(props.onSaveDraft).toBeUndefined();
   });
 
+  test("fails closed for a Builder viewer mounted on the backoffice Proposal route", () => {
+    render(
+      <ProposalSubmilestoneScopeController
+        proposalSubmilestoneId="proposal-submilestone-1"
+        scopeRoute="backoffice-proposal"
+        viewerCapacity="builder"
+        workosOrganizationId="org-1"
+      />
+    );
+
+    expect(screen.queryByTestId("scope-surface-props")).toBeNull();
+    expect(useQueryMock.mock.calls).toHaveLength(3);
+    expect(
+      useQueryMock.mock.calls.every(([, args]) => args === "skip")
+    ).toBe(true);
+    expect(
+      useMutationMock.mock.calls.length
+    ).toBe(3);
+  });
+
   test("skips every query until the route has a canonical ID and organization", () => {
     render(
       <ProposalSubmilestoneScopeController
@@ -186,5 +225,128 @@ describe("ProposalSubmilestoneScopeController", () => {
       true
     );
     expect(screen.getByTestId("scope-surface-props")).toBeTruthy();
+  });
+
+  test("uses backoffice history and authoring on an active Build backoffice route", async () => {
+    setHistoryForActiveBuild("admin");
+    render(
+      <ProposalSubmilestoneScopeController
+        proposalSubmilestoneId="proposal-submilestone-1"
+        scopeRoute="active-build"
+        viewerCapacity="admin"
+        workosOrganizationId="org-1"
+      />,
+    );
+
+    await waitFor(() => expect(surfacePropsMock).toHaveBeenCalled());
+    expect(useQueryMock.mock.calls[0]?.[1]).toEqual({
+      proposalSubmilestoneId: "proposal-submilestone-1",
+      workosOrganizationId: "org-1",
+    });
+    expect(useQueryMock.mock.calls[1]?.[1]).toBe("skip");
+    expect(
+      (surfacePropsMock.mock.lastCall?.[0] as Record<string, any>).capabilities,
+    ).toEqual({
+      canEditDraft: true,
+      canLoadUnpublishedDraft: true,
+      canPublishDraft: true,
+      canStartDraft: true,
+    });
+  });
+
+  test("uses builder published-only history on an active Build builder route", async () => {
+    setHistoryForActiveBuild("builder");
+    render(
+      <ProposalSubmilestoneScopeController
+        proposalSubmilestoneId="proposal-submilestone-1"
+        scopeRoute="active-build"
+        viewerCapacity="builder"
+        workosOrganizationId="org-1"
+      />,
+    );
+
+    await waitFor(() => expect(surfacePropsMock).toHaveBeenCalled());
+    expect(useQueryMock.mock.calls[0]?.[1]).toBe("skip");
+    expect(useQueryMock.mock.calls[1]?.[1]).toEqual({
+      proposalSubmilestoneId: "proposal-submilestone-1",
+      workosOrganizationId: "org-1",
+    });
+    expect(
+      (surfacePropsMock.mock.lastCall?.[0] as Record<string, any>).capabilities,
+    ).toEqual({
+      canEditDraft: false,
+      canLoadUnpublishedDraft: false,
+      canPublishDraft: false,
+      canStartDraft: false,
+    });
+  });
+
+  test("does not expose Scope to active Build contractors or homeowners", () => {
+    for (const viewerCapacity of ["contractor", "homeowner"] as const) {
+      setHistoryForActiveBuild(viewerCapacity);
+      render(
+        <ProposalSubmilestoneScopeController
+          proposalSubmilestoneId="proposal-submilestone-1"
+          scopeRoute="active-build"
+          viewerCapacity={viewerCapacity}
+          workosOrganizationId="org-1"
+        />,
+      );
+      expect(screen.queryByTestId("scope-surface-props")).toBeNull();
+      expect(useQueryMock.mock.calls.at(-3)?.[1]).toBe("skip");
+      expect(useQueryMock.mock.calls.at(-2)?.[1]).toBe("skip");
+      expect(useQueryMock.mock.calls.at(-1)?.[1]).toBe("skip");
+      cleanup();
+      vi.clearAllMocks();
+    }
+  });
+
+  test("keeps Proposal route authority first for a dual-role admin viewer", async () => {
+    setHistoryForRoute("builder-proposal");
+    render(
+      <ProposalSubmilestoneScopeController
+        proposalSubmilestoneId="proposal-submilestone-1"
+        scopeRoute="builder-proposal"
+        viewerCapacity="admin"
+        workosOrganizationId="org-1"
+      />,
+    );
+
+    await waitFor(() => expect(surfacePropsMock).toHaveBeenCalled());
+    expect(useQueryMock.mock.calls[0]?.[1]).toBe("skip");
+    expect(useQueryMock.mock.calls[1]?.[1]).toEqual({
+      proposalSubmilestoneId: "proposal-submilestone-1",
+      workosOrganizationId: "org-1",
+    });
+    expect(
+      (surfacePropsMock.mock.lastCall?.[0] as Record<string, any>).capabilities,
+    ).toEqual({
+      canEditDraft: false,
+      canLoadUnpublishedDraft: false,
+      canPublishDraft: false,
+      canStartDraft: false,
+    });
+  });
+
+  test("honors a read-only active Build backoffice surface", async () => {
+    setHistoryForActiveBuild("admin");
+    render(
+      <ProposalSubmilestoneScopeController
+        proposalSubmilestoneId="proposal-submilestone-1"
+        readOnly
+        scopeRoute="active-build"
+        viewerCapacity="admin"
+        workosOrganizationId="org-1"
+      />,
+    );
+    await waitFor(() => expect(surfacePropsMock).toHaveBeenCalled());
+    expect(
+      (surfacePropsMock.mock.lastCall?.[0] as Record<string, any>).capabilities,
+    ).toEqual({
+      canEditDraft: false,
+      canLoadUnpublishedDraft: false,
+      canPublishDraft: false,
+      canStartDraft: false,
+    });
   });
 });

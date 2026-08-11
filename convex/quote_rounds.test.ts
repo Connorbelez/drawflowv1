@@ -3100,6 +3100,160 @@ describe("Quote Round draft-to-open aggregate", () => {
     ).rejects.toThrow(/immutable/);
   });
 
+  test("does not expose an execution note as Quote Scope when a closed Build row has no legacy Scope", async () => {
+    const fixture = await seedQuoteFixture();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.submilestoneId, {
+        fieldNote: "Execution-only note: verify the west elevation.",
+        scopeOfWorkTiptapJson: undefined,
+      });
+    });
+
+    const composer = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRoundComposer,
+      { buildId: fixture.buildId, workosOrganizationId: ORGANIZATION_ID }
+    );
+
+    expect(
+      composer?.labourSubmilestones.some(
+        (submilestone: { _id: Id<"buildSubmilestones"> }) =>
+          submilestone._id === fixture.submilestoneId
+      )
+    ).toBe(false);
+    expect(JSON.stringify(composer)).not.toContain(
+      "Execution-only note: verify the west elevation."
+    );
+  });
+
+  test("uses the effective canonical Scope revision before pre-cutover Build bytes", async () => {
+    const fixture = await seedQuoteFixture();
+    await fixture.base.run(async (ctx) => {
+      const buildSubmilestone = await ctx.db.get(fixture.submilestoneId);
+      if (!buildSubmilestone) {
+        throw new Error("Fixture Sub-milestone is unavailable.");
+      }
+      const build = await ctx.db.get(buildSubmilestone.buildId);
+      if (!build) {
+        throw new Error("Fixture Build is unavailable.");
+      }
+      const contractId = await ctx.db.insert("submilestoneScopeContracts", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildSubmilestoneId: buildSubmilestone._id,
+        createdAt: build.createdAt,
+        latestVersion: 1,
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
+        updatedAt: build.updatedAt,
+      });
+      const revisionId = await ctx.db.insert("submilestoneScopeRevisions", {
+        authoredByWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        createdAt: build.createdAt,
+        contractId,
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
+        savedAt: build.updatedAt,
+        scopeOfWorkTiptapJson: tiptap("Effective canonical Scope."),
+        status: "published",
+        version: 1,
+        publishedAt: build.updatedAt,
+        publishedByWorkosUserId: "user_admin",
+      });
+      await ctx.db.patch(contractId, { effectiveRevisionId: revisionId });
+    });
+
+    const composer = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRoundComposer,
+      { buildId: fixture.buildId, workosOrganizationId: ORGANIZATION_ID }
+    );
+    expect(composer?.labourSubmilestones[0]?.scopeOfWorkTiptapJson).toBe(
+      tiptap("Effective canonical Scope.")
+    );
+  });
+
+  test("omits corrupt canonical Scope rows from the composer but rejects them at publication", async () => {
+    const fixture = await seedQuoteFixture();
+    await fixture.base.run(async (ctx) => {
+      const buildSubmilestone = await ctx.db.get(fixture.submilestoneId);
+      if (!buildSubmilestone) {
+        throw new Error("Fixture Sub-milestone is unavailable.");
+      }
+      const proposalSubmilestone = await ctx.db.get(
+        buildSubmilestone.proposalSubmilestoneId
+      );
+      const build = await ctx.db.get(buildSubmilestone.buildId);
+      if (!proposalSubmilestone || !build) {
+        throw new Error("Fixture Scope lineage is unavailable.");
+      }
+      const {
+        _creationTime: _proposalCreationTime,
+        _id: _proposalSubmilestoneId,
+        ...siblingSource
+      } = proposalSubmilestone;
+      const siblingProposalSubmilestoneId = await ctx.db.insert(
+        "proposalSubmilestones",
+        {
+          ...siblingSource,
+          key: "wrong-scope-lineage",
+          name: "Wrong Scope lineage",
+        }
+      );
+      const contractId = await ctx.db.insert("submilestoneScopeContracts", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildSubmilestoneId: buildSubmilestone._id,
+        createdAt: build.createdAt,
+        latestVersion: 1,
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
+        updatedAt: build.updatedAt,
+      });
+      const revisionId = await ctx.db.insert("submilestoneScopeRevisions", {
+        authoredByWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        createdAt: build.createdAt,
+        contractId,
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        proposalSubmilestoneId: siblingProposalSubmilestoneId,
+        savedAt: build.updatedAt,
+        scopeOfWorkTiptapJson: tiptap("Corrupt Scope lineage."),
+        status: "published",
+        version: 1,
+        publishedAt: build.updatedAt,
+        publishedByWorkosUserId: "user_admin",
+      });
+      await ctx.db.patch(contractId, { effectiveRevisionId: revisionId });
+    });
+
+    const composer = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRoundComposer,
+      { buildId: fixture.buildId, workosOrganizationId: ORGANIZATION_ID }
+    );
+    expect(
+      composer?.labourSubmilestones.some(
+        (submilestone: { _id: Id<"buildSubmilestones"> }) =>
+          submilestone._id === fixture.submilestoneId
+      )
+    ).toBe(false);
+    expect(JSON.stringify(composer)).not.toContain("Corrupt Scope lineage.");
+
+    const created = await configureRound(fixture, "labour");
+    await expect(
+      fixture.builder.mutation((api as any).quote_rounds.publishQuoteRoundDraft, {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        idempotencyKey: "corrupt-scope-lineage-publish-001",
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).rejects.toThrow(/Effective Scope revision is unavailable/);
+  });
+
   test("provisions one brokerage-scoped cold recipient and attaches the complete mode capability", async () => {
     const fixture = await seedQuoteFixture();
     const draft = await fixture.builder.mutation(

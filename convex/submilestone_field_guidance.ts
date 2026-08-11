@@ -7,6 +7,10 @@ import {
   backofficeRoleSlugs,
 } from "./authz";
 import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
+import {
+  attachExactBuildLineage,
+  type ExactBuildLineageAttachmentInput,
+} from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 /**
@@ -212,6 +216,26 @@ async function findFieldGuidance(
       query.eq("proposalSubmilestoneId", proposalSubmilestoneId)
     )
     .unique();
+}
+
+type AttachGuidanceBuildLineageInput = ExactBuildLineageAttachmentInput;
+
+const GUIDANCE_BUILD_LINEAGE_CONFLICT =
+  "Field Guidance Build lineage is unavailable or conflicting.";
+
+/**
+ * Attach an existing mutable Guidance owner to the exact active-Build
+ * Sub-milestone.  This only patches missing ownership references; Guidance
+ * content, timestamps, and its mutable update actor remain untouched.
+ */
+export async function attachSubmilestoneFieldGuidanceBuildLineage(
+  ctx: MutationCtx,
+  input: AttachGuidanceBuildLineageInput
+) {
+  return await attachExactBuildLineage(ctx, input, {
+    conflictMessage: GUIDANCE_BUILD_LINEAGE_CONFLICT,
+    findOwner: findFieldGuidance,
+  });
 }
 
 async function hasActiveBuilderLink(
@@ -536,6 +560,12 @@ export const saveSubmilestoneFieldGuidance = backofficeMutation
         updatedByWorkosUserId: ctx.viewer.subject,
         updatedAt: now,
       });
+      await attachSubmilestoneFieldGuidanceBuildLineage(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        proposalSubmilestoneId: proposalSubmilestone._id,
+      });
       return null;
     }
 
@@ -552,6 +582,12 @@ export const saveSubmilestoneFieldGuidance = backofficeMutation
       updatedByWorkosUserId: ctx.viewer.subject,
       createdAt: now,
       updatedAt: now,
+    });
+    await attachSubmilestoneFieldGuidanceBuildLineage(ctx, {
+      brokerageId: proposal.brokerageId,
+      organizationId: proposal.organizationId,
+      proposalId: proposal._id,
+      proposalSubmilestoneId: proposalSubmilestone._id,
     });
     return null;
   })

@@ -111,6 +111,7 @@ import {
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
 import type { ActiveBuildTimelineWorkspaceProps } from "./ActiveBuildTimelineWorkspace";
+import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
   BUILD_DETAIL_TABS,
   type BuildDetailSubTab,
@@ -565,6 +566,7 @@ interface ProductionSubmilestone {
   completedByWorkosUserId?: string;
   durationDays?: number;
   fieldNote?: string;
+  proposalSubmilestoneId?: string;
   key: string;
   milestoneKey: string;
   name: string;
@@ -856,6 +858,7 @@ export function ProductionBuildDetailSurface({
   prototypeMilestoneStartTrigger = false,
   quotes,
   rail,
+  readOnly = false,
   staff,
   timelineWorkspace,
   visibleTabs,
@@ -887,16 +890,11 @@ export function ProductionBuildDetailSurface({
   prototypeMilestoneStartTrigger?: boolean;
   quotes?: React.ReactNode;
   rail?: "open" | "closed";
+  readOnly?: boolean;
   staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   visibleTabs?: BuildDetailSubTab[];
-  viewerCapacity?:
-    | "admin"
-    | "broker"
-    | "broker-staff"
-    | "builder"
-    | "builder-staff"
-    | "principle-broker";
+  viewerCapacity?: BuildCollaborationRole;
   viewerRole?: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -1429,6 +1427,9 @@ export function ProductionBuildDetailSurface({
             )?.key
           }
           key={activeMilestoneKey ?? "milestone-sheet"}
+          readOnly={readOnly}
+          viewerCapacity={viewerCapacity}
+          workosOrganizationId={workosOrganizationId}
           onAmendStart={
             actions?.correctMilestoneStart || actions?.retractMilestoneStart
               ? (action, milestoneKey, submilestoneKey) =>
@@ -1835,13 +1836,7 @@ function ProductionDetailsTab({
   onFocusReference: (focus?: string) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
-  viewerCapacity?:
-    | "admin"
-    | "broker"
-    | "broker-staff"
-    | "builder"
-    | "builder-staff"
-    | "principle-broker";
+  viewerCapacity?: BuildCollaborationRole;
   viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -7115,19 +7110,18 @@ function buildMilestoneSheetData(
             : distributedBudgetCents,
         completedAt: submilestone.completedAt,
         completedByWorkosUserId: submilestone.completedByWorkosUserId,
-        description:
-          materials.find((item) => item.description)?.description ??
-          `Complete and document the ${submilestone.name.toLowerCase()} scope against the approved construction roadmap.`,
         endDate: addDaysSafe(
           detail.build.startDate,
           startDay + durationDays - 1,
         ),
         evidence,
         fieldNote: submilestone.fieldNote,
+        buildSubmilestoneId: submilestone._id,
         key: submilestone.key,
         materials,
         name: submilestone.name,
         order: submilestone.order,
+        proposalSubmilestoneId: submilestone.proposalSubmilestoneId,
         siteVisits,
         startDate: addDaysSafe(detail.build.startDate, startDay),
         status: submilestone.status,
