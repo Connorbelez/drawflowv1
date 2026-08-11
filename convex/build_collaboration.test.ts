@@ -5015,6 +5015,12 @@ describe("Build collaboration canonical reference authorization", () => {
 
   test("stores and projects generated companion notifications as canonical Sub-milestones", async () => {
     const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Build Homeowner",
+      role: "homeowner",
+      subject: "user_homeowner",
+    });
     const entities = await seedCollaborationReferenceEntities(fixture);
     const unavailableSubmilestoneId = await fixture.base.run(async (ctx) => {
       const source = await ctx.db.get(entities.submilestoneId);
