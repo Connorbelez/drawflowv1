@@ -103,7 +103,6 @@ import type {
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import type { BuildDetailTarget } from "#/features/build-detail-targets/buildDetailTarget.ts";
 import type { BuildSubmilestoneDetailTab } from "#/features/build-detail-targets/buildDetailTab.ts";
-import type { SubmilestoneFieldGuidance } from "#/features/submilestone-guidance/SubmilestoneFieldGuidanceEditor.tsx";
 import type { BuildDetailTargetContext } from "#/features/build-detail-targets/useBuildDetailTargetController.ts";
 import {
   BuildDetailIntegritySheet,
@@ -120,7 +119,6 @@ import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ActiveBuildTimelineWorkspaceProps } from "./ActiveBuildTimelineWorkspace";
-import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
   BUILD_DETAIL_TABS,
   type BuildDetailSubTab,
@@ -172,7 +170,6 @@ import {
   type SiteVisitOrderConfirmation,
   SiteVisitOrderDialog,
   type SiteVisitOrderRequest,
-  type SiteVisitSubmilestoneGuidanceSection,
 } from "./SiteVisitOrderDialog.tsx";
 
 type ProductionBuildStatus = "active" | "paused" | "completed" | string;
@@ -211,7 +208,6 @@ export interface ProductionBuildDetailActions {
     note?: string;
     requestedTime?: string;
     siteVisitGuidance?: SiteVisitGuidance;
-    submilestoneGuidanceSections?: SiteVisitSubmilestoneGuidanceSection[];
     submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   attachAndInviteContractor?: (input: {
@@ -391,7 +387,6 @@ export interface ProductionBuildDetailActions {
     requestedDay: number;
     requestedTime?: string;
     siteVisitGuidance?: SiteVisitGuidance;
-    submilestoneGuidanceSections?: SiteVisitSubmilestoneGuidanceSection[];
     submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   setAdminDecisionTargetDate?: (input: {
@@ -577,13 +572,11 @@ interface ProductionSubmilestone {
   completedAt?: number;
   completedByWorkosUserId?: string;
   durationDays?: number;
-  fieldGuidance?: Partial<SubmilestoneFieldGuidance> | null;
   fieldNote?: string;
   key: string;
   milestoneKey: string;
   name: string;
   order: number;
-  proposalSubmilestoneId?: string;
   startDay?: number;
   startEventId?: string;
   startedByWorkosUserId?: string;
@@ -880,7 +873,6 @@ export function ProductionBuildDetailSurface({
   prototypeMilestoneStartTrigger = false,
   quotes,
   rail,
-  readOnly = false,
   staff,
   timelineWorkspace,
   visibleTabs,
@@ -917,11 +909,16 @@ export function ProductionBuildDetailSurface({
   prototypeMilestoneStartTrigger?: boolean;
   quotes?: React.ReactNode;
   rail?: "open" | "closed";
-  readOnly?: boolean;
   staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   visibleTabs?: BuildDetailSubTab[];
-  viewerCapacity?: BuildCollaborationRole;
+  viewerCapacity?:
+    | "admin"
+    | "broker"
+    | "broker-staff"
+    | "builder"
+    | "builder-staff"
+    | "principle-broker";
   viewerRole?: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -1247,7 +1244,6 @@ export function ProductionBuildDetailSurface({
         requestedDay: input.requestedDay,
         ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
         siteVisitGuidance: input.siteVisitGuidance,
-        submilestoneGuidanceSections: input.submilestoneGuidanceSections,
         submilestoneKeys: input.submilestoneKeys,
       });
     }
@@ -1256,7 +1252,6 @@ export function ProductionBuildDetailSurface({
       ...(input.note ? { note: input.note } : {}),
       ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
       siteVisitGuidance: input.siteVisitGuidance,
-      submilestoneGuidanceSections: input.submilestoneGuidanceSections,
       submilestoneKeys: input.submilestoneKeys,
     });
   };
@@ -1533,223 +1528,87 @@ export function ProductionBuildDetailSurface({
           viewerCapacity={viewerCapacity}
         />
       ) : null}
-      {viewerRole === "lender" && activeMilestone ? (
-        <MilestoneCompletionReviewSheet
-          actions={actions}
-          detail={detail}
-          focusedSubmilestoneId={focusedSubmilestoneId}
-          milestone={activeMilestone}
-          onOpenCanonicalTarget={onOpenCanonicalTarget}
-          onAmendStart={
-            actions?.correctMilestoneStart || actions?.retractMilestoneStart
-              ? (action) =>
-                  openMilestoneStart(
-                    activeMilestone.key,
-                    "milestone_detail",
-                    undefined,
-                    action,
-                  )
-              : undefined
-          }
-          onOpenChange={(open) => {
-            if (!open) {
-              setActiveMilestoneKey(null);
-            }
-          }}
-          onRequestSiteVisit={requestSiteVisit}
-          open
-          projection={projection}
-        />
-      ) : (
-        <MilestoneDetailSheet
-          assignmentsSourceLabel="buildContractorAssignments"
-          data={sheetData}
-          eventsSourceLabel="activeBuildAuditEvents"
-          focusedSubmilestoneId={focusedSubmilestoneId}
-          focusedSubmilestoneKey={
-            detail.submilestones.find(
-              (submilestone) => submilestone._id === focusedSubmilestoneId,
-            )?.key
-          }
-          key={activeMilestoneKey ?? "milestone-sheet"}
-          onOpenCanonicalTarget={onOpenCanonicalTarget}
-          onAmendStart={
-            actions?.correctMilestoneStart || actions?.retractMilestoneStart
-              ? (action, milestoneKey, submilestoneKey) =>
-                  openMilestoneStart(
-                    milestoneKey,
-                    submilestoneKey
-                      ? "submilestone_detail"
-                      : "milestone_detail",
-                    submilestoneKey,
-                    action,
-                  )
-              : undefined
-          }
-          onAssignContractor={
-            actions?.assignContractorToMilestone ||
-            actions?.createAndAssignContractor
-              ? (milestoneKey, submilestoneKey) =>
-                  setAssignContractorTarget({
-                    milestoneKey,
-                    ...(submilestoneKey
-                      ? { submilestoneKeys: [submilestoneKey] }
-                      : {}),
-                  })
-              : undefined
-          }
-          onClose={() => setActiveMilestoneKey(null)}
-          onStartSubmilestone={
-            actions?.startMilestoneWork
-              ? (milestoneKey, submilestoneKey, source) =>
-                  openMilestoneStart(milestoneKey, source, submilestoneKey)
-              : undefined
-          }
-          onStartWork={
-            actions?.startMilestoneWork
-              ? (milestoneKey) =>
-                  openMilestoneStart(milestoneKey, "milestone_detail")
-              : undefined
-          }
-          onSubmitCompletion={
-            actions?.submitMilestoneCompletion
-              ? (input) => {
-                  if (activeMilestone?.actualStartedAt) {
-                    return actions.submitMilestoneCompletion?.(input);
-                  }
-                  const request = openMilestoneStart(
-                    input.milestoneKey,
-                    "completion_catch_up",
-                  );
-                  if (!request) {
-                    throw new Error("Milestone start target is unavailable.");
-                  }
-                  return confirmStartAndCompletion(request, (confirmation) => {
-                    if (confirmation.actualStartedAt === undefined) {
-                      throw new Error("An actual start is required.");
-                    }
-                    return actions.submitMilestoneCompletion?.({
-                      ...input,
-                      actualStartedAt: confirmation.actualStartedAt,
-                      dependencyOverrideReason:
-                        confirmation.dependencyOverrideReason,
-                      idempotencyKey: confirmation.idempotencyKey,
-                    });
-                  });
+      <MilestoneDetailSheet
+        assignmentsSourceLabel="buildContractorAssignments"
+        data={sheetData}
+        eventsSourceLabel="activeBuildAuditEvents"
+        focusedSubmilestoneId={focusedSubmilestoneId}
+        focusedSubmilestoneKey={
+          detail.submilestones.find(
+            (submilestone) => submilestone._id === focusedSubmilestoneId,
+          )?.key
+        }
+        key={activeMilestoneKey ?? "milestone-sheet"}
+        onAmendStart={
+          actions?.correctMilestoneStart || actions?.retractMilestoneStart
+            ? (action, milestoneKey) =>
+                openMilestoneStart(
+                  milestoneKey,
+                  "milestone_detail",
+                  undefined,
+                  action,
+                )
+            : undefined
+        }
+        onApprove={
+          viewerRole === "lender" && actions?.approveMilestone
+            ? (milestoneKey, note) =>
+                actions.approveMilestone?.({ milestoneKey, note })
+            : undefined
+        }
+        onAssignVisit={
+          viewerRole === "lender" &&
+          (actions?.assignSiteVisit || actions?.scheduleSiteVisit)
+            ? (milestoneKey) => requestSiteVisit({ milestoneKey })
+            : undefined
+        }
+        onClose={() => setActiveMilestoneKey(null)}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        onReject={
+          viewerRole === "lender" && actions?.rejectMilestone
+            ? (milestoneKey) => actions.rejectMilestone?.({ milestoneKey })
+            : undefined
+        }
+        onRequestInfo={
+          viewerRole === "lender" && actions?.requestMilestoneInfo
+            ? (milestoneKey, note) =>
+                actions.requestMilestoneInfo?.({ milestoneKey, note })
+            : undefined
+        }
+        onStartWork={
+          actions?.startMilestoneWork
+            ? (milestoneKey) => openMilestoneStart(milestoneKey, "milestone_detail")
+            : undefined
+        }
+        onSubmitCompletion={
+          actions?.submitMilestoneCompletion
+            ? (input) => {
+                if (activeMilestone?.actualStartedAt) {
+                  return actions.submitMilestoneCompletion?.(input);
                 }
-              : undefined
-          }
-          onUpdateSubmilestone={
-            actions?.updateSubmilestoneExecution
-              ? async (input) => {
-                  const target = detail.submilestones.find(
-                    (candidate) =>
-                      candidate.milestoneKey === input.milestoneKey &&
-                      candidate.key === input.submilestoneKey,
-                  );
-                  if (!target) {
-                    throw new Error(
-                      "Submilestone execution target is unavailable.",
-                    );
-                  }
-                  if (
-                    target.status === "complete" &&
-                    input.status === undefined
-                  ) {
-                    throw new Error(
-                      "Reopen this Sub-milestone before changing its execution details.",
-                    );
-                  }
-                  if (
-                    target.status === "planned" &&
-                    input.status !== "complete"
-                  ) {
-                    if (!actions.startMilestoneWork) {
-                      throw new Error(
-                        "Start this Sub-milestone before recording execution details.",
-                      );
-                    }
-                    const request = openMilestoneStart(
-                      input.milestoneKey,
-                      "submilestone_detail",
-                      input.submilestoneKey,
-                    );
-                    if (!request) {
-                      throw new Error(
-                        "Submilestone start target is unavailable.",
-                      );
-                    }
-                    return confirmStartAndCompletion(
-                      request,
-                      async (confirmation) => {
-                        if (
-                          confirmation.actualStartedAt === undefined ||
-                          confirmation.expectedRevision === undefined
-                        ) {
-                          throw new Error("An actual start is required.");
-                        }
-                        const startResult = await actions.startMilestoneWork?.({
-                          actualStartedAt: confirmation.actualStartedAt,
-                          dependencyOverrideReason:
-                            confirmation.dependencyOverrideReason,
-                          expectedRevision: confirmation.expectedRevision,
-                          idempotencyKey: confirmation.idempotencyKey,
-                          milestoneKey: confirmation.milestoneKey,
-                          source: confirmation.source,
-                          startParent: confirmation.startParent,
-                          submilestoneKey: confirmation.submilestoneKey,
-                        });
-                        const revision = commandResultRevision(startResult);
-                        if (revision === undefined) {
-                          throw new Error(
-                            "Refresh this Build detail before recording execution; the committed start revision is unavailable.",
-                          );
-                        }
-                        return await actions.updateSubmilestoneExecution?.({
-                          ...input,
-                          actualStartedAt: confirmation.actualStartedAt,
-                          dependencyOverrideReason:
-                            confirmation.dependencyOverrideReason,
-                          expectedRevision: revision,
-                          idempotencyKey: `${confirmation.idempotencyKey}:execution`,
-                        });
-                      },
-                    );
-                  }
-                  if (input.status !== "complete" || target.actualStartedAt) {
-                    return await actions.updateSubmilestoneExecution?.(input);
-                  }
-                  const request = openMilestoneStart(
-                    input.milestoneKey,
-                    "completion_catch_up",
-                    input.submilestoneKey,
-                  );
-                  if (!request) {
-                    throw new Error(
-                      "Submilestone start target is unavailable.",
-                    );
-                  }
-                  return confirmStartAndCompletion(request, (confirmation) => {
-                    if (confirmation.actualStartedAt === undefined) {
-                      throw new Error("An actual start is required.");
-                    }
-                    return actions.updateSubmilestoneExecution?.({
-                      ...input,
-                      actualStartedAt: confirmation.actualStartedAt,
-                      dependencyOverrideReason:
-                        confirmation.dependencyOverrideReason,
-                      idempotencyKey: confirmation.idempotencyKey,
-                    });
-                  });
+                const request = openMilestoneStart(
+                  input.milestoneKey,
+                  "completion_catch_up",
+                );
+                if (!request) {
+                  throw new Error("Milestone start target is unavailable.");
                 }
-              : undefined
-          }
-          onUploadEvidence={actions?.uploadSubmilestoneEvidence}
-          readOnly={readOnly}
-          viewerCapacity={viewerCapacity}
-          workosOrganizationId={workosOrganizationId}
-        />
-      )}
+                return confirmStartAndCompletion(request, (confirmation) => {
+                  if (confirmation.actualStartedAt === undefined) {
+                    throw new Error("An actual start is required.");
+                  }
+                  return actions.submitMilestoneCompletion?.({
+                    ...input,
+                    actualStartedAt: confirmation.actualStartedAt,
+                    dependencyOverrideReason:
+                      confirmation.dependencyOverrideReason,
+                    idempotencyKey: confirmation.idempotencyKey,
+                  });
+                });
+              }
+            : undefined
+        }
+      />
       {milestoneStartRequest ? (
         <MilestoneStartDialog
           onClose={() => {
@@ -1997,7 +1856,13 @@ function ProductionDetailsTab({
   ) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
-  viewerCapacity?: BuildCollaborationRole;
+  viewerCapacity?:
+    | "admin"
+    | "broker"
+    | "broker-staff"
+    | "builder"
+    | "builder-staff"
+    | "principle-broker";
   viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -3562,769 +3427,6 @@ function OverviewMetric({
       </p>
     </div>
   );
-}
-
-function MilestoneCompletionReviewSheet({
-  actions,
-  detail,
-  focusedSubmilestoneId,
-  milestone,
-  onAmendStart,
-  onOpenCanonicalTarget,
-  onOpenChange,
-  onRequestSiteVisit,
-  open,
-  projection,
-}: {
-  actions?: ProductionBuildDetailActions;
-  detail: ProductionBuildDetail;
-  focusedSubmilestoneId?: string;
-  milestone: ProductionMilestone;
-  onAmendStart?: (action: "correct" | "retract") => void;
-  onOpenCanonicalTarget?: (
-    target: BuildDetailTarget,
-    context?: BuildDetailTargetContext,
-  ) => void;
-  onOpenChange: (open: boolean) => void;
-  onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
-  open: boolean;
-  projection: ProductionBuildProjection;
-}) {
-  const [note, setNote] = useState("");
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [actionSuccess, setActionSuccess] = useState("");
-  const [locallyCancelledVisitIds, setLocallyCancelledVisitIds] = useState<
-    Set<string>
-  >(() => new Set());
-  const builderRows = useMemo(
-    () =>
-      buildBuilderEvidenceRows(detail, projection).filter(
-        (row) => row.milestoneKey === milestone.key,
-      ),
-    [detail, milestone.key, projection],
-  );
-  const siteVisitRows = useMemo(
-    () =>
-      buildCompletedSiteVisitRows(detail, projection).filter(
-        (row) => row.milestoneKey === milestone.key,
-      ),
-    [detail, milestone.key, projection],
-  );
-  const siteVisits = useMemo(
-    () =>
-      siteVisitsForMilestone(detail, milestone).filter(
-        (visit) => !locallyCancelledVisitIds.has(siteVisitIdentity(visit)),
-      ),
-    [detail, locallyCancelledVisitIds, milestone],
-  );
-  const latestVisit = siteVisits[0] ?? null;
-  const scopeRows = useMemo(
-    () =>
-      detail.submilestones
-        .filter((row) => row.milestoneKey === milestone.key)
-        .sort((a, b) => a.order - b.order),
-    [detail.submilestones, milestone.key],
-  );
-  const contractorRows = useMemo(
-    () => contractorAssignmentsForMilestone(detail, milestone.key),
-    [detail, milestone.key],
-  );
-  const materialRows = useMemo(
-    () =>
-      (detail.costItems ?? []).filter(
-        (item) => item.milestoneKey === milestone.key,
-      ),
-    [detail.costItems, milestone.key],
-  );
-  const completedScopeCount = scopeRows.filter(
-    (row) => row.status === "complete",
-  ).length;
-  const milestoneApproved = isMilestoneApprovedForDrawAvailability(milestone);
-  const builderEvidenceAccepted =
-    builderRows.length > 0 &&
-    builderRows.every((row) => evidenceStatusIsAccepted(row.status));
-  const approvalExceptions = [
-    ...(scopeRows.length > 0 && completedScopeCount < scopeRows.length
-      ? [
-          `${completedScopeCount}/${scopeRows.length} scope items are marked complete.`,
-        ]
-      : []),
-    ...(builderRows.length === 0
-      ? ["No builder evidence package is attached."]
-      : []),
-    ...(builderRows.some((row) => row.locationState === "unverified")
-      ? ["Builder evidence location is unverified."]
-      : []),
-    ...(latestVisit &&
-    latestVisit.status !== "complete" &&
-    latestVisit.status !== "cancelled"
-      ? [
-          siteVisitTokenStateLabel(latestVisit) === "Expired"
-            ? "The site visit token expired before a report was completed."
-            : "The ordered site visit does not have a completed report.",
-        ]
-      : []),
-  ];
-  const decisionNote = note.trim();
-  const approvalNoteRequired = approvalExceptions.length > 0;
-  const claimSubmittedAt = stringFromRecord(
-    milestone.completionClaim,
-    "submittedAt",
-  );
-  const completedDay = numberFromRecord(
-    milestone.completionClaim,
-    "completedDay",
-  );
-  const completionDate =
-    completedDay === undefined
-      ? undefined
-      : addDaysSafe(detail.build.startDate, completedDay);
-  const claimNote = stringFromRecord(milestone.completionClaim, "note");
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    setNote("");
-    setPendingAction(null);
-    setError("");
-    setActionSuccess("");
-  }, [milestone.key, open]);
-
-  useEffect(() => {
-    setLocallyCancelledVisitIds(new Set());
-  }, [milestone.key]);
-
-  async function runReviewAction(
-    actionKey: string,
-    fallbackError: string,
-    action: () => Promise<unknown> | unknown,
-  ) {
-    if (pendingAction) {
-      return false;
-    }
-    setPendingAction(actionKey);
-    setError("");
-    setActionSuccess("");
-    try {
-      await action();
-      setActionSuccess(
-        actionKey === "approve-completion"
-          ? "Milestone completion approved. Close this review to return to the updated board."
-          : actionKey === "approve-evidence"
-            ? "Builder evidence approved."
-            : actionKey === "request-info"
-              ? "More information requested from the builder."
-              : "",
-      );
-      return true;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : fallbackError);
-      return false;
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  const approveCompletion = () => {
-    if (approvalNoteRequired && !decisionNote) {
-      setError("A decision rationale is required to approve with exceptions.");
-      return Promise.resolve(false);
-    }
-    return runReviewAction(
-      "approve-completion",
-      "Unable to approve milestone completion.",
-      () =>
-        actions?.approveMilestone?.({
-          milestoneKey: milestone.key,
-          note: decisionNote || "Approved from milestone completion review.",
-        }),
-    );
-  };
-  const requestInfo = () => {
-    if (!decisionNote) {
-      setError("Describe what the builder must clarify.");
-      return Promise.resolve(false);
-    }
-    return runReviewAction(
-      "request-info",
-      "Unable to request more information.",
-      () =>
-        actions?.requestMilestoneInfo
-          ? actions.requestMilestoneInfo({
-              milestoneKey: milestone.key,
-              note: decisionNote,
-            })
-          : actions?.reviewEvidence?.({
-              accepted: false,
-              milestoneKey: milestone.key,
-              note: decisionNote,
-            }),
-    );
-  };
-  const approveBuilderEvidence = () =>
-    runReviewAction(
-      "approve-evidence",
-      "Unable to approve builder evidence.",
-      () =>
-        actions?.reviewEvidence?.({
-          accepted: true,
-          milestoneKey: milestone.key,
-          note:
-            note.trim() ||
-            "Builder evidence approved from milestone completion review.",
-        }),
-    );
-  const regenerateSiteVisitToken = () =>
-    runReviewAction(
-      "regenerate-site-visit-token",
-      "Unable to regenerate site visit token.",
-      () => actions?.assignSiteVisit?.({ milestoneKey: milestone.key }),
-    );
-  const cancelSiteVisit = async (visit: ProductionSiteVisit) => {
-    const cancelled = await runReviewAction(
-      "cancel-site-visit",
-      "Unable to cancel site visit.",
-      () =>
-        actions?.cancelSiteVisit?.({
-          reason: note.trim() || "Cancelled from milestone completion review.",
-          visitId: visit.visitId,
-        }),
-    );
-    if (cancelled) {
-      setLocallyCancelledVisitIds((current) => {
-        const next = new Set(current);
-        next.add(siteVisitIdentity(visit));
-        return next;
-      });
-    }
-  };
-
-  return (
-    <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetPopup className="sm:max-w-4xl" side="right" variant="inset">
-        <SheetHeader>
-          <SheetTitle>Review milestone completion</SheetTitle>
-          <SheetDescription>
-            Reconcile the builder claim, assigned scope, evidence, and field
-            verification before releasing {milestone.name} funding.
-          </SheetDescription>
-        </SheetHeader>
-
-        <SheetPanel className="flex flex-col gap-4">
-          <Card
-            className="rounded-xl shadow-none"
-            data-testid="milestone-completion-review-summary"
-            render={<section />}
-          >
-            <CardHeader className="gap-1 p-4 pb-3">
-              <p className="text-muted-foreground text-xs uppercase tracking-wide">
-                Builder completion claim
-              </p>
-              <CardTitle className="text-lg">{milestone.name}</CardTitle>
-              <CardDescription className="text-xs">
-                {claimNote ??
-                  "No builder note was supplied with this completion claim."}
-              </CardDescription>
-              <CardAction>
-                <Badge
-                  variant={
-                    milestoneHasPendingCompletionClaim(milestone)
-                      ? "warning"
-                      : "info"
-                  }
-                >
-                  {milestoneHasPendingCompletionClaim(milestone)
-                    ? "Completion submitted"
-                    : "In progress"}
-                </Badge>
-              </CardAction>
-            </CardHeader>
-            <CardPanel className="px-4 pt-0 pb-4">
-              <dl className="grid divide-y border-y text-sm sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-                <ReviewFact
-                  label="Submitted"
-                  value={claimSubmittedAt ? formatDate(claimSubmittedAt) : "-"}
-                />
-                <ReviewFact
-                  label="Completed"
-                  value={completionDate ? formatDate(completionDate) : "-"}
-                />
-                <ReviewFact
-                  label="Draw unlock"
-                  value={formatCentsExact(milestone.drawAvailabilityCents)}
-                />
-              </dl>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge
-                  variant={
-                    completedScopeCount === scopeRows.length
-                      ? "success"
-                      : "warning"
-                  }
-                >
-                  {completedScopeCount}/{scopeRows.length} scope items complete
-                </Badge>
-                <Badge variant={builderRows.length > 0 ? "info" : "error"}>
-                  {builderRows.length} evidence{" "}
-                  {builderRows.length === 1 ? "package" : "packages"}
-                </Badge>
-                <Badge
-                  variant={
-                    latestVisit?.status === "complete" ? "success" : "secondary"
-                  }
-                >
-                  {latestVisit
-                    ? siteVisitStateLabel(latestVisit)
-                    : "No field review"}
-                </Badge>
-              </div>
-            </CardPanel>
-          </Card>
-
-          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
-            <div className="grid gap-4">
-              <Card
-                className="rounded-xl shadow-none"
-                data-testid="milestone-review-scope"
-                render={<section />}
-              >
-                <CardHeader className="p-4 pb-3">
-                  <CardTitle className="text-sm">Claimed scope</CardTitle>
-                  <CardDescription className="text-xs">
-                    Submilestones the builder says are complete for this unlock.
-                  </CardDescription>
-                  <CardAction>
-                    <Badge
-                      variant={
-                        completedScopeCount === scopeRows.length
-                          ? "success"
-                          : "warning"
-                      }
-                    >
-                      {completedScopeCount}/{scopeRows.length}
-                    </Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardPanel className="px-4 pt-0 pb-4">
-                  {scopeRows.length > 0 ? (
-                    <ul className="divide-y border-y">
-                      {scopeRows.map((row) => (
-                        <li
-                          className="flex items-center justify-between gap-3 py-2.5"
-                          data-collaboration-focus={`submilestone:${row._id}`}
-                          data-collaboration-focused={
-                            row._id === focusedSubmilestoneId
-                              ? "true"
-                              : undefined
-                          }
-                          key={row.key}
-                        >
-                          <div className="min-w-0">
-                            {onOpenCanonicalTarget && row._id ? (
-                              <Button
-                                aria-label={`Open Sub-milestone ${row.name}`}
-                                className="h-auto min-w-0 justify-start p-0 text-left"
-                                onClick={() =>
-                                  onOpenCanonicalTarget(
-                                    {
-                                      kind: "submilestone",
-                                      submilestoneId: row._id,
-                                    },
-                                    { selectedTab: "review" },
-                                  )
-                                }
-                                type="button"
-                                variant="ghost"
-                              >
-                                {row.name}
-                              </Button>
-                            ) : (
-                              <p className="truncate font-medium text-sm">
-                                {row.name}
-                              </p>
-                            )}
-                            <p className="text-muted-foreground text-xs">
-                              {row.budgetCents
-                                ? formatCentsExact(row.budgetCents)
-                                : "No separate budget"}
-                            </p>
-                          </div>
-                          <Badge
-                            variant={
-                              row.status === "complete"
-                                ? "success"
-                                : row.status === "in_progress"
-                                  ? "warning"
-                                  : "secondary"
-                            }
-                          >
-                            {submilestoneReviewStatus(row.status)}
-                          </Badge>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="border-y py-3 text-muted-foreground text-sm">
-                      No submilestones are attached to this milestone.
-                    </p>
-                  )}
-                </CardPanel>
-              </Card>
-
-              <Card
-                className="rounded-xl shadow-none"
-                data-testid="milestone-completion-builder-evidence"
-                render={<section />}
-              >
-                <CardHeader className="p-4 pb-3">
-                  <CardTitle className="text-sm">
-                    Builder submitted evidence
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Verify the claimed work, location, and file dates before
-                    approval.
-                  </CardDescription>
-                  <CardAction>
-                    <Badge variant={builderRows.length > 0 ? "info" : "error"}>
-                      {builderRows.length}{" "}
-                      {builderRows.length === 1 ? "package" : "packages"}
-                    </Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardPanel className="grid gap-3 px-4 pt-0 pb-3">
-                  {builderRows.length > 0 ? (
-                    builderRows.map((row) => (
-                      <div
-                        className="border-t pt-3 first:border-t-0 first:pt-0"
-                        data-testid={`milestone-review-builder-evidence-${row.id}`}
-                        key={row.id}
-                      >
-                        <EvidenceReviewSummary row={row} />
-                        <EvidenceAssetPackage row={row} />
-                      </div>
-                    ))
-                  ) : (
-                    <p className="border-y py-3 text-muted-foreground text-sm">
-                      No builder evidence files are attached to this completion
-                      request.
-                    </p>
-                  )}
-                </CardPanel>
-                {builderRows.length > 0 ? (
-                  <CardFooter className="border-t px-4 py-2.5">
-                    {builderEvidenceAccepted ? (
-                      <Badge variant="success">
-                        <CheckCircle2 aria-hidden="true" />
-                        Evidence approved
-                      </Badge>
-                    ) : (
-                      <Button
-                        disabled={
-                          !actions?.reviewEvidence || pendingAction !== null
-                        }
-                        loading={pendingAction === "approve-evidence"}
-                        onClick={() => approveBuilderEvidence()}
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                      >
-                        <FileCheck2 aria-hidden="true" />
-                        Approve evidence
-                      </Button>
-                    )}
-                  </CardFooter>
-                ) : null}
-              </Card>
-            </div>
-
-            <div className="grid gap-4">
-              <Card
-                className="rounded-xl shadow-none"
-                data-testid="milestone-review-contractors"
-                render={<section />}
-              >
-                <CardHeader className="p-4 pb-3">
-                  <CardTitle className="text-sm">Responsible parties</CardTitle>
-                  <CardDescription className="text-xs">
-                    Contractors assigned to deliver or verify this scope.
-                  </CardDescription>
-                </CardHeader>
-                <CardPanel className="px-4 pt-0 pb-4">
-                  {contractorRows.length > 0 ? (
-                    <ul className="divide-y border-y">
-                      {contractorRows.map((row) => (
-                        <li className="py-2.5" key={`${row.name}-${row.role}`}>
-                          <p className="font-medium text-sm">{row.name}</p>
-                          <p className="text-muted-foreground text-xs">
-                            {row.role}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="border-y py-3 text-muted-foreground text-sm">
-                      No contractors assigned.
-                    </p>
-                  )}
-                </CardPanel>
-              </Card>
-
-              <Card
-                className="rounded-xl shadow-none"
-                data-testid="milestone-review-materials"
-                render={<section />}
-              >
-                <CardHeader className="p-4 pb-3">
-                  <CardTitle className="text-sm">
-                    Materials and equipment
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Cost items attached to this milestone and its submilestones.
-                  </CardDescription>
-                </CardHeader>
-                <CardPanel className="px-4 pt-0 pb-4">
-                  {materialRows.length > 0 ? (
-                    <ul className="divide-y border-y">
-                      {materialRows.map((item) => (
-                        <li
-                          className="flex items-start justify-between gap-3 py-2.5"
-                          key={item._id}
-                        >
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm">{item.title}</p>
-                            <p className="text-muted-foreground text-xs">
-                              {item.supplier ?? "Supplier not recorded"}
-                            </p>
-                          </div>
-                          <p className="shrink-0 font-medium text-sm tabular-nums">
-                            {formatCentsExact(materialPlanningItemTotal(item))}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="border-y py-3 text-muted-foreground text-sm">
-                      No materials or equipment attached.
-                    </p>
-                  )}
-                </CardPanel>
-              </Card>
-
-              <Card
-                className="rounded-xl shadow-none"
-                data-testid="milestone-completion-site-visit"
-                render={<section />}
-              >
-                <CardHeader className="p-4 pb-3">
-                  <CardTitle className="text-sm">Site visit</CardTitle>
-                  <CardDescription className="text-xs">
-                    Order a site visit or review the completed field report.
-                  </CardDescription>
-                  {latestVisit ? (
-                    <CardAction>
-                      <Badge variant={siteVisitBadgeVariant(latestVisit)}>
-                        {siteVisitStateLabel(latestVisit)}
-                      </Badge>
-                    </CardAction>
-                  ) : null}
-                </CardHeader>
-                <CardPanel className="px-4 pt-0 pb-3">
-                  {latestVisit ? (
-                    <SiteVisitReviewState
-                      canCancel={Boolean(actions?.cancelSiteVisit)}
-                      canRegenerate={Boolean(actions?.assignSiteVisit)}
-                      onCancel={() => cancelSiteVisit(latestVisit)}
-                      onRegenerate={regenerateSiteVisitToken}
-                      pendingAction={pendingAction}
-                      visit={latestVisit}
-                    />
-                  ) : (
-                    <p className="border-y py-3 text-muted-foreground text-sm">
-                      No site visit has been ordered for this milestone.
-                    </p>
-                  )}
-                  {latestVisit?.status === "complete" ? (
-                    <CompletedSiteVisitReview
-                      onOpenCanonicalTarget={onOpenCanonicalTarget}
-                      rows={siteVisitRows}
-                      visit={latestVisit}
-                    />
-                  ) : null}
-                </CardPanel>
-                {latestVisit?.status !== "requested" &&
-                latestVisit?.status !== "complete" ? (
-                  <CardFooter className="border-t px-4 py-2.5">
-                    <Button
-                      disabled={
-                        !actions?.assignSiteVisit || pendingAction !== null
-                      }
-                      onClick={() => {
-                        onRequestSiteVisit({
-                          milestoneKey: milestone.key,
-                          ...(note.trim() ? { note: note.trim() } : {}),
-                        });
-                      }}
-                      size="sm"
-                      type="button"
-                    >
-                      <ClipboardCheck aria-hidden="true" />
-                      Order site visit
-                    </Button>
-                  </CardFooter>
-                ) : null}
-              </Card>
-            </div>
-          </div>
-
-          <Card className="rounded-xl shadow-none" render={<section />}>
-            <CardHeader className="p-4 pb-3">
-              <CardTitle className="text-sm">Reviewer decision</CardTitle>
-              <CardDescription className="text-xs">
-                Record the rationale that will accompany approval or a request
-                for more information.
-              </CardDescription>
-            </CardHeader>
-            <CardPanel className="px-4 pt-0 pb-4">
-              <label
-                className="mb-2 block font-medium text-sm"
-                htmlFor="milestone-completion-review-note"
-              >
-                Decision rationale
-                {approvalNoteRequired && !milestoneApproved ? (
-                  <span className="text-destructive"> (required)</span>
-                ) : null}
-              </label>
-              {approvalExceptions.length > 0 && !milestoneApproved ? (
-                <div
-                  className="mb-3 rounded-lg border border-warning/30 bg-warning/8 p-3"
-                  data-testid="milestone-review-exceptions"
-                >
-                  <div className="flex items-center gap-2 font-medium text-sm">
-                    <AlertTriangle
-                      aria-hidden="true"
-                      className="size-4 text-warning"
-                    />
-                    Approval requires an override rationale
-                  </div>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground text-xs">
-                    {approvalExceptions.map((exception) => (
-                      <li key={exception}>{exception}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              <Textarea
-                disabled={milestoneApproved || pendingAction !== null}
-                id="milestone-completion-review-note"
-                onChange={(event) => setNote(event.currentTarget.value)}
-                placeholder="State what was verified, or what the builder must clarify."
-                value={note}
-              />
-              {error ? (
-                <p className="mt-2 text-destructive text-sm" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              {actionSuccess ? (
-                <p
-                  className="mt-2 flex items-center gap-2 text-sm text-success"
-                  role="status"
-                >
-                  <CheckCircle2 aria-hidden="true" className="size-4" />
-                  {actionSuccess}
-                </p>
-              ) : null}
-            </CardPanel>
-          </Card>
-        </SheetPanel>
-
-        <SheetFooter>
-          <SheetClose render={<Button type="button" variant="ghost" />}>
-            Close
-          </SheetClose>
-          {milestone.actualStartedAt && onAmendStart ? (
-            <>
-              <Button
-                onClick={() => onAmendStart("correct")}
-                type="button"
-                variant="outline"
-              >
-                Correct start
-              </Button>
-              <Button
-                onClick={() => onAmendStart("retract")}
-                type="button"
-                variant="ghost"
-              >
-                Retract start
-              </Button>
-            </>
-          ) : null}
-          {milestoneApproved ? (
-            <Badge variant="success">
-              <CheckCircle2 aria-hidden="true" />
-              Completion approved
-            </Badge>
-          ) : (
-            <>
-              <Button
-                disabled={
-                  !(actions?.requestMilestoneInfo || actions?.reviewEvidence) ||
-                  pendingAction !== null ||
-                  !decisionNote
-                }
-                loading={pendingAction === "request-info"}
-                onClick={() => {
-                  requestInfo();
-                }}
-                type="button"
-                variant="outline"
-              >
-                <MessageSquare aria-hidden="true" />
-                Request more info
-              </Button>
-              <Button
-                disabled={
-                  !actions?.approveMilestone ||
-                  pendingAction !== null ||
-                  (approvalNoteRequired && !decisionNote)
-                }
-                loading={pendingAction === "approve-completion"}
-                onClick={() => {
-                  approveCompletion();
-                }}
-                type="button"
-              >
-                <CheckCircle2 aria-hidden="true" />
-                Approve completion
-              </Button>
-            </>
-          )}
-        </SheetFooter>
-      </SheetPopup>
-    </Sheet>
-  );
-}
-
-function ReviewFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 px-3 py-2.5 first:pl-0 last:pr-0 sm:last:pr-3 sm:first:pl-3">
-      <dt className="text-muted-foreground text-xs uppercase">{label}</dt>
-      <dd className="truncate font-medium tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
-function submilestoneReviewStatus(status: ProductionMilestoneStatus) {
-  if (status === "complete") {
-    return "Complete";
-  }
-  if (status === "in_progress") {
-    return "In progress";
-  }
-  return "Not started";
 }
 
 function materialPlanningItemTotal(item: MaterialPlanningItem) {
@@ -7467,18 +6569,19 @@ function buildMilestoneSheetData(
             : distributedBudgetCents,
         completedAt: submilestone.completedAt,
         completedByWorkosUserId: submilestone.completedByWorkosUserId,
+        description:
+          materials.find((item) => item.description)?.description ??
+          `Complete and document the ${submilestone.name.toLowerCase()} scope against the approved construction roadmap.`,
         endDate: addDaysSafe(
           detail.build.startDate,
           startDay + durationDays - 1,
         ),
         evidence,
         fieldNote: submilestone.fieldNote,
-        buildSubmilestoneId: submilestone._id,
         key: submilestone.key,
         materials,
         name: submilestone.name,
         order: submilestone.order,
-        proposalSubmilestoneId: submilestone.proposalSubmilestoneId,
         siteVisits,
         startDate: addDaysSafe(detail.build.startDate, startDay),
         status: submilestone.status,
@@ -8381,16 +7484,6 @@ function numberFromRecord(
 ) {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
-}
-
-function commandResultRevision(value: unknown) {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  const revision = (value as { revision?: unknown }).revision;
-  return typeof revision === "number" && Number.isSafeInteger(revision)
-    ? revision
-    : undefined;
 }
 
 function siteVisitFromCompletionReview(

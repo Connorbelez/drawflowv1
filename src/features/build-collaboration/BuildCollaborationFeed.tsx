@@ -2649,6 +2649,7 @@ function BuildCollaborationFeedContent({
         })}
         onGoBack={onDetailGoBack}
         onGoForward={onDetailGoForward}
+        onOpenCanonicalTarget={openDetailTarget}
         onOpenChange={(open) => {
           if (!open) {
             closeActionItemSheet();

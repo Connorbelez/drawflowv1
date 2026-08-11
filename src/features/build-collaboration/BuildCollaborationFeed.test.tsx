@@ -968,6 +968,8 @@ vi.mock("convex/react", () => ({
           workKind: mocks.actionItemWorkKind,
           ...(mocks.canonicalSystemActionItem
             ? {
+                canonicalBuildMilestoneId: "milestone-1",
+                canonicalBuildSubmilestoneId: "submilestone-1",
                 systemMode: "generated_milestone_submilestone",
                 systemPresentation: {
                   bindingState: "valid",
@@ -3740,6 +3742,38 @@ describe("BuildCollaborationFeed", () => {
         screen.queryByRole("heading", { name: "Upload engineer seal" }),
       ).toBeNull(),
     );
+  });
+
+  test("dispatches a generated companion before generic Action Item rendering", async () => {
+    mocks.canonicalSystemActionItem = true;
+    const onOpenReference = vi.fn();
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailResolutionState="visible"
+        focusedReference="actionItem:action-1"
+        onOpenReference={onOpenReference}
+        organizationId="org-1"
+        resolvedDetailTarget={{
+          actionItemId: "action-1" as Id<"buildActionItems">,
+          kind: "actionItem",
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onOpenReference).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityId: "submilestone-1",
+          entityKind: "submilestone",
+          href: expect.stringContaining("detailTab=collaboration"),
+        }),
+      ),
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Change Action Item status" }),
+    ).toBeNull();
+    expect(screen.queryByText("Canonical Sub-milestone facts")).toBeNull();
   });
 
   test("creates Action Items from a live post with inherited audience context", async () => {
