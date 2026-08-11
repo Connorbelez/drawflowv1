@@ -10,7 +10,6 @@ import {
   requireAuthenticated,
 } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
-import { canReadDrawCoordination } from "./build_draw_coordination";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
 import {
   projectCollaborationAssetAttachmentPage,
@@ -25,12 +24,14 @@ import {
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import { buildCollaborationSearchReaderFingerprint } from "./build_collaboration_search_readers";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
+import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
 import {
   buildCollaborationAudienceModeValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { internalQuery } from "./fluent";
 import type { ActionCtx, Doc, Id, QueryCtx } from "./types";
 
@@ -46,6 +47,7 @@ const searchResultTypeValidator = v.union(
   v.literal("post"),
   v.literal("comment"),
   v.literal("actionItem"),
+  v.literal("submilestone"),
   v.literal("asset"),
   v.literal("reference")
 );
@@ -98,6 +100,7 @@ const searchResultValidator = v.object({
       v.literal("post"),
       v.literal("comment"),
       v.literal("actionItem"),
+      v.literal("submilestone"),
       v.literal("asset")
     )
   ),
@@ -136,6 +139,7 @@ const searchCandidateValidator = v.object({
       v.literal("post"),
       v.literal("comment"),
       v.literal("actionItem"),
+      v.literal("submilestone"),
       v.literal("asset")
     )
   ),
@@ -392,7 +396,7 @@ export const searchBuildCollaboration = authenticatedAction
             seenHashes: [...seenHashes],
             sourceCursor: cursor.sourceCursor,
             sourceDone: cursor.sourceDone,
-            version: 6,
+            version: 7,
           }),
       generation: readiness.generation,
       indexing: false,
@@ -431,6 +435,7 @@ type SearchResultType =
   | "post"
   | "comment"
   | "actionItem"
+  | "submilestone"
   | "asset"
   | "reference";
 
@@ -449,7 +454,12 @@ type SearchStatus =
 
 type ReferenceKind = Doc<"buildCollaborationReferences">["entityKind"];
 type AudienceMode = Doc<"buildCollaborationPosts">["audienceMode"];
-type SearchFocusEntityKind = "post" | "comment" | "actionItem" | "asset";
+type SearchFocusEntityKind =
+  | "post"
+  | "comment"
+  | "actionItem"
+  | "submilestone"
+  | "asset";
 
 interface NormalizedSearchFilters {
   assigneeWorkosUserIds: string[];
@@ -663,7 +673,7 @@ function parseSearchCursor(cursor: string | undefined, fingerprint: string) {
       version?: unknown;
     };
     if (
-      parsed.version !== 6 ||
+      parsed.version !== 7 ||
       parsed.fingerprint !== fingerprint ||
       !isSearchSeenHashes(parsed.seenHashes) ||
       !isSearchSourceCursor(parsed.sourceCursor) ||
@@ -964,33 +974,77 @@ async function loadSearchOwnerDescriptor(
     references: [],
     tiptapJson: item.descriptionTiptapJson,
   });
+  const canonicalPresentation =
+    await deriveMilestoneSystemActionItemPresentation(ctx, {
+      actionItem: item,
+      asOf: snapshotAt,
+      build: authorization.build,
+      viewer: {
+        role,
+        roles: authorization.roles,
+        workosUserId: authorization.viewer.subject,
+      },
+    });
+  const validCanonicalSubmilestoneId =
+    item.systemMode === "generated_milestone_submilestone" &&
+    canonicalPresentation?.bindingState === "valid"
+      ? item.canonicalBuildSubmilestoneId
+      : undefined;
+  const generatedSubmilestone = validCanonicalSubmilestoneId !== undefined;
+  const canonicalStatus = canonicalSearchStatus(canonicalPresentation?.column);
   return {
     assetOwnerKind: "actionItem" as const,
     baseCandidate: {
       ...shared,
       actionItemId: item._id,
-      assigneeWorkosUserId: item.assigneeWorkosUserId,
+      assigneeWorkosUserId: generatedSubmilestone
+        ? canonicalPresentation?.executionOwnership?.assigneeWorkosUserId
+        : item.assigneeWorkosUserId,
       authorDisplayName: participantDisplayName(
         authorization,
         item.creatorWorkosUserId
       ),
       authorWorkosUserId: item.creatorWorkosUserId,
       createdAt: item.createdAt,
-      entityId: item.primaryReferenceId,
-      entityKind: item.primaryReferenceKind,
-      focusEntityId: item._id,
-      focusEntityKind: "actionItem" as const,
+      entityId: validCanonicalSubmilestoneId ?? item.primaryReferenceId,
+      entityKind: validCanonicalSubmilestoneId
+        ? ("submilestone" as const)
+        : item.primaryReferenceKind,
+      entityKinds: validCanonicalSubmilestoneId
+        ? (["submilestone"] as ReferenceKind[])
+        : shared.entityKinds,
+      focusEntityId: validCanonicalSubmilestoneId ?? item._id,
+      focusEntityKind: validCanonicalSubmilestoneId
+        ? ("submilestone" as const)
+        : ("actionItem" as const),
       href: buildCollaborationDeepLink({
         buildId: post.buildId,
-        focus: `actionItem:${item._id}`,
+        ...(validCanonicalSubmilestoneId ? { detailTab: "collaboration" } : {}),
+        focus: validCanonicalSubmilestoneId
+          ? `submilestone:${validCanonicalSubmilestoneId}`
+          : `actionItem:${item._id}`,
         recipientRole: role,
       }),
-      id: item._id,
+      id: validCanonicalSubmilestoneId ?? item._id,
       ownerId: item._id,
       ownerKind: "actionItem" as const,
-      resultType: "actionItem" as const,
-      searchText: `${item.title} ${projected.plainText}`,
-      status: item.status,
+      resultType: generatedSubmilestone
+        ? ("submilestone" as const)
+        : ("actionItem" as const),
+      searchText: generatedSubmilestone
+        ? [
+            item.title,
+            canonicalPresentation?.column,
+            canonicalPresentation?.plannedStartDate,
+            canonicalPresentation?.plannedCompletionDate,
+            canonicalPresentation?.executionOwnership?.assigneeDisplayName,
+            canonicalPresentation?.attention,
+            ...(canonicalPresentation?.readyExceptFor ?? []),
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : `${item.title} ${projected.plainText}`,
+      status: canonicalStatus ?? item.status,
       title: item.title,
       updatedAt: item.updatedAt,
     } satisfies SearchCandidate,
@@ -1185,7 +1239,8 @@ async function currentSearchAttachmentOwner(
       : undefined;
   }
   if (
-    input.candidate.resultType === "actionItem" &&
+    (input.candidate.resultType === "actionItem" ||
+      input.candidate.resultType === "submilestone") &&
     input.candidate.actionItemId
   ) {
     return {
@@ -1275,7 +1330,8 @@ async function refreshIndexedSearchCandidate(
       candidate = { ...candidate, updatedAt: comment.updatedAt };
       break;
     }
-    case "actionItem": {
+    case "actionItem":
+    case "submilestone": {
       if (!candidate.actionItemId) {
         return null;
       }
@@ -1297,10 +1353,52 @@ async function refreshIndexedSearchCandidate(
       ) {
         return null;
       }
+      const presentation = await deriveMilestoneSystemActionItemPresentation(
+        ctx,
+        {
+          actionItem: item,
+          asOf: Date.now(),
+          build: input.authorization.build,
+          viewer: {
+            role: input.authorization.effectiveRole.role,
+            roles: input.authorization.roles,
+            workosUserId: input.authorization.viewer.subject,
+          },
+        }
+      );
+      const canonicalSubmilestoneId =
+        item.systemMode === "generated_milestone_submilestone" &&
+        presentation?.bindingState === "valid"
+          ? item.canonicalBuildSubmilestoneId
+          : undefined;
+      const generatedSubmilestone = canonicalSubmilestoneId !== undefined;
       candidate = {
         ...candidate,
-        assigneeWorkosUserId: item.assigneeWorkosUserId,
-        status: item.status,
+        assigneeWorkosUserId: generatedSubmilestone
+          ? presentation?.executionOwnership?.assigneeWorkosUserId
+          : item.assigneeWorkosUserId,
+        entityId: canonicalSubmilestoneId ?? item.primaryReferenceId,
+        entityKind: canonicalSubmilestoneId
+          ? "submilestone"
+          : item.primaryReferenceKind,
+        entityKinds: canonicalSubmilestoneId
+          ? ["submilestone"]
+          : candidate.entityKinds,
+        focusEntityId: canonicalSubmilestoneId ?? item._id,
+        focusEntityKind: canonicalSubmilestoneId
+          ? "submilestone"
+          : "actionItem",
+        href: buildCollaborationDeepLink({
+          buildId: input.post.buildId,
+          ...(canonicalSubmilestoneId ? { detailTab: "collaboration" } : {}),
+          focus: canonicalSubmilestoneId
+            ? `submilestone:${canonicalSubmilestoneId}`
+            : `actionItem:${item._id}`,
+          recipientRole: input.authorization.effectiveRole.role,
+        }),
+        id: canonicalSubmilestoneId ?? item._id,
+        resultType: generatedSubmilestone ? "submilestone" : "actionItem",
+        status: canonicalSearchStatus(presentation?.column) ?? item.status,
         title: item.title,
         updatedAt: item.updatedAt,
       };
@@ -1389,6 +1487,9 @@ function currentSearchCandidateHref(
   }
   return buildCollaborationDeepLink({
     buildId: post.buildId,
+    ...(candidate.focusEntityKind === "submilestone"
+      ? { detailTab: "collaboration" }
+      : {}),
     focus: `${candidate.focusEntityKind ?? candidate.resultType}:${candidate.focusEntityId ?? candidate.id}`,
     recipientRole: role,
   });
@@ -1428,6 +1529,9 @@ function referenceCandidates(input: {
       hasAttachments: input.hasAttachments,
       href: buildCollaborationDeepLink({
         buildId: input.buildId,
+        ...(reference.entityKind === "submilestone"
+          ? { detailTab: "collaboration" }
+          : {}),
         focus: `${reference.entityKind}:${reference.entityId}`,
         recipientRole: input.role,
       }),
@@ -1539,6 +1643,30 @@ function participantDisplayName(
   return authorization.participants.find(
     (participant) => participant.workosUserId === workosUserId
   )?.displayName;
+}
+
+function canonicalSearchStatus(
+  column:
+    | "backlog"
+    | "behind_schedule"
+    | "in_progress"
+    | "in_review"
+    | "approved"
+    | "superseded"
+    | undefined
+): SearchStatus | undefined {
+  switch (column) {
+    case "backlog":
+      return "todo";
+    case "behind_schedule":
+      return "blocked";
+    case "approved":
+      return "done";
+    case "superseded":
+      return "superseded";
+    default:
+      return column;
+  }
 }
 
 function candidateMatchesFilters(

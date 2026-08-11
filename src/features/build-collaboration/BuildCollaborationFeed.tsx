@@ -62,12 +62,12 @@ import {
 } from "#/components/ui/select.tsx";
 import { Tabs, TabsList, TabsTab } from "#/components/ui/tabs.tsx";
 import { cn } from "#/lib/utils.ts";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import {
   type BuildDetailTarget,
   parseBuildDetailFocus,
 } from "../build-detail-targets/buildDetailTarget.ts";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import {
   BuildActionItemDetailSheet,
   type BuildActionItemSheetTarget,
@@ -123,7 +123,6 @@ import {
   CollaborationRichTextPreview,
   type CollaborationTagReference,
 } from "./CollaborationRichTextEditor.tsx";
-import { SystemPostExperience } from "./SystemPostExperience.tsx";
 import {
   type AudienceMode,
   audienceLabel,
@@ -134,6 +133,7 @@ import {
   type CollaborationFeedEntry,
   type CollaborationFeedPostEntry,
   type CollaborationPlanningReconciliation,
+  classifyCollaborationActionItem,
   composerActionItems,
   emptyDocument,
   escapeHtml,
@@ -155,6 +155,7 @@ import {
   toEditorReferenceKind,
 } from "./model.ts";
 import { parseBuildCollaborationFocus } from "./referenceFocus.ts";
+import { SystemPostExperience } from "./SystemPostExperience.tsx";
 
 const BUILD_WORKSPACE_PATH_PATTERN =
   /(\/(?:backoffice|builder-staff|builder|contractor|homeowner)\/builds\/)[^/]+/;
@@ -197,7 +198,7 @@ function buildQueueArgs(buildId: Id<"activeBuilds">, organizationId?: string) {
 
 function buildCollaborationScopeArgs(
   buildId: Id<"activeBuilds">,
-  organizationId?: string,
+  organizationId?: string
 ) {
   return organizationId ? { buildId, organizationId } : ("skip" as const);
 }
@@ -216,34 +217,38 @@ function useBuildPlanningReconciliation({
   const planningMetadata = useQuery(
     api.build_collaboration_planning_reconciliation
       .getActiveBuildPlanningReconciliation,
-    planningQueryArgs,
+    planningQueryArgs
   );
   const currentPlanningSnapshot = usePaginatedQuery(
     api.build_collaboration_planning_reconciliation
       .getActiveBuildPlanningReconciliationSnapshot,
     planningQueryArgs,
-    { initialNumItems: 100 },
+    { initialNumItems: 100 }
   );
   const activationPlanningSnapshot = usePaginatedQuery(
     api.build_collaboration_planning_reconciliation
       .getActiveBuildPlanningActivationSnapshot,
     planningQueryArgs,
-    { initialNumItems: 100 },
+    { initialNumItems: 100 }
   );
   const planningDiffs = usePaginatedQuery(
     api.build_collaboration_planning_reconciliation
       .listActiveBuildPlanningReconciliationDiffs,
     planningQueryArgs,
-    { initialNumItems: 100 },
+    { initialNumItems: 100 }
   );
   const planningReconciliation = useMemo(() => {
-    if (!planningMetadata) return undefined;
+    if (!planningMetadata) {
+      return;
+    }
     const pageStillLoading = [
       currentPlanningSnapshot.status,
       activationPlanningSnapshot.status,
       planningDiffs.status,
     ].some((status) => status === "LoadingFirstPage");
-    if (pageStillLoading) return undefined;
+    if (pageStillLoading) {
+      return;
+    }
     const buildIdString = String(buildId);
     return {
       activation: planningMetadata.activation
@@ -251,7 +256,7 @@ function useBuildPlanningReconciliation({
             ...planningMetadata.activation,
             snapshot: planningSnapshotFromEntities(
               buildIdString,
-              activationPlanningSnapshot.results,
+              activationPlanningSnapshot.results
             ),
           }
         : null,
@@ -259,7 +264,7 @@ function useBuildPlanningReconciliation({
         revision: planningMetadata.current.revision,
         snapshot: planningSnapshotFromEntities(
           buildIdString,
-          currentPlanningSnapshot.results,
+          currentPlanningSnapshot.results
         ),
       },
       diffs: planningDiffs.results,
@@ -303,26 +308,44 @@ function actionItemQueueState(query: {
 export function buildActionItemQueueHref(
   currentHref: string,
   buildId: string,
-  actionItemId: string,
+  actionItemId: string
+) {
+  return buildDetailTargetQueueHref(currentHref, buildId, {
+    actionItemId: actionItemId as Id<"buildActionItems">,
+    kind: "actionItem",
+  });
+}
+
+export function buildDetailTargetQueueHref(
+  currentHref: string,
+  buildId: string,
+  target: BuildDetailTarget
 ) {
   const url = new URL(currentHref, "http://localhost");
   const nextPath = url.pathname.replace(
     BUILD_WORKSPACE_PATH_PATTERN,
-    `$1${encodeURIComponent(buildId)}`,
+    `$1${encodeURIComponent(buildId)}`
   );
   if (nextPath === url.pathname) {
     throw new Error("Unable to resolve the current Build workspace route.");
   }
   url.pathname = nextPath;
   url.search = "";
-  url.searchParams.set("tab", "details");
-  url.searchParams.set("focus", `actionItem:${actionItemId}`);
+  if (target.kind === "submilestone") {
+    url.searchParams.set("focus", `submilestone:${target.submilestoneId}`);
+    url.searchParams.set("detailTab", "collaboration");
+  } else if (target.kind === "actionItem") {
+    url.searchParams.set("tab", "details");
+    url.searchParams.set("focus", `actionItem:${target.actionItemId}`);
+  } else {
+    url.searchParams.set("focus", `milestone:${target.milestoneId}`);
+  }
   return `${url.pathname}${url.search}`;
 }
 
 export function buildActionItemSheetHref(
   currentHref: string,
-  actionItemId?: string,
+  actionItemId?: string
 ) {
   const url = new URL(currentHref, "http://localhost");
   if (actionItemId) {
@@ -330,6 +353,23 @@ export function buildActionItemSheetHref(
     url.searchParams.set("focus", `actionItem:${actionItemId}`);
   } else if (url.searchParams.get("focus")?.startsWith("actionItem:")) {
     url.searchParams.delete("focus");
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+export function buildDetailTargetSheetHref(
+  currentHref: string,
+  target: BuildDetailTarget
+) {
+  const url = new URL(currentHref, "http://localhost");
+  if (target.kind === "submilestone") {
+    url.searchParams.set("focus", `submilestone:${target.submilestoneId}`);
+    url.searchParams.set("detailTab", "collaboration");
+  } else if (target.kind === "actionItem") {
+    url.searchParams.set("tab", "details");
+    url.searchParams.set("focus", `actionItem:${target.actionItemId}`);
+  } else {
+    url.searchParams.set("focus", `milestone:${target.milestoneId}`);
   }
   return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -387,7 +427,7 @@ function focusedReferenceQueryArgs({
       organizationId &&
       target &&
       DIRECT_REFERENCE_FOCUS_KINDS.has(
-        target.entityKind as RawCollaborationTagOption["entityKind"],
+        target.entityKind as RawCollaborationTagOption["entityKind"]
       )
     )
   ) {
@@ -433,7 +473,7 @@ function focusedAssetQueryArgs({
 
 function visibleContextValue<T, R>(
   context: ({ state: "visible" } & T) | { state: "revoked" } | undefined,
-  select: (visible: { state: "visible" } & T) => R,
+  select: (visible: { state: "visible" } & T) => R
 ) {
   return context?.state === "visible" ? select(context) : undefined;
 }
@@ -533,7 +573,7 @@ function useFocusedEntityTarget(input: {
           : {
               actionItemId: reference.id as Id<"buildActionItems">,
               kind: "detail",
-            },
+            }
       );
       return;
     }
@@ -541,7 +581,7 @@ function useFocusedEntityTarget(input: {
       current?.entityKind === reference.entityKind &&
       current.id === reference.id
         ? current
-        : reference,
+        : reference
     );
   }, [
     input.detailTargetManaged,
@@ -563,7 +603,7 @@ function useFocusedEntityTarget(input: {
         : {
             actionItemId: input.focusedActionItemId as Id<"buildActionItems">,
             kind: "detail",
-          },
+          }
     );
   }, [input.focusedActionItemId, input.setActionItemSheetTarget]);
 }
@@ -575,7 +615,7 @@ function directFocusedReference(
         state: "visible";
       }
     | { state: "revoked" }
-    | undefined,
+    | undefined
 ) {
   if (context?.state !== "visible") {
     return;
@@ -658,7 +698,7 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
   const { user } = useAuth();
   const connectionState = useConvexConnectionState();
   const [browserOnline, setBrowserOnline] = useState(
-    () => typeof navigator === "undefined" || navigator.onLine,
+    () => typeof navigator === "undefined" || navigator.onLine
   );
   useEffect(() => {
     const markOnline = () => setBrowserOnline(true);
@@ -678,8 +718,8 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
     api.build_collaboration_lifecycle.getBuildCollaborationLifecycleState,
     buildCollaborationScopeArgs(
       props.buildId as Id<"activeBuilds">,
-      props.organizationId,
-    ),
+      props.organizationId
+    )
   );
   const collaborationWritable = lifecycleState?.state === "open";
   const sharedMutationsAllowed = isOnline && collaborationWritable;
@@ -731,7 +771,7 @@ function BuildCollaborationFeedContent({
   const [filter, setFilter] = useState<FeedFilter>("all");
   const feedScopeArgs = buildCollaborationScopeArgs(
     activeBuildId,
-    organizationId,
+    organizationId
   );
   const feed = usePaginatedQuery(
     api.build_collaboration.listBuildCollaborationFeed,
@@ -741,31 +781,31 @@ function BuildCollaborationFeedContent({
           ...feedScopeArgs,
           filter: filter === "active_operations" ? "active_operations" : "all",
         },
-    { initialNumItems: 20 },
+    { initialNumItems: 20 }
   );
   const viewerBinding = useQuery(
     api.build_collaboration_viewer.getBuildCollaborationViewerBinding,
-    buildCollaborationScopeArgs(activeBuildId, organizationId),
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const viewerRole = viewerBinding?.role;
   const viewerRoles = viewerBinding?.roles ?? (viewerRole ? [viewerRole] : []);
   const canPublishAnnouncements = Boolean(
     viewerRole &&
-    !["builder-staff", "homeowner", "contractor"].includes(viewerRole),
+      !["builder-staff", "homeowner", "contractor"].includes(viewerRole)
   );
   const canCustomizeAudience = Boolean(
-    viewerRole && !["homeowner", "contractor"].includes(viewerRole),
+    viewerRole && !["homeowner", "contractor"].includes(viewerRole)
   );
   const rawTagOptions = useQuery(
     api.build_collaboration_references.listBuildCollaborationTagOptions,
-    buildCollaborationScopeArgs(activeBuildId, organizationId),
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const focusedActionItemId = focusedActionItemIdFromReference(
-    focusedEntityReference,
+    focusedEntityReference
   );
   const focusedAssetId = focusedAssetIdFromReference(focusedEntityReference);
   const focusedCommentTokenId = focusedCommentIdFromReference(
-    focusedEntityReference,
+    focusedEntityReference
   );
   const focusedPostId = focusedPostIdFromReference(focusedEntityReference);
   const focusedActionItemContext = useQuery(
@@ -774,7 +814,7 @@ function BuildCollaborationFeedContent({
       actionItemId: focusedActionItemId,
       buildId: activeBuildId,
       organizationId,
-    }),
+    })
   ) as
     | {
         actionItemId: Id<"buildActionItems">;
@@ -788,7 +828,7 @@ function BuildCollaborationFeedContent({
       buildId: activeBuildId,
       organizationId,
       reference: focusedEntityReference,
-    }),
+    })
   );
   const focusedAssetContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildCollaborationAssetContext,
@@ -796,7 +836,7 @@ function BuildCollaborationFeedContent({
       assetId: focusedAssetId,
       buildId: activeBuildId,
       organizationId,
-    }),
+    })
   ) as
     | {
         actionItemId?: Id<"buildActionItems">;
@@ -809,15 +849,15 @@ function BuildCollaborationFeedContent({
     | undefined;
   const focusedAssetCommentId = visibleContextValue(
     focusedAssetContext,
-    (context) => context.commentId,
+    (context) => context.commentId
   );
   const focusedAssetPostId = visibleContextValue(
     focusedAssetContext,
-    (context) => context.postId,
+    (context) => context.postId
   );
   const focusedAssetActionItemId = visibleContextValue(
     focusedAssetContext,
-    (context) => context.actionItemId,
+    (context) => context.actionItemId
   );
   const focusedCommentId = focusedCommentTokenId ?? focusedAssetCommentId;
   const focusedCommentContext = useQuery(
@@ -826,11 +866,11 @@ function BuildCollaborationFeedContent({
       buildId: activeBuildId,
       commentId: focusedCommentId,
       organizationId,
-    }),
+    })
   );
   const focusedCommentPostId = visibleContextValue(
     focusedCommentContext,
-    (context) => context.postId,
+    (context) => context.postId
   );
   const focusedPostContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildCollaborationPostContext,
@@ -842,63 +882,62 @@ function BuildCollaborationFeedContent({
         focusedAssetPostId ??
         focusedCommentPostId ??
         focusedActionItemContext?.postId,
-    }),
+    })
   ) as
     | { entry: CollaborationFeedPostEntry; state: "visible" }
     | { state: "revoked" }
     | undefined;
   const drafts = useQuery(
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
-    buildCollaborationScopeArgs(activeBuildId, organizationId),
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const draftIdentity = useQuery(
     api.build_collaboration_drafts.getMyBuildCollaborationDraftIdentity,
-    buildCollaborationScopeArgs(activeBuildId, organizationId),
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const schedulingCapabilities = useQuery(
     api.build_collaboration_scheduling
       .getBuildCollaborationSchedulingCapabilities,
-    buildCollaborationScopeArgs(activeBuildId, organizationId),
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const personalActionItems = usePaginatedQuery(
     api.build_action_item_queues.listMyBuildActionItemQueue,
     organizationId ? { organizationId } : "skip",
-    { initialNumItems: 20 },
+    { initialNumItems: 20 }
   );
   const buildActionItems = usePaginatedQuery(
     api.build_action_item_queues.listBuildActionItemQueue,
     buildQueueArgs(activeBuildId, organizationId),
-    { initialNumItems: 20 },
+    { initialNumItems: 20 }
   );
   const saveDraft = useBuildCollaborationMutation(
-    api.build_collaboration_drafts.saveMyBuildCollaborationDraft,
+    api.build_collaboration_drafts.saveMyBuildCollaborationDraft
   );
   const publishHumanPost = useBuildCollaborationMutation(
-    api.build_collaboration.approveAndPublishBuildCollaborationBundle,
+    api.build_collaboration.approveAndPublishBuildCollaborationBundle
   );
   const publishDraft = useBuildCollaborationMutation(
-    api.build_collaboration_drafts.approveAndPublishBuildCollaborationDraft,
+    api.build_collaboration_drafts.approveAndPublishBuildCollaborationDraft
   );
   const discardDraft = useBuildCollaborationMutation(
-    api.build_collaboration_drafts.discardMyBuildCollaborationDraft,
+    api.build_collaboration_drafts.discardMyBuildCollaborationDraft
   );
   const scheduleDraft = useBuildCollaborationMutation(
-    api.build_collaboration_scheduling
-      .approveAndScheduleBuildCollaborationDraft,
+    api.build_collaboration_scheduling.approveAndScheduleBuildCollaborationDraft
   );
   const beginAssetUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
   const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage,
+      .registerBuildCollaborationAssetUploadedStorage
   );
   const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload,
+      .finalizeAndScanBuildCollaborationAssetUpload
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerExtrasOpen, setComposerExtrasOpen] = useState(false);
@@ -921,10 +960,10 @@ function BuildCollaborationFeedContent({
           buildId: activeBuildId,
           organizationId,
         }
-      : "skip",
+      : "skip"
   );
   const composerAssetStatusById = new Map(
-    (composerAssetStatuses ?? []).map((asset) => [asset._id, asset]),
+    (composerAssetStatuses ?? []).map((asset) => [asset._id, asset])
   );
   const composerAssets: BuildCollaborationAssetSummary[] =
     attachmentAssetIds.map((assetId) => {
@@ -959,7 +998,7 @@ function BuildCollaborationFeedContent({
   >(null);
   const [scheduledForInput, setScheduledForInput] = useState("");
   const [offlineCapturedAt, setOfflineCapturedAt] = useState<number | null>(
-    null,
+    null
   );
   const [offlineDraft, setOfflineDraft] =
     useState<BuildCollaborationOfflineDraft | null>(null);
@@ -1034,9 +1073,27 @@ function BuildCollaborationFeedContent({
     focusedEntityReference,
     resolvedDetailTarget?.kind,
   ]);
-  const openActionItemSheet = (actionItemId: Id<"buildActionItems">) => {
+  const openDetailTarget = (target: BuildDetailTarget) => {
+    if (target.kind === "submilestone") {
+      setActionItemSheetTarget(null);
+      const href = buildDetailTargetSheetHref(window.location.href, target);
+      if (!onOpenReference) {
+        window.history.replaceState(window.history.state, "", href);
+        return;
+      }
+      onOpenReference({
+        entityId: target.submilestoneId,
+        entityKind: "submilestone",
+        href,
+      });
+      return;
+    }
+    if (target.kind !== "actionItem") {
+      return;
+    }
+    const actionItemId = target.actionItemId;
     setActionItemSheetTarget({ actionItemId, kind: "detail" });
-    const href = buildActionItemSheetHref(window.location.href, actionItemId);
+    const href = buildDetailTargetSheetHref(window.location.href, target);
     onOpenReference?.({
       entityId: actionItemId,
       entityKind: "actionItem",
@@ -1054,25 +1111,25 @@ function BuildCollaborationFeedContent({
       organizationId,
       reference: focusedReference,
     }),
-    { initialNumItems: 20 },
+    { initialNumItems: 20 }
   );
   const personalQueue = actionItemQueueState(personalActionItems);
   const buildQueue = actionItemQueueState(buildActionItems);
   const entityQueue = actionItemQueueState(focusedEntityActionItems);
   const tagOptions = useMemo<ReferenceOption[]>(
     () => (rawTagOptions ?? []).map(toCollaborationTagOption),
-    [rawTagOptions],
+    [rawTagOptions]
   );
   const referenceByKey = useMemo<Map<string, ReferenceOption>>(
     () =>
       new Map(
-        tagOptions.map((option) => [`${option.kind}:${option.id}`, option]),
+        tagOptions.map((option) => [`${option.kind}:${option.id}`, option])
       ),
-    [tagOptions],
+    [tagOptions]
   );
   const directlyFocusedReference = useMemo(
     () => directFocusedReference(focusedReferenceContext),
-    [focusedReferenceContext],
+    [focusedReferenceContext]
   );
   const focusedDetailActionItemId =
     resolvedDetailTarget?.kind === "actionItem"
@@ -1117,14 +1174,17 @@ function BuildCollaborationFeedContent({
     window.history.replaceState(window.history.state, "", result.href);
   };
   const openActionItemSheetReference = (
-    reference: CollaborationTagReference,
+    reference: CollaborationTagReference
   ) => {
     const option = referenceByKey.get(`${reference.kind}:${reference.id}`);
     if (!option) {
       return;
     }
     if (option.entityKind === "actionItem") {
-      openActionItemSheet(option.id as Id<"buildActionItems">);
+      openDetailTarget({
+        actionItemId: option.id as Id<"buildActionItems">,
+        kind: "actionItem",
+      });
       return;
     }
     if (onOpenReference) {
@@ -1139,21 +1199,21 @@ function BuildCollaborationFeedContent({
     focusReference(option);
   };
   const participants = tagOptions.filter(
-    (option) => option.kind === "participant",
+    (option) => option.kind === "participant"
   );
   const feedEntries = useMemo(
     () =>
       mergeFocusedPostEntry(
         feed.results as CollaborationFeedEntry[],
-        focusedPostContext,
+        focusedPostContext
       ),
-    [feed.results, focusedPostContext],
+    [feed.results, focusedPostContext]
   );
   const planningFeed = useBuildPlanningReconciliation({
     buildId: activeBuildId,
     enabled: feedEntries.some(
       (entry) =>
-        entry.kind === "post" && entry.post.systemPost?.kind === "milestone",
+        entry.kind === "post" && entry.post.systemPost?.kind === "milestone"
     ),
     organizationId,
   });
@@ -1165,7 +1225,7 @@ function BuildCollaborationFeedContent({
     if (
       !focusedPostId ||
       feedEntries.some(
-        (entry) => entry.kind === "post" && entry.post._id === focusedPostId,
+        (entry) => entry.kind === "post" && entry.post._id === focusedPostId
       ) ||
       feed.status !== "CanLoadMore"
     ) {
@@ -1198,7 +1258,7 @@ function BuildCollaborationFeedContent({
         }
         if (filter === "actionable") {
           return entry.actionItems.some(
-            (item) => item.status !== "done" && item.status !== "cancelled",
+            (item) => item.status !== "done" && item.status !== "cancelled"
           );
         }
         if (filter === "active_operations") {
@@ -1215,7 +1275,7 @@ function BuildCollaborationFeedContent({
         }
         return true;
       }),
-    [feedEntries, filter],
+    [feedEntries, filter]
   );
   const {
     displayedResults: commentFocusedResults,
@@ -1256,7 +1316,7 @@ function BuildCollaborationFeedContent({
   };
 
   const buildComposerBundle = (
-    assets = attachmentAssetIds,
+    assets = attachmentAssetIds
   ): CollaborationDraftBundle | null => {
     const plainText = plainTextFromDocument(document);
     if (!plainText) {
@@ -1300,7 +1360,7 @@ function BuildCollaborationFeedContent({
       draftIdentity.workosUserId !== sessionWorkosUserId
     ) {
       toast.error(
-        "Your authenticated collaboration identity is still being verified.",
+        "Your authenticated collaboration identity is still being verified."
       );
       return false;
     }
@@ -1309,7 +1369,7 @@ function BuildCollaborationFeedContent({
 
   const preserveConflictedComposer = async (
     error: unknown,
-    bundle: CollaborationDraftBundle | null,
+    bundle: CollaborationDraftBundle | null
   ) => {
     const message = error instanceof Error ? error.message : "";
     if (
@@ -1338,7 +1398,7 @@ function BuildCollaborationFeedContent({
       setOfflineDraft(preserved);
     } catch {
       toast.error(
-        "The server rejected the stale revision and the private device copy could not be refreshed. Keep this composer open while resolving the conflict.",
+        "The server rejected the stale revision and the private device copy could not be refreshed. Keep this composer open while resolving the conflict."
       );
     }
   };
@@ -1466,7 +1526,7 @@ function BuildCollaborationFeedContent({
           finalizeAndScan: finalizeAndScanAsset,
           organizationId,
           registerUpload: registerAssetUpload,
-        },
+        }
       );
       const bundle = buildComposerBundle([
         ...new Set([...attachmentAssetIds, ...uploadedAssetIds]),
@@ -1515,13 +1575,13 @@ function BuildCollaborationFeedContent({
   };
 
   const removeComposerAttachment = async (
-    asset: BuildCollaborationAssetSummary,
+    asset: BuildCollaborationAssetSummary
   ) => {
     if (publishing) {
       return;
     }
     const retainedAssetIds = attachmentAssetIds.filter(
-      (assetId) => assetId !== asset.assetId,
+      (assetId) => assetId !== asset.assetId
     );
     setPublishing(true);
     try {
@@ -1529,7 +1589,7 @@ function BuildCollaborationFeedContent({
         const bundle = buildComposerBundle(retainedAssetIds);
         if (!bundle) {
           throw new Error(
-            "The draft content must remain valid while removing an attachment.",
+            "The draft content must remain valid while removing an attachment."
           );
         }
         const saved = await saveDraft({
@@ -1560,7 +1620,7 @@ function BuildCollaborationFeedContent({
   };
 
   const persistComposerDraft = async (
-    input: { scheduledFor?: number } = {},
+    input: { scheduledFor?: number } = {}
   ) => {
     if (!organizationId) {
       throw new Error("The Build organization is unavailable.");
@@ -1592,7 +1652,7 @@ function BuildCollaborationFeedContent({
           finalizeAndScan: finalizeAndScanAsset,
           organizationId,
           registerUpload: registerAssetUpload,
-        },
+        }
       );
       if (uploadedAssetIds.length > 0) {
         const finalBundle = buildComposerBundle([
@@ -1727,7 +1787,7 @@ function BuildCollaborationFeedContent({
     setReferences(
       bundle.references.map((reference) => {
         const option = referenceByKey.get(
-          `${reference.entityKind}:${reference.entityId}`,
+          `${reference.entityKind}:${reference.entityId}`
         );
         return {
           eyebrow: option?.eyebrow ?? "Build reference",
@@ -1736,15 +1796,15 @@ function BuildCollaborationFeedContent({
           label: reference.label,
           summary: reference.summary ?? option?.summary ?? "",
         };
-      }),
+      })
     );
     setRequestedReaderIds(bundle.requestedReaderIds);
     setComposerExtrasOpen(
       Boolean(
         bundle.acknowledgementRequired ||
-        bundle.actionItems.length > 0 ||
-        bundle.attachmentAssetIds.length > 0,
-      ),
+          bundle.actionItems.length > 0 ||
+          bundle.attachmentAssetIds.length > 0
+      )
     );
     setDraftConflictMessage(null);
     setComposerOpen(true);
@@ -1761,7 +1821,7 @@ function BuildCollaborationFeedContent({
     setEditingHumanDraftRevision(draft.revision);
     setOfflineCapturedAt(draft.offlineCapturedAt ?? null);
     setScheduledForInput(
-      draft.scheduledFor ? toLocalDateTimeInput(draft.scheduledFor) : "",
+      draft.scheduledFor ? toLocalDateTimeInput(draft.scheduledFor) : ""
     );
   };
 
@@ -1774,13 +1834,13 @@ function BuildCollaborationFeedContent({
     setOfflineCapturedAt(offlineDraft.capturedAt);
     setEditingHumanDraftId(
       (offlineDraft.draftId as Id<"buildCollaborationDrafts"> | undefined) ??
-        null,
+        null
     );
     setEditingHumanDraftRevision(offlineDraft.expectedRevision ?? null);
     setScheduledForInput(
       offlineDraft.scheduledFor
         ? toLocalDateTimeInput(offlineDraft.scheduledFor)
-        : "",
+        : ""
     );
   };
 
@@ -1818,16 +1878,17 @@ function BuildCollaborationFeedContent({
           loadingMore={personalQueue.loadingMore}
           onLoadMore={personalQueue.loadMore}
           onOpen={(row) => {
+            const target = classifyCollaborationActionItem(row.item).target;
             if (row.buildId === activeBuildId) {
-              openActionItemSheet(row.item._id);
+              openDetailTarget(target);
               return;
             }
             window.location.assign(
-              buildActionItemQueueHref(
+              buildDetailTargetQueueHref(
                 window.location.href,
                 row.buildId,
-                row.item._id,
-              ),
+                target
+              )
             );
           }}
           rows={personalQueue.rows}
@@ -1997,7 +2058,7 @@ function BuildCollaborationFeedContent({
                                   toast.error(
                                     error instanceof Error
                                       ? error.message
-                                      : "Unable to publish draft.",
+                                      : "Unable to publish draft."
                                   );
                                 } finally {
                                   setPublishing(false);
@@ -2021,7 +2082,7 @@ function BuildCollaborationFeedContent({
                                 toast.error(
                                   error instanceof Error
                                     ? error.message
-                                    : "Unable to discard draft.",
+                                    : "Unable to discard draft."
                                 );
                               }
                             }}
@@ -2058,7 +2119,7 @@ function BuildCollaborationFeedContent({
                                     scheduledFor: draft.scheduledFor,
                                   });
                                   toast.success(
-                                    "Exact bundle approved and scheduled under your name.",
+                                    "Exact bundle approved and scheduled under your name."
                                   );
                                 } else {
                                   await publishDraft({
@@ -2067,7 +2128,7 @@ function BuildCollaborationFeedContent({
                                     organizationId,
                                   });
                                   toast.success(
-                                    "Draft approved and published under your name.",
+                                    "Draft approved and published under your name."
                                   );
                                 }
                                 setReviewingDraftId(null);
@@ -2075,7 +2136,7 @@ function BuildCollaborationFeedContent({
                                 toast.error(
                                   error instanceof Error
                                     ? error.message
-                                    : "Unable to publish draft.",
+                                    : "Unable to publish draft."
                                 );
                               } finally {
                                 setPublishing(false);
@@ -2242,15 +2303,15 @@ function BuildCollaborationFeedContent({
                           >
                             <input
                               checked={requestedReaderIds.includes(
-                                participant.id,
+                                participant.id
                               )}
                               onChange={(event) =>
                                 setRequestedReaderIds((current) =>
                                   event.target.checked
                                     ? [...new Set([...current, participant.id])]
                                     : current.filter(
-                                        (id) => id !== participant.id,
-                                      ),
+                                        (id) => id !== participant.id
+                                      )
                                 )
                               }
                               type="checkbox"
@@ -2286,7 +2347,7 @@ function BuildCollaborationFeedContent({
                           "text-xs",
                           autosaveStatus === "error"
                             ? "text-destructive"
-                            : "text-muted-foreground",
+                            : "text-muted-foreground"
                         )}
                         role="status"
                       >
@@ -2324,7 +2385,7 @@ function BuildCollaborationFeedContent({
                           aria-hidden="true"
                           className={cn(
                             "size-4 transition-transform",
-                            composerExtrasOpen && "rotate-180",
+                            composerExtrasOpen && "rotate-180"
                           )}
                         />
                       </CollapsibleTrigger>
@@ -2345,8 +2406,8 @@ function BuildCollaborationFeedContent({
                                 id="build-collaboration-scheduled-for"
                                 min={toLocalDateTimeInput(
                                   minimumScheduledPublicationTimestamp(
-                                    Date.now(),
-                                  ),
+                                    Date.now()
+                                  )
                                 )}
                                 onChange={(event) =>
                                   setScheduledForInput(event.target.value)
@@ -2392,7 +2453,7 @@ function BuildCollaborationFeedContent({
                                 checked={acknowledgementRequired}
                                 onChange={(event) =>
                                   setAcknowledgementRequired(
-                                    event.target.checked,
+                                    event.target.checked
                                   )
                                 }
                                 type="checkbox"
@@ -2508,11 +2569,9 @@ function BuildCollaborationFeedContent({
                 setActionItemSheetTarget({ kind: "create", postId })
               }
               onFocusReference={focusReference}
-              onOpenActionItem={(actionItemId) =>
-                openActionItemSheet(actionItemId)
-              }
-              organizationId={organizationId}
               onLoadMorePlanningDiffs={planningFeed.loadMoreDiffPages}
+              onOpenActionItem={openDetailTarget}
+              organizationId={organizationId}
               planningDiffsLoadingMore={planningFeed.diffsLoadingMore}
               planningReconciliation={planningFeed.planningReconciliation}
               referenceByKey={referenceByKey}
@@ -2520,7 +2579,7 @@ function BuildCollaborationFeedContent({
               viewerRole={viewerRole}
               viewerRoles={viewerRoles}
             />
-          ) : null,
+          ) : null
         )}
         {feed.status === "CanLoadMore" ? (
           <Button
@@ -2551,8 +2610,8 @@ function BuildCollaborationFeedContent({
           title="Pinned"
           value={String(
             feedEntries.filter(
-              (entry) => entry.kind === "post" && entry.pins.length > 0,
-            ).length,
+              (entry) => entry.kind === "post" && entry.pins.length > 0
+            ).length
           )}
         />
         <BuildCollaborationActionItemQueue
@@ -2561,7 +2620,9 @@ function BuildCollaborationFeedContent({
           loading={buildQueue.loading}
           loadingMore={buildQueue.loadingMore}
           onLoadMore={buildQueue.loadMore}
-          onOpen={(row) => openActionItemSheet(row.item._id)}
+          onOpen={(row) =>
+            openDetailTarget(classifyCollaborationActionItem(row.item).target)
+          }
           rows={buildQueue.rows}
           title="Build Action Items"
         />
@@ -2612,9 +2673,9 @@ function BuildCollaborationFeedContent({
             `${focusedReference?.entityKind}:${focusedReference?.id}`
         }
         onLoadMoreActionItems={entityQueue.loadMore}
-        onOpenActionItem={(actionItemId) => {
+        onOpenActionItem={(row) => {
           setFocusedReference(null);
-          openActionItemSheet(actionItemId);
+          openDetailTarget(classifyCollaborationActionItem(row.item).target);
         }}
         onOpenChange={(open) => {
           if (!open) {
@@ -2681,7 +2742,7 @@ async function ensureComposerDraftId(input: {
       organizationId: string;
       preparedByAgent: boolean;
       scheduledFor?: number;
-    },
+    }
   ) => Promise<{
     bundleJson: string;
     draftId: Id<"buildCollaborationDrafts">;
@@ -2802,13 +2863,13 @@ function CollaborationPostHeader({
   organizationId: string;
 }) {
   const toggleBuildPin = useBuildCollaborationMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationPin,
+    api.build_collaboration_threads.toggleBuildCollaborationPin
   );
   const togglePersonalPin = useBuildCollaborationPersonalMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationPin,
+    api.build_collaboration_threads.toggleBuildCollaborationPin
   );
   const toggleFollow = useBuildCollaborationPersonalMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationFollow,
+    api.build_collaboration_threads.toggleBuildCollaborationFollow
   );
   const savePost = (kind: "build" | "personal") =>
     (kind === "build" ? toggleBuildPin : togglePersonalPin)({
@@ -2822,8 +2883,8 @@ function CollaborationPostHeader({
           ? error.message
           : kind === "build"
             ? "Unable to pin post."
-            : "Unable to save post.",
-      ),
+            : "Unable to save post."
+      )
     );
   const followPost = () =>
     toggleFollow({
@@ -2834,8 +2895,8 @@ function CollaborationPostHeader({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to update follow state.",
-      ),
+          : "Unable to update follow state."
+      )
     );
   const canViewHistory =
     entry.post.viewerIsAuthor ||
@@ -2883,7 +2944,7 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
   const systemLifecycle = entry.post.systemPost?.lifecycle;
   const announcementProminent = useAnnouncementProminence(
     entry.post.announcementExpiresAt,
-    entry.post.announcementProminent,
+    entry.post.announcementProminent
   );
   return (
     <>
@@ -2926,7 +2987,7 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
 
 function useAnnouncementProminence(
   expiresAt: number | undefined,
-  serverProminent: boolean,
+  serverProminent: boolean
 ) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -2936,7 +2997,7 @@ function useAnnouncementProminence(
     }
     const timeout = window.setTimeout(
       () => setNow(Date.now()),
-      Math.min(expiresAt - Date.now() + 1, 2_147_483_647),
+      Math.min(expiresAt - Date.now() + 1, 2_147_483_647)
     );
     return () => window.clearTimeout(timeout);
   }, [expiresAt]);
@@ -2973,7 +3034,7 @@ function CollaborationPostActions({
   const hasHistoryActions = canViewHistory;
   const hasModerationActions = mutationsAllowed && canUseModeration;
   const hasCoordinationActions = coordinationVisible;
-  if (!hasHistoryActions && !hasModerationActions && !hasCoordinationActions) {
+  if (!(hasHistoryActions || hasModerationActions || hasCoordinationActions)) {
     return null;
   }
   return (
@@ -3046,7 +3107,7 @@ function CollaborationPostFooter({
   organizationId: string;
 }) {
   const acknowledge = useBuildCollaborationMutation(
-    api.build_collaboration_acknowledgements.acknowledgeBuildCollaborationPost,
+    api.build_collaboration_acknowledgements.acknowledgeBuildCollaborationPost
   );
   const acknowledgePost = async () => {
     try {
@@ -3060,13 +3121,13 @@ function CollaborationPostFooter({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to acknowledge this post.",
+          : "Unable to acknowledge this post."
       );
     }
   };
   const latestReceipt = entry.receipts.reduce(
     (latest, receipt) => Math.max(latest, receipt.lastViewedAt),
-    0,
+    0
   );
 
   return (
@@ -3177,7 +3238,7 @@ function CollaborationPostCard({
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onLoadMorePlanningDiffs: () => void;
-  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
+  onOpenActionItem: (target: BuildDetailTarget) => void;
   organizationId: string;
   planningDiffsLoadingMore: boolean;
   planningReconciliation?: CollaborationPlanningReconciliation;
@@ -3190,13 +3251,13 @@ function CollaborationPostCard({
   useFocusedCollaborationPostCard(cardRef, focusedPost);
   const focusPresentation = focusedPostCardPresentation(focusedPost);
   const [tab, setTab] = useState<"actions" | "discussion" | null>(() =>
-    focusedCommentId ? "discussion" : null,
+    focusedCommentId ? "discussion" : null
   );
   const [actionView, setActionView] = useState<"board" | "list">(
-    readActionItemViewPreference,
+    readActionItemViewPreference
   );
   const [editTarget, setEditTarget] = useState<CollaborationEditTarget | null>(
-    null,
+    null
   );
   const [moderationTarget, setModerationTarget] =
     useState<BuildCollaborationModerationEntity | null>(null);
@@ -3206,35 +3267,35 @@ function CollaborationPostCard({
     entry.post.systemPost.drawCoordination?.eligible === true;
   const canEdit = Boolean(
     mutationsAllowed &&
-    drawCoordinationVisible &&
-    entry.post.viewerCanEdit &&
-    entry.post.contentState === "active",
+      drawCoordinationVisible &&
+      entry.post.viewerCanEdit &&
+      entry.post.contentState === "active"
   );
   const participants = tagOptions.filter(
-    (option) => option.kind === "participant",
+    (option) => option.kind === "participant"
   );
   const markViewed = useBuildCollaborationMutation(
-    api.build_collaboration_threads.markBuildCollaborationPostViewed,
+    api.build_collaboration_threads.markBuildCollaborationPostViewed
   );
   const transitionAction = useBuildCollaborationMutation(
-    api.build_action_item_workflow.transitionBuildActionItem,
+    api.build_action_item_workflow.transitionBuildActionItem
   );
   const addReplacementComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.addBuildCollaborationComment,
+    api.build_collaboration_threads.addBuildCollaborationComment
   );
   const beginReplacementUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
   const registerReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage,
+      .registerBuildCollaborationAssetUploadedStorage
   );
   const finalizeAndScanReplacement = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload,
+      .finalizeAndScanBuildCollaborationAssetUpload
   );
   const abandonReplacementAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
 
   useEffect(() => {
@@ -3261,7 +3322,7 @@ function CollaborationPostCard({
     if (
       focusedReference?.startsWith("actionItem:") &&
       entry.actionItems.some(
-        (item) => item._id === focusedReference.slice("actionItem:".length),
+        (item) => item._id === focusedReference.slice("actionItem:".length)
       )
     ) {
       setTab("actions");
@@ -3307,7 +3368,7 @@ function CollaborationPostCard({
     const observer = new IntersectionObserver(
       ([intersection]) => {
         visible = Boolean(
-          intersection?.isIntersecting && intersection.intersectionRatio >= 0.5,
+          intersection?.isIntersecting && intersection.intersectionRatio >= 0.5
         );
         if (visible) {
           scheduleReceipt();
@@ -3315,7 +3376,7 @@ function CollaborationPostCard({
           cancelPendingReceipt();
         }
       },
-      { threshold: [0.5] },
+      { threshold: [0.5] }
     );
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -3342,7 +3403,7 @@ function CollaborationPostCard({
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
     file: File,
-    parentCommentId?: Id<"buildCollaborationComments">,
+    parentCommentId?: Id<"buildCollaborationComments">
   ) => {
     let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
@@ -3388,7 +3449,7 @@ function CollaborationPostCard({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to publish the attachment replacement.",
+          : "Unable to publish the attachment replacement."
       );
     }
   };
@@ -3399,7 +3460,7 @@ function CollaborationPostCard({
       entity: { kind: "post", postId: entry.post._id },
       references: collaborationReferencesForEditor(
         entry.references,
-        referenceByKey,
+        referenceByKey
       ),
       revision: entry.post.revision,
     });
@@ -3470,7 +3531,7 @@ function CollaborationPostCard({
             {entry.references.map((reference) => {
               const kind = toEditorReferenceKind(reference.entityKind);
               const option = referenceByKey.get(
-                `${kind}:${reference.entityId}`,
+                `${kind}:${reference.entityId}`
               );
               return (
                 <BuildCollaborationReferenceChip
@@ -3510,18 +3571,18 @@ function CollaborationPostCard({
                 "grid border-y",
                 entry.post.systemPost?.kind === "draw"
                   ? "grid-cols-1"
-                  : "grid-cols-2",
+                  : "grid-cols-2"
               )}
             >
               <button
                 aria-expanded={tab === "discussion"}
                 className={cn(
                   "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
-                  tab === "discussion" && "bg-primary/10 text-foreground",
+                  tab === "discussion" && "bg-primary/10 text-foreground"
                 )}
                 onClick={() =>
                   setTab((current) =>
-                    current === "discussion" ? null : "discussion",
+                    current === "discussion" ? null : "discussion"
                   )
                 }
                 type="button"
@@ -3529,16 +3590,16 @@ function CollaborationPostCard({
                 <MessageCircle aria-hidden="true" className="size-4" />
                 Discussion {entry.post.commentCount}
               </button>
-              {entry.post.systemPost?.kind !== "draw" ? (
+              {entry.post.systemPost?.kind === "draw" ? null : (
                 <button
                   aria-expanded={tab === "actions"}
                   className={cn(
                     "flex min-h-11 items-center justify-center gap-2 text-sm",
-                    tab === "actions" && "bg-primary/10 text-foreground",
+                    tab === "actions" && "bg-primary/10 text-foreground"
                   )}
                   onClick={() =>
                     setTab((current) =>
-                      current === "actions" ? null : "actions",
+                      current === "actions" ? null : "actions"
                     )
                   }
                   type="button"
@@ -3546,7 +3607,7 @@ function CollaborationPostCard({
                   <Flag aria-hidden="true" className="size-4" />
                   Action Items {entry.actionItems.length}
                 </button>
-              ) : null}
+              )}
             </div>
           ) : null}
           {drawCoordinationVisible && tab === "discussion" ? (
@@ -3603,7 +3664,7 @@ function CollaborationPostCard({
                   actionItemId,
                   status,
                   reason,
-                  expectedRevision,
+                  expectedRevision
                 ) => {
                   try {
                     await transitionAction({
@@ -3618,7 +3679,7 @@ function CollaborationPostCard({
                     toast.error(
                       error instanceof Error
                         ? error.message
-                        : "Unable to move Action Item.",
+                        : "Unable to move Action Item."
                     );
                   }
                 }}
@@ -3688,7 +3749,7 @@ function planningSnapshotFromEntities(
     entityType: string;
     planningState: "active" | "superseded";
     snapshot: unknown;
-  }>,
+  }>
 ) {
   const snapshot = {
     allocations: [] as typeof entities,
@@ -3700,12 +3761,15 @@ function planningSnapshotFromEntities(
     submilestones: [] as typeof entities,
   };
   for (const entity of entities) {
-    if (entity.entityType === "milestone") snapshot.milestones.push(entity);
-    else if (entity.entityType === "submilestone") {
+    if (entity.entityType === "milestone") {
+      snapshot.milestones.push(entity);
+    } else if (entity.entityType === "submilestone") {
       snapshot.submilestones.push(entity);
-    } else if (entity.entityType === "draw") snapshot.draws.push(entity);
-    else if (entity.entityType === "budget") snapshot.budgets.push(entity);
-    else if (entity.entityType === "allocation") {
+    } else if (entity.entityType === "draw") {
+      snapshot.draws.push(entity);
+    } else if (entity.entityType === "budget") {
+      snapshot.budgets.push(entity);
+    } else if (entity.entityType === "allocation") {
       snapshot.allocations.push(entity);
     } else if (entity.entityType === "evidenceRequirement") {
       snapshot.evidenceRequirements.push(entity);
@@ -3744,7 +3808,7 @@ function CollaborationComment({
   onReplaceAsset: (
     asset: BuildCollaborationAssetSummary,
     file: File,
-    parentCommentId?: Id<"buildCollaborationComments">,
+    parentCommentId?: Id<"buildCollaborationComments">
   ) => Promise<void>;
   onReply: (commentId: Id<"buildCollaborationComments">) => void;
   onTreeFocus: (commentId: Id<"buildCollaborationComments">) => void;
@@ -3775,7 +3839,7 @@ function CollaborationComment({
         row.comment.viewerIsAuthor &&
         row.comment.contentState === "active",
       document: parseDocument(
-        row.revision?.tiptapJson ?? JSON.stringify(emptyDocument()),
+        row.revision?.tiptapJson ?? JSON.stringify(emptyDocument())
       ),
       entity: {
         commentId: row.comment._id,
@@ -3783,7 +3847,7 @@ function CollaborationComment({
       },
       references: collaborationReferencesForEditor(
         row.references,
-        referenceByKey,
+        referenceByKey
       ),
       revision: row.comment.revision,
     });
@@ -3796,7 +3860,7 @@ function CollaborationComment({
       aria-level={row.comment.logicalDepth + 1}
       className={cn(
         "flex gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        focused && "ring-2 ring-primary/40",
+        focused && "ring-2 ring-primary/40"
       )}
       data-testid={`collaboration-comment-${row.comment._id}`}
       data-tree-comment-id={row.comment._id}
@@ -3954,7 +4018,7 @@ function CollaborationCommentReactions({
   row: CollaborationCommentRow;
 }) {
   const reactToComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.reactToBuildCollaborationComment,
+    api.build_collaboration_threads.reactToBuildCollaborationComment
   );
   if (!mutationsAllowed || row.comment.contentState !== "active") {
     return null;
@@ -3966,7 +4030,7 @@ function CollaborationCommentReactions({
   for (const reaction of row.reactions ?? []) {
     reactionCounts.set(
       reaction.reaction,
-      (reactionCounts.get(reaction.reaction) ?? 0) + 1,
+      (reactionCounts.get(reaction.reaction) ?? 0) + 1
     );
   }
   return (
@@ -3985,8 +4049,8 @@ function CollaborationCommentReactions({
               toast.error(
                 error instanceof Error
                   ? error.message
-                  : "Unable to react to this reply.",
-              ),
+                  : "Unable to react to this reply."
+              )
             )
           }
           size="xs"
@@ -4017,7 +4081,7 @@ function CollaborationCommentPin({
   row: CollaborationCommentRow;
 }) {
   const togglePin = useBuildCollaborationMutation(
-    api.build_collaboration_threads.toggleBuildCollaborationPin,
+    api.build_collaboration_threads.toggleBuildCollaborationPin
   );
   if (!(mutationsAllowed && row.comment.viewerCanPin)) {
     return null;
@@ -4034,10 +4098,8 @@ function CollaborationCommentPin({
           postId,
         }).catch((error) =>
           toast.error(
-            error instanceof Error
-              ? error.message
-              : "Unable to pin this reply.",
-          ),
+            error instanceof Error ? error.message : "Unable to pin this reply."
+          )
         )
       }
       size="xs"
@@ -4075,7 +4137,7 @@ function CollaborationDiscussion({
   onReplaceAsset: (
     asset: BuildCollaborationAssetSummary,
     file: File,
-    parentCommentId?: Id<"buildCollaborationComments">,
+    parentCommentId?: Id<"buildCollaborationComments">
   ) => Promise<void>;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
@@ -4084,37 +4146,38 @@ function CollaborationDiscussion({
 }) {
   const listComments = useQuery(
     api.build_collaboration_threads.listBuildCollaborationComments,
-    { buildId, organizationId, postId },
+    { buildId, organizationId, postId }
   );
   const focusedContext = useQuery(
     api.build_collaboration_threads.getFocusedBuildCollaborationCommentContext,
     focusedCommentId
       ? { buildId, commentId: focusedCommentId, organizationId }
-      : "skip",
+      : "skip"
   );
   const addComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.addBuildCollaborationComment,
+    api.build_collaboration_threads.addBuildCollaborationComment
   );
   const beginAssetUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
   const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage,
+      .registerBuildCollaborationAssetUploadedStorage
   );
   const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload,
+      .finalizeAndScanBuildCollaborationAssetUpload
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const react = useBuildCollaborationMutation(
-    api.build_collaboration_threads.reactToBuildCollaborationPost,
+    api.build_collaboration_threads.reactToBuildCollaborationPost
   );
   const [replyHtml, setReplyHtml] = useState("");
-  const [replyDocument, setReplyDocument] =
-    useState<JSONContent>(emptyDocument());
+  const [replyDocument, setReplyDocument] = useState<JSONContent>(
+    emptyDocument()
+  );
   const [replyReferences, setReplyReferences] = useState<
     CollaborationTagReference[]
   >([]);
@@ -4140,14 +4203,14 @@ function CollaborationDiscussion({
     }
   }, [effectiveFocusCommentId]);
   const replyingToRow = (comments ?? []).find(
-    (row) => row.comment._id === replyingTo,
+    (row) => row.comment._id === replyingTo
   );
   const restoreReplyFocus = (commentId?: Id<"buildCollaborationComments">) => {
     if (!commentId) {
       return;
     }
     requestAnimationFrame(() =>
-      document.getElementById(`reply-to-${commentId}`)?.focus(),
+      document.getElementById(`reply-to-${commentId}`)?.focus()
     );
   };
 
@@ -4203,7 +4266,7 @@ function CollaborationDiscussion({
         reason: "Reply publication failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to publish reply.",
+        error instanceof Error ? error.message : "Unable to publish reply."
       );
     } finally {
       setSubmittingReply(false);
@@ -4216,7 +4279,7 @@ function CollaborationDiscussion({
     }
     const items = Array.from(
       threadRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ??
-        [],
+        []
     );
     if (items.length === 0) {
       return;
@@ -4362,8 +4425,8 @@ function CollaborationDiscussion({
                       toast.error(
                         error instanceof Error
                           ? error.message
-                          : "Unable to react to this post.",
-                      ),
+                          : "Unable to react to this post."
+                      )
                     )
                   }
                   size="xs"
@@ -4372,7 +4435,7 @@ function CollaborationDiscussion({
                 >
                   {reactionLabel(reaction)}
                 </Button>
-              ),
+              )
             )}
           </div>
           {replyComposerOpen ? (
@@ -4497,13 +4560,13 @@ function mergeFocusedPostEntry(
   entries: CollaborationFeedEntry[],
   context?:
     | { entry: CollaborationFeedPostEntry; state: "visible" }
-    | { state: "revoked" },
+    | { state: "revoked" }
 ) {
   if (
     context?.state !== "visible" ||
     entries.some(
       (entry) =>
-        entry.kind === "post" && entry.post._id === context.entry.post._id,
+        entry.kind === "post" && entry.post._id === context.entry.post._id
     )
   ) {
     return entries;
@@ -4525,14 +4588,14 @@ function focusedPostCollaborationResults({
   }
   const focusedPostEntry = feedEntries.find(
     (entry): entry is CollaborationFeedPostEntry =>
-      entry.kind === "post" && entry.post._id === focusedPostId,
+      entry.kind === "post" && entry.post._id === focusedPostId
   );
   if (!focusedPostEntry) {
     return otherwise;
   }
   return otherwise.some(
     (entry) =>
-      entry.kind === "post" && entry.post._id === focusedPostEntry.post._id,
+      entry.kind === "post" && entry.post._id === focusedPostEntry.post._id
   )
     ? otherwise
     : [focusedPostEntry, ...otherwise];
@@ -4540,7 +4603,7 @@ function focusedPostCollaborationResults({
 
 function useFocusedCollaborationPostCard(
   cardRef: React.RefObject<HTMLDivElement | null>,
-  focused: boolean,
+  focused: boolean
 ) {
   useEffect(() => {
     if (!focused) {
@@ -4588,14 +4651,14 @@ function focusedCommentCollaborationResults({
     };
   }
   const focusedPostEntry = feedEntries.find(
-    (entry) => entry.kind === "post" && entry.post._id === context.postId,
+    (entry) => entry.kind === "post" && entry.post._id === context.postId
   );
   return {
     displayedResults:
       focusedPostEntry &&
       !visibleResults.some(
         (entry) =>
-          entry.kind === "post" && entry.post._id === focusedPostEntry.post._id,
+          entry.kind === "post" && entry.post._id === focusedPostEntry.post._id
       )
         ? [focusedPostEntry, ...visibleResults]
         : visibleResults,
@@ -4635,7 +4698,7 @@ function searchResultReference(result: BuildCollaborationSearchResult) {
 
 function collaborationReferencesForEditor(
   references: CollaborationFeedPostEntry["references"],
-  referenceByKey: Map<string, ReferenceOption>,
+  referenceByKey: Map<string, ReferenceOption>
 ) {
   return references.map((reference) => {
     const kind = toEditorReferenceKind(reference.entityKind);

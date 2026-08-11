@@ -27,14 +27,14 @@ describe("Build detail targets", () => {
     (focus) => expect(parseBuildDetailFocus(focus)).toBeUndefined(),
   );
 
-  test("serializes a canonical Sub-milestone through its companion focus", () => {
+  test("normalizes new canonical Sub-milestone links while retaining companion context", () => {
     expect(
       focusForBuildDetailTarget({
         companionId: "action-01" as Id<"buildActionItems">,
         kind: "submilestone",
         submilestoneId: "submilestone-01" as Id<"buildSubmilestones">,
       }),
-    ).toBe("actionItem:action-01");
+    ).toBe("submilestone:submilestone-01");
   });
 
   test("compares the canonical and retained companion identities", () => {

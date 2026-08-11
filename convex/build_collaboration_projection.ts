@@ -26,7 +26,7 @@ const MAX_ACTION_ITEMS_PER_POST = 100;
 const PROPOSAL_ROW_OCCURRENCE_PATTERN = /proposal-row:([^:/]+)/;
 const LEGACY_DRAW_KEY_OCCURRENCE_PATTERN = /legacy-key:([^:]+)/;
 
-type SystemMilestonePlanningSummary = {
+interface SystemMilestonePlanningSummary {
   attention: {
     assignmentGaps: number;
     dependencyExceptions: number;
@@ -44,9 +44,9 @@ type SystemMilestonePlanningSummary = {
   };
   lifecycle: "open" | "resolved" | "reopened";
   readyForApproval: boolean;
-};
+}
 
-type SystemDrawFacts = {
+interface SystemDrawFacts {
   approval: {
     approvedAt?: string;
     note?: string;
@@ -128,7 +128,7 @@ type SystemDrawFacts = {
     count: number;
     requested: number;
   };
-};
+}
 
 function deriveSystemMilestonePlanningSummary(input: {
   actionItems: Array<{
@@ -185,11 +185,15 @@ function deriveSystemMilestonePlanningSummary(input: {
   let readyCount = 0;
   for (const actionItem of input.actionItems) {
     const presentation = actionItem.systemPresentation;
-    if (!presentation) continue;
+    if (!presentation) {
+      continue;
+    }
     counts[presentation.column] += 1;
     if (presentation.column !== "superseded") {
       activeCount += 1;
-      if (presentation.parentReadyForApproval === true) readyCount += 1;
+      if (presentation.parentReadyForApproval === true) {
+        readyCount += 1;
+      }
     }
     if (presentation.executionOwnership?.state === "assignment_required") {
       attention.assignmentGaps += 1;
@@ -246,7 +250,7 @@ async function projectSystemDrawFacts(
 ): Promise<SystemDrawFacts | undefined> {
   const { authorization, post } = input;
   if (post.systemPostKind !== "draw" || !post.systemOccurrenceKey) {
-    return undefined;
+    return;
   }
   const canViewLenderDrawNotes = backofficeRoleSlugs.includes(
     authorization.effectiveRole.role as (typeof backofficeRoleSlugs)[number]
@@ -428,9 +432,8 @@ async function projectSystemDrawFacts(
       : evidenceAssets.length > 0
         ? ("submitted" as const)
         : ("not_started" as const);
-  const reviewState = !request
-    ? ("not_started" as const)
-    : request.status === "in_review"
+  const reviewState = request
+    ? request.status === "in_review"
       ? ("in_review" as const)
       : request.status === "ready_for_admin"
         ? ("ready_for_admin" as const)
@@ -445,10 +448,10 @@ async function projectSystemDrawFacts(
                 ? ("cancelled" as const)
                 : request.status === "released"
                   ? ("released" as const)
-                  : ("not_started" as const);
-  const approvalState = !request
-    ? ("not_started" as const)
-    : request.status === "approved_for_release" || request.status === "approved"
+                  : ("not_started" as const)
+    : ("not_started" as const);
+  const approvalState = request
+    ? request.status === "approved_for_release" || request.status === "approved"
       ? ("approved" as const)
       : request.status === "released"
         ? ("released" as const)
@@ -458,10 +461,10 @@ async function projectSystemDrawFacts(
             ? ("withdrawn" as const)
             : request.status === "cancelled"
               ? ("cancelled" as const)
-              : ("pending" as const);
-  const releaseState = !request
-    ? ("not_started" as const)
-    : request.status === "released"
+              : ("pending" as const)
+    : ("not_started" as const);
+  const releaseState = request
+    ? request.status === "released"
       ? ("released" as const)
       : request.status === "approved_for_release" ||
           request.status === "approved"
@@ -472,7 +475,8 @@ async function projectSystemDrawFacts(
             ? ("withdrawn" as const)
             : request.status === "cancelled"
               ? ("cancelled" as const)
-              : ("not_started" as const);
+              : ("not_started" as const)
+    : ("not_started" as const);
   const disposition = request
     ? request.status === "released"
       ? {
@@ -1010,6 +1014,7 @@ async function projectActionItemSummary(
     dependencyCount: incoming.filter(isScopedBlock).length,
     dueAt: item.dueAt,
     labels: labels.map((row) => row.label).sort((a, b) => a.localeCompare(b)),
+    parentActionItemId: item.parentActionItemId,
     priority: item.priority,
     status: item.status,
     title: item.title,
@@ -1073,7 +1078,7 @@ function collaborationPostSummary(input: {
   const viewerIsAuthor =
     post.authorWorkosUserId === authorization.viewer.subject;
   const decisionOwnerDisplayName =
-    !redacted && !coordinationRedacted && post.decisionOwnerWorkosUserId
+    !(redacted || coordinationRedacted) && post.decisionOwnerWorkosUserId
       ? (authorization.participants.find(
           (participant) =>
             participant.workosUserId === post.decisionOwnerWorkosUserId
@@ -1125,9 +1130,8 @@ function collaborationPostSummary(input: {
               post.canonicalBuildDrawOccurrenceKey,
             currentPlanningRevision: post.currentPlanningRevision,
             drawCoordination:
-              !redacted && !coordinationRedacted ? drawCoordination : undefined,
-            drawFacts:
-              !redacted && !coordinationRedacted ? drawFacts : undefined,
+              redacted || coordinationRedacted ? undefined : drawCoordination,
+            drawFacts: redacted || coordinationRedacted ? undefined : drawFacts,
             kind: post.systemPostKind,
             milestoneKey,
             lifecycle: coordinationRedacted
@@ -1149,16 +1153,14 @@ function collaborationPostSummary(input: {
     updatedAt: post.updatedAt,
     viewerCanAppeal: moderationCapabilities.canAppeal,
     viewerCanEdit:
-      !redacted &&
-      !coordinationRedacted &&
+      !(redacted || coordinationRedacted) &&
       post.contentState === "active" &&
       canEditBuildCollaborationPost(post, {
         role: authorization.effectiveRole.role,
         viewerWorkosUserId: authorization.viewer.subject,
       }),
     viewerCanManageThread:
-      !redacted &&
-      !coordinationRedacted &&
+      !(redacted || coordinationRedacted) &&
       (viewerIsAuthor || authorization.effectiveRole.tier >= 3),
     viewerCanModerate: moderationCapabilities.canModerate,
     viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,

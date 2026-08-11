@@ -38,4 +38,39 @@ describe("buildCollaborationDeepLink", () => {
       })
     ).toBe("/contractor/builds/build-1?focus=comment%3Acomment-1");
   });
+
+  test.each([
+    [
+      "admin",
+      "/backoffice/builds/build-1?tab=details&focus=submilestone%3Asub-1&detailTab=collaboration",
+    ],
+    [
+      "builder",
+      "/builder/builds/build-1?tab=details&focus=submilestone%3Asub-1&detailTab=collaboration",
+    ],
+    [
+      "builder-staff",
+      "/builder-staff/builds/build-1?tab=details&focus=submilestone%3Asub-1&detailTab=collaboration",
+    ],
+    [
+      "contractor",
+      "/contractor/builds/build-1?focus=submilestone%3Asub-1&detailTab=collaboration",
+    ],
+    [
+      "homeowner",
+      "/homeowner/builds/build-1?focus=submilestone%3Asub-1&detailTab=collaboration",
+    ],
+  ] as const)(
+    "routes a canonical Sub-milestone notification for %s through Collaboration",
+    (role, href) => {
+      expect(
+        buildCollaborationDeepLink({
+          buildId: "build-1",
+          detailTab: "collaboration",
+          focus: "submilestone:sub-1",
+          recipientRole: role,
+        })
+      ).toBe(href);
+    }
+  );
 });

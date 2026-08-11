@@ -2,6 +2,8 @@ import type { JSONContent } from "@tiptap/react";
 import type { FunctionReturnType } from "convex/server";
 
 import type { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import type {
   CollaborationTagKind,
   CollaborationTagOption,
@@ -41,8 +43,7 @@ export type CollaborationPlanningReconciliation = FunctionReturnType<
   activation:
     | (NonNullable<
         FunctionReturnType<
-          typeof api.build_collaboration_planning_reconciliation
-            .getActiveBuildPlanningReconciliation
+          typeof api.build_collaboration_planning_reconciliation.getActiveBuildPlanningReconciliation
         >["activation"]
       > & {
         snapshot: CollaborationPlanningSnapshot;
@@ -53,14 +54,13 @@ export type CollaborationPlanningReconciliation = FunctionReturnType<
     snapshot: CollaborationPlanningSnapshot;
   };
   diffs: FunctionReturnType<
-    typeof api.build_collaboration_planning_reconciliation
-      .listActiveBuildPlanningReconciliationDiffs
+    typeof api.build_collaboration_planning_reconciliation.listActiveBuildPlanningReconciliationDiffs
   >["page"];
   diffPagesPending: boolean;
   diffsTruncated: boolean;
 };
 
-export type CollaborationPlanningSnapshot = {
+export interface CollaborationPlanningSnapshot {
   allocations: CollaborationPlanningEntity[];
   budgets: CollaborationPlanningEntity[];
   buildId: string;
@@ -68,11 +68,10 @@ export type CollaborationPlanningSnapshot = {
   evidenceRequirements: CollaborationPlanningEntity[];
   milestones: CollaborationPlanningEntity[];
   submilestones: CollaborationPlanningEntity[];
-};
+}
 
 export type CollaborationPlanningEntity = FunctionReturnType<
-  typeof api.build_collaboration_planning_reconciliation
-    .getActiveBuildPlanningReconciliationSnapshot
+  typeof api.build_collaboration_planning_reconciliation.getActiveBuildPlanningReconciliationSnapshot
 >["page"][number];
 
 export type AudienceMode = CollaborationFeedPostEntry["post"]["audienceMode"];
@@ -92,9 +91,11 @@ export const systemPresentationLabels: Record<
 };
 
 export function systemPresentationSummary(
-  presentation?: CollaborationSystemPresentation,
+  presentation?: CollaborationSystemPresentation
 ) {
-  if (!presentation) return undefined;
+  if (!presentation) {
+    return;
+  }
   const summary = [
     systemPresentationLabels[presentation.column] ?? presentation.column,
   ];
@@ -108,16 +109,75 @@ export function systemPresentationSummary(
     summary.push(
       `Schedule state unavailable${
         presentation.unknownReason ? `: ${presentation.unknownReason}` : ""
-      }`,
+      }`
     );
   }
   return summary.join(" · ");
 }
 
 export function isCanonicalMilestoneItem(
-  item: Pick<CollaborationActionItem, "systemMode">,
+  item: Pick<CollaborationActionItem, "systemMode">
 ) {
   return item.systemMode === "generated_milestone_submilestone";
+}
+
+export interface CollaborationActionItemPresentation {
+  editableGenericWorkflow: boolean;
+  integrityState: "invalid" | "not_applicable" | "valid";
+  kind: "child_action_item" | "generated_submilestone" | "manual_action_item";
+  label: "Action Item" | "Sub-milestone";
+  target: BuildDetailTarget;
+}
+
+interface ClassifiableCollaborationActionItem {
+  _id: Id<"buildActionItems">;
+  canonicalBuildSubmilestoneId?: Id<"buildSubmilestones">;
+  parentActionItemId?: Id<"buildActionItems">;
+  systemMode?: "generated_milestone_submilestone";
+  systemPresentation?: {
+    bindingState?: "invalid" | "valid";
+    state?: "known" | "unknown";
+  };
+}
+
+/**
+ * One presentation and navigation contract for every collaboration work row.
+ * Generated roots remain collaboration companions, but their visible identity
+ * and valid target are the canonical Sub-milestone. Invalid bindings keep the
+ * companion focus only so the server resolver can render the integrity state.
+ */
+export function classifyCollaborationActionItem(
+  item: ClassifiableCollaborationActionItem
+): CollaborationActionItemPresentation {
+  if (item.systemMode === "generated_milestone_submilestone") {
+    const canonicalBuildSubmilestoneId = item.canonicalBuildSubmilestoneId;
+    const bindingValid =
+      canonicalBuildSubmilestoneId !== undefined &&
+      (item.systemPresentation?.bindingState === "valid" ||
+        (item.systemPresentation?.bindingState === undefined &&
+          item.systemPresentation?.state === "known"));
+    return {
+      editableGenericWorkflow: false,
+      integrityState: bindingValid ? "valid" : "invalid",
+      kind: "generated_submilestone",
+      label: "Sub-milestone",
+      target:
+        bindingValid && canonicalBuildSubmilestoneId
+          ? {
+              companionId: item._id,
+              kind: "submilestone",
+              submilestoneId: canonicalBuildSubmilestoneId,
+            }
+          : { actionItemId: item._id, kind: "actionItem" },
+    };
+  }
+  return {
+    editableGenericWorkflow: true,
+    integrityState: "not_applicable",
+    kind: item.parentActionItemId ? "child_action_item" : "manual_action_item",
+    label: "Action Item",
+    target: { actionItemId: item._id, kind: "actionItem" },
+  };
 }
 export type FeedFilter =
   | "actionable"

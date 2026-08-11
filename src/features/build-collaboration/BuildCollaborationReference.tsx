@@ -15,7 +15,6 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { BuildCollaborationActionItemQueue } from "./BuildCollaborationActionItems.tsx";
 import type {
   CollaborationActionItemQueueRow,
@@ -86,7 +85,7 @@ export function BuildCollaborationReferenceSheet({
   actionItemsLoading?: boolean;
   actionItemsLoadingMore?: boolean;
   focusedWorkspace?: boolean;
-  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
+  onOpenActionItem: (row: CollaborationActionItemQueueRow) => void;
   onOpenChange: (open: boolean) => void;
   onLoadMoreActionItems?: () => void;
   onOpenWorkspace: () => void;
@@ -121,7 +120,7 @@ export function BuildCollaborationReferenceSheet({
               loading={actionItemsLoading}
               loadingMore={actionItemsLoadingMore}
               onLoadMore={onLoadMoreActionItems}
-              onOpen={(row) => onOpenActionItem(row.item._id)}
+              onOpen={onOpenActionItem}
               rows={actionItems}
               title="Related Action Items"
             />

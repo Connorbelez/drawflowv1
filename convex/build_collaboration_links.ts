@@ -2,6 +2,7 @@ import type { BuildCollaborationRole } from "./build_collaboration_model";
 
 export function buildCollaborationDeepLink(input: {
   buildId: string;
+  detailTab?: string;
   focus?: string;
   postId?: string;
   recipientRole?: BuildCollaborationRole;
@@ -18,6 +19,9 @@ export function buildCollaborationDeepLink(input: {
     input.focus ?? (input.postId ? `post:${input.postId}` : undefined);
   if (focus) {
     search.push(`focus=${encodeURIComponent(focus)}`);
+  }
+  if (input.detailTab) {
+    search.push(`detailTab=${encodeURIComponent(input.detailTab)}`);
   }
   return `${prefix}/${input.buildId}${search.length ? `?${search.join("&")}` : ""}`;
 }

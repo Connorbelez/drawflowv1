@@ -21,15 +21,11 @@ import {
   LayoutGrid,
   List,
   MapPin,
-  Package,
   PlayCircle,
-  Plus,
-  Truck,
   UserPlus,
   Users,
-  Wrench,
 } from "lucide-react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
@@ -48,30 +44,17 @@ import {
   CollapsibleTrigger,
 } from "#/components/ui/collapsible.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
-import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import {
-  EvidenceUploader,
-  type EvidenceUploaderUploadInput,
-} from "../backoffice-build-detail/MilestoneDetailSheet.tsx";
-import {
-  type MilestoneStartConfirmation,
-  MilestoneStartDialog,
-  type MilestoneStartDialogRequest,
-} from "../backoffice-build-detail/MilestoneStartDialog.tsx";
-import {
-  type SiteVisitOrderConfirmation,
-  SiteVisitOrderDialog,
-} from "../backoffice-build-detail/SiteVisitOrderDialog.tsx";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
 import {
   type CollaborationActionItem,
   type CollaborationFeedPostEntry,
   type CollaborationPlanningReconciliation,
   type CollaborationSystemPresentation,
+  classifyCollaborationActionItem,
   initials,
   isCanonicalMilestoneItem,
   type ReferenceOption,
@@ -124,7 +107,7 @@ const DRAW_LIFECYCLE_STEPS: DrawLifecycleStep[] = [
 ];
 
 export function systemPostTitle(
-  entry: CollaborationFeedPostEntry,
+  entry: CollaborationFeedPostEntry
 ): string | null {
   const systemPost = entry.post.systemPost;
   if (!systemPost) {
@@ -157,8 +140,6 @@ export function SystemPostExperience({
   planningDiffsLoadingMore,
   planningReconciliation,
   tagOptions,
-  viewerRole,
-  viewerRoles,
 }: {
   brief?: ReactNode;
   buildId: Id<"activeBuilds">;
@@ -167,7 +148,7 @@ export function SystemPostExperience({
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onLoadMorePlanningDiffs: () => void;
-  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
+  onOpenActionItem: (target: BuildDetailTarget) => void;
   organizationId: string;
   planningDiffsLoadingMore: boolean;
   planningReconciliation?: CollaborationPlanningReconciliation;
@@ -184,7 +165,7 @@ export function SystemPostExperience({
   const isDraw = systemPost.kind === "draw";
   const generatedItems = entry.actionItems.filter(isCanonicalMilestoneItem);
   const coordinationItems = entry.actionItems.filter(
-    (item) => !isCanonicalMilestoneItem(item),
+    (item) => !isCanonicalMilestoneItem(item)
   );
 
   return (
@@ -222,15 +203,10 @@ export function SystemPostExperience({
         />
       ) : (
         <MilestoneBoardExperience
-          buildId={buildId}
           items={generatedItems}
-          mutationsAllowed={mutationsAllowed}
           onOpenActionItem={onOpenActionItem}
-          organizationId={organizationId}
           planningSummary={entry.post.planningSummary}
           systemPost={systemPost}
-          viewerRole={viewerRole}
-          viewerRoles={viewerRoles}
         />
       )}
       {systemPost.recoveryState === "recovery_required" ? (
@@ -284,28 +260,17 @@ export function SystemPostExperience({
 }
 
 function MilestoneBoardExperience({
-  buildId,
   items,
-  mutationsAllowed,
   onOpenActionItem,
-  organizationId,
   planningSummary,
   systemPost,
-  viewerRole,
-  viewerRoles,
 }: {
-  buildId: Id<"activeBuilds">;
   items: CollaborationActionItem[];
-  mutationsAllowed: boolean;
-  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
-  organizationId: string;
+  onOpenActionItem: (target: BuildDetailTarget) => void;
   planningSummary?: SystemMilestonePlanningSummary;
   systemPost: CollaborationSystemPost;
-  viewerRole?: string;
-  viewerRoles?: string[];
 }) {
   const [workView, setWorkView] = useState<"board" | "list">("list");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [oversightOpen, setOversightOpen] = useState(false);
 
   return (
@@ -329,8 +294,8 @@ function MilestoneBoardExperience({
               <h3 className="font-semibold text-sm">Sub-milestones</h3>
               <p className="text-muted-foreground text-xs">
                 {workView === "board"
-                  ? "Status projection · drag locked · commands only"
-                  : "Select a row to reveal its complete execution record"}
+                  ? "Canonical status projection · drag locked"
+                  : "Open a Sub-milestone in the shared detail workspace"}
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -361,7 +326,7 @@ function MilestoneBoardExperience({
               <div className="grid min-w-[62rem] grid-cols-5 gap-2 rounded-xl border bg-background/30 p-2.5">
                 {STATE_COLUMNS.map((column) => {
                   const columnItems = items.filter(
-                    (item) => item.systemPresentation?.column === column.key,
+                    (item) => item.systemPresentation?.column === column.key
                   );
                   return (
                     <section className="min-w-0" key={column.key}>
@@ -378,8 +343,12 @@ function MilestoneBoardExperience({
                           <SubMilestoneBoardCard
                             item={item}
                             key={item._id}
-                            onOpen={() => onOpenActionItem(item._id)}
-                            selected={expandedId === item._id}
+                            onOpen={() =>
+                              onOpenActionItem(
+                                classifyCollaborationActionItem(item).target
+                              )
+                            }
+                            selected={false}
                           />
                         ))}
                       </div>
@@ -390,17 +359,8 @@ function MilestoneBoardExperience({
             </div>
           ) : (
             <SubMilestoneList
-              buildId={buildId}
-              expandedId={expandedId}
               items={items}
-              mutationsAllowed={mutationsAllowed}
-              onExpand={(id) => {
-                setExpandedId((current) => (current === id ? null : id));
-              }}
               onOpenActionItem={onOpenActionItem}
-              organizationId={organizationId}
-              viewerRole={viewerRole}
-              viewerRoles={viewerRoles}
             />
           )}
           {items.length === 0 ? (
@@ -424,7 +384,7 @@ function MilestoneHeadline({
   const behind =
     planningSummary?.counts.behind_schedule ??
     items.filter(
-      (item) => item.systemPresentation?.column === "behind_schedule",
+      (item) => item.systemPresentation?.column === "behind_schedule"
     ).length;
   const inProgress =
     planningSummary?.counts.in_progress ??
@@ -461,9 +421,9 @@ function MilestoneHeadline({
       items
         .map(
           (item) =>
-            item.systemPresentation?.executionOwnership?.assigneeDisplayName,
+            item.systemPresentation?.executionOwnership?.assigneeDisplayName
         )
-        .filter((value): value is string => Boolean(value)),
+        .filter((value): value is string => Boolean(value))
     ),
   ];
 
@@ -617,11 +577,11 @@ function MilestoneOversightStrip({
   const requiredVisits =
     planningSummary?.attention.requiredSiteVisits ??
     items.filter(
-      (item) => item.systemPresentation?.siteVisitRequirement?.required,
+      (item) => item.systemPresentation?.siteVisitRequirement?.required
     ).length;
   const evidencePhotos = items.reduce(
     (sum, item) => sum + (item.systemPresentation?.evidenceCount ?? 0),
-    0,
+    0
   );
   const attention = planningSummary
     ? (
@@ -690,32 +650,17 @@ function MilestoneOversightStrip({
 }
 
 function SubMilestoneList({
-  buildId,
-  expandedId,
   items,
-  mutationsAllowed,
-  onExpand,
   onOpenActionItem,
-  organizationId,
-  viewerRole,
-  viewerRoles,
 }: {
-  buildId: Id<"activeBuilds">;
-  expandedId: string | null;
   items: CollaborationActionItem[];
-  mutationsAllowed: boolean;
-  onExpand: (id: string) => void;
-  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
-  organizationId: string;
-  viewerRole?: string;
-  viewerRoles?: string[];
+  onOpenActionItem: (target: BuildDetailTarget) => void;
 }) {
   return (
     <div className="space-y-2">
       {items.map((item) => {
         const presentation = item.systemPresentation;
         const column = presentation?.column ?? "backlog";
-        const expanded = expandedId === item._id;
         const code =
           presentation?.startCommand?.submilestoneKey ??
           item.canonicalBuildSubmilestoneId ??
@@ -732,14 +677,13 @@ function SubMilestoneList({
               ? formatPlanDateShort(presentation.plannedStartDate)
               : "Schedule TBD";
         return (
-          <Card
-            className={cn("shadow-none", expanded && "ring-1 ring-primary/25")}
-            key={item._id}
-          >
+          <Card className="shadow-none" key={item._id}>
             <button
-              aria-expanded={expanded}
+              aria-label={`Open Sub-milestone: ${item.title}`}
               className="grid w-full gap-3 p-3 text-left sm:grid-cols-[minmax(0,1fr)_8rem_9rem_auto] sm:items-center"
-              onClick={() => onExpand(item._id)}
+              onClick={() =>
+                onOpenActionItem(classifyCollaborationActionItem(item).target)
+              }
               type="button"
             >
               <span className="min-w-0">
@@ -754,23 +698,8 @@ function SubMilestoneList({
                 {systemPresentationLabels[column] ?? humanizeEnumLabel(column)}
               </Badge>
               <span className="text-muted-foreground text-xs">{dateRange}</span>
-              {expanded ? (
-                <ChevronUp className="size-4 justify-self-end" />
-              ) : (
-                <ChevronDown className="size-4 justify-self-end" />
-              )}
+              <ChevronDown className="size-4 -rotate-90 justify-self-end" />
             </button>
-            {expanded ? (
-              <SubMilestoneExpandedDetails
-                buildId={buildId}
-                item={item}
-                mutationsAllowed={mutationsAllowed}
-                onOpenActionItem={onOpenActionItem}
-                organizationId={organizationId}
-                viewerRole={viewerRole}
-                viewerRoles={viewerRoles}
-              />
-            ) : null}
           </Card>
         );
       })}
@@ -1933,7 +1862,7 @@ function SubMilestoneBoardCard({
     <Card
       className={cn(
         "w-full shadow-none transition hover:border-foreground/30",
-        selected && "ring-2 ring-primary/35",
+        selected && "ring-2 ring-primary/35"
       )}
       onClick={onOpen}
       render={<button type="button" />}
@@ -1993,7 +1922,7 @@ function DrawBoardlessExperience({
   facts?: SystemDrawFacts;
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
-  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
+  onOpenActionItem: (target: BuildDetailTarget) => void;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
 }) {
@@ -2119,7 +2048,7 @@ function DrawLifecycleStepper({ active }: { active: DrawLifecycleStep }) {
               className={cn(
                 "grid size-6 shrink-0 place-items-center rounded-full border",
                 index <= activeIndex &&
-                  "border-primary bg-primary text-primary-foreground",
+                  "border-primary bg-primary text-primary-foreground"
               )}
             >
               {index < activeIndex ? (
@@ -2133,7 +2062,7 @@ function DrawLifecycleStepper({ active }: { active: DrawLifecycleStep }) {
                 "text-xs",
                 index === activeIndex
                   ? "font-semibold"
-                  : "text-muted-foreground",
+                  : "text-muted-foreground"
               )}
             >
               {drawLifecycleLabel(state)}
@@ -2163,15 +2092,15 @@ function DrawCoordinationPanel({
   coordinationVisible: boolean;
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
-  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
+  onOpenActionItem: (target: BuildDetailTarget) => void;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
 }) {
   const join = useBuildCollaborationMutation(
-    api.build_draw_coordination.joinDrawCoordination,
+    api.build_draw_coordination.joinDrawCoordination
   );
   const leave = useBuildCollaborationMutation(
-    api.build_draw_coordination.leaveDrawCoordination,
+    api.build_draw_coordination.leaveDrawCoordination
   );
   const [pending, setPending] = useState(false);
   const canCoordinate = coordinationVisible && coordination?.eligible === true;
@@ -2187,13 +2116,13 @@ function DrawCoordinationPanel({
       toast.success(
         action === "join"
           ? "Joined Draw coordination."
-          : "Left Draw coordination.",
+          : "Left Draw coordination."
       );
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to update Draw coordination.",
+          : "Unable to update Draw coordination."
       );
     } finally {
       setPending(false);
@@ -2301,7 +2230,11 @@ function DrawCoordinationPanel({
                   </p>
                 </div>
                 <Button
-                  onClick={() => onOpenActionItem(item._id)}
+                  onClick={() =>
+                    onOpenActionItem(
+                      classifyCollaborationActionItem(item).target
+                    )
+                  }
                   size="sm"
                   type="button"
                   variant="ghost"
@@ -2359,7 +2292,7 @@ function SystemPostIdentityFacts({
   tagOptions: ReferenceOption[];
 }) {
   const milestoneReference = entry.references.find(
-    (reference) => reference.entityKind === "milestone",
+    (reference) => reference.entityKind === "milestone"
   );
   const drawFacts =
     systemPost.kind === "draw" ? systemPost.drawFacts : undefined;
@@ -2367,7 +2300,7 @@ function SystemPostIdentityFacts({
     ? (tagOptions.find(
         (option) =>
           option.kind === "participant" &&
-          option.id === systemPost.triggeredByWorkosUserId,
+          option.id === systemPost.triggeredByWorkosUserId
       )?.label ?? "Former Build participant")
     : systemPost.triggeredByRole
       ? roleLabel(systemPost.triggeredByRole)
@@ -2429,7 +2362,7 @@ function SystemPostPlanningComparison({
           diff.entityKey.startsWith(`${milestoneKey}:`)
         );
       }) ?? [],
-    [planningReconciliation?.diffs, systemPost.milestoneKey],
+    [planningReconciliation?.diffs, systemPost.milestoneKey]
   );
   const hasComparison =
     planningReconciliation !== undefined ||
@@ -2460,7 +2393,7 @@ function SystemPostPlanningComparison({
     current.count += 1;
     current.changeTypes.set(
       diff.changeType,
-      (current.changeTypes.get(diff.changeType) ?? 0) + 1,
+      (current.changeTypes.get(diff.changeType) ?? 0) + 1
     );
     current.entityTypes.add(diff.entityType);
     categoryCounts.set(diff.category, current);
@@ -2598,7 +2531,7 @@ function SystemPostPlanningComparison({
                           ([changeType, count]) =>
                             String(count) +
                             " " +
-                            planningChangeTypeLabel(changeType),
+                            planningChangeTypeLabel(changeType)
                         )
                         .join(", ")}
                       {" · "}
@@ -2617,15 +2550,6 @@ function SystemPostPlanningComparison({
         </div>
       )}
     </section>
-  );
-}
-
-function CompactFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-muted/45 px-3 py-2">
-      <p className="text-muted-foreground text-xs">{label}</p>
-      <p className="mt-1 font-medium text-sm">{value}</p>
-    </div>
   );
 }
 
@@ -2675,7 +2599,7 @@ function StatePulseIcon({ state }: { state: WorkColumn }) {
 }
 
 function columnTone(
-  column: CollaborationSystemPresentation["column"],
+  column: CollaborationSystemPresentation["column"]
 ): BadgeProps["variant"] {
   if (column === "behind_schedule") {
     return "error";
@@ -2735,7 +2659,7 @@ function drawFactMoney(amountCents: number) {
 }
 
 function historicalFactLabel(
-  fact: HistoricalBackfillFacts["unknownFacts"][number],
+  fact: HistoricalBackfillFacts["unknownFacts"][number]
 ) {
   switch (fact) {
     case "start":
