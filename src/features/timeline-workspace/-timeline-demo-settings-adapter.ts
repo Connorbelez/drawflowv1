@@ -2,12 +2,14 @@ import type {
   TimelineItem,
   TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import { emptyDocument } from "#/features/build-collaboration/model.ts";
 import {
   coerceSiteVisitGuidance,
   guidanceLinesToHtml,
 } from "#/lib/site-visit-guidance.ts";
 import type { TimelineSetupTemplate } from "./-TimelineSetupFlow.tsx";
 import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
+import type { TimelineSubmilestoneFieldGuidance } from "./-timeline-milestone-submilestones.ts";
 import type {
   DemoDraw,
   DemoMilestone,
@@ -41,9 +43,11 @@ export const TIMELINE_DEMO_SETTINGS_MISSING_NOTICE =
 export interface TimelineSettingsSubmilestoneDraft {
   description: string;
   durationDays: number;
+  fieldGuidance?: TimelineSubmilestoneFieldGuidance;
   name: string;
   order: number;
   percentageBps: number;
+  scopeOfWorkTiptapJson?: string;
   submilestoneKey: string;
 }
 
@@ -277,9 +281,15 @@ export function buildTimelineItemsFromSettings(
             budgetCents: submilestoneBudgetCents?.[subIndex],
             description: subRow.description,
             durationDays: subRow.durationDays,
+            ...(subRow.fieldGuidance === undefined
+              ? {}
+              : { fieldGuidance: subRow.fieldGuidance }),
             key: subRow.submilestoneKey,
             name: subRow.name,
             order: subIndex + 1,
+            ...(subRow.scopeOfWorkTiptapJson === undefined
+              ? {}
+              : { scopeOfWorkTiptapJson: subRow.scopeOfWorkTiptapJson }),
           })),
         },
         eyebrow: `Milestone ${index + 1}`,
@@ -374,6 +384,22 @@ export function buildTimelineSetupTemplatesFromSettings(
         subMilestones: row.submilestones
           .sort((a, b) => a.order - b.order)
           .map((subRow) => subRow.name),
+        subMilestoneDetails: row.submilestones
+          .sort((a, b) => a.order - b.order)
+          .map((subRow) => ({
+            description: subRow.description,
+            durationDays: subRow.durationDays,
+            ...(subRow.fieldGuidance === undefined
+              ? {}
+              : { fieldGuidance: subRow.fieldGuidance }),
+            key: subRow.submilestoneKey,
+            name: subRow.name,
+            order: subRow.order,
+            percentageBps: subRow.percentageBps,
+            ...(subRow.scopeOfWorkTiptapJson === undefined
+              ? {}
+              : { scopeOfWorkTiptapJson: subRow.scopeOfWorkTiptapJson }),
+          })),
         type: row.type,
       })),
     summary: template.summary,
@@ -718,13 +744,39 @@ function normalizeGuidanceItems(
 function normalizeSubmilestone(
   row: RawRecord
 ): TimelineSettingsSubmilestoneDraft {
+  const scopeOfWorkTiptapJson =
+    typeof row.scopeOfWorkTiptapJson === "string"
+      ? row.scopeOfWorkTiptapJson
+      : undefined;
+  const fieldGuidance = normalizeSubmilestoneFieldGuidance(row.fieldGuidance);
   return {
     description: stringValue(row.description),
     durationDays: numberValue(row.durationDays, 1),
+    ...(fieldGuidance === undefined ? {} : { fieldGuidance }),
     name: stringValue(row.name),
     order: numberValue(row.order, 0),
     percentageBps: numberValue(row.percentageBps, 0),
+    ...(scopeOfWorkTiptapJson === undefined ? {} : { scopeOfWorkTiptapJson }),
     submilestoneKey: stringValue(row.submilestoneKey) || stringValue(row.key),
+  };
+}
+
+function normalizeSubmilestoneFieldGuidance(
+  value: unknown
+): TimelineSubmilestoneFieldGuidance | undefined {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  const whatToVerifyTiptapJson = stringValue(record.whatToVerifyTiptapJson);
+  const cameraAnglesTiptapJson = stringValue(record.cameraAnglesTiptapJson);
+  if (!(whatToVerifyTiptapJson.trim() || cameraAnglesTiptapJson.trim())) {
+    return;
+  }
+  const emptyTiptapJson = () => JSON.stringify(emptyDocument());
+  return {
+    cameraAnglesTiptapJson: cameraAnglesTiptapJson || emptyTiptapJson(),
+    whatToVerifyTiptapJson: whatToVerifyTiptapJson || emptyTiptapJson(),
   };
 }
 

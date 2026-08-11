@@ -1437,10 +1437,17 @@ export default defineSchema({
     createdAt: v.number(),
     description: v.string(),
     durationDays: v.number(),
+    fieldGuidance: v.optional(
+      v.object({
+        cameraAnglesTiptapJson: v.string(),
+        whatToVerifyTiptapJson: v.string(),
+      }),
+    ),
     milestoneKey: v.string(),
     name: v.string(),
     order: v.number(),
     percentageBps: v.number(),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     submilestoneKey: v.string(),
     templateKey: v.string(),
     updatedAt: v.number(),
@@ -3331,6 +3338,13 @@ export default defineSchema({
     order: v.number(),
     percentageBps: v.number(),
     durationDays: v.number(),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
+    fieldGuidance: v.optional(
+      v.object({
+        cameraAnglesTiptapJson: v.string(),
+        whatToVerifyTiptapJson: v.string(),
+      }),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

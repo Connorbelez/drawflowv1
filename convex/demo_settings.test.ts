@@ -322,6 +322,257 @@ describe("timeline demo settings Convex functions", () => {
     );
   });
 
+  test("persists optional submilestone scope and field guidance through both settings mutations", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
+    const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
+    const template = settings.templates.find(
+      (row: any) => row.templateKey === "single-family-full-build",
+    );
+    const milestones = toMilestoneInputs(template);
+    const firstSubmilestone = milestones[0].submilestones[0];
+    firstSubmilestone.scopeOfWorkTiptapJson = JSON.stringify({
+      content: [{ content: [{ text: "Demo template scope", type: "text" }], type: "paragraph" }],
+      type: "doc",
+    });
+    firstSubmilestone.fieldGuidance = {
+      cameraAnglesTiptapJson: JSON.stringify({
+        content: [{ content: [{ text: "Demo camera angles", type: "text" }], type: "paragraph" }],
+        type: "doc",
+      }),
+      whatToVerifyTiptapJson: JSON.stringify({
+        content: [{ content: [{ text: "Demo verification", type: "text" }], type: "paragraph" }],
+        type: "doc",
+      }),
+    };
+
+    await t.mutation(api.demo_settings.saveTimelineTemplateConfiguration, {
+      milestones,
+      scenarios: template.scenarios.map(toScenarioInput),
+      template: {
+        description: template.description,
+        isDefault: template.isDefault,
+        summary: template.summary,
+        templateKey: template.templateKey,
+        title: template.title,
+      },
+    });
+
+    const afterConfiguration = await t.query(
+      api.demo_settings.getTimelineDemoSettings,
+      {},
+    );
+    const configuredSubmilestone = afterConfiguration.templates
+      .find((row: any) => row.templateKey === template.templateKey)
+      .submilestones.find(
+        (row: any) => row.submilestoneKey === firstSubmilestone.submilestoneKey,
+      );
+    expect(configuredSubmilestone).toMatchObject({
+      fieldGuidance: firstSubmilestone.fieldGuidance,
+      scopeOfWorkTiptapJson: firstSubmilestone.scopeOfWorkTiptapJson,
+    });
+
+    const worksheetMilestones = milestones.map((row: any, index: number) =>
+      index === 0
+        ? {
+            ...row,
+            submilestones: row.submilestones.map((subRow: any, subIndex: number) =>
+              subIndex === 0
+                ? {
+                    ...subRow,
+                    scopeOfWorkTiptapJson: JSON.stringify({
+                      content: [{ content: [{ text: "Worksheet scope", type: "text" }], type: "paragraph" }],
+                      type: "doc",
+                    }),
+                    fieldGuidance: {
+                      cameraAnglesTiptapJson: JSON.stringify({
+                        content: [{ content: [{ text: "Worksheet camera angles", type: "text" }], type: "paragraph" }],
+                        type: "doc",
+                      }),
+                      whatToVerifyTiptapJson: JSON.stringify({
+                        content: [{ content: [{ text: "Worksheet verification", type: "text" }], type: "paragraph" }],
+                        type: "doc",
+                      }),
+                    },
+                  }
+                : subRow,
+            ),
+          }
+        : row,
+    );
+    await t.mutation(api.demo_settings.saveTimelineTemplateWorksheet, {
+      milestones: worksheetMilestones,
+      templateKey: template.templateKey,
+    });
+    const afterWorksheet = await t.query(
+      api.demo_settings.getTimelineDemoSettings,
+      {},
+    );
+    const worksheetSubmilestone = afterWorksheet.templates
+      .find((row: any) => row.templateKey === template.templateKey)
+      .submilestones.find(
+        (row: any) => row.submilestoneKey === firstSubmilestone.submilestoneKey,
+      );
+    expect(worksheetSubmilestone).toMatchObject({
+      fieldGuidance: {
+        cameraAnglesTiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Worksheet camera angles", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+        whatToVerifyTiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Worksheet verification", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+      scopeOfWorkTiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Worksheet scope", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+    });
+
+    const malformedMilestones = milestones.map((row: any, index: number) =>
+      index === 0
+        ? {
+            ...row,
+            submilestones: row.submilestones.map((subRow: any, subIndex: number) =>
+              subIndex === 0
+                ? {
+                    ...subRow,
+                    fieldGuidance: {
+                      cameraAnglesTiptapJson: "valid",
+                      whatToVerifyTiptapJson: 42,
+                    },
+                  }
+                : subRow,
+            ),
+          }
+        : row,
+    );
+    await expect(
+      t.mutation(api.demo_settings.saveTimelineTemplateWorksheet, {
+        milestones: malformedMilestones as any,
+        templateKey: template.templateKey,
+      }),
+    ).rejects.toThrow(/Validator error|whatToVerifyTiptapJson/i);
+
+    const malformedTiptapMilestones = milestones.map((row: any, index: number) =>
+      index === 0
+        ? {
+            ...row,
+            submilestones: row.submilestones.map(
+              (subRow: any, subIndex: number) =>
+                subIndex === 0
+                  ? {
+                      ...subRow,
+                      fieldGuidance: {
+                        cameraAnglesTiptapJson: JSON.stringify({
+                          content: [
+                            {
+                              content: [{ text: "Valid camera angles", type: "text" }],
+                              type: "paragraph",
+                            },
+                          ],
+                          type: "doc",
+                        }),
+                        whatToVerifyTiptapJson: "{not-valid-tiptap-json",
+                      },
+                    }
+                  : subRow,
+            ),
+          }
+        : row,
+    );
+    await expect(
+      t.mutation(api.demo_settings.saveTimelineTemplateWorksheet, {
+        milestones: malformedTiptapMilestones,
+        templateKey: template.templateKey,
+      }),
+    ).rejects.toThrow(/valid TipTap JSON|whatToVerify/i);
+  });
+
+  test("enforces the shared TipTap boundary on both timeline save mutations", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
+    const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
+    const template = settings.templates.find(
+      (row: any) => row.templateKey === "single-family-full-build",
+    );
+    const validDocument = JSON.stringify({ content: [], type: "doc" });
+    const values = {
+      blank: " ",
+      malformed: "{not-json",
+      maxLength: tiptapJsonWithPadding(250_000),
+      nonDocumentRoot: JSON.stringify({ content: [], type: "paragraph" }),
+      overMaxLength: tiptapJsonWithPadding(250_001),
+    } as const;
+
+    for (const [label, value] of Object.entries(values)) {
+      for (const field of ["scope", "whatToVerify", "cameraAngles"] as const) {
+        for (const mutation of ["configuration", "worksheet"] as const) {
+          const milestones = toMilestoneInputs(template);
+          const firstSubmilestone = milestones[0].submilestones[0];
+          if (field === "scope") {
+            firstSubmilestone.scopeOfWorkTiptapJson = value;
+          } else {
+            firstSubmilestone.fieldGuidance = {
+              cameraAnglesTiptapJson:
+                field === "cameraAngles" ? value : validDocument,
+              whatToVerifyTiptapJson:
+                field === "whatToVerify" ? value : validDocument,
+            };
+          }
+
+          const save =
+            mutation === "configuration"
+              ? t.mutation(api.demo_settings.saveTimelineTemplateConfiguration, {
+                  milestones,
+                  scenarios: template.scenarios.map(toScenarioInput),
+                  template: {
+                    description: template.description,
+                    isDefault: template.isDefault,
+                    summary: template.summary,
+                    templateKey: template.templateKey,
+                    title: template.title,
+                  },
+                })
+              : t.mutation(api.demo_settings.saveTimelineTemplateWorksheet, {
+                  milestones,
+                  templateKey: template.templateKey,
+                });
+
+          if (label === "maxLength") {
+            await expect(save).resolves.toBeDefined();
+          } else {
+            await expect(save).rejects.toThrow(
+              label === "malformed"
+                ? /valid TipTap JSON/i
+                : label === "nonDocumentRoot"
+                  ? /document root/i
+                  : label === "overMaxLength"
+                    ? /supported length/i
+                    : /contain TipTap JSON/i,
+            );
+          }
+        }
+      }
+    }
+  });
+
   test("allows draw timing inside milestone windows", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
@@ -573,9 +824,15 @@ function toMilestoneInputs(template: any) {
       .map((subRow: any) => ({
         description: subRow.description,
         durationDays: subRow.durationDays,
+        ...(subRow.fieldGuidance === undefined
+          ? {}
+          : { fieldGuidance: subRow.fieldGuidance }),
         name: subRow.name,
         order: subRow.order,
         percentageBps: subRow.percentageBps,
+        ...(subRow.scopeOfWorkTiptapJson === undefined
+          ? {}
+          : { scopeOfWorkTiptapJson: subRow.scopeOfWorkTiptapJson }),
         submilestoneKey: subRow.submilestoneKey,
       })),
     type: row.type,
@@ -593,4 +850,14 @@ function guidanceItems(template: any, milestoneKey: string, kind: string) {
 
 function guidanceFieldHtml(template: any, milestoneKey: string, kind: string) {
   return coerceGuidanceField(guidanceItems(template, milestoneKey, kind));
+}
+
+function tiptapJsonWithPadding(length: number) {
+  const prefix = '{"content":[],"padding":"';
+  const suffix = '","type":"doc"}';
+  const paddingLength = length - prefix.length - suffix.length;
+  if (paddingLength < 0) {
+    throw new Error("TipTap padding length must be positive.");
+  }
+  return `${prefix}${"x".repeat(paddingLength)}${suffix}`;
 }

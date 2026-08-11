@@ -81,12 +81,24 @@ export function ProductionProposalMilestoneWorksheet({
   const handleRowsChange = (
     nextRows: TimelineMilestoneWorksheetRow[],
     meta: TimelineMilestoneWorksheetRowsChangeMeta = { commit: true }
-  ) => {
+  ): void | Promise<void> => {
     setRows(nextRows);
     pendingRowsRef.current = nextRows;
 
     if (!onPersistRows || meta.commit === false) {
       return;
+    }
+
+    if (meta.save) {
+      if (persistTimeoutRef.current) {
+        clearTimeout(persistTimeoutRef.current);
+        persistTimeoutRef.current = null;
+      }
+      return Promise.resolve(onPersistRows(nextRows)).then(() => {
+        if (pendingRowsRef.current === nextRows) {
+          pendingRowsRef.current = null;
+        }
+      });
     }
 
     if (persistTimeoutRef.current) {
@@ -99,7 +111,11 @@ export function ProductionProposalMilestoneWorksheet({
       if (!pendingRows) {
         return;
       }
-      onPersistRows(pendingRows);
+      try {
+        Promise.resolve(onPersistRows(pendingRows)).catch(() => undefined);
+      } catch {
+        // The callback normally returns a Promise; swallow sync failures too.
+      }
     }, PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS);
   };
 

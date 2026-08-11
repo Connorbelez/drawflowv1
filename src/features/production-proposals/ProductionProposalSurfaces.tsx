@@ -577,8 +577,13 @@ export interface ProductionProposalSettings {
       submilestones: Array<{
         budgetCents?: number;
         durationDays?: number;
+        fieldGuidance?: {
+          cameraAnglesTiptapJson: string;
+          whatToVerifyTiptapJson: string;
+        };
         key: string;
         name: string;
+        scopeOfWorkTiptapJson?: string;
       }>;
       type?: string;
     }>;
@@ -644,6 +649,10 @@ export interface ProductionProposalDraftSavePayload {
     submilestones: Array<{
       budgetCents?: number;
       durationDays?: number;
+      fieldGuidance?: {
+        cameraAnglesTiptapJson: string;
+        whatToVerifyTiptapJson: string;
+      };
       key: string;
       name: string;
       order: number;

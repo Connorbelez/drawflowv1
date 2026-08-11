@@ -6,20 +6,29 @@ export interface DemoSubmilestone {
   budgetCents?: number;
   description?: string;
   durationDays?: number;
+  fieldGuidance?: TimelineSubmilestoneFieldGuidance;
   key: string;
   name: string;
   order: number;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
   status?: DemoSubmilestoneStatus;
+}
+
+export interface TimelineSubmilestoneFieldGuidance {
+  cameraAnglesTiptapJson: string;
+  whatToVerifyTiptapJson: string;
 }
 
 export interface TimelineSubmilestoneSnapshotRow {
   budgetCents?: number;
   description?: string;
   durationDays?: number;
+  fieldGuidance?: TimelineSubmilestoneFieldGuidance;
   key?: string;
   name: string;
   order?: number;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
   status?: DemoSubmilestoneStatus;
 }
@@ -39,10 +48,16 @@ export function mapSubmilestoneSnapshotRows(
       ...(row.durationDays === undefined
         ? {}
         : { durationDays: row.durationDays }),
+      ...(row.fieldGuidance === undefined
+        ? {}
+        : { fieldGuidance: row.fieldGuidance }),
       key:
         row.key ?? `${milestoneKey}-sub-${String(index + 1).padStart(2, "0")}`,
       name: row.name.trim(),
       order: row.order ?? index + 1,
+      ...(row.scopeOfWorkTiptapJson === undefined
+        ? {}
+        : { scopeOfWorkTiptapJson: row.scopeOfWorkTiptapJson }),
       ...(row.startDay === undefined ? {} : { startDay: row.startDay }),
       ...(row.status ? { status: row.status } : {}),
     }))

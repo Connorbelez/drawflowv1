@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 
+import { emptyDocument } from "#/features/build-collaboration/model.ts";
 import {
   buildCashflowPreview,
   buildDrawsFromActiveScenario,
+  buildTimelineSetupTemplatesFromSettings,
   buildTimelineItemsFromSettings,
   createBlankScenario,
   createCustomMilestone,
@@ -80,12 +82,17 @@ const projection = {
       ],
       submilestones: [
         {
+          fieldGuidance: {
+            cameraAnglesTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavation camera"}]}]}',
+            whatToVerifyTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavation verification"}]}]}',
+          },
           description: "Excavation",
           durationDays: 5,
           milestoneKey: "foundation",
           name: "Excavation",
           order: 0,
           percentageBps: 2500,
+          scopeOfWorkTiptapJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavate and grade"}]}]}',
           submilestoneKey: "foundation-excavation",
           templateKey: "full",
         },
@@ -113,11 +120,99 @@ describe("timeline demo settings adapter", () => {
 
     expect(template.title).toBe("Full Build");
     expect(template.milestones[0]?.submilestones[0]?.name).toBe("Excavation");
+    expect(template.milestones[0]?.submilestones[0]).toMatchObject({
+      fieldGuidance: {
+        cameraAnglesTiptapJson:
+          '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavation camera"}]}]}',
+        whatToVerifyTiptapJson:
+          '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavation verification"}]}]}',
+      },
+      scopeOfWorkTiptapJson:
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavate and grade"}]}]}',
+    });
+    expect(
+      buildTimelineSetupTemplatesFromSettings([template])[0]?.rows[0]
+        ?.subMilestoneDetails?.[0]
+    ).toMatchObject({
+      fieldGuidance: {
+        cameraAnglesTiptapJson:
+          '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavation camera"}]}]}',
+        whatToVerifyTiptapJson:
+          '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavation verification"}]}]}',
+      },
+      scopeOfWorkTiptapJson:
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Excavate and grade"}]}]}',
+    });
     expect(includedPocTotalBps(template)).toBe(10_000);
     expect(scenarioDrawTotalBps(template.scenarios[0])).toBe(10_000);
     expect(formatBps(10_000)).toBe("100.00%");
     expect(validateTemplateDraft(template).ok).toBe(true);
     expect(validateScenarioDrafts(template.scenarios, template).ok).toBe(true);
+  });
+
+  test("normalizes partial guidance with canonical empty TipTap siblings", () => {
+    const sourceTemplate = projection.templates[0];
+    const sourceMilestone = sourceTemplate.milestones[0];
+    const sourceSubmilestone = sourceTemplate.submilestones[0];
+    const whatToVerifyTiptapJson =
+      '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Verify the excavation depth."}]}]}';
+    const cameraAnglesTiptapJson =
+      '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Capture the north elevation."}]}]}';
+    const emptyTiptapJson = JSON.stringify(emptyDocument());
+
+    const [template] = normalizeTimelineSettingsProjection({
+      templates: [
+        {
+          ...sourceTemplate,
+          milestones: [
+            {
+              ...sourceMilestone,
+              submilestones: [
+                {
+                  ...sourceSubmilestone,
+                  fieldGuidance: {
+                    cameraAnglesTiptapJson: "",
+                    whatToVerifyTiptapJson,
+                  },
+                  order: 0,
+                },
+                {
+                  ...sourceSubmilestone,
+                  fieldGuidance: { cameraAnglesTiptapJson },
+                  order: 1,
+                  submilestoneKey: "foundation-camera-only",
+                },
+                {
+                  ...sourceSubmilestone,
+                  fieldGuidance: {},
+                  order: 2,
+                  submilestoneKey: "foundation-empty-guidance",
+                },
+                {
+                  ...sourceSubmilestone,
+                  fieldGuidance: undefined,
+                  order: 3,
+                  submilestoneKey: "foundation-no-guidance",
+                },
+              ],
+            },
+          ],
+          submilestones: [],
+        },
+      ],
+    });
+    const submilestones = template.milestones[0]?.submilestones ?? [];
+
+    expect(submilestones[0]?.fieldGuidance).toEqual({
+      cameraAnglesTiptapJson: emptyTiptapJson,
+      whatToVerifyTiptapJson,
+    });
+    expect(submilestones[1]?.fieldGuidance).toEqual({
+      cameraAnglesTiptapJson,
+      whatToVerifyTiptapJson: emptyTiptapJson,
+    });
+    expect(submilestones[2]?.fieldGuidance).toBeUndefined();
+    expect(submilestones[3]).not.toHaveProperty("fieldGuidance");
   });
 
   test("converts active settings into timeline items and draw markers", () => {

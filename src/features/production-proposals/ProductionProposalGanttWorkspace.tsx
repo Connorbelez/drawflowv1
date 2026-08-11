@@ -34,6 +34,7 @@ import type {
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import { localDateFromIsoDate } from "#/features/production-proposals/proposalScheduleDates.ts";
 import type { ConvexTimelineWorkspace } from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
+import type { TimelineSubmilestoneFieldGuidance } from "#/features/timeline-workspace/-timeline-milestone-submilestones.ts";
 import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -45,9 +46,11 @@ const DEFAULT_INTEREST_RATE_PCT = 9.25;
 export interface ProposalGanttSubmilestoneDraft {
   budgetCents?: number;
   durationDays?: number;
+  fieldGuidance?: TimelineSubmilestoneFieldGuidance;
   key: string;
   name: string;
   order: number;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
 }
 

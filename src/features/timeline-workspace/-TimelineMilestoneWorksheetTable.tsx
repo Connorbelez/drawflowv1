@@ -8,6 +8,7 @@ import {
   getExpandedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import type { JSONContent } from "@tiptap/react";
 import {
   ChevronDown,
   ChevronRight,
@@ -124,6 +125,7 @@ import {
   ISOMETRIC_ICON_KEYS,
   type IsometricIconKey,
 } from "./-timeline-share-snapshot.ts";
+import type { TimelineSubmilestoneFieldGuidance } from "./-timeline-milestone-submilestones.ts";
 import "./-timeline-setup-flow.css";
 import {
   ScheduleWindowPicker,
@@ -151,6 +153,11 @@ const iconOptions = ISOMETRIC_ICON_KEYS;
 
 export interface TimelineMilestoneWorksheetRowsChangeMeta {
   commit?: boolean;
+  save?: {
+    group: "fieldGuidance" | "scope";
+    rowKey: string;
+    subMilestoneId: string;
+  };
 }
 
 interface SubMilestoneBankItem {
@@ -209,10 +216,12 @@ export interface TimelineMilestoneWorksheetSubMilestone {
   budgetText: string;
   description: string;
   durationText: string;
+  fieldGuidance?: TimelineSubmilestoneFieldGuidance;
   id: string;
   name: string;
   percentageBps?: number;
   percentageText?: string;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
 }
 
@@ -306,6 +315,11 @@ type TimelineDetailsSheetTarget =
       subMilestoneId: string;
       tab?: TimelineDetailTab;
     };
+interface PendingUnsavedNavigation {
+  action: () => void;
+  dirtyKeys: Set<string>;
+}
+type SubMilestoneEditorResetVersions = Readonly<Record<string, number>>;
 type TimelineSummaryDragItem =
   | { id: string; kind: "group"; rowKey: string }
   | {
@@ -361,7 +375,7 @@ export function TimelineMilestoneWorksheetTable({
   onRowsChange: (
     rows: TimelineMilestoneWorksheetRow[],
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
-  ) => void;
+  ) => void | Promise<void>;
   onScheduleDisplayModeChange?: (mode: TimelineScheduleDisplayMode) => void;
   planningFocusScopeKey?: string;
   projectAddress?: string;
@@ -391,6 +405,12 @@ export function TimelineMilestoneWorksheetTable({
   const [pendingMilestoneDeleteKey, setPendingMilestoneDeleteKey] = useState<
     string | null
   >(null);
+  const [dirtySubMilestoneEditorKeys, setDirtySubMilestoneEditorKeys] =
+    useState<Set<string>>(() => new Set());
+  const [subMilestoneEditorResetVersions, setSubMilestoneEditorResetVersions] =
+    useState<SubMilestoneEditorResetVersions>({});
+  const [pendingUnsavedNavigation, setPendingUnsavedNavigation] =
+    useState<PendingUnsavedNavigation | null>(null);
   // Active tab inside the detail sheet. Seeded from `detailsSheetTarget.tab`
   // when the sheet opens (e.g. from a status-chip click), then owned by the
   // user once they start switching tabs.
@@ -440,7 +460,7 @@ export function TimelineMilestoneWorksheetTable({
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => {
-    updateRows(
+    const result = updateRows(
       rowsRef.current.map((row) => {
         if (row.key !== rowKey) {
           return row;
@@ -463,31 +483,11 @@ export function TimelineMilestoneWorksheetTable({
       ...current,
       [rowKey]: subMilestoneId,
     }));
+    return result;
   };
   const commitRows = useCallback(() => {
     updateRows(rowsRef.current, { commit: true });
   }, [updateRows]);
-
-  const openDetailsSheet = useCallback(
-    (rowKey: string, subMilestoneId?: string, tab?: TimelineDetailTab) => {
-      setDetailsSheetTab(tab);
-      if (subMilestoneId) {
-        setActiveSubMilestoneByRow((current) => ({
-          ...current,
-          [rowKey]: subMilestoneId,
-        }));
-        setDetailsSheetTarget({
-          kind: "subMilestone",
-          rowKey,
-          subMilestoneId,
-          tab,
-        });
-        return;
-      }
-      setDetailsSheetTarget({ kind: "milestone", rowKey, tab });
-    },
-    []
-  );
 
   const addSubMilestone = (rowKey: string, item?: SubMilestoneBankItem) => {
     const currentRows = rowsRef.current;
@@ -1054,6 +1054,173 @@ export function TimelineMilestoneWorksheetTable({
       : detailsSheetRow
         ? `timeline-setup-details-sheet-${detailsSheetRow.key}`
         : undefined;
+  const markSubMilestoneEditorDirty = useCallback(
+    (
+      rowKey: string,
+      subMilestoneId: string,
+      group: "fieldGuidance" | "scope",
+      dirty: boolean
+    ) => {
+      const editorKey = `${rowKey}:${subMilestoneId}:${group}`;
+      setDirtySubMilestoneEditorKeys((current) => {
+        if (current.has(editorKey) === dirty) {
+          return current;
+        }
+        const next = new Set(current);
+        if (dirty) {
+          next.add(editorKey);
+        } else {
+          next.delete(editorKey);
+        }
+        return next;
+      });
+    },
+    []
+  );
+  const reportSubMilestoneEditorDirty = useCallback(
+    (
+      rowKey: string,
+      subMilestoneId: string,
+      group: "fieldGuidance" | "scope",
+      dirty: boolean
+    ) => {
+      markSubMilestoneEditorDirty(rowKey, subMilestoneId, group, dirty);
+    },
+    [markSubMilestoneEditorDirty]
+  );
+  const requestUnsavedNavigation = useCallback(
+    (action: () => void, dirtyKeys = dirtySubMilestoneEditorKeys) => {
+      if (dirtyKeys.size === 0) {
+        action();
+        return;
+      }
+      setPendingUnsavedNavigation({ action, dirtyKeys: new Set(dirtyKeys) });
+    },
+    [dirtySubMilestoneEditorKeys]
+  );
+  const resolveActiveSubMilestoneId = useCallback(
+    (rowKey: string) => {
+      const row = rowsRef.current.find((candidate) => candidate.key === rowKey);
+      return activeSubMilestoneByRow[rowKey] ?? row?.subMilestoneDetails[0]?.id;
+    },
+    [activeSubMilestoneByRow]
+  );
+  const handleWorksheetViewChange = useCallback(
+    (value: string) => {
+      if (value !== "editor" && value !== "table") {
+        return;
+      }
+      requestUnsavedNavigation(() => setWorksheetView(value));
+    },
+    [requestUnsavedNavigation]
+  );
+  const changeActiveSubMilestone = useCallback(
+    (rowKey: string, subMilestoneId: string) => {
+      const previousSubMilestoneId = resolveActiveSubMilestoneId(rowKey);
+      if (
+        !previousSubMilestoneId ||
+        previousSubMilestoneId === subMilestoneId
+      ) {
+        setActiveSubMilestoneByRow((current) => ({
+          ...current,
+          [rowKey]: subMilestoneId,
+        }));
+        return;
+      }
+
+      const previousKeyPrefix = `${rowKey}:${previousSubMilestoneId}:`;
+      const previousDirtyKeys = new Set(
+        [...dirtySubMilestoneEditorKeys].filter(
+          (editorKey) =>
+            editorKey === `${previousKeyPrefix}scope` ||
+            editorKey === `${previousKeyPrefix}fieldGuidance`
+        )
+      );
+      requestUnsavedNavigation(
+        () =>
+          setActiveSubMilestoneByRow((current) => ({
+            ...current,
+            [rowKey]: subMilestoneId,
+          })),
+        previousDirtyKeys
+      );
+    },
+    [
+      activeSubMilestoneByRow,
+      dirtySubMilestoneEditorKeys,
+      resolveActiveSubMilestoneId,
+      requestUnsavedNavigation,
+    ]
+  );
+  const openDetailsSheet = useCallback(
+    (rowKey: string, subMilestoneId?: string, tab?: TimelineDetailTab) => {
+      setDetailsSheetTab(tab);
+      if (!subMilestoneId) {
+        setDetailsSheetTarget({ kind: "milestone", rowKey, tab });
+        return;
+      }
+
+      const openSubMilestoneSheet = () => {
+        setActiveSubMilestoneByRow((current) => ({
+          ...current,
+          [rowKey]: subMilestoneId,
+        }));
+        setDetailsSheetTarget({
+          kind: "subMilestone",
+          rowKey,
+          subMilestoneId,
+          tab,
+        });
+      };
+      const previousSubMilestoneId = resolveActiveSubMilestoneId(rowKey);
+      if (
+        !previousSubMilestoneId ||
+        previousSubMilestoneId === subMilestoneId
+      ) {
+        openSubMilestoneSheet();
+        return;
+      }
+
+      const previousKeyPrefix = `${rowKey}:${previousSubMilestoneId}:`;
+      const previousDirtyKeys = new Set(
+        [...dirtySubMilestoneEditorKeys].filter(
+          (editorKey) =>
+            editorKey === `${previousKeyPrefix}scope` ||
+            editorKey === `${previousKeyPrefix}fieldGuidance`
+        )
+      );
+      requestUnsavedNavigation(openSubMilestoneSheet, previousDirtyKeys);
+    },
+    [
+      activeSubMilestoneByRow,
+      dirtySubMilestoneEditorKeys,
+      resolveActiveSubMilestoneId,
+      requestUnsavedNavigation,
+    ]
+  );
+  const closeDetailsSheet = useCallback(() => {
+    const target = detailsSheetTarget;
+    const dirtyKeys = new Set(
+      [...dirtySubMilestoneEditorKeys].filter((editorKey) => {
+        if (!target) {
+          return false;
+        }
+        const rowPrefix = `${target.rowKey}:`;
+        if (!editorKey.startsWith(rowPrefix)) {
+          return false;
+        }
+        if (target.kind === "milestone") {
+          return true;
+        }
+        return editorKey.startsWith(`${rowPrefix}${target.subMilestoneId}:`);
+      })
+    );
+    requestUnsavedNavigation(() => setDetailsSheetTarget(null), dirtyKeys);
+  }, [
+    detailsSheetTarget,
+    dirtySubMilestoneEditorKeys,
+    requestUnsavedNavigation,
+  ]);
   const pendingMilestoneDeleteRow =
     rows.find((row) => row.key === pendingMilestoneDeleteKey) ?? null;
   const canDeleteMilestone = (row: TimelineMilestoneWorksheetRow) =>
@@ -1062,77 +1229,85 @@ export function TimelineMilestoneWorksheetTable({
   const renderMilestoneDetailTabs = (
     row: TimelineMilestoneWorksheetRow,
     placement: "expanded" | "sheet" = "expanded"
-  ) => (
-    <>
-      <MilestoneExpandedTabs
-        activeSubMilestoneId={activeSubMilestoneByRow[row.key]}
-        activeTab={placement === "sheet" ? detailsSheetActiveTab : undefined}
-        contractorActions={contractorActions}
-        contractorOptions={contractorOptions}
-        mode={mode}
-        moveTargetRows={rows.map(({ key, name }) => ({
-          key,
-          name,
-        }))}
-        onActiveSubMilestoneChange={(subMilestoneId) =>
-          setActiveSubMilestoneByRow((current) => ({
-            ...current,
-            [row.key]: subMilestoneId,
-          }))
-        }
-        onActiveTabChange={
-          placement === "sheet" ? handleDetailsSheetTabChange : undefined
-        }
-        onAddContractorAssignment={(assignment) =>
-          addContractorAssignment(row.key, assignment)
-        }
-        onAddSubMilestone={(item) => addSubMilestone(row.key, item)}
-        onCommitField={commitRows}
-        onCreateCostItem={(payload) => createCostItem(row.key, payload)}
-        onDeleteCostItem={(itemId) => deleteCostItem(row.key, itemId)}
-        onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
-          moveSubMilestone(row.key, subMilestoneId, targetRowKey)
-        }
-        onRemoveContractorAssignment={(assignmentId) =>
-          removeContractorAssignment(row.key, assignmentId)
-        }
-        onRemoveSubMilestone={(subMilestoneId) =>
-          removeSubMilestone(row.key, subMilestoneId)
-        }
-        onUpdateCostItem={(itemId, payload) =>
-          updateCostItem(row.key, itemId, payload)
-        }
-        onUpdateFieldGuidance={(siteVisitGuidance) =>
-          updateRow(row.key, { siteVisitGuidance })
-        }
-        onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
-          updateSubMilestone(row.key, subMilestoneId, patch, meta)
-        }
-        placement={placement}
-        proposedStartDate={proposedStartDate}
-        row={row}
-        scheduleDisplayMode={scheduleDisplayMode}
-      />
-      {mode === "settings" && placement === "sheet" ? (
-        <Button
-          className="mt-4"
-          data-testid={`timeline-settings-details-delete-${row.key}`}
-          disabled={!canDeleteMilestone(row)}
-          onClick={() => setPendingMilestoneDeleteKey(row.key)}
-          title={
-            canDeleteMilestone(row)
-              ? undefined
-              : "At least one milestone must remain included."
+  ) => {
+    const activeSubMilestoneId = resolveActiveSubMilestoneId(row.key);
+    const scopeEditorResetVersion = activeSubMilestoneId
+      ? (subMilestoneEditorResetVersions[
+          `${row.key}:${activeSubMilestoneId}:scope`
+        ] ?? 0)
+      : 0;
+
+    return (
+      <>
+        <MilestoneExpandedTabs
+          activeSubMilestoneId={activeSubMilestoneId}
+          activeTab={placement === "sheet" ? detailsSheetActiveTab : undefined}
+          contractorActions={contractorActions}
+          contractorOptions={contractorOptions}
+          mode={mode}
+          moveTargetRows={rows.map(({ key, name }) => ({
+            key,
+            name,
+          }))}
+          onActiveSubMilestoneChange={(subMilestoneId) =>
+            changeActiveSubMilestone(row.key, subMilestoneId)
           }
-          type="button"
-          variant="destructive"
-        >
-          <Trash2 aria-hidden="true" />
-          Delete milestone
-        </Button>
-      ) : null}
-    </>
-  );
+          onActiveTabChange={
+            placement === "sheet" ? handleDetailsSheetTabChange : undefined
+          }
+          onAddContractorAssignment={(assignment) =>
+            addContractorAssignment(row.key, assignment)
+          }
+          onAddSubMilestone={(item) => addSubMilestone(row.key, item)}
+          onCommitField={commitRows}
+          onCreateCostItem={(payload) => createCostItem(row.key, payload)}
+          onDeleteCostItem={(itemId) => deleteCostItem(row.key, itemId)}
+          onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
+            moveSubMilestone(row.key, subMilestoneId, targetRowKey)
+          }
+          onRemoveContractorAssignment={(assignmentId) =>
+            removeContractorAssignment(row.key, assignmentId)
+          }
+          onRemoveSubMilestone={(subMilestoneId) =>
+            removeSubMilestone(row.key, subMilestoneId)
+          }
+          onSubMilestoneEditorDirtyChange={reportSubMilestoneEditorDirty}
+          onUpdateCostItem={(itemId, payload) =>
+            updateCostItem(row.key, itemId, payload)
+          }
+          onUpdateFieldGuidance={(siteVisitGuidance) =>
+            updateRow(row.key, { siteVisitGuidance })
+          }
+          onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
+            updateSubMilestone(row.key, subMilestoneId, patch, meta)
+          }
+          placement={placement}
+          proposedStartDate={proposedStartDate}
+          row={row}
+          scheduleDisplayMode={scheduleDisplayMode}
+          scopeEditorResetVersion={scopeEditorResetVersion}
+        />
+        {mode === "settings" && placement === "sheet" ? (
+          <Button
+            className="mt-4"
+            data-testid={`timeline-settings-details-delete-${row.key}`}
+            disabled={!canDeleteMilestone(row)}
+            onClick={() => setPendingMilestoneDeleteKey(row.key)}
+            title={
+              canDeleteMilestone(row)
+                ? undefined
+                : "At least one milestone must remain included."
+            }
+            type="button"
+            variant="destructive"
+          >
+            <Trash2 aria-hidden="true" />
+            Delete milestone
+          </Button>
+        ) : null}
+      </>
+    );
+  };
 
   return (
     <div
@@ -1274,11 +1449,7 @@ export function TimelineMilestoneWorksheetTable({
       <Tabs
         className="timeline-blueprint-view-tabs"
         data-testid="timeline-setup-worksheet-view-tabs"
-        onValueChange={(value) => {
-          if (value === "editor" || value === "table") {
-            setWorksheetView(value);
-          }
-        }}
+        onValueChange={handleWorksheetViewChange}
         value={worksheetView}
       >
         <div className="timeline-blueprint-view-tabs-header">
@@ -1291,7 +1462,11 @@ export function TimelineMilestoneWorksheetTable({
             <TabsTab value="table">Table view</TabsTab>
           </TabsList>
         </div>
-        <TabsPanel className="timeline-blueprint-view-panel" value="editor">
+        <TabsPanel
+          className="timeline-blueprint-view-panel"
+          keepMounted
+          value="editor"
+        >
           <div
             className="timeline-blueprint-table-wrap"
             data-testid="timeline-setup-budget-table"
@@ -1453,7 +1628,7 @@ export function TimelineMilestoneWorksheetTable({
               {onBack ? (
                 <Button
                   className="timeline-setup-secondary"
-                  onClick={onBack}
+                  onClick={() => requestUnsavedNavigation(onBack)}
                   variant="outline"
                 >
                   Back to templates
@@ -1463,7 +1638,11 @@ export function TimelineMilestoneWorksheetTable({
                 <Button
                   className="timeline-setup-primary"
                   data-testid="timeline-setup-complete"
-                  onClick={() => onComplete({ redirectToDurableRoute: false })}
+                  onClick={() =>
+                    requestUnsavedNavigation(() =>
+                      onComplete({ redirectToDurableRoute: false })
+                    )
+                  }
                 >
                   Generate timeline
                   <ChevronRight />
@@ -1476,7 +1655,7 @@ export function TimelineMilestoneWorksheetTable({
       <Sheet
         onOpenChange={(open) => {
           if (!open) {
-            setDetailsSheetTarget(null);
+            closeDetailsSheet();
           }
         }}
         open={detailsSheetOpen}
@@ -1506,6 +1685,11 @@ export function TimelineMilestoneWorksheetTable({
                 activeTab={detailsSheetActiveTab}
                 contractorActions={contractorActions}
                 contractorOptions={contractorOptions}
+                fieldGuidanceEditorResetVersion={
+                  subMilestoneEditorResetVersions[
+                    `${detailsSheetRow.key}:${detailsSheetSubMilestone.id}:fieldGuidance`
+                  ] ?? 0
+                }
                 mode={mode}
                 onActiveTabChange={handleDetailsSheetTabChange}
                 onAddContractorAssignment={(assignment) =>
@@ -1524,6 +1708,9 @@ export function TimelineMilestoneWorksheetTable({
                 onRemoveSubMilestone={(subMilestoneId) =>
                   removeSubMilestone(detailsSheetRow.key, subMilestoneId)
                 }
+                onSubMilestoneEditorDirtyChange={
+                  reportSubMilestoneEditorDirty
+                }
                 onUpdateCostItem={(itemId, payload) =>
                   updateCostItem(detailsSheetRow.key, itemId, payload)
                 }
@@ -1538,6 +1725,11 @@ export function TimelineMilestoneWorksheetTable({
                 proposedStartDate={proposedStartDate}
                 row={detailsSheetRow}
                 scheduleDisplayMode={scheduleDisplayMode}
+                scopeEditorResetVersion={
+                  subMilestoneEditorResetVersions[
+                    `${detailsSheetRow.key}:${detailsSheetSubMilestone.id}:scope`
+                  ] ?? 0
+                }
                 subMilestone={detailsSheetSubMilestone}
               />
             ) : detailsSheetRow ? (
@@ -1577,6 +1769,60 @@ export function TimelineMilestoneWorksheetTable({
               variant="destructive"
             >
               Delete milestone
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingUnsavedNavigation(null);
+          }
+        }}
+        open={pendingUnsavedNavigation !== null}
+      >
+        <AlertDialogContent
+          className="sm:max-w-md"
+          data-testid="timeline-setup-unsaved-changes-dialog"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved editor changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your Scope or Field Guidance edits have not been saved. Leave this
+              worksheet and discard those local changes?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="outline">Keep editing</Button>}
+            />
+            <Button
+              data-testid="timeline-setup-unsaved-changes-discard"
+              onClick={() => {
+                if (!pendingUnsavedNavigation) {
+                  return;
+                }
+                const { action, dirtyKeys } = pendingUnsavedNavigation;
+                setSubMilestoneEditorResetVersions((current) => {
+                  const next = { ...current };
+                  for (const dirtyKey of dirtyKeys) {
+                    next[dirtyKey] = (next[dirtyKey] ?? 0) + 1;
+                  }
+                  return next;
+                });
+                setDirtySubMilestoneEditorKeys((current) => {
+                  const next = new Set(current);
+                  for (const dirtyKey of dirtyKeys) {
+                    next.delete(dirtyKey);
+                  }
+                  return next;
+                });
+                setPendingUnsavedNavigation(null);
+                action();
+              }}
+              variant="destructive"
+            >
+              Discard changes
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2735,11 +2981,30 @@ function summaryGuidanceDetails(
   subMilestone?: TimelineMilestoneWorksheetSubMilestone
 ): SummaryGuidanceDetails {
   if (subMilestone) {
-    const scopeNote = subMilestone.description.trim();
+    const verification = plainTextFromTiptapJson(
+      subMilestone.fieldGuidance?.whatToVerifyTiptapJson ?? ""
+    );
+    const cameraAngles = plainTextFromTiptapJson(
+      subMilestone.fieldGuidance?.cameraAnglesTiptapJson ?? ""
+    );
+    const items = [
+      verification ? { label: "What to verify", value: verification } : null,
+      cameraAngles
+        ? { label: "Recommended camera angles", value: cameraAngles }
+        : null,
+    ].filter((item): item is { label: string; value: string } => Boolean(item));
+    const legacyDescription = plainTextFromTiptapJson(subMilestone.description);
+    const fallbackItems = legacyDescription
+      ? [{ label: "Scope note", value: legacyDescription }]
+      : [];
+    const summaryItems = items.length > 0 ? items : fallbackItems;
     return {
-      active: Boolean(scopeNote),
-      items: scopeNote ? [{ label: "Scope note", value: scopeNote }] : [],
-      summary: scopeNote || "No field guidance set.",
+      active: summaryItems.length > 0,
+      items: summaryItems,
+      summary:
+        summaryItems.length > 0
+          ? summaryItems.map((item) => `${item.label}: ${item.value}`).join("; ")
+          : "No field guidance set.",
     };
   }
 
@@ -2813,6 +3078,59 @@ function plainTextFromHtml(value: string) {
     .replaceAll("&quot;", '"')
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function plainTextFromTiptapJson(value: string) {
+  if (!value.trim()) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed) ||
+      (parsed as { type?: unknown }).type !== "doc"
+    ) {
+      return plainTextFromHtml(value);
+    }
+    const document = parsed as JSONContent;
+    const text: string[] = [];
+    const blockNodeTypes = new Set([
+      "blockquote",
+      "codeBlock",
+      "doc",
+      "heading",
+      "listItem",
+      "bulletList",
+      "orderedList",
+      "paragraph",
+      "table",
+      "tableCell",
+      "tableHeader",
+      "tableRow",
+    ]);
+    const visit = (node: JSONContent) => {
+      if (typeof node.text === "string") {
+        text.push(node.text);
+        return;
+      }
+      if (node.type === "hardBreak") {
+        text.push("\n");
+        return;
+      }
+      for (const child of node.content ?? []) {
+        visit(child);
+      }
+      if (node.type && blockNodeTypes.has(node.type)) {
+        text.push("\n");
+      }
+    };
+    visit(document);
+    return text.join("").replace(/\s+/g, " ").trim();
+  } catch {
+    return plainTextFromHtml(value);
+  }
 }
 
 function summaryValueText(
@@ -3654,6 +3972,36 @@ function getExpandedRowId(rowKey: string) {
   return `timeline-blueprint-expanded-${rowKey}`;
 }
 
+function parseTiptapEditorValue(value: string): string | JSONContent {
+  if (!value.trim()) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(value) as JSONContent;
+    if (parsed && typeof parsed === "object" && parsed.type === "doc") {
+      return parsed;
+    }
+  } catch {
+    // Existing worksheet drafts may still contain HTML. TipTap accepts that
+    // representation directly while newly saved values use JSON below.
+  }
+  return value;
+}
+
+function stringifyTiptapDocument(document: JSONContent) {
+  return JSON.stringify(document);
+}
+
+function areFieldGuidanceEqual(
+  left: TimelineSubmilestoneFieldGuidance,
+  right: TimelineSubmilestoneFieldGuidance
+) {
+  return (
+    left.whatToVerifyTiptapJson === right.whatToVerifyTiptapJson &&
+    left.cameraAnglesTiptapJson === right.cameraAnglesTiptapJson
+  );
+}
+
 function SubMilestoneEditor({
   activeSubMilestoneId,
   mode,
@@ -3663,10 +4011,12 @@ function SubMilestoneEditor({
   onAddSubMilestone,
   onMoveSubMilestone,
   onRemoveSubMilestone,
+  onSubMilestoneEditorDirtyChange,
   onUpdateSubMilestone,
   proposedStartDate,
   row,
   scheduleDisplayMode,
+  scopeEditorResetVersion = 0,
 }: {
   activeSubMilestoneId?: string;
   mode: WorksheetMode;
@@ -3675,25 +4025,47 @@ function SubMilestoneEditor({
   onAddSubMilestone: (item?: SubMilestoneBankItem) => void;
   onMoveSubMilestone: (subMilestoneId: string, targetRowKey: string) => void;
   onRemoveSubMilestone: (subMilestoneId: string) => void;
+  onSubMilestoneEditorDirtyChange: (
+    rowKey: string,
+    subMilestoneId: string,
+    group: "fieldGuidance" | "scope",
+    dirty: boolean
+  ) => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
-  ) => void;
+  ) => void | Promise<void>;
   onCommitField: () => void;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
+  scopeEditorResetVersion?: number;
 }) {
   const subMilestones = row.subMilestoneDetails;
   const activeSubMilestone =
     subMilestones.find((detail) => detail.id === activeSubMilestoneId) ??
     subMilestones[0];
+  const activeSubMilestoneIdForEditor = activeSubMilestone?.id ?? "";
   const valueLabel = mode === "settings" ? "PoC" : "Budget";
   const showDateSchedule =
     scheduleDisplayMode === "dates" && Boolean(proposedStartDate);
   const moveTargets = moveTargetRows.filter(
     (targetRow) => targetRow.key !== row.key
+  );
+  const reportScopeDirty = useCallback(
+    (dirty: boolean) =>
+      onSubMilestoneEditorDirtyChange(
+        row.key,
+        activeSubMilestoneIdForEditor,
+        "scope",
+        dirty
+      ),
+    [
+      activeSubMilestoneIdForEditor,
+      onSubMilestoneEditorDirtyChange,
+      row.key,
+    ]
   );
 
   return (
@@ -3825,9 +4197,11 @@ function SubMilestoneEditor({
       >
         <SubMilestoneDetailEditor
           activeSubMilestone={activeSubMilestone}
+          key={`scope-${activeSubMilestoneIdForEditor}-${scopeEditorResetVersion}`}
           mode={mode}
           onAddSubMilestone={onAddSubMilestone}
           onCommitField={onCommitField}
+          onDirtyChange={reportScopeDirty}
           onRemoveSubMilestone={onRemoveSubMilestone}
           onUpdateSubMilestone={onUpdateSubMilestone}
           proposedStartDate={proposedStartDate}
@@ -3844,6 +4218,7 @@ function SubMilestoneDetailEditor({
   mode,
   onAddSubMilestone,
   onCommitField,
+  onDirtyChange,
   onRemoveSubMilestone,
   onUpdateSubMilestone,
   proposedStartDate,
@@ -3854,17 +4229,25 @@ function SubMilestoneDetailEditor({
   mode: WorksheetMode;
   onAddSubMilestone?: (item?: SubMilestoneBankItem) => void;
   onCommitField: () => void;
+  onDirtyChange: (dirty: boolean) => void;
   onRemoveSubMilestone: (subMilestoneId: string) => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
-  ) => void;
+  ) => void | Promise<void>;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
 }) {
   const valueLabel = mode === "settings" ? "PoC" : "Budget";
+  const initialScopeValue = activeSubMilestone?.scopeOfWorkTiptapJson ?? "";
+  const [scopeDraft, setScopeDraft] = useState(initialScopeValue);
+  const [savedScopeDraft, setSavedScopeDraft] = useState(initialScopeValue);
+  const [scopeSaving, setScopeSaving] = useState(false);
+  const [scopeSaveError, setScopeSaveError] = useState<string | null>(null);
+  const scopeCanonicalValueRef = useRef(initialScopeValue);
+  const scopeDirty = scopeDraft !== savedScopeDraft;
   const valueFieldLabelId = activeSubMilestone
     ? `timeline-submilestone-value-label-${activeSubMilestone.id}`
     : undefined;
@@ -3873,6 +4256,57 @@ function SubMilestoneDetailEditor({
     : undefined;
   const showDateSchedule =
     scheduleDisplayMode === "dates" && Boolean(proposedStartDate);
+
+  useEffect(() => {
+    if (
+      !(scopeDirty || scopeSaving) &&
+      scopeCanonicalValueRef.current !== initialScopeValue
+    ) {
+      scopeCanonicalValueRef.current = initialScopeValue;
+      setScopeDraft(initialScopeValue);
+      setSavedScopeDraft(initialScopeValue);
+      setScopeSaveError(null);
+    }
+  }, [initialScopeValue, scopeDirty, scopeSaving]);
+
+  useEffect(() => {
+    const reportDirty = onDirtyChange;
+    reportDirty(scopeDirty);
+    return () => {
+      // Capture the callback from this render so unmounting the editor clears
+      // the key that this editor actually reported.
+      reportDirty(false);
+    };
+  }, [onDirtyChange, scopeDirty]);
+
+  const saveScope = async () => {
+    if (!(activeSubMilestone && scopeDirty) || scopeSaving) {
+      return;
+    }
+    setScopeSaving(true);
+    setScopeSaveError(null);
+    try {
+      await onUpdateSubMilestone(
+        activeSubMilestone.id,
+        { scopeOfWorkTiptapJson: scopeDraft },
+        {
+          commit: true,
+          save: {
+            group: "scope",
+            rowKey: row.key,
+            subMilestoneId: activeSubMilestone.id,
+          },
+        }
+      );
+      setSavedScopeDraft(scopeDraft);
+    } catch (caught) {
+      setScopeSaveError(
+        caught instanceof Error ? caught.message : "Scope save failed."
+      );
+    } finally {
+      setScopeSaving(false);
+    }
+  };
 
   if (!activeSubMilestone) {
     return (
@@ -3932,31 +4366,37 @@ function SubMilestoneDetailEditor({
           value={activeSubMilestone.name}
         />
       </label>
-      <label className="timeline-submilestone-detail-field is-wide">
-        <span>Scope note</span>
-        <textarea
-          aria-label="Sub-milestone scope note"
-          data-testid={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
-          onBlur={onCommitField}
-          onChange={(event) =>
-            onUpdateSubMilestone(
-              activeSubMilestone.id,
-              {
-                description: event.currentTarget.value,
-              },
-              { commit: false }
-            )
+      <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
+        <div className="flex items-center justify-between gap-2">
+          <span>Scope</span>
+          <Button
+            data-testid={`timeline-setup-submilestone-scope-save-${activeSubMilestone.id}`}
+            disabled={!scopeDirty || scopeSaving}
+            onClick={saveScope}
+            size="sm"
+            type="button"
+          >
+            {scopeSaving ? "Saving…" : "Save scope"}
+          </Button>
+        </div>
+        <FieldRichTextEditor
+          ariaLabel={`${sanitizeSubMilestoneName(activeSubMilestone.name)} scope`}
+          editable={!scopeSaving}
+          editorMinHeightClass="[&_.ProseMirror]:min-h-44"
+          onChange={(html) => setScopeDraft(html)}
+          onDocumentChange={(document) =>
+            setScopeDraft(stringifyTiptapDocument(document))
           }
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              onCommitField();
-              event.currentTarget.blur();
-            }
-          }}
-          value={activeSubMilestone.description}
+          placeholder="Describe the contractual work scope…"
+          testId={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
+          value={parseTiptapEditorValue(scopeDraft)}
         />
-      </label>
+        {scopeSaveError ? (
+          <p className="text-destructive text-xs" role="alert">
+            {scopeSaveError}
+          </p>
+        ) : null}
+      </div>
       <div className="timeline-submilestone-detail-grid">
         <div className="timeline-submilestone-detail-field">
           <span id={valueFieldLabelId}>{valueLabel}</span>
@@ -4174,6 +4614,7 @@ function SubMilestoneFocusedTabs({
   activeTab,
   contractorActions,
   contractorOptions,
+  fieldGuidanceEditorResetVersion = 0,
   mode,
   onActiveTabChange,
   onAddContractorAssignment,
@@ -4182,16 +4623,19 @@ function SubMilestoneFocusedTabs({
   onDeleteCostItem,
   onRemoveContractorAssignment,
   onRemoveSubMilestone,
+  onSubMilestoneEditorDirtyChange,
   onUpdateCostItem,
   onUpdateSubMilestone,
   proposedStartDate,
   row,
   scheduleDisplayMode,
   subMilestone,
+  scopeEditorResetVersion = 0,
 }: {
   activeTab?: TimelineDetailTab;
   contractorActions?: WorksheetContractorActions;
   contractorOptions: TimelineMilestoneWorksheetContractorOption[];
+  fieldGuidanceEditorResetVersion?: number;
   mode: WorksheetMode;
   onActiveTabChange?: (tab: TimelineDetailTab) => void;
   onAddContractorAssignment: (
@@ -4202,6 +4646,12 @@ function SubMilestoneFocusedTabs({
   onDeleteCostItem: (itemId: string) => unknown;
   onRemoveContractorAssignment: (assignmentId: string) => void;
   onRemoveSubMilestone: (subMilestoneId: string) => void;
+  onSubMilestoneEditorDirtyChange: (
+    rowKey: string,
+    subMilestoneId: string,
+    group: "fieldGuidance" | "scope",
+    dirty: boolean
+  ) => void;
   onUpdateCostItem: (
     itemId: string,
     payload: MaterialPlanningPayload
@@ -4210,13 +4660,34 @@ function SubMilestoneFocusedTabs({
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
-  ) => void;
+  ) => void | Promise<void>;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
   subMilestone: TimelineMilestoneWorksheetSubMilestone;
+  scopeEditorResetVersion?: number;
 }) {
   const subMilestoneName = sanitizeSubMilestoneName(subMilestone.name);
+  const reportScopeDirty = useCallback(
+    (dirty: boolean) =>
+      onSubMilestoneEditorDirtyChange(
+        row.key,
+        subMilestone.id,
+        "scope",
+        dirty
+      ),
+    [onSubMilestoneEditorDirtyChange, row.key, subMilestone.id]
+  );
+  const reportFieldGuidanceDirty = useCallback(
+    (dirty: boolean) =>
+      onSubMilestoneEditorDirtyChange(
+        row.key,
+        subMilestone.id,
+        "fieldGuidance",
+        dirty
+      ),
+    [onSubMilestoneEditorDirtyChange, row.key, subMilestone.id]
+  );
 
   return (
     <Tabs
@@ -4248,6 +4719,7 @@ function SubMilestoneFocusedTabs({
       <TabsPanel
         className="timeline-blueprint-expanded-tab-panel"
         data-testid={`timeline-focused-submilestone-scope-panel-${subMilestone.id}`}
+        keepMounted
         value="scope"
       >
         <section
@@ -4256,8 +4728,10 @@ function SubMilestoneFocusedTabs({
         >
           <SubMilestoneDetailEditor
             activeSubMilestone={subMilestone}
+            key={`focused-scope-${subMilestone.id}-${scopeEditorResetVersion}`}
             mode={mode}
             onCommitField={onCommitField}
+            onDirtyChange={reportScopeDirty}
             onRemoveSubMilestone={onRemoveSubMilestone}
             onUpdateSubMilestone={onUpdateSubMilestone}
             proposedStartDate={proposedStartDate}
@@ -4302,9 +4776,12 @@ function SubMilestoneFocusedTabs({
       <TabsPanel
         className="timeline-blueprint-expanded-tab-panel"
         data-testid={`timeline-focused-submilestone-field-guidance-panel-${subMilestone.id}`}
+        keepMounted
         value="field-guidance"
       >
         <SubMilestoneFieldGuidanceEditor
+          key={`focused-field-guidance-${subMilestone.id}-${fieldGuidanceEditorResetVersion}`}
+          onDirtyChange={reportFieldGuidanceDirty}
           onUpdateSubMilestone={onUpdateSubMilestone}
           row={row}
           subMilestone={subMilestone}
@@ -4315,19 +4792,97 @@ function SubMilestoneFocusedTabs({
 }
 
 function SubMilestoneFieldGuidanceEditor({
+  onDirtyChange,
   onUpdateSubMilestone,
   row,
   subMilestone,
 }: {
+  onDirtyChange: (dirty: boolean) => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
-  ) => void;
+  ) => void | Promise<void>;
   row: TimelineMilestoneWorksheetRow;
   subMilestone: TimelineMilestoneWorksheetSubMilestone;
 }) {
   const subMilestoneName = sanitizeSubMilestoneName(subMilestone.name);
+  const initialGuidance = subMilestone.fieldGuidance ?? {
+    cameraAnglesTiptapJson: "",
+    whatToVerifyTiptapJson: "",
+  };
+  const [guidanceDraft, setGuidanceDraft] = useState(initialGuidance);
+  const [savedGuidance, setSavedGuidance] = useState(initialGuidance);
+  const [guidanceSaving, setGuidanceSaving] = useState(false);
+  const [guidanceSaveError, setGuidanceSaveError] = useState<string | null>(
+    null
+  );
+  const guidanceIdentityRef = useRef(subMilestone.id);
+  const guidanceCanonicalRef = useRef(initialGuidance);
+  const guidanceDirty =
+    guidanceDraft.whatToVerifyTiptapJson !==
+      savedGuidance.whatToVerifyTiptapJson ||
+    guidanceDraft.cameraAnglesTiptapJson !==
+      savedGuidance.cameraAnglesTiptapJson;
+
+  useEffect(() => {
+    if (guidanceIdentityRef.current !== subMilestone.id) {
+      guidanceIdentityRef.current = subMilestone.id;
+      guidanceCanonicalRef.current = initialGuidance;
+      setGuidanceDraft(initialGuidance);
+      setSavedGuidance(initialGuidance);
+      setGuidanceSaveError(null);
+      return;
+    }
+    if (
+      !(guidanceDirty || guidanceSaving) &&
+      !areFieldGuidanceEqual(guidanceCanonicalRef.current, initialGuidance)
+    ) {
+      guidanceCanonicalRef.current = initialGuidance;
+      setGuidanceDraft(initialGuidance);
+      setSavedGuidance(initialGuidance);
+      setGuidanceSaveError(null);
+    }
+  }, [guidanceDirty, guidanceSaving, initialGuidance, subMilestone.id]);
+
+  useEffect(() => {
+    const reportDirty = onDirtyChange;
+    reportDirty(guidanceDirty);
+    return () => {
+      // Capture the callback and sub-milestone identity from this render so
+      // unmounting the editor clears only the key it reported.
+      reportDirty(false);
+    };
+  }, [guidanceDirty, onDirtyChange, subMilestone.id]);
+
+  const saveGuidance = async () => {
+    if (!guidanceDirty || guidanceSaving) {
+      return;
+    }
+    setGuidanceSaving(true);
+    setGuidanceSaveError(null);
+    try {
+      await onUpdateSubMilestone(
+        subMilestone.id,
+        { fieldGuidance: guidanceDraft },
+        {
+          commit: true,
+          save: {
+            group: "fieldGuidance",
+            rowKey: row.key,
+            subMilestoneId: subMilestone.id,
+          },
+        }
+      );
+      setSavedGuidance(guidanceDraft);
+    } catch (caught) {
+      setGuidanceSaveError(
+        caught instanceof Error ? caught.message : "Field Guidance save failed."
+      );
+    } finally {
+      setGuidanceSaving(false);
+    }
+  };
 
   return (
     <section
@@ -4344,23 +4899,69 @@ function SubMilestoneFieldGuidanceEditor({
           <p>{row.name}</p>
         </div>
       </div>
+      <div className="flex items-center justify-between gap-2">
+        <span>Field Guidance</span>
+        <Button
+          data-testid={`timeline-setup-submilestone-field-guidance-save-${subMilestone.id}`}
+          disabled={!guidanceDirty || guidanceSaving}
+          onClick={saveGuidance}
+          size="sm"
+          type="button"
+        >
+          {guidanceSaving ? "Saving…" : "Save field guidance"}
+        </Button>
+      </div>
       <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
-        <span>Verification note</span>
+        <span>What to verify</span>
         <FieldRichTextEditor
-          ariaLabel={`${subMilestoneName} verification note`}
+          ariaLabel={`${subMilestoneName} what to verify`}
+          editable={!guidanceSaving}
           editorMinHeightClass="[&_.ProseMirror]:min-h-44"
-          onChange={(description) =>
-            onUpdateSubMilestone(
-              subMilestone.id,
-              { description },
-              { commit: true }
-            )
+          onChange={(html) =>
+            setGuidanceDraft((current) => ({
+              ...current,
+              whatToVerifyTiptapJson: html,
+            }))
+          }
+          onDocumentChange={(document) =>
+            setGuidanceDraft((current) => ({
+              ...current,
+              whatToVerifyTiptapJson: stringifyTiptapDocument(document),
+            }))
           }
           placeholder="Add a concise verification checklist…"
           testId={`timeline-setup-submilestone-guidance-description-${subMilestone.id}`}
-          value={subMilestone.description}
+          value={parseTiptapEditorValue(guidanceDraft.whatToVerifyTiptapJson)}
         />
       </div>
+      <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
+        <span>Recommended camera angles</span>
+        <FieldRichTextEditor
+          ariaLabel={`${subMilestoneName} recommended camera angles`}
+          editable={!guidanceSaving}
+          editorMinHeightClass="[&_.ProseMirror]:min-h-44"
+          onChange={(html) =>
+            setGuidanceDraft((current) => ({
+              ...current,
+              cameraAnglesTiptapJson: html,
+            }))
+          }
+          onDocumentChange={(document) =>
+            setGuidanceDraft((current) => ({
+              ...current,
+              cameraAnglesTiptapJson: stringifyTiptapDocument(document),
+            }))
+          }
+          placeholder="Describe recommended photo angles and framing…"
+          testId={`timeline-setup-submilestone-guidance-camera-${subMilestone.id}`}
+          value={parseTiptapEditorValue(guidanceDraft.cameraAnglesTiptapJson)}
+        />
+      </div>
+      {guidanceSaveError ? (
+        <p className="text-destructive text-xs" role="alert">
+          {guidanceSaveError}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -4370,6 +4971,7 @@ function MilestoneExpandedTabs({
   activeTab,
   contractorActions,
   contractorOptions,
+  scopeEditorResetVersion = 0,
   moveTargetRows,
   onAddContractorAssignment,
   onActiveSubMilestoneChange,
@@ -4381,6 +4983,7 @@ function MilestoneExpandedTabs({
   onMoveSubMilestone,
   onRemoveContractorAssignment,
   onRemoveSubMilestone,
+  onSubMilestoneEditorDirtyChange,
   onUpdateCostItem,
   onUpdateFieldGuidance,
   onUpdateSubMilestone,
@@ -4394,6 +4997,7 @@ function MilestoneExpandedTabs({
   activeTab?: TimelineDetailTab;
   contractorActions?: WorksheetContractorActions;
   contractorOptions: TimelineMilestoneWorksheetContractorOption[];
+  scopeEditorResetVersion?: number;
   mode: WorksheetMode;
   moveTargetRows: MilestoneMoveTarget[];
   onActiveSubMilestoneChange: (subMilestoneId: string) => void;
@@ -4408,6 +5012,12 @@ function MilestoneExpandedTabs({
   onMoveSubMilestone: (subMilestoneId: string, targetRowKey: string) => void;
   onRemoveContractorAssignment: (assignmentId: string) => void;
   onRemoveSubMilestone: (subMilestoneId: string) => void;
+  onSubMilestoneEditorDirtyChange: (
+    rowKey: string,
+    subMilestoneId: string,
+    group: "fieldGuidance" | "scope",
+    dirty: boolean
+  ) => void;
   onUpdateCostItem: (
     itemId: string,
     payload: MaterialPlanningPayload
@@ -4417,7 +5027,7 @@ function MilestoneExpandedTabs({
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
-  ) => void;
+  ) => void | Promise<void>;
   placement?: "expanded" | "sheet";
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
@@ -4456,6 +5066,7 @@ function MilestoneExpandedTabs({
       <TabsPanel
         className="timeline-blueprint-expanded-tab-panel"
         data-testid={`timeline-expanded-submilestones-panel-${row.key}`}
+        keepMounted
         value="submilestones"
       >
         <SubMilestoneEditor
@@ -4467,10 +5078,12 @@ function MilestoneExpandedTabs({
           onCommitField={onCommitField}
           onMoveSubMilestone={onMoveSubMilestone}
           onRemoveSubMilestone={onRemoveSubMilestone}
+          onSubMilestoneEditorDirtyChange={onSubMilestoneEditorDirtyChange}
           onUpdateSubMilestone={onUpdateSubMilestone}
           proposedStartDate={proposedStartDate}
           row={row}
           scheduleDisplayMode={scheduleDisplayMode}
+          scopeEditorResetVersion={scopeEditorResetVersion}
         />
       </TabsPanel>
       {mode === "setup" ? (

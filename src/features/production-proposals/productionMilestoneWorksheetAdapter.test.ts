@@ -256,4 +256,72 @@ describe("productionMilestoneWorksheetAdapter", () => {
       })
     );
   });
+
+  test("preserves canonical Scope and Field Guidance through worksheet drafts", () => {
+    const fieldGuidance = {
+      cameraAnglesTiptapJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
+      whatToVerifyTiptapJson:
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Verify footing depth."}]}]}',
+    };
+    const scopeOfWorkTiptapJson =
+      '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Install the issued footing package."}]}]}';
+    const detail = {
+      milestones: [
+        {
+          budgetCents: 50_000_00,
+          dayEnd: 10,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 10,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+        },
+      ],
+      proposal: {
+        status: "draft",
+        totalBudgetCents: 50_000_00,
+      },
+      submilestones: [
+        {
+          budgetCents: 12_500_00,
+          durationDays: 2,
+          fieldGuidance,
+          key: "forms",
+          milestoneKey: "foundation",
+          name: "Forms and pour",
+          order: 1,
+          scopeOfWorkTiptapJson,
+        },
+      ],
+    };
+
+    const [row] = productionProposalDetailToWorksheetRows(detail);
+    expect(row?.subMilestoneDetails[0]).toEqual(
+      expect.objectContaining({
+        description: "",
+        fieldGuidance,
+        id: "forms",
+        scopeOfWorkTiptapJson,
+      })
+    );
+
+    const scheduleByKey = new Map(
+      productionProposalDetailToDraftMilestones(detail).map((milestone) => [
+        milestone.key,
+        milestone,
+      ])
+    );
+    const [draft] = worksheetRowsToGanttMilestoneDrafts(
+      [row!],
+      scheduleByKey
+    );
+    expect(draft?.submilestones[0]).toEqual(
+      expect.objectContaining({
+        fieldGuidance,
+        scopeOfWorkTiptapJson,
+      })
+    );
+    expect(draft?.submilestones[0]).not.toHaveProperty("description");
+  });
 });

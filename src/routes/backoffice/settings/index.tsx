@@ -1502,10 +1502,16 @@ function templateToWorksheetRows(
           budgetText: formatBps(submilestone.percentageBps),
           description: submilestone.description,
           durationText: String(submilestone.durationDays),
+          ...(submilestone.fieldGuidance === undefined
+            ? {}
+            : { fieldGuidance: submilestone.fieldGuidance }),
           id: submilestone.submilestoneKey,
           name: submilestone.name,
           percentageBps: submilestone.percentageBps,
           percentageText: formatBps(submilestone.percentageBps),
+          ...(submilestone.scopeOfWorkTiptapJson === undefined
+            ? {}
+            : { scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson }),
         })),
       subMilestones: milestone.submilestones
         .slice()
@@ -1534,12 +1540,18 @@ function worksheetRowsToTemplate(
       submilestones: row.subMilestoneDetails.map((submilestone, subOrder) => ({
         description: submilestone.description,
         durationDays: positiveInteger(submilestone.durationText, 1),
+        ...(submilestone.fieldGuidance === undefined
+          ? {}
+          : { fieldGuidance: submilestone.fieldGuidance }),
         name: submilestone.name,
         order: subOrder,
         percentageBps: finiteBps(
           submilestone.percentageBps ??
             parsePercentToBps(submilestone.percentageText ?? "0")
         ),
+        ...(submilestone.scopeOfWorkTiptapJson === undefined
+          ? {}
+          : { scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson }),
         submilestoneKey: submilestone.id,
       })),
       type: row.type,

@@ -113,6 +113,10 @@ import {
   withQueryTiming,
 } from "./fluent";
 import {
+  publishSavedV1ScopeDraftsForProposal,
+  upsertSubmilestoneScopeV1Draft,
+} from "./submilestone_scope_contracts";
+import {
   correctMilestoneStart,
   recordMilestoneStart,
   retractMilestoneStart,
@@ -378,9 +382,20 @@ const productionSettingsSiteVisitGuidanceInput = v.object({
   whatToVerify: productionSettingsSiteVisitGuidanceFieldInput,
 });
 
+const productionSettingsSubmilestoneFieldGuidanceInput = v.object({
+  cameraAnglesTiptapJson: v.string(),
+  whatToVerifyTiptapJson: v.string(),
+});
+
 const submilestoneInput = v.object({
   budgetCents: v.optional(v.number()),
   durationDays: v.optional(v.number()),
+  fieldGuidance: v.optional(
+    v.object({
+      cameraAnglesTiptapJson: v.string(),
+      whatToVerifyTiptapJson: v.string(),
+    }),
+  ),
   key: v.string(),
   name: v.string(),
   order: v.number(),
@@ -446,9 +461,11 @@ const productionSelectedPlanMetricsInput = v.object({
 const productionSettingsSubmilestoneInput = v.object({
   description: v.string(),
   durationDays: v.number(),
+  fieldGuidance: v.optional(productionSettingsSubmilestoneFieldGuidanceInput),
   name: v.string(),
   order: v.number(),
   percentageBps: v.number(),
+  scopeOfWorkTiptapJson: v.optional(v.string()),
   submilestoneKey: v.string(),
 });
 
@@ -1576,7 +1593,16 @@ export const saveDraftProposalPackage = authenticatedMutation
     }
 
     const now = Date.now();
-    await deleteProposalPlanChildren(ctx, args.proposalId);
+    const retainedPlanKeys = args.milestones.map((milestone) => ({
+      milestoneKey: milestone.key,
+      submilestoneKeys: milestone.submilestones.map(
+        (submilestone) => submilestone.key,
+      ),
+    }));
+    await deleteProposalPlanChildren(ctx, args.proposalId, {
+      preserveCanonicalLineage: true,
+      retainedPlanKeys,
+    });
     const planRows = await insertDraftProposalPlanRows(ctx, {
       auth,
       borrowerCoPayBps: args.borrowerCoPayBps,
@@ -1711,6 +1737,10 @@ interface DraftProposalSaveAuth {
 interface DraftProposalSubmilestoneInput {
   budgetCents?: number;
   durationDays?: number;
+  fieldGuidance?: {
+    cameraAnglesTiptapJson: string;
+    whatToVerifyTiptapJson: string;
+  };
   key: string;
   name: string;
   order: number;
@@ -1735,15 +1765,19 @@ interface DraftProposalMilestoneInput {
   submilestones: DraftProposalSubmilestoneInput[];
 }
 
-type ProductionSubmilestoneScheduleInput = {
+interface ProductionSubmilestoneScheduleInput {
   budgetCents?: number;
   durationDays?: number;
+  fieldGuidance?: {
+    cameraAnglesTiptapJson: string;
+    whatToVerifyTiptapJson: string;
+  };
   key: string;
   name: string;
   order: number;
   scopeOfWorkTiptapJson?: string;
   startDay?: number;
-};
+}
 
 function normalizeProductionMilestoneSchedule<
   T extends {
@@ -2008,7 +2042,15 @@ async function insertDraftProposalMilestone(
     row: DraftProposalMilestoneInput;
   },
 ) {
-  return await ctx.db.insert("proposalMilestones", {
+  const existing = await ctx.db
+    .query("proposalMilestones")
+    .withIndex("by_proposal_key", (query) =>
+      query
+        .eq("proposalId", input.proposalId)
+        .eq("key", milestone.row.key),
+    )
+    .unique();
+  const values = {
     brokerageId: input.auth.brokerage._id,
     budgetCents: milestone.row.budgetCents,
     createdAt: input.now,
@@ -2025,7 +2067,12 @@ async function insertDraftProposalMilestone(
     proposalId: input.proposalId,
     siteVisitGuidance: milestone.row.siteVisitGuidance,
     updatedAt: input.now,
-  });
+  };
+  if (existing) {
+    await ctx.db.patch(existing._id, values);
+    return existing._id;
+  }
+  return await ctx.db.insert("proposalMilestones", values);
 }
 
 async function insertDraftProposalSubmilestone(
@@ -2042,7 +2089,24 @@ async function insertDraftProposalSubmilestone(
     submilestone: DraftProposalSubmilestoneInput;
   },
 ) {
-  return await ctx.db.insert("proposalSubmilestones", {
+  assertProposalSubmilestoneCanonicalAuthoringAllowed(
+    input.auth.proposal,
+    milestone.submilestone,
+  );
+  const scopeOfWorkTiptapJson = normalizeOptionalTiptapJson(
+    milestone.submilestone.scopeOfWorkTiptapJson,
+    "Sub-milestone Scope of Work",
+  );
+  const existingRows = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_milestone", (query) =>
+      query.eq("proposalMilestoneId", milestone.milestoneId),
+    )
+    .collect();
+  const existing = existingRows.find(
+    (row) => row.key === milestone.submilestone.key,
+  );
+  const values = {
     brokerageId: input.auth.brokerage._id,
     budgetCents: milestone.submilestone.budgetCents,
     createdAt: input.now,
@@ -2054,12 +2118,120 @@ async function insertDraftProposalSubmilestone(
     organizationId: input.workosOrganizationId,
     proposalId: input.proposalId,
     proposalMilestoneId: milestone.milestoneId,
-    scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
-      milestone.submilestone.scopeOfWorkTiptapJson,
-      "Sub-milestone Scope of Work",
-    ),
+    scopeOfWorkTiptapJson,
     startDay: milestone.submilestone.startDay,
     updatedAt: input.now,
+  };
+  const submilestoneId = existing
+    ? existing._id
+    : await ctx.db.insert("proposalSubmilestones", values);
+  if (existing) {
+    await ctx.db.patch(existing._id, values);
+  }
+  if (scopeOfWorkTiptapJson !== undefined) {
+    await upsertSubmilestoneScopeV1Draft(ctx, {
+      authoredByWorkosUserId: input.auth.subject,
+      brokerageId: input.auth.brokerage._id,
+      now: input.now,
+      organizationId: input.workosOrganizationId,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: submilestoneId,
+      scopeOfWorkTiptapJson,
+    });
+  }
+  if (milestone.submilestone.fieldGuidance) {
+    await upsertProposalSubmilestoneFieldGuidance(ctx, {
+      auth: input.auth,
+      fieldGuidance: milestone.submilestone.fieldGuidance,
+      now: input.now,
+      proposalId: input.proposalId,
+      proposalSubmilestoneId: submilestoneId,
+      workosOrganizationId: input.workosOrganizationId,
+    });
+  }
+  return submilestoneId;
+}
+
+function assertProposalSubmilestoneCanonicalAuthoringAllowed(
+  proposal: Pick<Doc<"buildProposals">, "submittedAt">,
+  input: {
+    fieldGuidance?: {
+      cameraAnglesTiptapJson: string;
+      whatToVerifyTiptapJson: string;
+    };
+    scopeOfWorkTiptapJson?: string;
+  },
+) {
+  if (proposal.submittedAt === undefined) {
+    return;
+  }
+  if (input.scopeOfWorkTiptapJson !== undefined) {
+    throw new Error(
+      "Scope authoring is unavailable after the first Proposal submission.",
+    );
+  }
+  if (input.fieldGuidance !== undefined) {
+    throw new Error(
+      "Field Guidance authoring is unavailable after the first Proposal submission.",
+    );
+  }
+}
+
+async function upsertProposalSubmilestoneFieldGuidance(
+  ctx: MutationCtx,
+  input: {
+    auth: Pick<DraftProposalSaveAuth, "brokerage" | "subject">;
+    fieldGuidance: {
+      cameraAnglesTiptapJson: string;
+      whatToVerifyTiptapJson: string;
+    };
+    now: number;
+    proposalId: Id<"buildProposals">;
+    proposalSubmilestoneId: Id<"proposalSubmilestones">;
+    workosOrganizationId: string;
+  },
+) {
+  const whatToVerifyTiptapJson = normalizeRequiredTiptapJson(
+    input.fieldGuidance.whatToVerifyTiptapJson,
+    "Field Guidance what to verify",
+  );
+  const cameraAnglesTiptapJson = normalizeRequiredTiptapJson(
+    input.fieldGuidance.cameraAnglesTiptapJson,
+    "Field Guidance camera angles",
+  );
+  const existing = await ctx.db
+    .query("submilestoneFieldGuidance")
+    .withIndex("by_proposalSubmilestoneId", (query) =>
+      query.eq("proposalSubmilestoneId", input.proposalSubmilestoneId),
+    )
+    .unique();
+  if (existing) {
+    if (
+      existing.organizationId !== input.workosOrganizationId ||
+      existing.brokerageId !== input.auth.brokerage._id ||
+      existing.proposalId !== input.proposalId ||
+      existing.proposalSubmilestoneId !== input.proposalSubmilestoneId
+    ) {
+      throw new Error("Field Guidance lineage is unavailable.");
+    }
+    await ctx.db.patch(existing._id, {
+      cameraAnglesTiptapJson,
+      updatedAt: input.now,
+      updatedByWorkosUserId: input.auth.subject,
+      whatToVerifyTiptapJson,
+    });
+    return existing._id;
+  }
+  return await ctx.db.insert("submilestoneFieldGuidance", {
+    brokerageId: input.auth.brokerage._id,
+    cameraAnglesTiptapJson,
+    createdAt: input.now,
+    organizationId: input.workosOrganizationId,
+    proposalId: input.proposalId,
+    proposalSubmilestoneId: input.proposalSubmilestoneId,
+    updatedAt: input.now,
+    updatedByWorkosUserId: input.auth.subject,
+    whatToVerifyTiptapJson,
   });
 }
 
@@ -2723,6 +2895,14 @@ export const submitProposal = authenticatedMutation
     }
 
     const now = Date.now();
+    await publishSavedV1ScopeDraftsForProposal(ctx, {
+      actorRoles: auth.roles,
+      actorWorkosUserId: auth.subject,
+      brokerageId: auth.brokerage._id,
+      now,
+      organizationId: args.workosOrganizationId,
+      proposalId: args.proposalId,
+    });
     const workflowRule = await getActiveWorkflowRule(ctx, auth.brokerage._id);
     const snapshotId = await ctx.db.insert("workflowRuleSnapshots", {
       allowPermitWaiverByRoles: workflowRule.allowPermitWaiverByRoles,
@@ -8195,6 +8375,8 @@ export const getProductionTimelineWorkspace = authenticatedQuery
     const [
       milestoneRows,
       submilestones,
+      scopeContracts,
+      fieldGuidanceRows,
       costItemRows,
       drawRows,
       capitalEventRows,
@@ -8210,6 +8392,22 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         "by_proposal",
         args.proposalId,
       ),
+      ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query) =>
+          query
+            .eq("organizationId", auth.proposal.organizationId)
+            .eq("proposalId", args.proposalId),
+        )
+        .collect(),
+      ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_organizationId_and_proposalId", (query) =>
+          query
+            .eq("organizationId", auth.proposal.organizationId)
+            .eq("proposalId", args.proposalId),
+        )
+        .collect(),
       collectByIndex(ctx, "proposalCostItems", "by_proposal", args.proposalId),
       collectByIndex(
         ctx,
@@ -8279,6 +8477,44 @@ export const getProductionTimelineWorkspace = authenticatedQuery
     const activeMilestone = firstActiveMilestoneForWorkspace(milestones);
     const appPermissions = await proposalAppPermissionProjection(ctx, auth);
     const canViewLenderDrawNotes = isBackoffice(auth.roles);
+    const fieldGuidanceBySubmilestoneId = new Map(
+      fieldGuidanceRows.map((guidance) => [
+        guidance.proposalSubmilestoneId,
+        guidance,
+      ]),
+    );
+    const scopeRevisionBySubmilestoneId = new Map<
+      Id<"proposalSubmilestones">,
+      Doc<"submilestoneScopeRevisions">
+    >();
+    await Promise.all(
+      scopeContracts.map(async (contract) => {
+        // Timeline authoring reads the active draft only before first
+        // submission. After submission, the workspace remains a read-only
+        // projection of the effective immutable revision; SFG-07 owns any
+        // successor-draft editing surface.
+        const revisionId =
+          auth.proposal.status === "draft" &&
+          auth.proposal.submittedAt === undefined
+            ? (contract.activeDraftRevisionId ?? contract.effectiveRevisionId)
+            : contract.effectiveRevisionId;
+        if (!revisionId) {
+          return;
+        }
+        const revision = await ctx.db.get(revisionId);
+        if (
+          revision &&
+          revision.contractId === contract._id &&
+          revision.proposalId === args.proposalId &&
+          revision.proposalSubmilestoneId === contract.proposalSubmilestoneId
+        ) {
+          scopeRevisionBySubmilestoneId.set(
+            contract.proposalSubmilestoneId,
+            revision,
+          );
+        }
+      }),
+    );
 
     return {
       activeBuild: auth.proposal.activeBuildId
@@ -8445,9 +8681,36 @@ export const getProductionTimelineWorkspace = authenticatedQuery
                       ...(submilestone.durationDays === undefined
                         ? {}
                         : { durationDays: submilestone.durationDays }),
+                      ...(fieldGuidanceBySubmilestoneId.has(submilestone._id)
+                        ? {
+                            fieldGuidance: {
+                              cameraAnglesTiptapJson:
+                                fieldGuidanceBySubmilestoneId.get(
+                                  submilestone._id,
+                                )!.cameraAnglesTiptapJson,
+                              whatToVerifyTiptapJson:
+                                fieldGuidanceBySubmilestoneId.get(
+                                  submilestone._id,
+                                )!.whatToVerifyTiptapJson,
+                            },
+                          }
+                        : {}),
                       key: submilestone.key,
                       name: submilestone.name,
                       order: submilestone.order,
+                      ...(scopeRevisionBySubmilestoneId.has(submilestone._id)
+                        ? {
+                            scopeOfWorkTiptapJson:
+                              scopeRevisionBySubmilestoneId.get(
+                                submilestone._id,
+                              )!.scopeOfWorkTiptapJson,
+                          }
+                        : submilestone.scopeOfWorkTiptapJson === undefined
+                          ? {}
+                          : {
+                              scopeOfWorkTiptapJson:
+                                submilestone.scopeOfWorkTiptapJson,
+                            }),
                       ...(submilestone.startDay === undefined
                         ? {}
                         : { startDay: submilestone.startDay }),
@@ -32506,6 +32769,14 @@ function normalizeOptionalTiptapJson(value: string | undefined, label: string) {
   return value;
 }
 
+function normalizeRequiredTiptapJson(value: string, label: string) {
+  const normalized = normalizeOptionalTiptapJson(value, label);
+  if (normalized === undefined) {
+    throw new Error(`${label} must contain TipTap JSON.`);
+  }
+  return normalized;
+}
+
 function validateCostItemDeliveryWindow(input: {
   deliveryEndDay?: number;
   deliveryStartDay?: number;
@@ -32938,6 +33209,7 @@ async function insertProductionMilestoneFromInput(
   auth: {
     brokerage: Doc<"brokerages">;
     proposal: Doc<"buildProposals">;
+    subject: string;
   },
   milestone: {
     budgetCents: number;
@@ -32958,6 +33230,10 @@ async function insertProductionMilestoneFromInput(
     submilestones?: {
       budgetCents?: number;
       durationDays?: number;
+      fieldGuidance?: {
+        cameraAnglesTiptapJson: string;
+        whatToVerifyTiptapJson: string;
+      };
       key: string;
       name: string;
       order: number;
@@ -33030,11 +33306,110 @@ async function insertProductionMilestoneFromInput(
   return milestoneId;
 }
 
+async function deleteProposalSubmilestoneCanonicalLineage(
+  ctx: MutationCtx,
+  submilestone: Doc<"proposalSubmilestones"> | null,
+  resolved: {
+    contract?: Doc<"submilestoneScopeContracts">;
+    guidance?: Doc<"submilestoneFieldGuidance">;
+  } = {},
+  options: { validateOnly?: boolean } = {},
+) {
+  const contract =
+    resolved.contract ??
+    (submilestone
+      ? await ctx.db
+          .query("submilestoneScopeContracts")
+          .withIndex("by_proposalSubmilestoneId", (query) =>
+            query.eq("proposalSubmilestoneId", submilestone._id),
+          )
+          .unique()
+      : null);
+  const guidance =
+    resolved.guidance ??
+    (submilestone
+      ? await ctx.db
+          .query("submilestoneFieldGuidance")
+          .withIndex("by_proposalSubmilestoneId", (query) =>
+            query.eq("proposalSubmilestoneId", submilestone._id),
+          )
+          .unique()
+      : null);
+  const expectedProposalId =
+    submilestone?.proposalId ?? contract?.proposalId ?? guidance?.proposalId;
+  const expectedOrganizationId =
+    submilestone?.organizationId ??
+    contract?.organizationId ??
+    guidance?.organizationId;
+  const expectedBrokerageId =
+    submilestone?.brokerageId ?? contract?.brokerageId ?? guidance?.brokerageId;
+  if (contract) {
+    if (
+      contract.proposalId !== expectedProposalId ||
+      contract.organizationId !== expectedOrganizationId ||
+      contract.brokerageId !== expectedBrokerageId ||
+      (submilestone !== null &&
+        contract.proposalSubmilestoneId !== submilestone._id)
+    ) {
+      throw new Error("Scope contract lineage is unavailable.");
+    }
+    const publishedRevisions = await ctx.db
+      .query("submilestoneScopeRevisions")
+      .withIndex("by_contractId_and_status", (query) =>
+        query.eq("contractId", contract._id).eq("status", "published"),
+      )
+      .take(1);
+    if (contract.effectiveRevisionId || publishedRevisions.length > 0) {
+      throw new Error(
+        "Published Scope lineage cannot be removed from a Proposal draft.",
+      );
+    }
+  }
+  if (
+    guidance &&
+    (guidance.proposalId !== expectedProposalId ||
+      guidance.organizationId !== expectedOrganizationId ||
+      guidance.brokerageId !== expectedBrokerageId ||
+      (submilestone !== null &&
+        guidance.proposalSubmilestoneId !== submilestone._id))
+  ) {
+    throw new Error("Field Guidance lineage is unavailable.");
+  }
+  if (options.validateOnly) {
+    return;
+  }
+  if (contract) {
+    const decisions = await ctx.db
+      .query("submilestoneScopeDecisions")
+      .withIndex("by_contractId", (query) =>
+        query.eq("contractId", contract._id),
+      )
+      .collect();
+    for (const decision of decisions) {
+      await ctx.db.delete(decision._id);
+    }
+    const revisions = await ctx.db
+      .query("submilestoneScopeRevisions")
+      .withIndex("by_contractId_and_version", (query) =>
+        query.eq("contractId", contract._id),
+      )
+      .collect();
+    for (const revision of revisions) {
+      await ctx.db.delete(revision._id);
+    }
+    await ctx.db.delete(contract._id);
+  }
+  if (guidance) {
+    await ctx.db.delete(guidance._id);
+  }
+}
+
 async function replaceProductionSubmilestones(
   ctx: MutationCtx,
   auth: {
     brokerage: Doc<"brokerages">;
     proposal: Doc<"buildProposals">;
+    subject: string;
   },
   input: {
     milestone: Pick<Doc<"proposalMilestones">, "_id" | "key">;
@@ -33043,6 +33418,10 @@ async function replaceProductionSubmilestones(
     rows: {
       budgetCents?: number;
       durationDays?: number;
+      fieldGuidance?: {
+        cameraAnglesTiptapJson: string;
+        whatToVerifyTiptapJson: string;
+      };
       key: string;
       name: string;
       order: number;
@@ -33101,15 +33480,30 @@ async function replaceProductionSubmilestones(
       q.eq("proposalMilestoneId", input.milestone._id),
     )
     .collect();
+  const existingByKey = new Map(existing.map((row) => [row.key, row]));
+  const retainedKeys = new Set(input.rows.map((row) => row.key));
   for (const row of existing) {
+    if (retainedKeys.has(row.key)) {
+      continue;
+    }
+    await deleteProposalSubmilestoneCanonicalLineage(ctx, row);
     await ctx.db.delete(row._id);
   }
   const now = Date.now();
   for (const row of [...input.rows].sort((a, b) => a.order - b.order)) {
-    await ctx.db.insert("proposalSubmilestones", {
+    assertProposalSubmilestoneCanonicalAuthoringAllowed(auth.proposal, row);
+    const existingRow = existingByKey.get(row.key);
+    const scopeOfWorkTiptapJson =
+      row.scopeOfWorkTiptapJson === undefined
+        ? existingRow?.scopeOfWorkTiptapJson
+        : normalizeOptionalTiptapJson(
+            row.scopeOfWorkTiptapJson,
+            "Sub-milestone Scope of Work",
+          );
+    const values = {
       brokerageId: auth.brokerage._id,
       budgetCents: row.budgetCents,
-      createdAt: now,
+      createdAt: existingRow?.createdAt ?? now,
       durationDays: row.durationDays,
       key: row.key,
       milestoneKey: input.milestone.key,
@@ -33118,13 +33512,37 @@ async function replaceProductionSubmilestones(
       organizationId: auth.proposal.organizationId,
       proposalId: input.proposalId,
       proposalMilestoneId: input.milestone._id,
-      scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
-        row.scopeOfWorkTiptapJson,
-        "Sub-milestone Scope of Work",
-      ),
+      scopeOfWorkTiptapJson,
       startDay: row.startDay,
       updatedAt: now,
-    });
+    };
+    const submilestoneId = existingRow
+      ? existingRow._id
+      : await ctx.db.insert("proposalSubmilestones", values);
+    if (existingRow) {
+      await ctx.db.patch(existingRow._id, values);
+    }
+    if (row.scopeOfWorkTiptapJson !== undefined) {
+      await upsertSubmilestoneScopeV1Draft(ctx, {
+        authoredByWorkosUserId: auth.subject,
+        brokerageId: auth.brokerage._id,
+        now,
+        organizationId: auth.proposal.organizationId,
+        proposalId: input.proposalId,
+        proposalSubmilestoneId: submilestoneId,
+        scopeOfWorkTiptapJson: row.scopeOfWorkTiptapJson,
+      });
+    }
+    if (row.fieldGuidance !== undefined) {
+      await upsertProposalSubmilestoneFieldGuidance(ctx, {
+        auth,
+        fieldGuidance: row.fieldGuidance,
+        now,
+        proposalId: input.proposalId,
+        proposalSubmilestoneId: submilestoneId,
+        workosOrganizationId: auth.proposal.organizationId,
+      });
+    }
   }
 }
 
@@ -33212,6 +33630,7 @@ async function deleteProductionMilestoneCascade(
     )
     .collect();
   for (const row of submilestones) {
+    await deleteProposalSubmilestoneCanonicalLineage(ctx, row);
     await ctx.db.delete(row._id);
   }
   const costItems = await ctx.db
@@ -33511,7 +33930,156 @@ async function getProductionEvidenceAssetOrThrow(
 async function deleteProposalPlanChildren(
   ctx: MutationCtx,
   proposalId: Id<"buildProposals">,
+  options: {
+    preserveCanonicalLineage?: boolean;
+    retainedPlanKeys?: Array<{
+      milestoneKey: string;
+      submilestoneKeys: string[];
+    }>;
+  } = {},
 ) {
+  const preservedSubmilestoneIds = new Set<Id<"proposalSubmilestones">>();
+  const preservedMilestoneIds = new Set<Id<"proposalMilestones">>();
+  if (options.preserveCanonicalLineage) {
+    // The canonical tables have a composite tenant/proposal index. Keep the
+    // query tenant-scoped while preserving Proposal Sub-milestone identities.
+    const proposal = await ctx.db.get(proposalId);
+    const [proposalScopeContracts, proposalGuidance] = proposal
+      ? await Promise.all([
+          ctx.db
+            .query("submilestoneScopeContracts")
+            .withIndex("by_organizationId_and_proposalId", (query) =>
+              query
+                .eq("organizationId", proposal.organizationId)
+                .eq("proposalId", proposalId),
+            )
+            .collect(),
+          ctx.db
+            .query("submilestoneFieldGuidance")
+            .withIndex("by_organizationId_and_proposalId", (query) =>
+              query
+                .eq("organizationId", proposal.organizationId)
+                .eq("proposalId", proposalId),
+            )
+            .collect(),
+        ])
+      : [[], []];
+    const milestones = (await collectByIndex(
+      ctx,
+      "proposalMilestones",
+      "by_proposal",
+      proposalId,
+    )) as Doc<"proposalMilestones">[];
+    const submilestones = (await collectByIndex(
+      ctx,
+      "proposalSubmilestones",
+      "by_proposal",
+      proposalId,
+    )) as Doc<"proposalSubmilestones">[];
+    const planKeys = options.retainedPlanKeys ?? [];
+    const keyMatches = (left: string, right: string) =>
+      left === right || left.trim() === right.trim();
+    const retainedMilestone = (milestone: Doc<"proposalMilestones">) =>
+      planKeys.some((plan) => keyMatches(plan.milestoneKey, milestone.key));
+    const retainedSubmilestone = (
+      milestone: Doc<"proposalMilestones">,
+      submilestone: Doc<"proposalSubmilestones">,
+    ) =>
+      planKeys.some(
+        (plan) =>
+          keyMatches(plan.milestoneKey, milestone.key) &&
+          plan.submilestoneKeys.some((key) =>
+            keyMatches(key, submilestone.key),
+          ),
+      );
+    const submilestoneIsRetained = (
+      submilestone: Doc<"proposalSubmilestones">,
+    ) => {
+      const milestone = milestones.find(
+        (candidate) => candidate._id === submilestone.proposalMilestoneId,
+      );
+      return milestone ? retainedSubmilestone(milestone, submilestone) : false;
+    };
+    const scopeContractsBySubmilestoneId = new Map(
+      proposalScopeContracts.map((contract) => [
+        contract.proposalSubmilestoneId,
+        contract,
+      ]),
+    );
+    const guidanceBySubmilestoneId = new Map(
+      proposalGuidance.map((guidance) => [
+        guidance.proposalSubmilestoneId,
+        guidance,
+      ]),
+    );
+    const staleSubmilestoneIds = new Set<Id<"proposalSubmilestones">>();
+    const staleContracts = proposalScopeContracts.filter(
+      (contract) =>
+        !submilestones.some(
+          (submilestone) =>
+            submilestone._id === contract.proposalSubmilestoneId &&
+            submilestoneIsRetained(submilestone),
+        ),
+    );
+    const staleGuidance = proposalGuidance.filter(
+      (guidance) =>
+        !submilestones.some(
+          (submilestone) =>
+            submilestone._id === guidance.proposalSubmilestoneId &&
+            submilestoneIsRetained(submilestone),
+        ),
+    );
+    for (const contract of staleContracts) {
+      staleSubmilestoneIds.add(contract.proposalSubmilestoneId);
+    }
+    for (const guidance of staleGuidance) {
+      staleSubmilestoneIds.add(guidance.proposalSubmilestoneId);
+    }
+    // Validate every stale lineage before deleting any canonical row. The
+    // shared helper owns the published/effective guard and deletion rules.
+    for (const submilestoneId of staleSubmilestoneIds) {
+      const submilestone =
+        submilestones.find((row) => row._id === submilestoneId) ?? null;
+      const contract = scopeContractsBySubmilestoneId.get(submilestoneId);
+      const guidance = guidanceBySubmilestoneId.get(submilestoneId);
+      await deleteProposalSubmilestoneCanonicalLineage(
+        ctx,
+        submilestone,
+        { contract, guidance },
+        { validateOnly: true },
+      );
+    }
+    // Remove only abandoned, still-draft canonical rows. Published Scope is
+    // immutable and causes the entire package replacement to roll back above.
+    for (const submilestoneId of staleSubmilestoneIds) {
+      const submilestone =
+        submilestones.find((row) => row._id === submilestoneId) ?? null;
+      const contract = scopeContractsBySubmilestoneId.get(submilestoneId);
+      const guidance = guidanceBySubmilestoneId.get(submilestoneId);
+      await deleteProposalSubmilestoneCanonicalLineage(
+        ctx,
+        submilestone,
+        { contract, guidance },
+      );
+    }
+    for (const submilestone of submilestones) {
+      const milestone = milestones.find(
+        (candidate) => candidate._id === submilestone.proposalMilestoneId,
+      );
+      if (
+        !staleSubmilestoneIds.has(submilestone._id) &&
+        milestone &&
+        retainedSubmilestone(milestone, submilestone)
+      ) {
+        preservedSubmilestoneIds.add(submilestone._id);
+      }
+    }
+    for (const milestone of milestones) {
+      if (retainedMilestone(milestone)) {
+        preservedMilestoneIds.add(milestone._id);
+      }
+    }
+  }
   for (const table of [
     "proposalTimelineModificationRequests",
     "proposalEvidenceAssets",
@@ -33524,6 +34092,18 @@ async function deleteProposalPlanChildren(
   ] as const) {
     const rows = await collectByIndex(ctx, table, "by_proposal", proposalId);
     for (const row of rows) {
+      if (
+        table === "proposalSubmilestones" &&
+        preservedSubmilestoneIds.has(row._id)
+      ) {
+        continue;
+      }
+      if (
+        table === "proposalMilestones" &&
+        preservedMilestoneIds.has(row._id)
+      ) {
+        continue;
+      }
       await ctx.db.delete(row._id);
     }
   }
@@ -37989,9 +38569,14 @@ async function replaceProductionSettingsMilestones(
       siteVisitGuidance?: ProductionSettingsSiteVisitGuidanceInput;
       submilestones: Array<{
         durationDays: number;
+        fieldGuidance?: {
+          cameraAnglesTiptapJson: string;
+          whatToVerifyTiptapJson: string;
+        };
         name: string;
         order: number;
         percentageBps: number;
+        scopeOfWorkTiptapJson?: string;
         submilestoneKey: string;
       }>;
       type: string;
@@ -38041,12 +38626,18 @@ async function replaceProductionSettingsMilestones(
         brokerageId: input.brokerageId,
         createdAt: input.now,
         durationDays: Math.max(1, Math.round(submilestone.durationDays)),
+        ...(submilestone.fieldGuidance === undefined
+          ? {}
+          : { fieldGuidance: submilestone.fieldGuidance }),
         key: submilestone.submilestoneKey,
         milestoneKey: row.milestoneKey,
         name: submilestone.name.trim(),
         order: subIndex + 1,
         organizationId: input.organizationId,
         percentageBps: Math.max(0, Math.round(submilestone.percentageBps)),
+        ...(submilestone.scopeOfWorkTiptapJson === undefined
+          ? {}
+          : { scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson }),
         templateMilestoneId: milestoneId,
         updatedAt: input.now,
       });

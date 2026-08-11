@@ -175,6 +175,7 @@ export function ProductionProposalMilestoneWorksheetContainer({
             id: saveToastIdRef.current ?? undefined,
           }
         );
+        throw error;
       } finally {
         saveToastIdRef.current = null;
       }

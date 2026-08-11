@@ -20,6 +20,23 @@ const APP_PERMISSION_RESOURCES = [
   "reminder",
 ] as const;
 
+function tiptapDocument(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
+
+const EMPTY_TIPTAP_DOCUMENT = JSON.stringify({
+  content: [{ type: "paragraph" }],
+  type: "doc",
+});
+
 function asIdentity(
   roles: string[],
   subject = "user_builder",
@@ -69,6 +86,71 @@ function withIdentityEmail(
     subject,
     tokenIdentifier: `https://api.workos.com/|${subject}`,
   } as any);
+}
+
+async function directAdminProposalFixture(
+  buildName: string,
+  location: string,
+) {
+  const base = convexTest(schema, modules);
+  const t = withIdentity(base, ["admin"], "user_admin", ORG);
+  const fixture = await base.run(async (ctx: any) => {
+    const now = Date.now();
+    const brokerageId = await ctx.db.insert("brokerages", {
+      createdAt: now,
+      displayName: "Production Proposal Test Brokerage",
+      legalName: "Production Proposal Test Brokerage Inc.",
+      status: "active",
+      updatedAt: now,
+      workosOrganizationId: ORG,
+    });
+    const builderProfileId = await ctx.db.insert("builderProfiles", {
+      brokerageId,
+      createdAt: now,
+      displayName: "Production Proposal Test Builder",
+      legalName: "Production Proposal Test Builder Inc.",
+      organizationId: ORG,
+      status: "active",
+      updatedAt: now,
+    });
+    const proposalId = await ctx.db.insert("buildProposals", {
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      borrowerWorkingCapitalLimitCents: 40_000_000,
+      brokerageId,
+      buildName,
+      builderProfileId,
+      createdAt: now,
+      createdByWorkosUserId: "user_admin",
+      interestAnnualBps: 925,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      location,
+      organizationId: ORG,
+      reviewOutcome: "none",
+      status: "draft",
+      totalBudgetCents: 0,
+      updatedAt: now,
+      updatedByWorkosUserId: "user_admin",
+    });
+    await ctx.db.insert("workflowRules", {
+      allowPermitWaiverByRoles: ["admin", "principle-broker"],
+      brokerageId,
+      createdAt: now,
+      organizationId: ORG,
+      proposalStates: ["draft", "submitted", "approved", "closed"],
+      requirePermitForApproval: true,
+      ruleKey: "proposal-foundation-v1",
+      settings: {
+        interestStartsOn: "funds_released",
+        reimbursementOnly: true,
+      },
+      status: "active",
+      updatedAt: now,
+      version: 1,
+    });
+    return { brokerageId, builderProfileId, proposalId };
+  });
+  return { ...fixture, base, t };
 }
 
 async function seeded(roles: string[], subject?: string, organizationId = ORG) {
@@ -174,15 +256,24 @@ function productionTemplateSettingsArgs(
       order: index,
       percentageBps: milestone.percentageBps,
       siteVisitGuidance: milestone.siteVisitGuidance,
-      submilestones: milestone.submilestones.map(
-        (submilestone: any, subIndex: number) => ({
-          description: submilestone.description,
-          durationDays: submilestone.durationDays,
-          name: submilestone.name,
-          order: subIndex,
-          percentageBps: submilestone.percentageBps,
-          submilestoneKey: submilestone.key,
-        }),
+        submilestones: milestone.submilestones.map(
+          (submilestone: any, subIndex: number) => ({
+            description: submilestone.description,
+            durationDays: submilestone.durationDays,
+            ...(submilestone.fieldGuidance === undefined
+              ? {}
+              : { fieldGuidance: submilestone.fieldGuidance }),
+            name: submilestone.name,
+            order: subIndex,
+            percentageBps: submilestone.percentageBps,
+            ...(submilestone.scopeOfWorkTiptapJson === undefined
+              ? {}
+              : {
+                  scopeOfWorkTiptapJson:
+                    submilestone.scopeOfWorkTiptapJson,
+                }),
+            submilestoneKey: submilestone.key,
+          }),
       ),
       type: milestone.archetypeKey,
     })),
@@ -4861,6 +4952,67 @@ describe("production proposal foundation", () => {
     );
   });
 
+  test("persists optional submilestone scope and field guidance in production settings", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+    await t.mutation(
+      (api as any).production_proposals.seedProductionDefaultsToProd,
+      { workosOrganizationId: ORG },
+    );
+    const settings = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    const fullBuild = settings.templates.find(
+      (template: any) => template.templateKey === "single-family-full-build",
+    );
+    const args = productionTemplateSettingsArgs(fullBuild);
+    const firstSubmilestone = args.milestones[0].submilestones[0];
+    firstSubmilestone.scopeOfWorkTiptapJson = tiptapDocument(
+      "Production template scope",
+    );
+    firstSubmilestone.fieldGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Production camera angles"),
+      whatToVerifyTiptapJson: tiptapDocument("Production verification"),
+    };
+
+    await t.mutation(
+      (api as any).production_proposals
+        .saveProductionProposalTemplateConfiguration,
+      {
+        ...args,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const updated = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    const updatedSubmilestone = updated.templates
+      .find((template: any) => template.templateKey === "single-family-full-build")
+      .milestones[0].submilestones[0];
+    expect(updatedSubmilestone).toMatchObject({
+      fieldGuidance: firstSubmilestone.fieldGuidance,
+      scopeOfWorkTiptapJson: firstSubmilestone.scopeOfWorkTiptapJson,
+    });
+
+    const malformedArgs = productionTemplateSettingsArgs(fullBuild);
+    malformedArgs.milestones[0].submilestones[0].fieldGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Camera"),
+      whatToVerifyTiptapJson: 42,
+    };
+    await expect(
+      t.mutation(
+        (api as any).production_proposals
+          .saveProductionProposalTemplateConfiguration,
+        {
+          ...malformedArgs,
+          workosOrganizationId: ORG,
+        } as any,
+      ),
+    ).rejects.toThrow(/Validator error|whatToVerifyTiptapJson/i);
+  });
+
   test("allows principal brokers to create entirely new production proposal templates", async () => {
     const { base, t: admin } = await seeded(["admin"], "user_admin");
     await admin.mutation(
@@ -5315,6 +5467,11 @@ describe("production proposal foundation", () => {
 
   test("hydrates a production proposal timeline workspace from production rows", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
+    const scope = tiptapDocument("Scope bytes from the canonical draft.");
+    const guidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Camera angle bytes from the draft."),
+      whatToVerifyTiptapJson: tiptapDocument("Verification bytes from the draft."),
+    };
     const proposalId = await t.mutation(
       (api as any).production_proposals.createDraftProposal,
       {
@@ -5346,9 +5503,11 @@ describe("production proposal foundation", () => {
               {
                 budgetCents: 20_000_000,
                 durationDays: 8,
+                fieldGuidance: guidance,
                 key: "forms",
                 name: "Forms and pour",
                 order: 1,
+                scopeOfWorkTiptapJson: scope,
               },
             ],
           },
@@ -5401,14 +5560,16 @@ describe("production proposal foundation", () => {
       milestoneKey: "foundation",
       status: "ready",
       submilestoneSnapshot: [
-        {
-          budgetCents: 20_000_000,
-          durationDays: 8,
-          key: "forms",
-          name: "Forms and pour",
-          order: 1,
-        },
-      ],
+          {
+            budgetCents: 20_000_000,
+            durationDays: 8,
+            fieldGuidance: guidance,
+            key: "forms",
+            name: "Forms and pour",
+            order: 1,
+            scopeOfWorkTiptapJson: scope,
+          },
+        ],
       x: 0,
     });
     expect(workspace.draws).toEqual([
@@ -5433,6 +5594,73 @@ describe("production proposal foundation", () => {
         x: 0,
       }),
     ]);
+
+    const updatedScope = tiptapDocument("Updated Scope bytes stay exact.");
+    const updatedGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument(
+        "Updated camera angle bytes stay exact.",
+      ),
+      whatToVerifyTiptapJson: tiptapDocument(
+        "Updated verification bytes stay exact.",
+      ),
+    };
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelineMilestone,
+      {
+        milestoneKey: "foundation",
+        proposalId,
+        submilestones: [
+          {
+            budgetCents: 20_000_000,
+            durationDays: 8,
+            fieldGuidance: updatedGuidance,
+            key: "forms",
+            name: "Forms and pour",
+            order: 1,
+            scopeOfWorkTiptapJson: updatedScope,
+          },
+        ],
+        workosOrganizationId: ORG,
+      },
+    );
+    const updatedWorkspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(
+      updatedWorkspace.milestones[0].submilestoneSnapshot[0],
+    ).toMatchObject({
+      fieldGuidance: updatedGuidance,
+      key: "forms",
+      scopeOfWorkTiptapJson: updatedScope,
+    });
+    const canonicalState = await t.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .unique();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      const fieldGuidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", submilestone._id),
+        )
+        .unique();
+      return { fieldGuidance, revision };
+    });
+    expect(canonicalState.revision?.scopeOfWorkTiptapJson).toBe(updatedScope);
+    expect(canonicalState.fieldGuidance).toMatchObject(updatedGuidance);
   });
 
   test("persists production timeline evidence, completion, draw review, capital events, and audit events", async () => {
@@ -12680,9 +12908,824 @@ describe("production proposal foundation", () => {
 });
 
 describe("Sub-milestone Scope and Field Guidance lineage", () => {
-  test.todo(
-    "keeps the canonical Scope contract and Field Guidance lineage when an approved Proposal becomes a Build",
-  );
+  test("materializes dedicated Scope and Field Guidance owners from a draft package", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Canonical authoring proposal",
+      "17 Canonical Authoring Lane",
+    );
+    const scope = tiptapDocument("Excavate and form to the issued drawings.");
+    const guidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Capture the north and east faces."),
+      whatToVerifyTiptapJson: tiptapDocument("Verify excavation depth and forms."),
+    };
+    const saveArgs = {
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 20_000_000,
+              durationDays: 12,
+              fieldGuidance: guidance,
+              key: "forms",
+              name: "Forms and pour",
+              order: 1,
+              scopeOfWorkTiptapJson: scope,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    };
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      saveArgs,
+    );
+    const firstState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(firstState.scopes).toHaveLength(1);
+    expect(firstState.revisions).toHaveLength(1);
+    expect(firstState.revisions[0]).toMatchObject({
+      scopeOfWorkTiptapJson: scope,
+      status: "draft",
+      version: 1,
+    });
+    expect(firstState.guidance).toHaveLength(1);
+    expect(firstState.guidance[0]).toMatchObject(guidance);
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      saveArgs,
+    );
+    const secondState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(secondState.scopes).toHaveLength(1);
+    expect(secondState.revisions).toHaveLength(1);
+    expect(secondState.guidance).toHaveLength(1);
+    expect(secondState.scopes[0]._id).toBe(firstState.scopes[0]._id);
+    expect(secondState.revisions[0]._id).toBe(firstState.revisions[0]._id);
+    expect(secondState.guidance[0]._id).toBe(firstState.guidance[0]._id);
+    expect(secondState.submilestones[0]._id).toBe(
+      firstState.submilestones[0]._id,
+    );
+  });
+
+  test("publishes non-empty v1 Scope drafts atomically with submission and skips empty optional Scope", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Scope submission proposal",
+      "19 Scope Submission Lane",
+    );
+    const scope = tiptapDocument("Complete the concrete foundation work.");
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                key: "concrete",
+                name: "Concrete",
+                order: 1,
+                scopeOfWorkTiptapJson: scope,
+              },
+              {
+                key: "inspection",
+                name: "Inspection",
+                order: 2,
+                scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              },
+              {
+                key: "cleanup",
+                name: "Cleanup",
+                order: 3,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const snapshotId = await submitProposalForTest(t, proposalId);
+    expect(snapshotId).toBeTruthy();
+    const state = await t.run(async (ctx: any) => ({
+      audits: await ctx.db.query("auditEvents").collect(),
+      contracts: await ctx.db.query("submilestoneScopeContracts").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      proposal: await ctx.db.get(proposalId),
+    }));
+    expect(state.proposal?.status).toBe("submitted");
+    expect(state.contracts).toHaveLength(2);
+    const published = state.revisions.find(
+      (revision: any) => revision.scopeOfWorkTiptapJson === scope,
+    );
+    const empty = state.revisions.find(
+      (revision: any) =>
+        revision.scopeOfWorkTiptapJson === EMPTY_TIPTAP_DOCUMENT,
+    );
+    expect(published).toMatchObject({ status: "published", version: 1 });
+    expect(empty).toMatchObject({ status: "draft", version: 1 });
+    const publishedContract = state.contracts.find(
+      (contract: any) => contract.effectiveRevisionId === published?._id,
+    );
+    expect(publishedContract?.activeDraftRevisionId).toBeUndefined();
+    const emptyContract = state.contracts.find(
+      (contract: any) => contract.activeDraftRevisionId === empty?._id,
+    );
+    expect(emptyContract?.effectiveRevisionId).toBeUndefined();
+    expect(
+      state.audits.filter(
+        (audit: any) =>
+          audit.eventType === "submilestone_scope_revision.published",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        command: "publishSubmilestoneScopeRevision",
+        entityId: String(published?._id),
+        entityType: "submilestoneScopeRevision",
+        newState: expect.any(String),
+        priorState: expect.any(String),
+        warnings: [],
+      }),
+    ]);
+  });
+
+  test("keeps an empty v1 unpublished until post-submission borrower acknowledgement", async () => {
+    const {
+      base,
+      brokerageId,
+      builderProfileId,
+      proposalId,
+      t,
+    } = await directAdminProposalFixture(
+      "Post-submission Scope proposal",
+      "21 Post-submission Scope Lane",
+    );
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                key: "inspection",
+                name: "Inspection",
+                order: 1,
+                scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await submitProposalForTest(t, proposalId);
+    const initial = await t.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      return { contract, revision };
+    });
+    expect(initial.contract).toBeTruthy();
+    expect(initial.revision).toMatchObject({ status: "draft", version: 1 });
+
+    const revisionId = initial.revision._id;
+    await t.mutation(
+      (api as any).submilestone_scope_contracts.saveSubmilestoneScopeDraft,
+      {
+        revisionId,
+        scopeOfWorkTiptapJson: tiptapDocument(
+          "Complete the inspection against the issued drawings.",
+        ),
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).submilestone_scope_contracts
+        .publishSubmilestoneScopeRevision,
+      { revisionId, workosOrganizationId: ORG },
+    );
+    const publishedBeforeAck = await t.run(async (ctx: any) => {
+      const revision = await ctx.db.get(revisionId);
+      const contract = revision ? await ctx.db.get(revision.contractId) : null;
+      return { contract, revision };
+    });
+    expect(publishedBeforeAck.revision).toMatchObject({
+      _id: revisionId,
+      status: "published",
+      version: 1,
+    });
+    expect(publishedBeforeAck.contract?.effectiveRevisionId).toBeUndefined();
+
+    await base.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId,
+        builderProfileId,
+        createdAt: now,
+        role: "owner",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_builder",
+      });
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const acknowledgement = await builder.mutation(
+      (api as any).submilestone_scope_contracts
+        .acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "post-submission-scope-ack-001",
+        revisionId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(acknowledgement.effectiveRevisionId).toBe(revisionId);
+    const effectiveContract = await t.run(async (ctx: any) => {
+      const revision = await ctx.db.get(revisionId);
+      return revision ? await ctx.db.get(revision.contractId) : null;
+    });
+    expect(effectiveContract?.effectiveRevisionId).toBe(revisionId);
+  });
+
+  test("does not make a v1 effective when re-submitting a previously submitted draft", async () => {
+    const {
+      base,
+      brokerageId,
+      builderProfileId,
+      proposalId,
+      t,
+    } = await directAdminProposalFixture(
+      "Resubmitted Scope proposal",
+      "22 Resubmitted Scope Lane",
+    );
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                key: "inspection",
+                name: "Inspection",
+                order: 1,
+                scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.requestChanges, {
+      proposalId,
+      reason: "Return the proposal for a scope correction.",
+      workosOrganizationId: ORG,
+    });
+
+    const initial = await t.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.activeDraftRevisionId
+        ? await ctx.db.get(contract.activeDraftRevisionId)
+        : null;
+      const proposal = await ctx.db.get(proposalId);
+      return { contract, proposal, revision };
+    });
+    expect(initial.proposal).toMatchObject({
+      status: "draft",
+      submittedAt: expect.any(Number),
+    });
+    expect(initial.revision).toMatchObject({ status: "draft", version: 1 });
+    const revisionId = initial.revision._id;
+
+    await t.mutation(
+      (api as any).submilestone_scope_contracts.saveSubmilestoneScopeDraft,
+      {
+        revisionId,
+        scopeOfWorkTiptapJson: tiptapDocument(
+          "Complete the inspection against the issued drawings.",
+        ),
+        workosOrganizationId: ORG,
+      },
+    );
+    await submitProposalForTest(t, proposalId);
+
+    const afterResubmission = await t.run(async (ctx: any) => {
+      const revision = await ctx.db.get(revisionId);
+      const contract = revision ? await ctx.db.get(revision.contractId) : null;
+      const proposal = await ctx.db.get(proposalId);
+      return { contract, proposal, revision };
+    });
+    expect(afterResubmission.proposal).toMatchObject({ status: "submitted" });
+    expect(afterResubmission.revision).toMatchObject({
+      _id: revisionId,
+      status: "published",
+      version: 1,
+    });
+    expect(afterResubmission.contract?.effectiveRevisionId).toBeUndefined();
+
+    await base.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId,
+        builderProfileId,
+        createdAt: now,
+        role: "owner",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_builder",
+      });
+      await ctx.db.patch(proposalId, { status: "approved", updatedAt: now });
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const lenderAdmin = withIdentity(
+      base,
+      ["principle-broker"],
+      "user_principle_broker",
+    );
+    const acknowledgement = await builder.mutation(
+      (api as any).submilestone_scope_contracts
+        .acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "resubmitted-scope-ack-001",
+        revisionId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(acknowledgement.effectiveRevisionId).toBeNull();
+
+    const approval = await lenderAdmin.mutation(
+      (api as any).submilestone_scope_contracts
+        .approveSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "resubmitted-scope-approval-001",
+        revisionId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(approval.effectiveRevisionId).toBe(revisionId);
+  });
+
+  test("removes abandoned draft Scope and Guidance while preserving same-key lineage IDs", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Draft Scope removal proposal",
+      "23 Draft Scope Removal Lane",
+    );
+    const keepScope = tiptapDocument("Keep the foundation forms aligned.");
+    const removeScope = tiptapDocument("Remove this abandoned excavation scope.");
+    const keepGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Capture the kept forms from two angles."),
+      whatToVerifyTiptapJson: tiptapDocument("Verify the kept forms before the pour."),
+    };
+    const removeGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument("Capture the abandoned excavation."),
+      whatToVerifyTiptapJson: tiptapDocument("Verify the abandoned excavation."),
+    };
+    const packageArgs = (submilestones: Array<Record<string, unknown>>) => ({
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones,
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs([
+        {
+          budgetCents: 20_000_000,
+          fieldGuidance: keepGuidance,
+          key: "keep",
+          name: "Keep this sub-milestone",
+          order: 1,
+          scopeOfWorkTiptapJson: keepScope,
+        },
+        {
+          budgetCents: 30_000_000,
+          fieldGuidance: removeGuidance,
+          key: "remove",
+          name: "Remove this sub-milestone",
+          order: 2,
+          scopeOfWorkTiptapJson: removeScope,
+        },
+      ]),
+    );
+    const firstState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    const firstKeep = firstState.submilestones.find(
+      (row: any) => row.key === "keep",
+    );
+    const firstRemove = firstState.submilestones.find(
+      (row: any) => row.key === "remove",
+    );
+    const firstKeepScope = firstState.scopes.find(
+      (row: any) => row.proposalSubmilestoneId === firstKeep?._id,
+    );
+    const firstRemoveScope = firstState.scopes.find(
+      (row: any) => row.proposalSubmilestoneId === firstRemove?._id,
+    );
+    const firstKeepRevision = firstState.revisions.find(
+      (row: any) => row.contractId === firstKeepScope?._id,
+    );
+    const firstRemoveRevision = firstState.revisions.find(
+      (row: any) => row.contractId === firstRemoveScope?._id,
+    );
+    const firstKeepGuidance = firstState.guidance.find(
+      (row: any) => row.proposalSubmilestoneId === firstKeep?._id,
+    );
+    const firstRemoveGuidance = firstState.guidance.find(
+      (row: any) => row.proposalSubmilestoneId === firstRemove?._id,
+    );
+    expect(firstKeep).toBeTruthy();
+    expect(firstRemove).toBeTruthy();
+    expect(firstKeepScope).toBeTruthy();
+    expect(firstRemoveScope).toBeTruthy();
+    expect(firstKeepRevision).toMatchObject({ status: "draft", version: 1 });
+    expect(firstRemoveRevision).toMatchObject({ status: "draft", version: 1 });
+    expect(firstKeepGuidance).toBeTruthy();
+    expect(firstRemoveGuidance).toBeTruthy();
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs([
+        {
+          budgetCents: 50_000_000,
+          fieldGuidance: keepGuidance,
+          key: "keep",
+          name: "Keep this sub-milestone",
+          order: 1,
+          scopeOfWorkTiptapJson: keepScope,
+        },
+      ]),
+    );
+    const secondState = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      scopes: await ctx.db.query("submilestoneScopeContracts").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(secondState.submilestones).toHaveLength(1);
+    expect(secondState.submilestones[0]).toMatchObject({ key: "keep" });
+    expect(secondState.submilestones[0]._id).toBe(firstKeep._id);
+    expect(secondState.scopes).toHaveLength(1);
+    expect(secondState.scopes[0]._id).toBe(firstKeepScope._id);
+    expect(secondState.scopes[0].proposalSubmilestoneId).toBe(firstKeep._id);
+    expect(secondState.revisions).toHaveLength(1);
+    expect(secondState.revisions[0]._id).toBe(firstKeepRevision._id);
+    expect(secondState.guidance).toHaveLength(1);
+    expect(secondState.guidance[0]._id).toBe(firstKeepGuidance._id);
+    const removedRows = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.get(firstRemoveGuidance._id),
+      revision: await ctx.db.get(firstRemoveRevision._id),
+      scope: await ctx.db.get(firstRemoveScope._id),
+      submilestone: await ctx.db.get(firstRemove._id),
+    }));
+    expect(removedRows).toEqual({
+      guidance: null,
+      revision: null,
+      scope: null,
+      submilestone: null,
+    });
+  });
+
+  test("fails closed when draft package replacement would remove published Scope lineage", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Published Scope removal proposal",
+      "25 Published Scope Removal Lane",
+    );
+    const scope = tiptapDocument("Publish this Scope before replacement.");
+    const packageArgs = (submilestones: Array<Record<string, unknown>>) => ({
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones,
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs([
+        {
+          budgetCents: 50_000_000,
+          key: "published",
+          name: "Published Scope",
+          order: 1,
+          scopeOfWorkTiptapJson: scope,
+        },
+      ]),
+    );
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.requestChanges, {
+      proposalId,
+      reason: "Replace the draft timeline after review.",
+      workosOrganizationId: ORG,
+    });
+    const before = await t.run(async (ctx: any) => {
+      const submilestone = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .unique();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.effectiveRevisionId
+        ? await ctx.db.get(contract.effectiveRevisionId)
+        : null;
+      return { contract, revision, submilestone };
+    });
+    expect(before.revision).toMatchObject({ status: "published", version: 1 });
+    expect(before.contract?.effectiveRevisionId).toBe(before.revision?._id);
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.saveDraftProposalPackage,
+        packageArgs([
+          {
+            budgetCents: 50_000_000,
+            key: "replacement",
+            name: "Replacement Scope",
+            order: 1,
+          },
+        ]),
+      ),
+    ).rejects.toThrow(/Published Scope lineage cannot be removed/);
+
+    const after = await t.run(async (ctx: any) => {
+      const submilestones = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .collect();
+      const contract = await ctx.db.get(before.contract?._id);
+      const revision = await ctx.db.get(before.revision?._id);
+      return { contract, revision, submilestones };
+    });
+    expect(after.submilestones).toEqual([before.submilestone]);
+    expect(after.contract).toEqual(before.contract);
+    expect(after.revision).toEqual(before.revision);
+  });
+
+  test("rejects package Scope and Guidance writes after first submission even when status returns to draft", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Post-submission package write proposal",
+      "27 Post-submission Package Write Lane",
+    );
+    const packageArgs = (submilestone: Record<string, unknown>) => ({
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [submilestone],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs({
+        budgetCents: 50_000_000,
+        key: "inspection",
+        name: "Inspection",
+        order: 1,
+      }),
+    );
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.requestChanges, {
+      proposalId,
+      reason: "Return the package for a lender review correction.",
+      workosOrganizationId: ORG,
+    });
+    const scope = tiptapDocument("Scope must not be written post-submission.");
+    const fieldGuidance = {
+      cameraAnglesTiptapJson: tiptapDocument(
+        "Guidance must not be written post-submission.",
+      ),
+      whatToVerifyTiptapJson: tiptapDocument(
+        "Verification must not be written post-submission.",
+      ),
+    };
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.saveDraftProposalPackage,
+        packageArgs({
+          budgetCents: 50_000_000,
+          fieldGuidance,
+          key: "inspection",
+          name: "Inspection",
+          order: 1,
+          scopeOfWorkTiptapJson: scope,
+        }),
+      ),
+    ).rejects.toThrow(/Scope authoring is unavailable/);
+    const state = await t.run(async (ctx: any) => ({
+      guidance: await ctx.db.query("submilestoneFieldGuidance").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+      submilestones: await ctx.db.query("proposalSubmilestones").collect(),
+    }));
+    expect(state.guidance).toHaveLength(0);
+    expect(state.revisions).toHaveLength(0);
+    expect(state.submilestones).toHaveLength(1);
+    expect(state.submilestones[0].scopeOfWorkTiptapJson).toBeUndefined();
+  });
+
+  test("fails closed instead of inserting a duplicate v1 after a published pointer is cleared", async () => {
+    const { proposalId, t } = await directAdminProposalFixture(
+      "Cleared Scope pointer proposal",
+      "29 Cleared Scope Pointer Lane",
+    );
+    const scope = tiptapDocument("Published v1 must remain unique.");
+    const packageArgs = {
+      borrowerCoPayBps: 2_000,
+      borrowerStartingCashCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 50_000_000,
+              key: "inspection",
+              name: "Inspection",
+              order: 1,
+              scopeOfWorkTiptapJson: scope,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    };
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      packageArgs,
+    );
+    await submitProposalForTest(t, proposalId);
+    const published = await t.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_organizationId_and_proposalId", (query: any) =>
+          query.eq("organizationId", ORG).eq("proposalId", proposalId),
+        )
+        .unique();
+      const revision = contract?.effectiveRevisionId
+        ? await ctx.db.get(contract.effectiveRevisionId)
+        : null;
+      await ctx.db.patch(proposalId, {
+        status: "draft",
+        submittedAt: undefined,
+      });
+      if (contract) {
+        await ctx.db.patch(contract._id, {
+          activeDraftRevisionId: undefined,
+          effectiveRevisionId: undefined,
+          latestVersion: 1,
+        });
+      }
+      return { contract, revision };
+    });
+    expect(published.revision).toMatchObject({ status: "published", version: 1 });
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.saveDraftProposalPackage,
+        packageArgs,
+      ),
+    ).rejects.toThrow(/Published Scope revisions cannot be changed/);
+    const state = await t.run(async (ctx: any) => ({
+      contracts: await ctx.db.query("submilestoneScopeContracts").collect(),
+      revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
+    }));
+    expect(state.contracts).toHaveLength(1);
+    expect(state.revisions).toHaveLength(1);
+    expect(state.revisions[0]).toMatchObject({
+      _id: published.revision?._id,
+      scopeOfWorkTiptapJson: scope,
+      status: "published",
+      version: 1,
+    });
+  });
 });
 
 describe("recipient delivery inbox", () => {
