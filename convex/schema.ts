@@ -2517,6 +2517,17 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     quoteRoundId: v.id("quoteRounds"),
     buildSubmilestoneId: v.id("buildSubmilestones"),
+    // Newly selected Labour rows pin the exact effective Scope bytes and
+    // immutable revision identity. Optionality is temporary for historical
+    // drafts created before the canonical Scope cutover. SFG-11 owns the
+    // migration and legacy-field cleanup; every new SFG-10 write populates
+    // these pins even while the schema remains backward-compatible.
+    // SFG-11 retains optionality until legacy rows are migrated and removed.
+    // New draft writes populate every available Scope pin.
+    sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    sourceScopeVersion: v.optional(v.number()),
+    sourceScopeChangeReason: v.optional(v.string()),
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     order: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2629,6 +2640,8 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     budgetCents: v.optional(v.number()),
+    // SFG-11 owns the legacy-row migration and eventual required-field
+    // cutover. New Package Revision writes always populate these pins.
     sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
     sourceScopeVersion: v.optional(v.number()),
     sourceScopeChangeReason: v.optional(v.string()),
@@ -2761,6 +2774,15 @@ export default defineSchema({
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
     quotePackageRevisionId: v.id("quotePackageRevisions"),
     version: v.number(),
+    // A new Package Revision may seed a Draft from the recipient's prior
+    // response only after acknowledgement. Copied commercial values remain
+    // unusable for submission until the recipient explicitly confirms them.
+    copiedFromQuotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    copiedValuesConfirmationState: v.optional(
+      v.union(v.literal("pending"), v.literal("confirmed"))
+    ),
+    copiedValuesConfirmedAt: v.optional(v.number()),
+    copiedValuesConfirmedByWorkosUserId: v.optional(v.string()),
     commentsHtml: v.optional(v.string()),
     completedPricingLineCount: v.number(),
     answeredFieldCount: v.number(),

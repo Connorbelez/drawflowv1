@@ -6,7 +6,6 @@ import {
 import {
   administrativeOverrideInputFields,
   appendGovernedAuditEvent,
-  authorizeAdministrativeRecovery,
   requiredAdministrativeReason,
 } from "./administrative_override_policy";
 import {
@@ -17,6 +16,7 @@ import {
 import { assertOrganizationRetentionWritable } from "./data_retention";
 import {
   assertQuoteAuthoringRole,
+  authorizeQuoteAdministrativeRecovery,
   hasQuoteAuthoringRole,
 } from "./quote_authoring_access";
 import {
@@ -41,6 +41,7 @@ const MAX_SUBMISSION_ANSWERS = 100;
 const MAX_SUBMISSION_ATTACHMENTS = 25;
 const MAX_SUBMISSION_EVENTS = 4;
 const MAX_HISTORY = 20;
+const MAX_PACKAGE_REVISION_LINEAGE = MAX_HISTORY;
 const MAX_QUOTE_AMOUNT_CENTS = 100_000_000_000;
 
 const packageLabourLineValidator = v.object({
@@ -53,6 +54,9 @@ const packageLabourLineValidator = v.object({
   milestoneName: v.string(),
   order: v.number(),
   scopeOfWorkTiptapJson: v.string(),
+  sourceScopeChangeReason: v.optional(v.string()),
+  sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+  sourceScopeVersion: v.optional(v.number()),
   startDay: v.optional(v.number()),
   submilestoneKey: v.string(),
   submilestoneName: v.string(),
@@ -305,7 +309,16 @@ const availableComparisonValidator = v.object({
   canClearPreferred: v.boolean(),
   canSetPreferred: v.boolean(),
   invitations: v.array(comparisonInvitationValidator),
+  isHistoricalPackageRevision: v.boolean(),
   package: packageComparisonValidator,
+  packageRevisionHistory: v.array(
+    v.object({
+      _id: v.id("quotePackageRevisions"),
+      publishedAt: v.number(),
+      responseDeadline: v.number(),
+      revision: v.number(),
+    })
+  ),
   preferred: v.union(preferredSummaryValidator, v.null()),
   round: v.object({
     _id: v.id("quoteRounds"),
@@ -632,6 +645,9 @@ async function loadPackageComparison(
       milestoneName: line.milestoneName,
       order: line.order,
       scopeOfWorkTiptapJson: line.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: line.sourceScopeChangeReason,
+      sourceScopeRevisionId: line.sourceScopeRevisionId,
+      sourceScopeVersion: line.sourceScopeVersion,
       startDay: line.startDay,
       submilestoneKey: line.submilestoneKey,
       submilestoneName: line.submilestoneName,
@@ -766,15 +782,17 @@ async function candidateForInvitation(
   round: Doc<"quoteRounds">,
   packageRevision: Doc<"quotePackageRevisions">,
   invitation: Doc<"quoteRoundInvitations">,
-  packageComparison: Awaited<ReturnType<typeof loadPackageComparison>>
+  packageComparison: Awaited<ReturnType<typeof loadPackageComparison>>,
+  historical: boolean
 ) {
   assertScoped(invitation, authorization, round._id);
   const currentPackageId =
     invitation.currentQuotePackageRevisionId ??
     invitation.quotePackageRevisionId;
   if (
-    invitation.participationState !== "active" ||
-    currentPackageId !== packageRevision._id
+    !historical &&
+    (invitation.participationState !== "active" ||
+      currentPackageId !== packageRevision._id)
   ) {
     return null;
   }
@@ -1129,7 +1147,7 @@ async function loadComparisonInvitations(
   ctx: QueryCtx | MutationCtx,
   authorization: ActiveBuildAuthorization,
   round: Doc<"quoteRounds">,
-  currentPackageRevision: Doc<"quotePackageRevisions"> | null,
+  selectedPackageRevision: Doc<"quotePackageRevisions">,
   now: number
 ) {
   const [active, revoked] = await Promise.all([
@@ -1155,17 +1173,6 @@ async function loadComparisonInvitations(
   return await Promise.all(
     invitations.map(async (invitation) => {
       assertScoped(invitation, authorization, round._id);
-      const packageRevisionId =
-        invitation.currentQuotePackageRevisionId ??
-        invitation.quotePackageRevisionId;
-      const packageRevision =
-        packageRevisionId === currentPackageRevision?._id
-          ? currentPackageRevision
-          : await ctx.db.get(packageRevisionId);
-      if (!packageRevision) {
-        throw new ConvexError("Quote Invitation package is unavailable.");
-      }
-      assertScoped(packageRevision, authorization, round._id);
       const [credentials, states] = await Promise.all([
         ctx.db
           .query("quoteInvitationAccessCredentials")
@@ -1181,7 +1188,7 @@ async function loadComparisonInvitations(
             (query) =>
               query
                 .eq("quoteRoundInvitationId", invitation._id)
-                .eq("quotePackageRevisionId", packageRevision._id)
+                .eq("quotePackageRevisionId", selectedPackageRevision._id)
           )
           .take(2),
       ]);
@@ -1211,7 +1218,7 @@ async function loadComparisonInvitations(
       const state = states[0];
       if (state) {
         assertScoped(state, authorization, round._id);
-        if (state.quotePackageRevisionId !== packageRevision._id) {
+        if (state.quotePackageRevisionId !== selectedPackageRevision._id) {
           throw new ConvexError(
             "Quote response submission state crosses Package scope."
           );
@@ -1232,7 +1239,7 @@ async function loadComparisonInvitations(
           invitation,
           hasCurrentSubmission: Boolean(state?.activeSubmissionRevisionId),
           now,
-          responseDeadline: packageRevision.responseDeadline,
+          responseDeadline: selectedPackageRevision.responseDeadline,
         }),
         currentPackageRevisionId: invitation.currentQuotePackageRevisionId,
         hasCurrentSubmission: Boolean(state?.activeSubmissionRevisionId),
@@ -1250,11 +1257,170 @@ async function loadComparisonInvitations(
   );
 }
 
+function assertComparisonPackageRevisionScope(
+  revision: Doc<"quotePackageRevisions">,
+  authorization: ActiveBuildAuthorization,
+  round: Doc<"quoteRounds">
+) {
+  try {
+    assertScoped(revision, authorization, round._id);
+  } catch {
+    throw new ConvexError("Quote Package Revision history is unavailable.");
+  }
+}
+
+async function loadPackageRevisionRows(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  round: Doc<"quoteRounds">
+) {
+  const rows = await ctx.db
+    .query("quotePackageRevisions")
+    .withIndex("by_quoteRoundId_and_revision", (query) =>
+      query.eq("quoteRoundId", round._id)
+    )
+    .order("asc")
+    .take(MAX_HISTORY + 1);
+  if (rows.length > MAX_HISTORY) {
+    throw new ConvexError(
+      "Quote Package Revision history exceeds comparison limits."
+    );
+  }
+  for (const revision of rows) {
+    assertComparisonPackageRevisionScope(revision, authorization, round);
+  }
+  return rows;
+}
+
+async function hydratePackageRevisionGraph(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  round: Doc<"quoteRounds">,
+  rows: Doc<"quotePackageRevisions">[]
+) {
+  const graphNodes = new Map(rows.map((revision) => [revision._id, revision]));
+  const pending = [...rows];
+  while (pending.length > 0) {
+    const revision = pending.pop();
+    if (!(revision && graphNodes.has(revision._id))) {
+      continue;
+    }
+    const previousId = revision.previousPackageRevisionId;
+    if (!previousId || graphNodes.has(previousId)) {
+      continue;
+    }
+    const previous = await ctx.db.get(previousId);
+    if (!previous) {
+      throw new ConvexError("Quote Package Revision history is unavailable.");
+    }
+    assertComparisonPackageRevisionScope(previous, authorization, round);
+    if (graphNodes.size >= MAX_PACKAGE_REVISION_LINEAGE) {
+      throw new ConvexError(
+        "Quote Package Revision history exceeds comparison limits."
+      );
+    }
+    graphNodes.set(previous._id, previous);
+    pending.push(previous);
+  }
+  return graphNodes;
+}
+
+function assertPackageRevisionChainTerminates(
+  revision: Doc<"quotePackageRevisions">,
+  graphNodes: Map<Id<"quotePackageRevisions">, Doc<"quotePackageRevisions">>
+) {
+  const visited = new Set<Id<"quotePackageRevisions">>();
+  let cursor: Doc<"quotePackageRevisions"> | undefined = revision;
+  for (let depth = 0; cursor; depth += 1) {
+    if (visited.has(cursor._id)) {
+      throw new ConvexError("Quote Package Revision history is unavailable.");
+    }
+    visited.add(cursor._id);
+    if (!cursor.previousPackageRevisionId) {
+      return;
+    }
+    if (depth >= MAX_PACKAGE_REVISION_LINEAGE - 1) {
+      throw new ConvexError(
+        "Quote Package Revision history exceeds comparison limits."
+      );
+    }
+    cursor = graphNodes.get(cursor.previousPackageRevisionId);
+    if (!cursor) {
+      throw new ConvexError("Quote Package Revision history is unavailable.");
+    }
+  }
+}
+
+function assertPackageRevisionGraphIsLinear(
+  graphNodes: Map<Id<"quotePackageRevisions">, Doc<"quotePackageRevisions">>
+) {
+  const childrenByParent = new Map<
+    Id<"quotePackageRevisions">,
+    Id<"quotePackageRevisions">[]
+  >();
+  for (const revision of graphNodes.values()) {
+    if (!revision.previousPackageRevisionId) {
+      continue;
+    }
+    const children =
+      childrenByParent.get(revision.previousPackageRevisionId) ?? [];
+    children.push(revision._id);
+    if (children.length > 1) {
+      throw new ConvexError("Quote Package Revision history is unavailable.");
+    }
+    childrenByParent.set(revision.previousPackageRevisionId, children);
+  }
+  for (const revision of graphNodes.values()) {
+    assertPackageRevisionChainTerminates(revision, graphNodes);
+  }
+}
+
+async function loadCurrentPackageRevisionChain(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  round: Doc<"quoteRounds">,
+  currentPackageRevision: Doc<"quotePackageRevisions">
+) {
+  const rows = await loadPackageRevisionRows(ctx, authorization, round);
+  const graphNodes = await hydratePackageRevisionGraph(
+    ctx,
+    authorization,
+    round,
+    rows
+  );
+  assertPackageRevisionGraphIsLinear(graphNodes);
+  const chain: Doc<"quotePackageRevisions">[] = [];
+  const chainIds = new Set<Id<"quotePackageRevisions">>();
+  let cursor: Doc<"quotePackageRevisions"> | undefined = graphNodes.get(
+    currentPackageRevision._id
+  );
+  while (cursor) {
+    if (chainIds.has(cursor._id)) {
+      throw new ConvexError("Quote Package Revision history is unavailable.");
+    }
+    chainIds.add(cursor._id);
+    chain.push(cursor);
+    if (!cursor.previousPackageRevisionId) {
+      break;
+    }
+    cursor = graphNodes.get(cursor.previousPackageRevisionId);
+  }
+  if (
+    chain.length === 0 ||
+    chain.length > MAX_PACKAGE_REVISION_LINEAGE ||
+    chain.at(-1)?.previousPackageRevisionId
+  ) {
+    throw new ConvexError("Quote Package Revision history is unavailable.");
+  }
+  return { chain, rows };
+}
+
 async function loadComparison(
   ctx: QueryCtx | MutationCtx,
   authorization: ActiveBuildAuthorization,
   round: Doc<"quoteRounds">,
-  now: number
+  now: number,
+  selectedPackageRevisionId?: Id<"quotePackageRevisions">
 ) {
   if (
     round.state === "draft" ||
@@ -1265,10 +1431,37 @@ async function loadComparison(
       "Comparison is available only for an open or closed Quote Round with a package revision."
     );
   }
-  const packageRevision = await ctx.db.get(round.currentPackageRevisionId);
-  if (!packageRevision) {
+  const currentPackageRevision = await ctx.db.get(
+    round.currentPackageRevisionId
+  );
+  if (!currentPackageRevision) {
     return unavailable("Current Quote Package Revision is unavailable.");
   }
+  assertScoped(currentPackageRevision, authorization, round._id);
+  const { chain: currentChain } = await loadCurrentPackageRevisionChain(
+    ctx,
+    authorization,
+    round,
+    currentPackageRevision
+  );
+  const currentChainIds = new Set(currentChain.map((revision) => revision._id));
+  const packageRevision = selectedPackageRevisionId
+    ? currentChain.find(
+        (revision) => revision._id === selectedPackageRevisionId
+      )
+    : currentChain[0];
+  if (!packageRevision) {
+    return unavailable("Selected Quote Package Revision is unavailable.");
+  }
+  const packageRevisionHistory = [...currentChain].reverse();
+  if (
+    !currentChainIds.has(packageRevision._id) ||
+    packageRevision._id !==
+      (selectedPackageRevisionId ?? currentPackageRevision._id)
+  ) {
+    return unavailable("Selected Quote Package Revision is unavailable.");
+  }
+  const historical = packageRevision._id !== currentPackageRevision._id;
   const packageComparison = await loadPackageComparison(
     ctx,
     authorization,
@@ -1282,27 +1475,41 @@ async function loadComparison(
     packageRevision,
     now
   );
-  const activeInvitations = await ctx.db
-    .query("quoteRoundInvitations")
-    .withIndex("by_quoteRoundId_and_participationState", (query) =>
-      query.eq("quoteRoundId", round._id).eq("participationState", "active")
-    )
-    .take(MAX_INVITATIONS + 1);
-  if (activeInvitations.length > MAX_INVITATIONS) {
+  const [activeInvitations, revokedInvitations] = await Promise.all([
+    ctx.db
+      .query("quoteRoundInvitations")
+      .withIndex("by_quoteRoundId_and_participationState", (query) =>
+        query.eq("quoteRoundId", round._id).eq("participationState", "active")
+      )
+      .take(MAX_INVITATIONS + 1),
+    historical
+      ? ctx.db
+          .query("quoteRoundInvitations")
+          .withIndex("by_quoteRoundId_and_participationState", (query) =>
+            query
+              .eq("quoteRoundId", round._id)
+              .eq("participationState", "revoked")
+          )
+          .take(MAX_INVITATIONS + 1)
+      : Promise.resolve([]),
+  ]);
+  const candidateInvitations = [...activeInvitations, ...revokedInvitations];
+  if (candidateInvitations.length > MAX_INVITATIONS) {
     throw new ConvexError(
       "Quote Round has too many invitations for comparison."
     );
   }
   const candidates = (
     await Promise.all(
-      activeInvitations.map((invitation) =>
+      candidateInvitations.map((invitation) =>
         candidateForInvitation(
           ctx,
           authorization,
           round,
           packageRevision,
           invitation,
-          packageComparison
+          packageComparison,
+          historical
         )
       )
     )
@@ -1310,12 +1517,9 @@ async function loadComparison(
     (candidate): candidate is NonNullable<typeof candidate> =>
       candidate !== null
   );
-  const preferred = await currentPreferredSummary(
-    ctx,
-    round,
-    packageRevision,
-    authorization
-  );
+  const preferred = historical
+    ? null
+    : await currentPreferredSummary(ctx, round, packageRevision, authorization);
   const state = await getPreferredState(ctx, round._id);
   const canManagePreferred = hasQuoteAuthoringRole(authorization.roles);
   return {
@@ -1323,12 +1527,21 @@ async function loadComparison(
     canClearPreferred:
       canManagePreferred &&
       Boolean(state && preferredPointerFromState(state)) &&
+      !historical &&
       (round.state === "open" || round.state === "closed"),
     canSetPreferred:
       canManagePreferred &&
+      !historical &&
       (round.state === "open" || round.state === "closed"),
     invitations,
+    isHistoricalPackageRevision: historical,
     package: packageComparison,
+    packageRevisionHistory: packageRevisionHistory.map((revision) => ({
+      _id: revision._id,
+      publishedAt: revision.publishedAt,
+      responseDeadline: revision.responseDeadline,
+      revision: revision.revision,
+    })),
     preferred,
     round: {
       _id: round._id,
@@ -1347,6 +1560,7 @@ export const getQuoteRoundComparison = authenticatedQuery
   .input({
     buildId: v.string(),
     now: v.number(),
+    packageRevisionId: v.optional(v.string()),
     quoteRoundId: v.string(),
     readerKind: v.optional(
       v.union(
@@ -1361,7 +1575,14 @@ export const getQuoteRoundComparison = authenticatedQuery
   .handler(async (ctx, args) => {
     const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
     const quoteRoundId = ctx.db.normalizeId("quoteRounds", args.quoteRoundId);
-    if (!(buildId && quoteRoundId)) {
+    const packageRevisionId = args.packageRevisionId
+      ? (ctx.db.normalizeId("quotePackageRevisions", args.packageRevisionId) ??
+        undefined)
+      : undefined;
+    if (
+      !(buildId && quoteRoundId) ||
+      (args.packageRevisionId && !packageRevisionId)
+    ) {
       return unavailable("Quote Round is unavailable.");
     }
     const authorization = await authorizeComparisonPath(ctx, {
@@ -1374,7 +1595,13 @@ export const getQuoteRoundComparison = authenticatedQuery
       authorization,
       quoteRoundId
     );
-    return await loadComparison(ctx, authorization, round, args.now);
+    return await loadComparison(
+      ctx,
+      authorization,
+      round,
+      args.now,
+      packageRevisionId
+    );
   })
   .public();
 
@@ -1539,15 +1766,12 @@ export const setPreferredQuoteSubmissionRevision = authenticatedMutation
       buildId,
       organizationId: args.workosOrganizationId,
     });
-    const { authorization, breakGlass } = await authorizeAdministrativeRecovery(
-      ctx,
-      baseAuthorization,
-      {
+    const { authorization, breakGlass } =
+      await authorizeQuoteAdministrativeRecovery(ctx, baseAuthorization, {
         administrativeCapacity: args.administrativeCapacity,
         breakGlassConfirmed: args.breakGlassConfirmed,
         reason,
-      }
-    );
+      });
     await assertOrganizationRetentionWritable(
       ctx,
       authorization.organizationId
@@ -1687,15 +1911,12 @@ export const clearPreferredQuoteSubmissionRevision = authenticatedMutation
       buildId,
       organizationId: args.workosOrganizationId,
     });
-    const { authorization, breakGlass } = await authorizeAdministrativeRecovery(
-      ctx,
-      baseAuthorization,
-      {
+    const { authorization, breakGlass } =
+      await authorizeQuoteAdministrativeRecovery(ctx, baseAuthorization, {
         administrativeCapacity: args.administrativeCapacity,
         breakGlassConfirmed: args.breakGlassConfirmed,
         reason,
-      }
-    );
+      });
     await assertOrganizationRetentionWritable(
       ctx,
       authorization.organizationId

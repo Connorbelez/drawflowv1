@@ -10,7 +10,7 @@ import {
   Layers3,
   PackageCheck,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -87,6 +87,9 @@ export function normalizeQuoteRoundComposerData(
       name: item.name,
       order: item.order,
       scopeOfWorkTiptapJson: item.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: item.sourceScopeChangeReason,
+      sourceScopeRevisionId: item.sourceScopeRevisionId,
+      sourceScopeVersion: item.sourceScopeVersion,
       startDay: item.startDay,
       submilestoneKey: item.submilestoneKey,
     })),
@@ -139,6 +142,13 @@ export function normalizeQuoteRoundDetail(
   return {
     draft: source.draft
       ? {
+          labourLines: source.draft.labourLines.map((line) => ({
+            buildSubmilestoneId: line.buildSubmilestoneId,
+            scopeOfWorkTiptapJson: line.scopeOfWorkTiptapJson,
+            sourceScopeChangeReason: line.sourceScopeChangeReason,
+            sourceScopeRevisionId: line.sourceScopeRevisionId,
+            sourceScopeVersion: line.sourceScopeVersion,
+          })),
           labourSubmilestoneIds: source.draft.labourSubmilestoneIds,
           materialRows: source.draft.materialRows.map((row) => ({
             assignedSubmilestoneIds: row.assignedSubmilestoneIds,
@@ -163,6 +173,7 @@ export function normalizeQuoteRoundDetail(
           ),
           responseDeadline: asDateTimeValue(source.draft.responseDeadline),
           revision: source.revision,
+          scopeUpdateAvailable: source.draft.scopeUpdateAvailable,
           templateVersionId: source.draft.templateVersionId,
           title: source.title,
         }
@@ -174,9 +185,21 @@ export function normalizeQuoteRoundDetail(
           ? "mixed"
           : "labour",
     packageRevision: source.packageRevision
-      ? { number: source.packageRevision.revision }
+      ? {
+          _id: String(source.packageRevision._id),
+          number: source.packageRevision.revision,
+          responseDeadline: source.packageRevision.responseDeadline,
+        }
       : null,
+    packageRevisionHistory: source.packageRevisionHistory.map((item) => ({
+      _id: String(item._id),
+      publishedAt: item.publishedAt,
+      responseDeadline: item.responseDeadline,
+      revision: item.revision,
+    })),
     quoteRoundId: source._id,
+    revision: source.revision,
+    scopeUpdateAvailable: source.scopeUpdateAvailable,
     state: source.state,
     title: source.title,
   };
@@ -426,15 +449,57 @@ function QuoteRoundRouteState({
   );
 }
 
+export type QuoteRoundRepublishCapacity =
+  | "admin"
+  | "builder"
+  | "builder-staff"
+  | "principle-broker";
+
+interface QuoteRoundRepublishInput {
+  breakGlassConfirmed?: boolean;
+  deadlinePolicy: FunctionArgs<
+    typeof api.quote_round_lifecycle.reopenQuoteRoundWithRevision
+  >["deadlinePolicy"];
+  reason: string;
+}
+
 interface QuoteRoundComposerRouteProps {
   buildId: string;
   organizationId?: string;
+  republishCapacity?: QuoteRoundRepublishCapacity;
   roundId?: string;
   routeBase: "/backoffice" | "/builder" | "/builder-staff";
 }
 
 export function normalizeQuoteRoundOrganizationId(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function resolveQuoteRoundRepublishCapacity(
+  routeBase: QuoteRoundComposerRouteProps["routeBase"],
+  roles: readonly (string | null | undefined)[]
+): QuoteRoundRepublishCapacity | undefined {
+  if (routeBase === "/builder") {
+    return "builder";
+  }
+  if (routeBase === "/builder-staff") {
+    return "builder-staff";
+  }
+  const normalizedRoles = new Set(
+    roles
+      .filter((role): role is string => typeof role === "string")
+      .map((role) => role.trim().toLowerCase().replace(/\s+/g, "-"))
+  );
+  if (normalizedRoles.has("admin")) {
+    return "admin";
+  }
+  if (
+    normalizedRoles.has("principle-broker") ||
+    normalizedRoles.has("principal-broker")
+  ) {
+    return "principle-broker";
+  }
+  return;
 }
 
 /**
@@ -457,15 +522,25 @@ function QuoteRoundComposerRouteQuery({
   buildId,
   organizationId,
   onRefresh,
+  republishCapacity,
   routeBase,
   roundId,
 }: QuoteRoundComposerRouteProps & { onRefresh: () => void }) {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string>();
+  const [selectedPackageRevisionId, setSelectedPackageRevisionId] =
+    useState<string>();
+  const [selectedPackageRoundId, setSelectedPackageRoundId] = useState(roundId);
   const [provisionedRecipients, setProvisionedRecipients] = useState<
     QuoteRoundComposerRecipient[]
   >([]);
+  useEffect(() => {
+    setSelectedPackageRevisionId(undefined);
+    setSelectedPackageRoundId(roundId);
+  }, [roundId]);
+  const selectedPackageRevisionForRound =
+    selectedPackageRoundId === roundId ? selectedPackageRevisionId : undefined;
   const normalizedOrganizationId =
     normalizeQuoteRoundOrganizationId(organizationId);
   const composerQuery = useQuery(
@@ -492,7 +567,13 @@ function QuoteRoundComposerRouteQuery({
     api.quote_invitation_access.ensureQuoteRoundRecipient
   );
   const updateDraft = useMutation(api.quote_rounds.updateQuoteRoundDraft);
+  const refreshDraftScope = useMutation(
+    api.quote_rounds.refreshQuoteRoundDraftScope
+  );
   const publishDraft = useMutation(api.quote_rounds.publishQuoteRoundDraft);
+  const reopenWithRevision = useMutation(
+    api.quote_round_lifecycle.reopenQuoteRoundWithRevision
+  );
   const composerSource = useMemo(() => {
     if (!composerQuery) {
       return;
@@ -677,8 +758,47 @@ function QuoteRoundComposerRouteQuery({
       <QuoteRoundComparisonSurface
         buildId={buildId}
         onExit={exit}
+        onRepublish={async ({
+          breakGlassConfirmed,
+          deadlinePolicy,
+          reason,
+        }: QuoteRoundRepublishInput) => {
+          await reopenWithRevision({
+            buildId: composerQuery.build._id,
+            changedFieldKeys: ["scope"],
+            confirmed: true,
+            deadlinePolicy,
+            expectedRevision: round.revision ?? rawRoundQuery.revision,
+            quoteRoundId: rawRoundQuery._id,
+            reason,
+            ...(republishCapacity === "admin"
+              ? {
+                  administrativeCapacity: "admin" as const,
+                  ...(breakGlassConfirmed === undefined
+                    ? {}
+                    : { breakGlassConfirmed }),
+                }
+              : republishCapacity === "builder" ||
+                  republishCapacity === "builder-staff"
+                ? { administrativeCapacity: republishCapacity }
+                : {}),
+            workosOrganizationId: normalizedOrganizationId,
+          });
+          setSelectedPackageRevisionId(undefined);
+          onRefresh();
+        }}
+        onSelectPackageRevision={(packageRevisionId) => {
+          setSelectedPackageRoundId(roundId);
+          setSelectedPackageRevisionId(packageRevisionId);
+        }}
         organizationId={normalizedOrganizationId}
+        packageRevisionHistory={round.packageRevisionHistory}
         quoteRoundId={String(rawRoundQuery._id)}
+        republishCapacity={republishCapacity}
+        scopeUpdateAvailable={round.scopeUpdateAvailable}
+        selectedPackageRevisionId={
+          selectedPackageRevisionForRound ?? round.packageRevision?._id
+        }
       />
     );
   }
@@ -700,6 +820,15 @@ function QuoteRoundComposerRouteQuery({
           return publishDraft(publishInput);
         },
         onRefresh,
+        onRefreshScope: async ({ expectedRevision }) => {
+          const result = await refreshDraftScope({
+            buildId: composerQuery.build._id,
+            expectedRevision,
+            quoteRoundId: rawRoundQuery._id,
+            workosOrganizationId: normalizedOrganizationId,
+          });
+          return { ...result, state: "draft" as const };
+        },
         onSave: (
           draftInput: QuoteRoundDraftInput & {
             expectedRevision: number;

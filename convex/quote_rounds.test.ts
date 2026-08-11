@@ -880,6 +880,112 @@ describe("Quote Invitation immutable response submissions", () => {
     });
   });
 
+  test("counts represented immutable revisions instead of trusting the latest revision number", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-sparse-revision-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const submission = await ctx.db
+        .query("quoteInvitationResponseSubmissionRevisions")
+        .withIndex("by_quoteRoundInvitationId_and_revision", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("revision", 1)
+        )
+        .unique();
+      const state = await ctx.db
+        .query("quoteInvitationResponseSubmissionStates")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+          (query) =>
+            query
+              .eq("quoteRoundInvitationId", fixture.invitation._id)
+              .eq(
+                "quotePackageRevisionId",
+                fixture.invitation.quotePackageRevisionId
+              )
+        )
+        .unique();
+      if (!(submission && state)) {
+        throw new Error("Expected the immutable submission projections.");
+      }
+      await ctx.db.patch(submission._id, { revision: 7 });
+      await ctx.db.patch(state._id, { latestRevision: 7 });
+    });
+
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle).toMatchObject({
+      hasMoreRevisions: false,
+      revisionCount: 1,
+      revisions: [{ revision: 7 }],
+    });
+  });
+
+  test("rejects a historical submission whose Package Revision is a sibling", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-sibling-revision-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const root = await ctx.db.get(fixture.invitation.quotePackageRevisionId);
+      const submission = await ctx.db
+        .query("quoteInvitationResponseSubmissionRevisions")
+        .withIndex("by_quoteRoundInvitationId_and_revision", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("revision", 1)
+        )
+        .unique();
+      if (!(root && submission)) {
+        throw new Error("Expected the published Package Revision and submission.");
+      }
+      const { _creationTime, _id, ...siblingSnapshot } = root;
+      const siblingId = await ctx.db.insert("quotePackageRevisions", {
+        ...siblingSnapshot,
+        revision: root.revision + 1,
+      });
+      await ctx.db.patch(submission._id, {
+        quotePackageRevisionId: siblingId,
+      });
+    });
+
+    await expect(
+      fixture.base.query(
+        (api as any).quote_response_submissions
+          .getQuoteInvitationResponseSubmissionRevision,
+        {
+          presentationNow: Date.now(),
+          quoteRoundInvitationId: fixture.invitation._id,
+          revision: 1,
+          sessionToken: fixture.exchanged.sessionToken,
+        }
+      )
+    ).rejects.toThrow("Historical Quote Package Revision is unavailable.");
+  });
+
   test("returns the same immutable receipt for a lost submission response or a double tap", async () => {
     const fixture = await openedSubmissionFixture();
     await saveCompleteSubmissionDraft(fixture, 141_000_00);
@@ -2148,6 +2254,38 @@ async function seedQuoteFixture(
       status: "planned",
       updatedAt: now,
     });
+    const scopeContractId = await ctx.db.insert("submilestoneScopeContracts", {
+      brokerageId: foundation.brokerageId,
+      buildId,
+      buildSubmilestoneId: submilestoneId,
+      createdAt: now,
+      latestVersion: 1,
+      organizationId: ORGANIZATION_ID,
+      proposalId,
+      proposalSubmilestoneId,
+      updatedAt: now,
+    });
+    const scopeRevisionId = await ctx.db.insert("submilestoneScopeRevisions", {
+      authoredByWorkosUserId: "user_admin",
+      brokerageId: foundation.brokerageId,
+      changeReason: "Initial construction Scope.",
+      contractId: scopeContractId,
+      createdAt: now,
+      organizationId: ORGANIZATION_ID,
+      proposalId,
+      proposalSubmilestoneId,
+      publishedAt: now,
+      publishedByWorkosUserId: "user_admin",
+      savedAt: now,
+      scopeOfWorkTiptapJson: tiptap(
+        "Install engineered wall system exactly."
+      ),
+      status: "published",
+      version: 1,
+    });
+    await ctx.db.patch(scopeContractId, {
+      effectiveRevisionId: scopeRevisionId,
+    });
     const costItemId = await ctx.db.insert("buildCostItems", {
       brokerageId: foundation.brokerageId,
       budgetTreatment: "add",
@@ -2317,13 +2455,69 @@ async function seedQuoteFixture(
       contractorOnlyRecipientId,
       costItemId,
       permit,
+      proposalId,
+      proposalSubmilestoneId,
       recipientId,
+      scopeContractId,
+      scopeRevisionId,
       submilestoneId,
       supporting,
       templateVersionId,
     };
   });
   return { admin, base, builder, ...seeded };
+}
+
+async function addScopeRevision(
+  fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+  input: {
+    changeReason?: string;
+    content: string;
+    effective?: boolean;
+    status?: "draft" | "published";
+    version: number;
+  }
+) {
+  return await fixture.base.run(async (ctx) => {
+    const now = Date.now();
+    const prior = await ctx.db.get(fixture.scopeRevisionId);
+    if (!prior) {
+      throw new Error("Expected seeded prior Scope revision in quote fixture.");
+    }
+    const contract = await ctx.db.get(fixture.scopeContractId);
+    if (!contract) {
+      throw new Error("Expected seeded Scope contract in quote fixture.");
+    }
+    const status = input.status ?? "published";
+    const revisionId = await ctx.db.insert("submilestoneScopeRevisions", {
+      authoredByWorkosUserId: "user_admin",
+      basedOnRevisionId: prior._id,
+      brokerageId: fixture.brokerageId,
+      changeReason: input.changeReason,
+      contractId: fixture.scopeContractId,
+      createdAt: now,
+      organizationId: ORGANIZATION_ID,
+      proposalId: prior.proposalId,
+      proposalSubmilestoneId: fixture.proposalSubmilestoneId,
+      ...(status === "published"
+        ? {
+            publishedAt: now,
+            publishedByWorkosUserId: "user_admin",
+          }
+        : {}),
+      savedAt: now,
+      scopeOfWorkTiptapJson: tiptap(input.content),
+      status,
+      version: input.version,
+    });
+    await ctx.db.patch(fixture.scopeContractId, {
+      ...(input.effective ? { effectiveRevisionId: revisionId } : {}),
+      ...(status === "draft" ? { activeDraftRevisionId: revisionId } : {}),
+      latestVersion: Math.max(input.version, contract.latestVersion),
+      updatedAt: now,
+    });
+    return revisionId;
+  });
 }
 
 async function configureRound(
@@ -2869,6 +3063,11 @@ describe("Quote Round draft-to-open aggregate", () => {
     expect(composer.labourSubmilestones[0]?.scopeOfWorkTiptapJson).toBe(
       tiptap("Install engineered wall system exactly.")
     );
+    expect(composer.labourSubmilestones[0]).toMatchObject({
+      sourceScopeChangeReason: "Initial construction Scope.",
+      sourceScopeRevisionId: fixture.scopeRevisionId,
+      sourceScopeVersion: 1,
+    });
     expect(composer.responseTemplates[0]?._id).toBe(fixture.templateVersionId);
 
     const created = await configureRound(fixture, "combined", {
@@ -3003,6 +3202,12 @@ describe("Quote Round draft-to-open aggregate", () => {
           q.eq("quotePackageRevisionId", round.currentPackageRevisionId!)
         )
         .collect();
+      const labourLines = await ctx.db
+        .query("quotePackageRevisionLabourLines")
+        .withIndex("by_quotePackageRevisionId_and_order", (q) =>
+          q.eq("quotePackageRevisionId", round.currentPackageRevisionId!)
+        )
+        .collect();
       const communicationIntents = await ctx.db
         .query("communicationIntents")
         .withIndex("by_quoteRoundInvitationId_and_createdAt", (q) =>
@@ -3014,6 +3219,7 @@ describe("Quote Round draft-to-open aggregate", () => {
         credentials,
         fields,
         invitations,
+        labourLines,
         communicationIntents,
         packageRevision,
         round,
@@ -3042,6 +3248,16 @@ describe("Quote Round draft-to-open aggregate", () => {
       ])
     );
     expect(persisted.fields).toHaveLength(1);
+    expect(persisted.labourLines).toEqual([
+      expect.objectContaining({
+        scopeOfWorkTiptapJson: tiptap(
+          "Install engineered wall system exactly."
+        ),
+        sourceScopeChangeReason: "Initial construction Scope.",
+        sourceScopeRevisionId: fixture.scopeRevisionId,
+        sourceScopeVersion: 1,
+      }),
+    ]);
     expect(persisted.credentials).toHaveLength(1);
     expect(persisted.credentials[0]).toMatchObject({
       accessGeneration: 1,
@@ -3103,6 +3319,8 @@ describe("Quote Round draft-to-open aggregate", () => {
   test("does not expose an execution note as Quote Scope when a closed Build row has no legacy Scope", async () => {
     const fixture = await seedQuoteFixture();
     await fixture.base.run(async (ctx) => {
+      await ctx.db.delete(fixture.scopeRevisionId);
+      await ctx.db.delete(fixture.scopeContractId);
       await ctx.db.patch(fixture.submilestoneId, {
         fieldNote: "Execution-only note: verify the west elevation.",
         scopeOfWorkTiptapJson: undefined,
@@ -3128,41 +3346,9 @@ describe("Quote Round draft-to-open aggregate", () => {
   test("uses the effective canonical Scope revision before pre-cutover Build bytes", async () => {
     const fixture = await seedQuoteFixture();
     await fixture.base.run(async (ctx) => {
-      const buildSubmilestone = await ctx.db.get(fixture.submilestoneId);
-      if (!buildSubmilestone) {
-        throw new Error("Fixture Sub-milestone is unavailable.");
-      }
-      const build = await ctx.db.get(buildSubmilestone.buildId);
-      if (!build) {
-        throw new Error("Fixture Build is unavailable.");
-      }
-      const contractId = await ctx.db.insert("submilestoneScopeContracts", {
-        brokerageId: build.brokerageId,
-        buildId: build._id,
-        buildSubmilestoneId: buildSubmilestone._id,
-        createdAt: build.createdAt,
-        latestVersion: 1,
-        organizationId: build.organizationId,
-        proposalId: build.proposalId,
-        proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
-        updatedAt: build.updatedAt,
+      await ctx.db.patch(fixture.submilestoneId, {
+        scopeOfWorkTiptapJson: tiptap("Pre-cutover Build Scope."),
       });
-      const revisionId = await ctx.db.insert("submilestoneScopeRevisions", {
-        authoredByWorkosUserId: "user_admin",
-        brokerageId: build.brokerageId,
-        createdAt: build.createdAt,
-        contractId,
-        organizationId: build.organizationId,
-        proposalId: build.proposalId,
-        proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
-        savedAt: build.updatedAt,
-        scopeOfWorkTiptapJson: tiptap("Effective canonical Scope."),
-        status: "published",
-        version: 1,
-        publishedAt: build.updatedAt,
-        publishedByWorkosUserId: "user_admin",
-      });
-      await ctx.db.patch(contractId, { effectiveRevisionId: revisionId });
     });
 
     const composer = await fixture.builder.query(
@@ -3170,13 +3356,445 @@ describe("Quote Round draft-to-open aggregate", () => {
       { buildId: fixture.buildId, workosOrganizationId: ORGANIZATION_ID }
     );
     expect(composer?.labourSubmilestones[0]?.scopeOfWorkTiptapJson).toBe(
-      tiptap("Effective canonical Scope.")
+      tiptap("Install engineered wall system exactly.")
     );
+    expect(composer?.labourSubmilestones[0]).toMatchObject({
+      sourceScopeRevisionId: fixture.scopeRevisionId,
+      sourceScopeVersion: 1,
+    });
+  });
+
+  test("keeps a successor draft out of Quote composition and publication", async () => {
+    const fixture = await seedQuoteFixture();
+    const successorDraftId = await addScopeRevision(fixture, {
+      changeReason: "Draft structural revision.",
+      content: "Unpublished successor Scope must stay private.",
+      status: "draft",
+      version: 2,
+    });
+
+    const composer = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRoundComposer,
+      { buildId: fixture.buildId, workosOrganizationId: ORGANIZATION_ID }
+    );
+    expect(composer?.labourSubmilestones[0]).toMatchObject({
+      scopeOfWorkTiptapJson: tiptap(
+        "Install engineered wall system exactly."
+      ),
+      sourceScopeRevisionId: fixture.scopeRevisionId,
+      sourceScopeVersion: 1,
+    });
+    expect(JSON.stringify(composer)).not.toContain(String(successorDraftId));
+    expect(JSON.stringify(composer)).not.toContain(
+      "Unpublished successor Scope must stay private."
+    );
+
+    const published = await publishCombinedRound(
+      fixture,
+      "publish-with-successor-draft-001"
+    );
+    const labourLine = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quotePackageRevisionLabourLines")
+        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+          query.eq(
+            "quotePackageRevisionId",
+            published.invitation.quotePackageRevisionId
+          )
+        )
+        .unique()
+    );
+    expect(labourLine).toMatchObject({
+      scopeOfWorkTiptapJson: tiptap(
+        "Install engineered wall system exactly."
+      ),
+      sourceScopeRevisionId: fixture.scopeRevisionId,
+      sourceScopeVersion: 1,
+    });
+  });
+
+  test("pins draft Scope until an explicit refresh adopts the current effective revision", async () => {
+    const fixture = await seedQuoteFixture();
+    const created = await configureRound(fixture, "labour");
+    const initial = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(initial).toMatchObject({
+      draft: {
+        labourLines: [
+          {
+            buildSubmilestoneId: fixture.submilestoneId,
+            scopeOfWorkTiptapJson: tiptap(
+              "Install engineered wall system exactly."
+            ),
+            sourceScopeRevisionId: fixture.scopeRevisionId,
+            sourceScopeVersion: 1,
+          },
+        ],
+        scopeUpdateAvailable: false,
+      },
+      scopeUpdateAvailable: false,
+      state: "draft",
+    });
+
+    const revision2Id = await addScopeRevision(fixture, {
+      changeReason: "Clarify structural fastening quantities.",
+      content: "Effective v2 structural Scope.",
+      effective: true,
+      version: 2,
+    });
+    const stale = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(stale).toMatchObject({
+      draft: {
+        labourLines: [
+          {
+            scopeOfWorkTiptapJson: tiptap(
+              "Install engineered wall system exactly."
+            ),
+            sourceScopeRevisionId: fixture.scopeRevisionId,
+            sourceScopeVersion: 1,
+          },
+        ],
+        scopeUpdateAvailable: true,
+      },
+      scopeUpdateAvailable: true,
+    });
+    const registerBeforeRefresh = await fixture.builder.query(
+      (api as any).quote_rounds.listQuoteRounds,
+      {
+        buildId: fixture.buildId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(registerBeforeRefresh.rounds[0]).toMatchObject({
+      scopeUpdateAvailable: true,
+    });
+
+    const ordinarySave = await fixture.builder.mutation(
+      (api as any).quote_rounds.updateQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        labourSubmilestoneIds: [fixture.submilestoneId],
+        quoteRoundId: created.quoteRoundId,
+        title: "Ordinary edit preserves pinned Scope",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(ordinarySave).toMatchObject({ revision: 2 });
+    const preserved = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteRoundDraftLabourScope")
+        .withIndex("by_quoteRoundId_and_order", (query) =>
+          query.eq("quoteRoundId", created.quoteRoundId)
+        )
+        .unique()
+    );
+    expect(preserved).toMatchObject({
+      scopeOfWorkTiptapJson: tiptap(
+        "Install engineered wall system exactly."
+      ),
+      sourceScopeRevisionId: fixture.scopeRevisionId,
+      sourceScopeVersion: 1,
+    });
+
+    const refreshed = await fixture.builder.mutation(
+      (api as any).quote_rounds.refreshQuoteRoundDraftScope,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: ordinarySave.revision,
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(refreshed).toMatchObject({
+      revision: 3,
+      scopePinTransitions: [
+        {
+          buildSubmilestoneId: fixture.submilestoneId,
+          newSourceScopeRevisionId: revision2Id,
+          priorSourceScopeRevisionId: fixture.scopeRevisionId,
+        },
+      ],
+      state: "draft",
+    });
+    const refreshAudit = await fixture.base.run(async (ctx) => {
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "quoteRound")
+            .eq("entityId", String(created.quoteRoundId))
+        )
+        .collect();
+      return audits.find(
+        (audit) => audit.eventType === "quote_round.draft_scope_refreshed"
+      );
+    });
+    expect(refreshAudit).toBeDefined();
+    expect(JSON.parse(refreshAudit?.priorState ?? "{}")).toMatchObject({
+      labourLineCount: 1,
+      revision: 2,
+      scopePinTransitions: [
+        {
+          buildSubmilestoneId: fixture.submilestoneId,
+          sourceScopeRevisionId: fixture.scopeRevisionId,
+        },
+      ],
+    });
+    expect(JSON.parse(refreshAudit?.newState ?? "{}")).toMatchObject({
+      labourLineCount: 1,
+      revision: 3,
+      scopePinTransitions: [
+        {
+          buildSubmilestoneId: fixture.submilestoneId,
+          sourceScopeRevisionId: revision2Id,
+        },
+      ],
+    });
+    const refreshedRound = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(refreshedRound).toMatchObject({
+      draft: {
+        labourLines: [
+          {
+            scopeOfWorkTiptapJson: tiptap("Effective v2 structural Scope."),
+            sourceScopeChangeReason:
+              "Clarify structural fastening quantities.",
+            sourceScopeRevisionId: revision2Id,
+            sourceScopeVersion: 2,
+          },
+        ],
+        scopeUpdateAvailable: false,
+      },
+      scopeUpdateAvailable: false,
+    });
+
+    const published = await fixture.builder.mutation(
+      (api as any).quote_rounds.publishQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: refreshed.revision,
+        idempotencyKey: "publish-refreshed-scope-001",
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const packageLine = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quotePackageRevisionLabourLines")
+        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+          query.eq("quotePackageRevisionId", published.packageRevisionId)
+        )
+        .unique()
+    );
+    expect(packageLine).toMatchObject({
+      scopeOfWorkTiptapJson: tiptap("Effective v2 structural Scope."),
+      sourceScopeChangeReason: "Clarify structural fastening quantities.",
+      sourceScopeRevisionId: revision2Id,
+      sourceScopeVersion: 2,
+    });
+  });
+
+  test("rejects publication when a pinned revision is no longer effective instead of reading legacy Scope", async () => {
+    const fixture = await seedQuoteFixture();
+    const created = await configureRound(fixture, "labour");
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.scopeContractId, {
+        effectiveRevisionId: undefined,
+      });
+      await ctx.db.patch(fixture.submilestoneId, {
+        scopeOfWorkTiptapJson: tiptap(
+          "Legacy bytes must not rescue Quote publication."
+        ),
+      });
+    });
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_rounds.publishQuoteRoundDraft,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: 1,
+          idempotencyKey: "publish-stale-scope-pin-001",
+          quoteRoundId: created.quoteRoundId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/refresh.*Scope|effective.*Scope/i);
+  });
+
+  test("does not advertise a Scope update when no effective Scope exists", async () => {
+    const fixture = await seedQuoteFixture();
+    const created = await configureRound(fixture, "labour");
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(fixture.scopeContractId, { effectiveRevisionId: undefined })
+    );
+    const draftDetail = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const draftRegister = await fixture.builder.query(
+      (api as any).quote_rounds.listQuoteRounds,
+      {
+        buildId: fixture.buildId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(draftDetail).toMatchObject({
+      draft: { scopeUpdateAvailable: false },
+      scopeUpdateAvailable: false,
+    });
+    expect(draftRegister.rounds).toEqual([
+      expect.objectContaining({
+        _id: created.quoteRoundId,
+        scopeUpdateAvailable: false,
+        state: "draft",
+      }),
+    ]);
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(fixture.scopeContractId, {
+        effectiveRevisionId: fixture.scopeRevisionId,
+      })
+    );
+    const published = await fixture.builder.mutation(
+      (api as any).quote_rounds.publishQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        idempotencyKey: "publish-scope-update-null-001",
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(fixture.scopeContractId, { effectiveRevisionId: undefined })
+    );
+
+    const openDetail = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: published.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const openRegister = await fixture.builder.query(
+      (api as any).quote_rounds.listQuoteRounds,
+      {
+        buildId: fixture.buildId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(openDetail).toMatchObject({
+      scopeUpdateAvailable: false,
+      state: "open",
+    });
+    expect(openRegister.rounds).toEqual([
+      expect.objectContaining({
+        _id: published.quoteRoundId,
+        scopeUpdateAvailable: false,
+        state: "open",
+      }),
+    ]);
+  });
+
+  test("never includes Field Guidance in Quote composer, package, or recipient access", async () => {
+    const fixture = await seedQuoteFixture();
+    const guidanceSentinel = "FIELD-GUIDANCE-MUST-NOT-ENTER-QUOTE";
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("submilestoneFieldGuidance", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        buildSubmilestoneId: fixture.submilestoneId,
+        cameraAnglesTiptapJson: tiptap(`${guidanceSentinel}-CAMERA`),
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        proposalId: fixture.proposalId,
+        proposalSubmilestoneId: fixture.proposalSubmilestoneId,
+        updatedAt: now,
+        updatedByWorkosUserId: "user_admin",
+        whatToVerifyTiptapJson: tiptap(`${guidanceSentinel}-VERIFY`),
+      });
+    });
+    const composer = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRoundComposer,
+      { buildId: fixture.buildId, workosOrganizationId: ORGANIZATION_ID }
+    );
+    expect(JSON.stringify(composer)).not.toContain(guidanceSentinel);
+
+    const published = await publishCombinedRound(
+      fixture,
+      "publish-with-field-guidance-001"
+    );
+    const round = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: published.invitation.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(JSON.stringify(round)).not.toContain(guidanceSentinel);
+
+    const magicToken = "field-guidance-exclusion-browser-token";
+    await replaceCredentialMagicToken(
+      fixture,
+      published.credential._id,
+      magicToken
+    );
+    const access = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken }
+    );
+    expect(access).toMatchObject({
+      access: {
+        package: {
+          labourLines: [
+            {
+              sourceScopeChangeReason: "Initial construction Scope.",
+              sourceScopeRevisionId: fixture.scopeRevisionId,
+              sourceScopeVersion: 1,
+            },
+          ],
+        },
+      },
+      status: "available",
+    });
+    expect(JSON.stringify(access)).not.toContain(guidanceSentinel);
   });
 
   test("omits corrupt canonical Scope rows from the composer but rejects them at publication", async () => {
     const fixture = await seedQuoteFixture();
+    const created = await configureRound(fixture, "labour");
     await fixture.base.run(async (ctx) => {
+      await ctx.db.delete(fixture.scopeRevisionId);
+      await ctx.db.delete(fixture.scopeContractId);
       const buildSubmilestone = await ctx.db.get(fixture.submilestoneId);
       if (!buildSubmilestone) {
         throw new Error("Fixture Sub-milestone is unavailable.");
@@ -3242,7 +3860,6 @@ describe("Quote Round draft-to-open aggregate", () => {
     ).toBe(false);
     expect(JSON.stringify(composer)).not.toContain("Corrupt Scope lineage.");
 
-    const created = await configureRound(fixture, "labour");
     await expect(
       fixture.builder.mutation((api as any).quote_rounds.publishQuoteRoundDraft, {
         buildId: fixture.buildId,
@@ -4363,6 +4980,38 @@ describe("Quote Round immutable response comparison and Preferred Quote", () => 
     expect(JSON.stringify(result)).not.toContain("Private recipient Draft wording");
   });
 
+  test("rejects a same-round sibling Package Revision outside the current ancestry chain", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    const siblingPackageRevisionId = await fixture.base.run(async (ctx) => {
+      const root = await ctx.db.get(published.invitations[0]!.quotePackageRevisionId);
+      if (!root) {
+        throw new Error("Expected the current Quote Package Revision.");
+      }
+      const { _creationTime: _ignoredCreationTime, _id: _ignoredId, ...snapshot } =
+        root;
+      return await ctx.db.insert("quotePackageRevisions", {
+        ...snapshot,
+        revision: root.revision + 1,
+      });
+    });
+
+    const result = await fixture.builder.query(
+      (api as any).quote_comparisons.getQuoteRoundComparison,
+      {
+        buildId: fixture.buildId,
+        now: Date.now(),
+        packageRevisionId: siblingPackageRevisionId,
+        quoteRoundId: published.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(result).toEqual({
+      reason: "Selected Quote Package Revision is unavailable.",
+      status: "unavailable",
+    });
+  });
+
   test("normalizes one immutable mixed response while preserving package, provenance, schedule, comments, attachment, tax, alternate, and exclusion facts", async () => {
     const fixture = await seedQuoteFixture();
     const published = await publishComparisonRound(fixture);
@@ -4595,7 +5244,7 @@ describe("Quote Round immutable response comparison and Preferred Quote", () => 
         sessionToken: current.exchanged.sessionToken,
       }
     );
-    const resubmitted = await fixture.base.mutation(
+    await fixture.base.mutation(
       (api as any).quote_response_submissions.submitQuoteInvitationResponse,
       {
         expectedDraftVersion: 1,
@@ -5072,7 +5721,10 @@ describe("Quote Round immutable response comparison and Preferred Quote", () => 
               expectedRevision: closed.revision,
               quoteRoundId: published.quoteRoundId,
               reason: "Publish the superseding Package Revision.",
-              responseDeadline: Date.now() + 2 * 24 * 60 * 60 * 1000,
+              deadlinePolicy: {
+                kind: "replace",
+                responseDeadline: Date.now() + 2 * 24 * 60 * 60 * 1000,
+              },
               workosOrganizationId: ORGANIZATION_ID,
             }
           );
@@ -5215,7 +5867,10 @@ describe("Quote Round governed lifecycle", () => {
         expectedRevision,
         quoteRoundId: fixture.invitation.quoteRoundId,
         reason: "Reopen this Quote Round for lifecycle coverage.",
-        responseDeadline: Date.now() + 2 * DAY_MS,
+        deadlinePolicy: {
+          kind: "replace",
+          responseDeadline: Date.now() + 2 * DAY_MS,
+        },
         workosOrganizationId: ORGANIZATION_ID,
       }
     );
@@ -5320,7 +5975,10 @@ describe("Quote Round governed lifecycle", () => {
         expectedRevision: closed.revision,
         quoteRoundId,
         reason: "Extend the response window for the corrected schedule.",
-        responseDeadline: reopenedDeadline,
+        deadlinePolicy: {
+          kind: "replace",
+          responseDeadline: reopenedDeadline,
+        },
         workosOrganizationId: ORGANIZATION_ID,
       }
     );
@@ -6574,6 +7232,31 @@ describe("Quote Round governed lifecycle", () => {
     expect(closed).toMatchObject({ state: "closed", status: "closed" });
   });
 
+  test("rejects an expired kept deadline and requires the replace action", async () => {
+    const fixture = await openedSubmissionFixture();
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+        responseDeadline: Date.now() - 1,
+      })
+    );
+    const closed = await closeOpenRound(fixture);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.reopenQuoteRoundWithRevision,
+        {
+          buildId: fixture.buildId,
+          changedFieldKeys: ["responseDeadline"],
+          confirmed: true,
+          deadlinePolicy: { kind: "keep" },
+          expectedRevision: closed.revision,
+          quoteRoundId: fixture.invitation.quoteRoundId,
+          reason: "Keep the existing response window.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/choose replace/i);
+  });
+
   test("keeps changed fields and the required responseDeadline within the 100-field cap", async () => {
     const fixture = await openedSubmissionFixture();
     const closed = await closeOpenRound(fixture);
@@ -6616,7 +7299,7 @@ describe("Quote Round governed lifecycle", () => {
     ).rejects.toThrow(/acknowledgement may include at most 100 fields/);
   });
 
-  test("migrates a prior-revision Draft by stable package identities before acknowledgement unlocks writes", async () => {
+  test("copies a prior Package response by stable identities and requires explicit confirmation", async () => {
     const fixture = await openedSubmissionFixture();
     const { before } = await saveCompleteSubmissionDraft(fixture);
     const priorLine = before.access.package.labourLines[0];
@@ -6658,9 +7341,28 @@ describe("Quote Round governed lifecycle", () => {
         quoteRoundId: fixture.invitation.quoteRoundId,
         quoteRoundInvitationId: fixture.invitation._id,
         sizeBytes: 20,
-        sourcePackageRevisionResponseFieldId: priorField.sourceFieldId,
         storageId,
       });
+      await ctx.db.patch(draft._id, {
+        attachmentCount: 1,
+        updatedAt: Date.now(),
+      });
+    });
+    const priorSubmission = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "prior-package-response-before-republish-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(priorSubmission).toMatchObject({
+      status: "accepted",
+      submission: {
+        quotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+        revision: 1,
+      },
     });
     const closed = await closeOpenRound(fixture);
     const reopened = await reopenClosedRound(fixture, closed.revision);
@@ -6702,6 +7404,9 @@ describe("Quote Round governed lifecycle", () => {
     expect(migrated).toMatchObject({
       access: { package: { revision: 2 } },
       draft: {
+        copiedFromQuotePackageRevisionId:
+          fixture.invitation.quotePackageRevisionId,
+        copiedValuesConfirmationState: "pending",
         version: 1,
       },
       status: "available",
@@ -6726,7 +7431,117 @@ describe("Quote Round governed lifecycle", () => {
     expect(migrated.draft.attachments).toHaveLength(1);
     expect(
       migrated.draft.attachments[0]?.sourcePackageRevisionResponseFieldId
-    ).not.toBe(priorField.sourceFieldId);
+    ).toBeUndefined();
+
+    const blockedSubmission = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "copied-response-before-confirmation-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(blockedSubmission).toMatchObject({
+      status: "invalid",
+      validationErrors: [
+        "Confirm all copied response values and pricing before submitting.",
+      ],
+    });
+    const confirmed = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .confirmCopiedQuoteInvitationResponseDraftValues,
+      {
+        expectedVersion: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(confirmed).toMatchObject({
+      draft: {
+        copiedValuesConfirmationState: "confirmed",
+        version: 2,
+      },
+      status: "confirmed",
+    });
+    const confirmationAudit = await fixture.base.run(async (ctx) => {
+      const draft = await ctx.db
+        .query("quoteInvitationResponseDrafts")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+          (query) =>
+            query
+              .eq("quoteRoundInvitationId", fixture.invitation._id)
+              .eq("quotePackageRevisionId", reopened.packageRevisionId!)
+        )
+        .unique();
+      if (!draft) {
+        throw new Error("Expected the confirmed current-revision Draft.");
+      }
+      return await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "quoteInvitationResponseDraft")
+            .eq("entityId", String(draft._id))
+        )
+        .collect();
+    });
+    expect(confirmationAudit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorRoles: ["quote-recipient"],
+          eventType: "quote_response.copied_values_confirmed",
+          newState: JSON.stringify({
+            copiedFromQuotePackageRevisionId:
+              fixture.invitation.quotePackageRevisionId,
+            copiedValuesConfirmationState: "confirmed",
+            version: 2,
+          }),
+          priorState: JSON.stringify({
+            copiedFromQuotePackageRevisionId:
+              fixture.invitation.quotePackageRevisionId,
+            copiedValuesConfirmationState: "pending",
+            version: 1,
+          }),
+          reason: "Recipient confirmed copied response values and pricing.",
+          warnings: [],
+        }),
+      ])
+    );
+    const acceptedCopy = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 2,
+        idempotencyKey: "copied-response-after-confirmation-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(acceptedCopy).toMatchObject({
+      status: "accepted",
+      submission: {
+        quotePackageRevisionId: reopened.packageRevisionId,
+        revision: 2,
+      },
+    });
+    const historical = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseSubmissionRevision,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        revision: 1,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(historical).toMatchObject({
+      status: "available",
+      submission: {
+        quotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+        revision: 1,
+      },
+    });
 
     const drafts = await fixture.base.run(async (ctx) =>
       await ctx.db
@@ -6737,12 +7552,7 @@ describe("Quote Round governed lifecycle", () => {
         )
         .collect()
     );
-    expect(drafts).toHaveLength(2);
-    expect(
-      drafts.some(
-        (draft) => draft.quotePackageRevisionId === reopened.packageRevisionId
-      )
-    ).toBe(true);
+    expect(drafts).toHaveLength(0);
   });
 
   test("rejects an oversized Package Revision clone before changing the closed Round", async () => {
@@ -6795,6 +7605,50 @@ describe("Quote Round governed lifecycle", () => {
       state: "closed",
     });
     expect(persisted.revisions).toHaveLength(1);
+  });
+
+  test("rejects republish at the 20-package-revision boundary before reopening", async () => {
+    const fixture = await openedSubmissionFixture();
+    const quoteRoundId = fixture.invitation.quoteRoundId;
+    const initial = await fixture.base.run((ctx) =>
+      ctx.db.get(fixture.invitation.quotePackageRevisionId)
+    );
+    if (!initial) {
+      throw new Error("Expected the initial Quote Package Revision.");
+    }
+    const { _creationTime, _id, ...snapshot } = initial;
+    await fixture.base.run(async (ctx) => {
+      for (let revision = 2; revision <= 20; revision += 1) {
+        await ctx.db.insert("quotePackageRevisions", {
+          ...snapshot,
+          previousPackageRevisionId: initial._id,
+          publishedAt: initial.publishedAt + revision,
+          revision,
+        });
+      }
+    });
+
+    const closed = await closeOpenRound(fixture);
+    await expect(reopenClosedRound(fixture, closed.revision)).rejects.toThrow(
+      /20 Package Revision limit/
+    );
+
+    const persisted = await fixture.base.run(async (ctx) => {
+      const round = await ctx.db.get(quoteRoundId);
+      const revisions = await ctx.db
+        .query("quotePackageRevisions")
+        .withIndex("by_quoteRoundId_and_revision", (query) =>
+          query.eq("quoteRoundId", quoteRoundId)
+        )
+        .collect();
+      return { revisions, round };
+    });
+    expect(persisted.round).toMatchObject({
+      currentPackageRevisionId: initial._id,
+      revision: closed.revision,
+      state: "closed",
+    });
+    expect(persisted.revisions).toHaveLength(20);
   });
 });
 
@@ -7129,6 +7983,49 @@ describe("Quote Round operations register projection", () => {
       scope: "Frame exterior walls",
       state: "draft",
     });
+  });
+
+  test("does not advertise or resolve Scope updates for terminal register rows", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishRegisterRound(
+      fixture,
+      "labour",
+      "register-terminal-scope-001"
+    );
+    const beforeClose = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: published.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.closeQuoteRound,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        expectedRevision: beforeClose.revision,
+        quoteRoundId: published.quoteRoundId,
+        reason: "Close before terminal register projection coverage.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    // Remove the canonical Scope contract after publication. A terminal
+    // register row still has its immutable Package snapshot and must not try
+    // to resolve live Scope merely to calculate an action badge.
+    await fixture.base.run((ctx) =>
+      ctx.db.delete(fixture.scopeContractId)
+    );
+
+    const result = await register(fixture);
+    expect(result.rounds).toEqual([
+      expect.objectContaining({
+        _id: published.quoteRoundId,
+        scopeUpdateAvailable: false,
+        state: "closed",
+      }),
+    ]);
   });
 
   test("classifies fully and partially undispatched recipients without losing dispatched facts", async () => {

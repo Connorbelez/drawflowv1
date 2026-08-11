@@ -53,6 +53,7 @@ const MAX_INHERITED_ATTACHMENTS = 200;
 // links that are intentionally excluded from the attachment result.
 const MAX_INHERITED_LINKS_SCANNED = 1000;
 const MAX_CURRENT_PERMIT_CANDIDATES = 500;
+const MAX_PACKAGE_REVISION_HISTORY = 20;
 const MAX_TIPTAP_JSON_LENGTH = 250_000;
 const MATERIAL_ROW_KEY_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 
@@ -189,6 +190,9 @@ const labourSourceProjectionValidator = v.object({
   name: v.string(),
   order: v.number(),
   scopeOfWorkTiptapJson: v.string(),
+  sourceScopeChangeReason: v.optional(v.string()),
+  sourceScopeRevisionId: v.id("submilestoneScopeRevisions"),
+  sourceScopeVersion: v.number(),
   startDay: v.optional(v.number()),
   submilestoneKey: v.string(),
 });
@@ -264,10 +268,20 @@ const draftMaterialRowProjectionValidator = v.object({
 });
 
 const quoteRoundDraftProjectionValidator = v.object({
+  labourLines: v.array(
+    v.object({
+      buildSubmilestoneId: v.id("buildSubmilestones"),
+      scopeOfWorkTiptapJson: v.optional(v.string()),
+      sourceScopeChangeReason: v.optional(v.string()),
+      sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+      sourceScopeVersion: v.optional(v.number()),
+    })
+  ),
   labourSubmilestoneIds: v.array(v.id("buildSubmilestones")),
   materialRows: v.array(draftMaterialRowProjectionValidator),
   recipientProfileIds: v.array(v.id("contractorProfiles")),
   responseDeadline: v.optional(v.number()),
+  scopeUpdateAvailable: v.boolean(),
   templateVersionId: v.optional(v.id("quoteResponseTemplateVersions")),
 });
 
@@ -285,6 +299,9 @@ const packageLabourLineProjectionValidator = v.object({
   milestoneKey: v.string(),
   milestoneName: v.string(),
   scopeOfWorkTiptapJson: v.string(),
+  sourceScopeChangeReason: v.optional(v.string()),
+  sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+  sourceScopeVersion: v.optional(v.number()),
   startDay: v.optional(v.number()),
   submilestoneKey: v.string(),
   submilestoneName: v.string(),
@@ -369,8 +386,17 @@ const quoteRoundProjectionValidator = v.object({
   draft: v.union(quoteRoundDraftProjectionValidator, v.null()),
   invitations: v.array(quoteInvitationProjectionValidator),
   mode: quoteRoundModeValidator,
+  packageRevisionHistory: v.array(
+    v.object({
+      _id: v.id("quotePackageRevisions"),
+      publishedAt: v.number(),
+      responseDeadline: v.number(),
+      revision: v.number(),
+    })
+  ),
   packageRevision: v.union(quotePackageRevisionProjectionValidator, v.null()),
   revision: v.number(),
+  scopeUpdateAvailable: v.boolean(),
   state: quoteRoundStateValidator,
   title: v.string(),
   updatedAt: v.number(),
@@ -438,6 +464,7 @@ const quoteRoundSummaryValidator = v.object({
   }),
   revision: v.number(),
   scope: v.string(),
+  scopeUpdateAvailable: v.boolean(),
   state: quoteRoundStateValidator,
   title: v.string(),
   updatedAt: v.number(),
@@ -447,9 +474,25 @@ const quoteRoundListValidator = v.object({
   rounds: v.array(quoteRoundSummaryValidator),
 });
 
+const quoteRoundScopePinTransitionValidator = v.object({
+  buildSubmilestoneId: v.id("buildSubmilestones"),
+  newSourceScopeRevisionId: v.id("submilestoneScopeRevisions"),
+  priorSourceScopeRevisionId: v.union(
+    v.id("submilestoneScopeRevisions"),
+    v.null()
+  ),
+});
+
 const quoteRoundDraftMutationResultValidator = v.object({
   quoteRoundId: v.id("quoteRounds"),
   revision: v.number(),
+  state: quoteRoundStateValidator,
+});
+
+const quoteRoundScopeRefreshMutationResultValidator = v.object({
+  quoteRoundId: v.id("quoteRounds"),
+  revision: v.number(),
+  scopePinTransitions: v.array(quoteRoundScopePinTransitionValidator),
   state: quoteRoundStateValidator,
 });
 
@@ -508,6 +551,27 @@ interface DraftState {
   materialRows: Doc<"quoteRoundDraftMaterialRows">[];
   recipients: Doc<"quoteRoundDraftRecipients">[];
 }
+
+interface EffectiveQuoteScope {
+  scopeOfWorkTiptapJson: string;
+  sourceScopeChangeReason?: string;
+  sourceScopeRevisionId: Id<"submilestoneScopeRevisions">;
+  sourceScopeVersion: number;
+}
+
+interface QuoteRoundScopePinTransition {
+  buildSubmilestoneId: Id<"buildSubmilestones">;
+  newSourceScopeRevisionId: Id<"submilestoneScopeRevisions">;
+  priorSourceScopeRevisionId: Id<"submilestoneScopeRevisions"> | null;
+}
+
+// Scope resolution is request-local. A single Sub-milestone can appear in a
+// draft, a package projection, and multiple register rows; cache the in-flight
+// Promise so concurrent Promise.all branches share one canonical lookup.
+type QuoteScopeCache = Map<
+  Id<"buildSubmilestones">,
+  Promise<EffectiveQuoteScope | null>
+>;
 
 function requiredText(
   value: string | undefined,
@@ -918,13 +982,7 @@ async function requireBuildSubmilestone(
   return { milestone, submilestone };
 }
 
-/**
- * Resolve the Quote-visible Scope for a Build Sub-milestone during the SFG-08
- * to SFG-10 cutover.  A published canonical revision wins whenever the
- * Proposal-to-Build lineage has one.  Existing explicit Build Scope bytes are
- * retained as a temporary compatibility bridge for pre-cutover rows; the
- * execution-only note is deliberately never a Scope source.
- */
+/** Resolve the only Scope source eligible for new Quote composition. */
 function quoteScopeLineageInput(
   authorization: ActiveBuildAuthorization,
   submilestone: Doc<"buildSubmilestones">
@@ -939,25 +997,23 @@ function quoteScopeLineageInput(
   };
 }
 
-function quoteScopeFromEffectiveRevisionOrLegacy(
-  submilestone: Doc<"buildSubmilestones">,
+function quoteScopeFromEffectiveRevision(
   effectiveRevision: Awaited<
     ReturnType<typeof resolveEffectiveScopeRevisionForBuildSubmilestone>
   >
-) {
-  if (effectiveRevision) {
-    return normalizeTiptapJson(
+): EffectiveQuoteScope | null {
+  if (!effectiveRevision) {
+    return null;
+  }
+  return {
+    scopeOfWorkTiptapJson: normalizeTiptapJson(
       effectiveRevision.scopeOfWorkTiptapJson,
       "Effective Sub-milestone Scope"
-    );
-  }
-  if (submilestone.scopeOfWorkTiptapJson) {
-    return normalizeTiptapJson(
-      submilestone.scopeOfWorkTiptapJson,
-      "Sub-milestone Scope of Work"
-    );
-  }
-  return null;
+    ),
+    sourceScopeChangeReason: effectiveRevision.changeReason,
+    sourceScopeRevisionId: effectiveRevision._id,
+    sourceScopeVersion: effectiveRevision.version,
+  };
 }
 
 async function quoteScopeForBuildSubmilestone(
@@ -970,9 +1026,69 @@ async function quoteScopeForBuildSubmilestone(
       ctx,
       quoteScopeLineageInput(authorization, submilestone)
     );
-  return quoteScopeFromEffectiveRevisionOrLegacy(
-    submilestone,
-    effectiveRevision
+  return quoteScopeFromEffectiveRevision(effectiveRevision);
+}
+
+function quoteScopeForBuildSubmilestoneCached(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  buildSubmilestoneId: Id<"buildSubmilestones">,
+  cache: QuoteScopeCache
+) {
+  const cached = cache.get(buildSubmilestoneId);
+  if (cached) {
+    return cached;
+  }
+  const pending = requireBuildSubmilestone(
+    ctx,
+    authorization,
+    buildSubmilestoneId
+  ).then(({ submilestone }) =>
+    quoteScopeForBuildSubmilestone(ctx, authorization, submilestone)
+  );
+  cache.set(buildSubmilestoneId, pending);
+  return pending;
+}
+
+async function requireEffectiveQuoteScope(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  submilestone: Doc<"buildSubmilestones">
+) {
+  const scope = await quoteScopeForBuildSubmilestone(
+    ctx,
+    authorization,
+    submilestone
+  );
+  if (!scope) {
+    throw new ConvexError(
+      "An effective Sub-milestone Scope is required for this Labour Quote Package."
+    );
+  }
+  return scope;
+}
+
+function draftScopePinMatches(
+  row: Doc<"quoteRoundDraftLabourScope">,
+  current: EffectiveQuoteScope
+) {
+  return (
+    row.sourceScopeRevisionId === current.sourceScopeRevisionId &&
+    row.sourceScopeVersion === current.sourceScopeVersion &&
+    row.sourceScopeChangeReason === current.sourceScopeChangeReason &&
+    row.scopeOfWorkTiptapJson === current.scopeOfWorkTiptapJson
+  );
+}
+
+function packageScopePinMatches(
+  row: Doc<"quotePackageRevisionLabourLines">,
+  current: EffectiveQuoteScope
+) {
+  return (
+    row.sourceScopeRevisionId === current.sourceScopeRevisionId &&
+    row.sourceScopeVersion === current.sourceScopeVersion &&
+    row.sourceScopeChangeReason === current.sourceScopeChangeReason &&
+    row.scopeOfWorkTiptapJson === current.scopeOfWorkTiptapJson
   );
 }
 
@@ -1368,8 +1484,62 @@ async function currentPermitDocument(
   );
 }
 
-function draftProjection(state: DraftState) {
+async function draftScopeUpdateAvailable(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  rows: Doc<"quoteRoundDraftLabourScope">[],
+  scopeCache: QuoteScopeCache
+) {
+  const matches = await Promise.all(
+    rows.map(async (row) => {
+      const current = await quoteScopeForBuildSubmilestoneCached(
+        ctx,
+        authorization,
+        row.buildSubmilestoneId,
+        scopeCache
+      );
+      // A missing effective Scope is not an update that can be applied. The
+      // publication path still fails closed, but the read-only indicator must
+      // not tell an operator that a refresh is available when there is no
+      // canonical revision to refresh to.
+      return current ? draftScopePinMatches(row, current) : true;
+    })
+  );
+  return matches.some((matchesCurrent) => !matchesCurrent);
+}
+
+async function packageScopeUpdateAvailable(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  rows: Doc<"quotePackageRevisionLabourLines">[],
+  scopeCache: QuoteScopeCache
+) {
+  const matches = await Promise.all(
+    rows.map(async (row) => {
+      const current = await quoteScopeForBuildSubmilestoneCached(
+        ctx,
+        authorization,
+        row.buildSubmilestoneId,
+        scopeCache
+      );
+      // A missing effective Scope is not an update that can be applied. Keep
+      // the package pinned and let an explicit publication/republish attempt
+      // report the missing canonical Scope instead of advertising a refresh.
+      return current ? packageScopePinMatches(row, current) : true;
+    })
+  );
+  return matches.some((matchesCurrent) => !matchesCurrent);
+}
+
+function draftProjection(state: DraftState, scopeUpdateAvailable: boolean) {
   return {
+    labourLines: state.labourScope.map((scope) => ({
+      buildSubmilestoneId: scope.buildSubmilestoneId,
+      scopeOfWorkTiptapJson: scope.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: scope.sourceScopeChangeReason,
+      sourceScopeRevisionId: scope.sourceScopeRevisionId,
+      sourceScopeVersion: scope.sourceScopeVersion,
+    })),
     labourSubmilestoneIds: state.labourScope.map(
       (scope) => scope.buildSubmilestoneId
     ),
@@ -1394,6 +1564,7 @@ function draftProjection(state: DraftState) {
       (recipient) => recipient.recipientProfileId
     ),
     responseDeadline: state.draft.responseDeadline,
+    scopeUpdateAvailable,
     templateVersionId: state.draft.templateVersionId,
   };
 }
@@ -1498,6 +1669,9 @@ async function packageRevisionProjection(
       milestoneKey: line.milestoneKey,
       milestoneName: line.milestoneName,
       scopeOfWorkTiptapJson: line.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: line.sourceScopeChangeReason,
+      sourceScopeRevisionId: line.sourceScopeRevisionId,
+      sourceScopeVersion: line.sourceScopeVersion,
       startDay: line.startDay,
       submilestoneKey: line.submilestoneKey,
       submilestoneName: line.submilestoneName,
@@ -1557,10 +1731,63 @@ async function quoteRoundProjection(
   const packageRevision = round.currentPackageRevisionId
     ? await ctx.db.get(round.currentPackageRevisionId)
     : null;
+  const packageRevisionHistory = await ctx.db
+    .query("quotePackageRevisions")
+    .withIndex("by_quoteRoundId_and_revision", (query) =>
+      query.eq("quoteRoundId", round._id)
+    )
+    .order("asc")
+    .take(MAX_PACKAGE_REVISION_HISTORY + 1);
+  if (packageRevisionHistory.length > MAX_PACKAGE_REVISION_HISTORY) {
+    throw new ConvexError(
+      "Quote Package Revision history exceeds safe limits."
+    );
+  }
+  for (const revision of packageRevisionHistory) {
+    if (
+      revision.brokerageId !== authorization.brokerage._id ||
+      revision.organizationId !== authorization.organizationId ||
+      revision.buildId !== authorization.build._id ||
+      revision.quoteRoundId !== round._id
+    ) {
+      throw new ConvexError(
+        "Quote Package Revision history crosses Build scope."
+      );
+    }
+  }
+  const packageLabourLines = packageRevision
+    ? await ctx.db
+        .query("quotePackageRevisionLabourLines")
+        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+          query.eq("quotePackageRevisionId", packageRevision._id)
+        )
+        .take(MAX_DRAFT_LABOUR_LINES + 1)
+    : [];
+  if (packageLabourLines.length > MAX_DRAFT_LABOUR_LINES) {
+    throw new ConvexError(
+      "Quote Package Revision exceeds supported Labour scope limits."
+    );
+  }
+  const scopeCache: QuoteScopeCache = new Map();
+  const scopeUpdateAvailable = draft
+    ? await draftScopeUpdateAvailable(
+        ctx,
+        authorization,
+        draft.labourScope,
+        scopeCache
+      )
+    : packageRevision
+      ? await packageScopeUpdateAvailable(
+          ctx,
+          authorization,
+          packageLabourLines,
+          scopeCache
+        )
+      : false;
   return {
     _id: round._id,
     buildId: round.buildId,
-    draft: draft ? draftProjection(draft) : null,
+    draft: draft ? draftProjection(draft, scopeUpdateAvailable) : null,
     invitations: invitations.map((invitation) => ({
       _id: invitation._id,
       participationState: invitation.participationState,
@@ -1570,10 +1797,17 @@ async function quoteRoundProjection(
       recipientProfileId: invitation.recipientProfileId,
     })),
     mode: round.mode,
+    packageRevisionHistory: packageRevisionHistory.map((revision) => ({
+      _id: revision._id,
+      publishedAt: revision.publishedAt,
+      responseDeadline: revision.responseDeadline,
+      revision: revision.revision,
+    })),
     packageRevision: packageRevision
       ? await packageRevisionProjection(ctx, authorization, packageRevision)
       : null,
     revision: round.revision,
+    scopeUpdateAvailable,
     state: round.state,
     title: round.title,
     updatedAt: round.updatedAt,
@@ -1650,10 +1884,33 @@ async function replaceDraftLabourScope(
   now: number
 ) {
   const validIds = await validateLabourSubmilestoneIds(ctx, authorization, ids);
+  const existingBySubmilestoneId = new Map(
+    existing.map((row) => [row.buildSubmilestoneId, row])
+  );
+  const selected = new Set(validIds);
   for (const row of existing) {
-    await ctx.db.delete(row._id);
+    if (!selected.has(row.buildSubmilestoneId)) {
+      await ctx.db.delete(row._id);
+    }
   }
   for (const [order, buildSubmilestoneId] of validIds.entries()) {
+    const existingRow = existingBySubmilestoneId.get(buildSubmilestoneId);
+    if (existingRow) {
+      if (existingRow.order !== order) {
+        await ctx.db.patch(existingRow._id, { order, updatedAt: now });
+      }
+      continue;
+    }
+    const { submilestone } = await requireBuildSubmilestone(
+      ctx,
+      authorization,
+      buildSubmilestoneId
+    );
+    const scope = await requireEffectiveQuoteScope(
+      ctx,
+      authorization,
+      submilestone
+    );
     await ctx.db.insert("quoteRoundDraftLabourScope", {
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
@@ -1662,9 +1919,55 @@ async function replaceDraftLabourScope(
       order,
       organizationId: authorization.organizationId,
       quoteRoundId: round._id,
+      scopeOfWorkTiptapJson: scope.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: scope.sourceScopeChangeReason,
+      sourceScopeRevisionId: scope.sourceScopeRevisionId,
+      sourceScopeVersion: scope.sourceScopeVersion,
       updatedAt: now,
     });
   }
+}
+
+async function refreshDraftLabourScopePins(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  rows: Doc<"quoteRoundDraftLabourScope">[],
+  now: number
+) {
+  const transitions: QuoteRoundScopePinTransition[] = [];
+  for (const row of rows) {
+    if (
+      row.buildId !== authorization.build._id ||
+      row.organizationId !== authorization.organizationId ||
+      row.brokerageId !== authorization.brokerage._id
+    ) {
+      throw new ConvexError("Draft Labour scope crosses Build scope.");
+    }
+    const { submilestone } = await requireBuildSubmilestone(
+      ctx,
+      authorization,
+      row.buildSubmilestoneId
+    );
+    const scope = await requireEffectiveQuoteScope(
+      ctx,
+      authorization,
+      submilestone
+    );
+    const priorSourceScopeRevisionId = row.sourceScopeRevisionId ?? null;
+    await ctx.db.patch(row._id, {
+      scopeOfWorkTiptapJson: scope.scopeOfWorkTiptapJson,
+      sourceScopeChangeReason: scope.sourceScopeChangeReason,
+      sourceScopeRevisionId: scope.sourceScopeRevisionId,
+      sourceScopeVersion: scope.sourceScopeVersion,
+      updatedAt: now,
+    });
+    transitions.push({
+      buildSubmilestoneId: row.buildSubmilestoneId,
+      newSourceScopeRevisionId: scope.sourceScopeRevisionId,
+      priorSourceScopeRevisionId,
+    });
+  }
+  return transitions;
 }
 
 async function replaceDraftMaterialRows(
@@ -1755,6 +2058,9 @@ async function replaceDraftRecipients(
 interface PreparedLabourLine {
   milestone: Doc<"buildMilestones">;
   scopeOfWorkTiptapJson: string;
+  sourceScopeChangeReason?: string;
+  sourceScopeRevisionId: Id<"submilestoneScopeRevisions">;
+  sourceScopeVersion: number;
   submilestone: Doc<"buildSubmilestones">;
 }
 
@@ -1824,17 +2130,93 @@ async function preparedLabourLines(
         authorization,
         scope.buildSubmilestoneId
       );
-      const scopeOfWorkTiptapJson = await quoteScopeForBuildSubmilestone(
+      const current = await requireEffectiveQuoteScope(
         ctx,
         authorization,
         submilestone
       );
-      if (!scopeOfWorkTiptapJson) {
+      if (!draftScopePinMatches(scope, current)) {
         throw new ConvexError(
-          "An effective Sub-milestone Scope is required before publishing a Labour Quote Package."
+          "A newer effective Scope is available. Refresh the Quote Round draft before publishing."
         );
       }
-      return { milestone, scopeOfWorkTiptapJson, submilestone };
+      return {
+        milestone,
+        scopeOfWorkTiptapJson: current.scopeOfWorkTiptapJson,
+        sourceScopeChangeReason: current.sourceScopeChangeReason,
+        sourceScopeRevisionId: current.sourceScopeRevisionId,
+        sourceScopeVersion: current.sourceScopeVersion,
+        submilestone,
+      };
+    })
+  );
+}
+
+/**
+ * Rebuild the Labour portion of a successor Package Revision from the exact
+ * current effective Scope for each Sub-milestone selected by the prior
+ * Package. Selection and order stay pinned to the prior immutable package;
+ * only canonical Scope provenance and bytes advance.
+ */
+export async function prepareEffectiveLabourLinesForPackageRevision(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  previousPackageRevisionId: Id<"quotePackageRevisions">
+) {
+  const previousPackageRevision = await ctx.db.get(previousPackageRevisionId);
+  if (
+    !previousPackageRevision ||
+    previousPackageRevision.buildId !== authorization.build._id ||
+    previousPackageRevision.organizationId !== authorization.organizationId ||
+    previousPackageRevision.brokerageId !== authorization.brokerage._id
+  ) {
+    throw new ConvexError(
+      "Prior Quote Package Revision is unavailable for Scope refresh."
+    );
+  }
+  const previousLines = await ctx.db
+    .query("quotePackageRevisionLabourLines")
+    .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+      query.eq("quotePackageRevisionId", previousPackageRevision._id)
+    )
+    .take(MAX_DRAFT_LABOUR_LINES + 1);
+  if (previousLines.length > MAX_DRAFT_LABOUR_LINES) {
+    throw new ConvexError(
+      "Quote Package Revision exceeds supported Labour scope limits."
+    );
+  }
+  return await Promise.all(
+    previousLines.map(async (previousLine) => {
+      if (
+        previousLine.buildId !== authorization.build._id ||
+        previousLine.organizationId !== authorization.organizationId ||
+        previousLine.brokerageId !== authorization.brokerage._id ||
+        previousLine.quotePackageRevisionId !== previousPackageRevision._id ||
+        previousLine.quoteRoundId !== previousPackageRevision.quoteRoundId
+      ) {
+        throw new ConvexError(
+          "Prior Quote Package Labour line crosses Build scope."
+        );
+      }
+      const { milestone, submilestone } = await requireBuildSubmilestone(
+        ctx,
+        authorization,
+        previousLine.buildSubmilestoneId
+      );
+      const scope = await requireEffectiveQuoteScope(
+        ctx,
+        authorization,
+        submilestone
+      );
+      return {
+        milestone,
+        previousLine,
+        scopeOfWorkTiptapJson: scope.scopeOfWorkTiptapJson,
+        sourceScopeChangeReason: scope.sourceScopeChangeReason,
+        sourceScopeRevisionId: scope.sourceScopeRevisionId,
+        sourceScopeVersion: scope.sourceScopeVersion,
+        submilestone,
+      };
     })
   );
 }
@@ -2458,15 +2840,8 @@ export const getQuoteRoundComposer = authenticatedQuery
             }
             throw error;
           }
-          const scopeOfWorkTiptapJson = quoteScopeFromEffectiveRevisionOrLegacy(
-            submilestone,
-            effectiveRevision
-          );
-          // Rows without an effective or pre-cutover explicit Scope remain
-          // unavailable for Quote selection.  They are not synthesized from
-          // execution notes or display names; SFG-10 will make this omission a
-          // hard publication validation for selected rows.
-          if (!scopeOfWorkTiptapJson) {
+          const scope = quoteScopeFromEffectiveRevision(effectiveRevision);
+          if (!scope) {
             return null;
           }
           return {
@@ -2478,7 +2853,10 @@ export const getQuoteRoundComposer = authenticatedQuery
             milestoneName: milestone.name,
             name: submilestone.name,
             order: submilestone.order,
-            scopeOfWorkTiptapJson,
+            scopeOfWorkTiptapJson: scope.scopeOfWorkTiptapJson,
+            sourceScopeChangeReason: scope.sourceScopeChangeReason,
+            sourceScopeRevisionId: scope.sourceScopeRevisionId,
+            sourceScopeVersion: scope.sourceScopeVersion,
             startDay: submilestone.startDay,
             submilestoneKey: submilestone.key,
           };
@@ -2795,6 +3173,7 @@ export const listQuoteRounds = authenticatedQuery
     );
     let activeInvitationBudget = 0;
     const now = Date.now();
+    const scopeCache: QuoteScopeCache = new Map();
     const summaries = await Promise.all(
       filteredRounds
         // This bounded projection intentionally composes scoped snapshots and
@@ -3020,6 +3399,26 @@ export const listQuoteRounds = authenticatedQuery
                 })),
             mode: round.mode,
           });
+          // Terminal rounds are historical register rows. They remain fully
+          // readable, but they must not resolve the live canonical Scope just
+          // to calculate an action-oriented update badge. Detail projection
+          // intentionally retains its stricter historical behavior.
+          const scopeUpdateAvailable =
+            round.state === "draft" || round.state === "open"
+              ? packageRevision
+                ? await packageScopeUpdateAvailable(
+                    ctx,
+                    authorization,
+                    packageLabourLines,
+                    scopeCache
+                  )
+                : await draftScopeUpdateAvailable(
+                    ctx,
+                    authorization,
+                    draftLabourLines,
+                    scopeCache
+                  )
+              : false;
           const searchableText = [
             String(round._id),
             round.title,
@@ -3312,6 +3711,7 @@ export const listQuoteRounds = authenticatedQuery
             responses,
             revision: round.revision,
             scope,
+            scopeUpdateAvailable,
             state: round.state,
             title: round.title,
             updatedAt: round.updatedAt,
@@ -3566,6 +3966,82 @@ export const updateQuoteRoundDraft = authenticatedMutation
   })
   .public();
 
+export const refreshQuoteRoundDraftScope = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    expectedRevision: v.number(),
+    quoteRoundId: v.id("quoteRounds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(quoteRoundScopeRefreshMutationResultValidator)
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeQuoteRoundPath(ctx, args);
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
+    const round = requireRoundScope(
+      await ctx.db.get(args.quoteRoundId),
+      authorization,
+      args.quoteRoundId
+    );
+    requireDraftState(round);
+    assertExpectedRevision(round, args.expectedRevision);
+    const state = await readDraftState(ctx, round);
+    if (state.labourScope.length === 0) {
+      throw new ConvexError(
+        "A Quote Round Scope refresh requires selected Labour Sub-milestones."
+      );
+    }
+    const now = Date.now();
+    const scopePinTransitions = await refreshDraftLabourScopePins(
+      ctx,
+      authorization,
+      state.labourScope,
+      now
+    );
+    await ctx.db.patch(state.draft._id, { updatedAt: now });
+    const revision = round.revision + 1;
+    await ctx.db.patch(round._id, { revision, updatedAt: now });
+    await appendQuoteRoundEvent(
+      ctx,
+      authorization,
+      {
+        command: "refreshQuoteRoundDraftScope",
+        eventType: "quote_round.draft_scope_refreshed",
+        newState: {
+          labourLineCount: state.labourScope.length,
+          revision,
+          scopePinTransitions: scopePinTransitions.map(
+            ({ buildSubmilestoneId, newSourceScopeRevisionId }) => ({
+              buildSubmilestoneId,
+              sourceScopeRevisionId: newSourceScopeRevisionId,
+            })
+          ),
+        },
+        priorState: {
+          labourLineCount: state.labourScope.length,
+          revision: round.revision,
+          scopePinTransitions: scopePinTransitions.map(
+            ({ buildSubmilestoneId, priorSourceScopeRevisionId }) => ({
+              buildSubmilestoneId,
+              sourceScopeRevisionId: priorSourceScopeRevisionId,
+            })
+          ),
+        },
+        quoteRoundId: round._id,
+      },
+      now
+    );
+    return {
+      quoteRoundId: round._id,
+      revision,
+      scopePinTransitions,
+      state: "draft" as const,
+    };
+  })
+  .public();
+
 export const deleteQuoteRoundDraft = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -3765,6 +4241,9 @@ export const publishQuoteRoundDraft = authenticatedMutation
         quotePackageRevisionId: packageRevisionId,
         quoteRoundId: round._id,
         scopeOfWorkTiptapJson: labourLine.scopeOfWorkTiptapJson,
+        sourceScopeChangeReason: labourLine.sourceScopeChangeReason,
+        sourceScopeRevisionId: labourLine.sourceScopeRevisionId,
+        sourceScopeVersion: labourLine.sourceScopeVersion,
         startDay: labourLine.submilestone.startDay,
         submilestoneKey: labourLine.submilestone.key,
         submilestoneName: labourLine.submilestone.name,

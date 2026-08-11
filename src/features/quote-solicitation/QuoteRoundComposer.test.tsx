@@ -115,6 +115,9 @@ const data: QuoteRoundComposerData = {
       milestoneName: "Site preparation",
       name: "Excavate service trench",
       order: 1,
+      sourceScopeChangeReason: "Clarified excavation quantities.",
+      sourceScopeRevisionId: "scope-site-prep-v2",
+      sourceScopeVersion: 2,
       scopeOfWorkTiptapJson: tiptapScope,
       startDay: 3,
       submilestoneKey: "excavate-service-trench",
@@ -127,6 +130,8 @@ const data: QuoteRoundComposerData = {
       milestoneName: "Framing",
       name: "Install roof trusses",
       order: 9,
+      sourceScopeRevisionId: "scope-framing-v1",
+      sourceScopeVersion: 1,
       scopeOfWorkTiptapJson: tiptapScope,
       startDay: 22,
       submilestoneKey: "install-roof-trusses",
@@ -139,6 +144,8 @@ const data: QuoteRoundComposerData = {
       milestoneName: "Envelope",
       name: "Install weather barrier",
       order: 17,
+      sourceScopeRevisionId: "scope-envelope-v1",
+      sourceScopeVersion: 1,
       scopeOfWorkTiptapJson: tiptapScope,
       startDay: 37,
       submilestoneKey: "install-weather-barrier",
@@ -190,6 +197,24 @@ const data: QuoteRoundComposerData = {
 function completeRound(): QuoteRoundDetail {
   return {
     draft: {
+      labourLines: [
+        {
+          buildSubmilestoneId: "labour-site-prep",
+          scopeOfWorkTiptapJson: tiptapScope.replace(
+            "Protect the installed work from weather.",
+            "Pinned excavation scope."
+          ),
+          sourceScopeChangeReason: "Initial issued excavation scope.",
+          sourceScopeRevisionId: "scope-site-prep-v1",
+          sourceScopeVersion: 1,
+        },
+        {
+          buildSubmilestoneId: "labour-envelope",
+          scopeOfWorkTiptapJson: tiptapScope,
+          sourceScopeRevisionId: "scope-envelope-v1",
+          sourceScopeVersion: 1,
+        },
+      ],
       labourSubmilestoneIds: ["labour-site-prep", "labour-envelope"],
       materialRows: [
         {
@@ -207,6 +232,7 @@ function completeRound(): QuoteRoundDetail {
       ],
       responseDeadline: "2026-09-14T14:30",
       revision: 3,
+      scopeUpdateAvailable: true,
       templateVersionId: "template-version-1",
       title: "Envelope completion pricing",
     },
@@ -230,6 +256,12 @@ function actions(overrides: Partial<QuoteRoundComposerActions> = {}) {
       responseDeadline: Date.parse("2026-09-14T14:30:00"),
       state: "open",
     }),
+    onRefreshScope: vi.fn().mockResolvedValue({
+      quoteRoundId: "quote-round-1",
+      refreshedLineCount: 2,
+      revision: 4,
+      state: "draft",
+    }),
     onSave: vi.fn().mockResolvedValue({ revision: 4 }),
     ...overrides,
   } satisfies QuoteRoundComposerActions;
@@ -251,6 +283,50 @@ function renderComposer(input?: {
 afterEach(cleanup);
 
 describe("QuoteRoundComposer", () => {
+  test("keeps selected Scope pinned until an explicit refresh and identifies its source version", async () => {
+    const onRefresh = vi.fn();
+    const onRefreshScope = vi.fn().mockResolvedValue({
+      quoteRoundId: "quote-round-1",
+      refreshedLineCount: 2,
+      revision: 4,
+      state: "draft",
+    });
+    renderComposer({
+      actions: actions({ onRefresh, onRefreshScope }),
+    });
+
+    expect(screen.getByText("Update available")).toBeTruthy();
+    expect(screen.getAllByText("Scope v1").length).toBeGreaterThan(0);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh selected Scope" })
+    );
+
+    await waitFor(() => {
+      expect(onRefreshScope).toHaveBeenCalledWith({ expectedRevision: 3 });
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("falls back to canonical Scope fields when a pinned line omits optional snapshots", async () => {
+    const round = completeRound();
+    round.draft = {
+      ...round.draft!,
+      labourLines: [{ buildSubmilestoneId: "labour-site-prep" }],
+    };
+
+    renderComposer({ round });
+
+    expect(screen.getAllByText("Scope v2").length).toBeGreaterThan(0);
+    fireEvent.focus(
+      screen.getByRole("button", {
+        name: "Inspect schedule and specification for Excavate service trench",
+      })
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Clarified excavation quantities.")).toBeTruthy()
+    );
+  });
+
   test("keeps the five-step publisher, persistent selection counts, and individual non-contiguous labour pricing lines", async () => {
     const { container } = renderComposer();
 

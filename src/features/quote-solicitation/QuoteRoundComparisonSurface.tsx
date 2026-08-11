@@ -1,10 +1,12 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import {
   ArrowLeft,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   FileText,
   LoaderCircle,
@@ -22,6 +24,16 @@ import {
 } from "react";
 import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -31,6 +43,7 @@ import {
   CardPanel,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
   Frame,
   FrameDescription,
@@ -39,7 +52,15 @@ import {
   FramePanel,
   FrameTitle,
 } from "#/components/ui/frame.tsx";
+import { Input } from "#/components/ui/input.tsx";
+import { Label } from "#/components/ui/label.tsx";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "#/components/ui/native-select.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
 import { api } from "../../../convex/_generated/api";
+import type { QuoteRoundRepublishCapacity } from "./QuoteRoundComposerRoute.tsx";
 
 type ComparisonResult = FunctionReturnType<
   typeof api.quote_comparisons.getQuoteRoundComparison
@@ -48,14 +69,47 @@ type AvailableComparison = Extract<ComparisonResult, { status: "available" }>;
 type Candidate = AvailableComparison["candidates"][number];
 type ComparisonInvitation = AvailableComparison["invitations"][number];
 const APP_TIME_ZONE = "America/Toronto";
+const APP_DATE_TIME_LOCAL_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  day: "2-digit",
+  hour: "2-digit",
+  hourCycle: "h23",
+  minute: "2-digit",
+  month: "2-digit",
+  timeZone: APP_TIME_ZONE,
+  year: "numeric",
+});
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+const APP_DATE_TIME_LOCAL_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
+
+interface PackageRevisionSummary {
+  _id: string;
+  publishedAt: number;
+  responseDeadline: number;
+  revision: number;
+}
+
+interface RepublishInput {
+  breakGlassConfirmed?: boolean;
+  deadlinePolicy:
+    | { kind: "keep" }
+    | { kind: "replace"; responseDeadline: number };
+  reason: string;
+}
 
 interface QuoteRoundComparisonSurfaceProps {
   buildId: string;
   onExit: () => void;
+  onRepublish?: (input: RepublishInput) => Promise<void>;
+  onSelectPackageRevision?: (packageRevisionId: string) => void;
   organizationId: string;
+  packageRevisionHistory?: PackageRevisionSummary[];
   quoteRoundId: string;
   readerKind?: "backoffice" | "builder" | "homeowner";
   readOnly?: boolean;
+  republishCapacity?: QuoteRoundRepublishCapacity;
+  scopeUpdateAvailable?: boolean;
+  selectedPackageRevisionId?: string;
 }
 
 function formatCents(value: number) {
@@ -78,6 +132,77 @@ function formatDate(value: number | undefined) {
   }).format(value);
 }
 
+function formatDateTimeLocalInAppTimeZone(value: number) {
+  const parts = Object.fromEntries(
+    APP_DATE_TIME_LOCAL_FORMATTER.formatToParts(new Date(value)).map((part) => [
+      part.type,
+      part.value,
+    ])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+function appTimeZoneOffset(value: number) {
+  const parts = Object.fromEntries(
+    APP_DATE_TIME_LOCAL_FORMATTER.formatToParts(new Date(value)).map((part) => [
+      part.type,
+      part.value,
+    ])
+  );
+  const wallTime = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute)
+  );
+  return wallTime - value;
+}
+
+/**
+ * Convert a datetime-local wall time in the app timezone to an instant. The
+ * round deadline display also uses America/Toronto, so parsing cannot depend
+ * on the browser or test process timezone. Invalid spring-forward wall times
+ * return undefined; a repeated fall-back wall time resolves to its first
+ * occurrence.
+ */
+export function parseAppDateTimeLocal(value: string) {
+  const match = APP_DATE_TIME_LOCAL_PATTERN.exec(value);
+  if (!match) {
+    return;
+  }
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const wallTime = Date.UTC(year, month - 1, day, hour, minute);
+  const wallDate = new Date(wallTime);
+  if (
+    !Number.isFinite(wallTime) ||
+    wallDate.getUTCFullYear() !== year ||
+    wallDate.getUTCMonth() !== month - 1 ||
+    wallDate.getUTCDate() !== day ||
+    wallDate.getUTCHours() !== hour ||
+    wallDate.getUTCMinutes() !== minute
+  ) {
+    return;
+  }
+
+  const candidateOffsets = new Set<number>();
+  for (const delta of [-2 * DAY_MS, -DAY_MS, 0, DAY_MS, 2 * DAY_MS]) {
+    candidateOffsets.add(appTimeZoneOffset(wallTime + delta));
+  }
+  const matchingInstants = [...candidateOffsets]
+    .map((offset) => wallTime - offset)
+    .filter(
+      (candidate) => formatDateTimeLocalInAppTimeZone(candidate) === value
+    )
+    .sort((left, right) => left - right);
+  return matchingInstants[0];
+}
+
 function useCoarseNow() {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -85,6 +210,62 @@ function useCoarseNow() {
     return () => window.clearInterval(interval);
   }, []);
   return now;
+}
+
+function packageRevisionView(input: {
+  backendHistorical: boolean;
+  comparisonHistory: PackageRevisionSummary[];
+  currentPackageId: string;
+  currentPackageRevision: number;
+  packageRevisionHistory: PackageRevisionSummary[];
+  readOnly: boolean;
+  selectedPackageRevisionId?: string;
+}) {
+  const authoritativeHistory = [...input.comparisonHistory].sort(
+    (left, right) => left.revision - right.revision
+  );
+  const outerNavigationIds = new Set(
+    input.packageRevisionHistory.map((revision) => revision._id)
+  );
+  const orderedHistory = (
+    input.packageRevisionHistory.length > 0
+      ? authoritativeHistory.filter((revision) =>
+          outerNavigationIds.has(revision._id)
+        )
+      : authoritativeHistory
+  ).sort((left, right) => left.revision - right.revision);
+  const selectedFromHistory = input.selectedPackageRevisionId
+    ? orderedHistory.find(
+        (revision) => revision._id === input.selectedPackageRevisionId
+      )
+    : orderedHistory.find(
+        (revision) => revision._id === input.currentPackageId
+      );
+  const backendQueriedRevision = {
+    _id: input.currentPackageId,
+    publishedAt: 0,
+    responseDeadline: 0,
+    revision: input.currentPackageRevision,
+  };
+  const selectedRevision =
+    selectedFromHistory ??
+    (input.selectedPackageRevisionId
+      ? backendQueriedRevision
+      : (authoritativeHistory.at(-1) ?? backendQueriedRevision));
+  const newest = authoritativeHistory.at(-1);
+  const historical =
+    input.backendHistorical ||
+    Boolean(
+      selectedFromHistory && newest && selectedFromHistory._id !== newest._id
+    );
+  return {
+    displayedRevision:
+      selectedRevision?.revision ?? input.currentPackageRevision,
+    effectiveReadOnly: input.readOnly || historical,
+    historical,
+    orderedHistory,
+    selectedRevision,
+  };
 }
 
 function ComparisonLineList({
@@ -451,13 +632,267 @@ function PreferredSelectionFrame({
   );
 }
 
+export function PackageRevisionNavigation({
+  history,
+  onSelect,
+  selectedRevision,
+}: {
+  history: PackageRevisionSummary[];
+  onSelect?: (packageRevisionId: string) => void;
+  selectedRevision?: PackageRevisionSummary;
+}) {
+  const orderedHistory = [...history].sort(
+    (left, right) => left.revision - right.revision
+  );
+  const resolvedRevision = selectedRevision ?? orderedHistory.at(-1);
+  const selectedIndex = resolvedRevision
+    ? orderedHistory.findIndex(
+        (revision) => revision._id === resolvedRevision._id
+      )
+    : -1;
+  const noSelection = selectedIndex < 0;
+
+  if (!resolvedRevision) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        aria-label="Previous Package Revision"
+        disabled={!onSelect || noSelection || selectedIndex === 0}
+        onClick={() => onSelect?.(orderedHistory[selectedIndex - 1]._id)}
+        size="icon-sm"
+        variant="outline"
+      >
+        <ChevronLeft />
+      </Button>
+      <Badge variant="outline">Package v{resolvedRevision.revision}</Badge>
+      <Button
+        aria-label="Next Package Revision"
+        disabled={
+          !onSelect || noSelection || selectedIndex >= orderedHistory.length - 1
+        }
+        onClick={() => onSelect?.(orderedHistory[selectedIndex + 1]._id)}
+        size="icon-sm"
+        variant="outline"
+      >
+        <ChevronRight />
+      </Button>
+    </div>
+  );
+}
+
+function RepublishScopeDialog({
+  currentDeadline,
+  onRepublish,
+  republishCapacity,
+}: {
+  currentDeadline: number;
+  onRepublish: (input: RepublishInput) => Promise<void>;
+  republishCapacity?: QuoteRoundRepublishCapacity;
+}) {
+  const [deadlineKind, setDeadlineKind] = useState<"keep" | "replace">("keep");
+  const [replacementDeadline, setReplacementDeadline] = useState("");
+  const [reason, setReason] = useState("");
+  const [breakGlassConfirmed, setBreakGlassConfirmed] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string>();
+  const now = useCoarseNow();
+  const parsedReplacementDeadline = parseAppDateTimeLocal(replacementDeadline);
+  const requiresBreakGlass = republishCapacity === "admin";
+  const invalidReplacementDeadline =
+    deadlineKind === "replace" &&
+    replacementDeadline.length > 0 &&
+    parsedReplacementDeadline === undefined;
+  const expiredReplacementDeadline =
+    deadlineKind === "replace" &&
+    replacementDeadline.length > 0 &&
+    parsedReplacementDeadline !== undefined &&
+    parsedReplacementDeadline <= now;
+  const replacementDeadlineValidationMessage = invalidReplacementDeadline
+    ? "Enter a valid America/Toronto wall time. This date or time may be invalid, including a nonexistent daylight-saving transition time."
+    : expiredReplacementDeadline
+      ? "The response deadline must be in the future."
+      : undefined;
+  const canSubmit =
+    reason.trim().length > 0 &&
+    (deadlineKind === "keep" ||
+      (Number.isFinite(parsedReplacementDeadline) &&
+        !replacementDeadlineValidationMessage)) &&
+    (!requiresBreakGlass || breakGlassConfirmed);
+
+  const resetForm = () => {
+    setDeadlineKind("keep");
+    setReplacementDeadline("");
+    setReason("");
+    setBreakGlassConfirmed(false);
+    setError(undefined);
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && pending) {
+      return;
+    }
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      resetForm();
+    }
+  };
+
+  const submit = async () => {
+    if (pending || !canSubmit) {
+      return;
+    }
+    const deadlinePolicy =
+      deadlineKind === "keep"
+        ? ({ kind: "keep" } as const)
+        : parsedReplacementDeadline === undefined
+          ? undefined
+          : ({
+              kind: "replace",
+              responseDeadline: parsedReplacementDeadline,
+            } as const);
+    if (!deadlinePolicy) {
+      return;
+    }
+    setPending(true);
+    setError(undefined);
+    try {
+      await onRepublish({
+        deadlinePolicy,
+        ...(requiresBreakGlass ? { breakGlassConfirmed } : {}),
+        reason: reason.trim(),
+      });
+      resetForm();
+      setOpen(false);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The Package Revision could not be published."
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <AlertDialog onOpenChange={handleOpenChange} open={open}>
+      <AlertDialogTrigger
+        render={
+          <Button size="sm" variant="outline">
+            Publish Scope update
+          </Button>
+        }
+      />
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Publish a new Package Revision</AlertDialogTitle>
+          <AlertDialogDescription>
+            The new Package Revision uses the effective Scope. Earlier Package
+            Revisions and their submissions remain available for review.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-4 px-6 pb-6">
+          <Label className="grid gap-2">
+            <span>Deadline policy</span>
+            <NativeSelect
+              aria-label="Deadline policy"
+              className="w-full"
+              disabled={pending}
+              onChange={(event) =>
+                setDeadlineKind(event.target.value as "keep" | "replace")
+              }
+              value={deadlineKind}
+            >
+              <NativeSelectOption value="keep">
+                Keep {formatDate(currentDeadline)}
+              </NativeSelectOption>
+              <NativeSelectOption value="replace">
+                Replace response deadline
+              </NativeSelectOption>
+            </NativeSelect>
+          </Label>
+          {deadlineKind === "replace" ? (
+            <Label className="grid gap-2">
+              <span>Replacement response deadline (America/Toronto)</span>
+              <Input
+                aria-label="Replacement response deadline"
+                disabled={pending}
+                onChange={(event) => setReplacementDeadline(event.target.value)}
+                type="datetime-local"
+                value={replacementDeadline}
+              />
+              {replacementDeadlineValidationMessage ? (
+                <span className="text-destructive text-xs" role="alert">
+                  {replacementDeadlineValidationMessage}
+                </span>
+              ) : parsedReplacementDeadline === undefined ? null : (
+                <span className="text-muted-foreground text-xs">
+                  Parsed instant: {formatDate(parsedReplacementDeadline)}
+                </span>
+              )}
+            </Label>
+          ) : null}
+          <Label className="grid gap-2">
+            <span>Package revision reason</span>
+            <Textarea
+              aria-label="Package revision reason"
+              disabled={pending}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Explain why this Package Revision is being published."
+              value={reason}
+            />
+          </Label>
+          {requiresBreakGlass ? (
+            <Label className="items-start font-normal text-sm leading-5">
+              <Checkbox
+                aria-labelledby="quote-round-republish-break-glass-label"
+                checked={breakGlassConfirmed}
+                disabled={pending}
+                id="quote-round-republish-break-glass"
+                onCheckedChange={(checked) =>
+                  setBreakGlassConfirmed(checked === true)
+                }
+              />
+              <span id="quote-round-republish-break-glass-label">
+                I acknowledge this administrative break-glass republish and its
+                audit record.
+              </span>
+            </Label>
+          ) : null}
+          {error ? <p className="text-destructive text-sm">{error}</p> : null}
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogClose
+            disabled={pending}
+            render={<Button variant="ghost">Cancel</Button>}
+          />
+          <Button disabled={!canSubmit || pending} onClick={submit}>
+            {pending ? <LoaderCircle className="animate-spin" /> : null}
+            Confirm publish
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export function QuoteRoundComparisonSurface({
   buildId,
   onExit,
+  onRepublish,
+  onSelectPackageRevision,
   organizationId,
+  packageRevisionHistory,
   quoteRoundId,
+  republishCapacity,
   readOnly = false,
   readerKind,
+  scopeUpdateAvailable,
+  selectedPackageRevisionId,
 }: QuoteRoundComparisonSurfaceProps) {
   return (
     <QuoteRoundComparisonErrorBoundary
@@ -467,10 +902,16 @@ export function QuoteRoundComparisonSurface({
       <QuoteRoundComparisonQuery
         buildId={buildId}
         onExit={onExit}
+        onRepublish={onRepublish}
+        onSelectPackageRevision={onSelectPackageRevision}
         organizationId={organizationId}
+        packageRevisionHistory={packageRevisionHistory}
         quoteRoundId={quoteRoundId}
         readerKind={readerKind}
         readOnly={readOnly}
+        republishCapacity={republishCapacity}
+        scopeUpdateAvailable={scopeUpdateAvailable}
+        selectedPackageRevisionId={selectedPackageRevisionId}
       />
     </QuoteRoundComparisonErrorBoundary>
   );
@@ -526,19 +967,34 @@ class QuoteRoundComparisonErrorBoundary extends Component<
 function QuoteRoundComparisonQuery({
   buildId,
   onExit,
+  onRepublish,
+  onSelectPackageRevision,
   organizationId,
+  packageRevisionHistory = [],
   quoteRoundId,
+  republishCapacity,
   readOnly = false,
   readerKind,
+  scopeUpdateAvailable = false,
+  selectedPackageRevisionId,
 }: QuoteRoundComparisonSurfaceProps) {
   const now = useCoarseNow();
-  const comparison = useQuery(api.quote_comparisons.getQuoteRoundComparison, {
+  const comparisonArgs: FunctionArgs<
+    typeof api.quote_comparisons.getQuoteRoundComparison
+  > = {
     buildId,
     now,
+    ...(selectedPackageRevisionId
+      ? { packageRevisionId: selectedPackageRevisionId }
+      : {}),
     quoteRoundId,
     readerKind,
     workosOrganizationId: organizationId,
-  });
+  };
+  const comparison = useQuery(
+    api.quote_comparisons.getQuoteRoundComparison,
+    comparisonArgs
+  );
   const setPreferred = useMutation(
     api.quote_comparisons.setPreferredQuoteSubmissionRevision
   );
@@ -581,6 +1037,21 @@ function QuoteRoundComparisonQuery({
     );
   }
   const invitations = comparison.invitations ?? [];
+  const {
+    displayedRevision: displayedPackageRevision,
+    effectiveReadOnly,
+    historical: isHistoricalRevision,
+    orderedHistory: orderedPackageHistory,
+    selectedRevision: effectiveSelectedPackageRevision,
+  } = packageRevisionView({
+    backendHistorical: comparison.isHistoricalPackageRevision,
+    comparisonHistory: comparison.packageRevisionHistory,
+    currentPackageId: String(comparison.package._id),
+    currentPackageRevision: comparison.package.revision,
+    packageRevisionHistory,
+    readOnly,
+    selectedPackageRevisionId,
+  });
 
   const selectCandidate = async (candidate: Candidate) => {
     if (isMutating) {
@@ -651,14 +1122,32 @@ function QuoteRoundComparisonQuery({
           <Button onClick={onExit} variant="ghost">
             <ArrowLeft /> Build Quotes
           </Button>
-          <Badge
-            variant={
-              comparison.round.state === "closed" ? "outline" : "success"
-            }
-          >
-            {comparison.round.state}
-          </Badge>
-          {readOnly ? <Badge variant="outline">Read-only view</Badge> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {orderedPackageHistory.length > 0 ? (
+              <PackageRevisionNavigation
+                history={orderedPackageHistory}
+                onSelect={onSelectPackageRevision}
+                selectedRevision={effectiveSelectedPackageRevision}
+              />
+            ) : (
+              <Badge variant="outline">
+                Package v{displayedPackageRevision}
+              </Badge>
+            )}
+            <Badge
+              variant={
+                comparison.round.state === "closed" ? "outline" : "success"
+              }
+            >
+              {comparison.round.state}
+            </Badge>
+            {isHistoricalRevision ? (
+              <Badge variant="warning">Historical revision</Badge>
+            ) : null}
+            {effectiveReadOnly ? (
+              <Badge variant="outline">Read-only view</Badge>
+            ) : null}
+          </div>
         </div>
         {error ? (
           <Alert variant="error">
@@ -667,12 +1156,31 @@ function QuoteRoundComparisonQuery({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
+        {scopeUpdateAvailable && !isHistoricalRevision ? (
+          <Alert variant="warning">
+            <RotateCcw />
+            <AlertTitle>Update available</AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+              <span>
+                Effective Scope has changed since this Package Revision was
+                published.
+              </span>
+              {onRepublish && republishCapacity && !readOnly ? (
+                <RepublishScopeDialog
+                  currentDeadline={comparison.package.responseDeadline}
+                  onRepublish={onRepublish}
+                  republishCapacity={republishCapacity}
+                />
+              ) : null}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <Frame>
           <FrameHeader>
             <FrameTitle>{comparison.round.title}</FrameTitle>
             <FrameDescription>
               Immutable submission comparison for Package Revision{" "}
-              {comparison.package.revision}. Draft content is private to each
+              {displayedPackageRevision}. Draft content is private to each
               recipient.
             </FrameDescription>
           </FrameHeader>
@@ -740,7 +1248,7 @@ function QuoteRoundComparisonQuery({
 
         <PreferredSelectionFrame
           busy={isMutating}
-          canClear={comparison.canClearPreferred && !readOnly}
+          canClear={comparison.canClearPreferred && !effectiveReadOnly}
           confirming={confirmClear}
           onCancelClear={() => setConfirmClear(false)}
           onClear={clear}
@@ -773,7 +1281,9 @@ function QuoteRoundComparisonQuery({
               {comparison.candidates.map((candidate) => (
                 <CandidateCard
                   candidate={candidate}
-                  canSetPreferred={comparison.canSetPreferred && !readOnly}
+                  canSetPreferred={
+                    comparison.canSetPreferred && !effectiveReadOnly
+                  }
                   disabled={isMutating}
                   isPreferred={
                     comparison.preferred?.submissionRevisionId ===

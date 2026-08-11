@@ -80,6 +80,7 @@ const lifecycleRows = [
     responseDeadline: TEST_NOW + 5 * 24 * 60 * 60 * 1000,
     responses: { drafting: 1, submitted: 0, total: 1 },
     revision: 3,
+    scopeUpdateAvailable: true,
     scope: "Frame exterior walls · Framing lumber",
     state: "open",
     title: "Framing bid",
@@ -140,6 +141,7 @@ const lifecycleRows = [
     responseDeadline: TEST_NOW - 5 * 24 * 60 * 60 * 1000,
     responses: { drafting: 0, submitted: 1, total: 1 },
     revision: 4,
+    scopeUpdateAvailable: true,
     scope: "Install engineered wall system",
     state: "closed",
     title: "Closed framing review",
@@ -164,6 +166,7 @@ const lifecycleRows = [
     preferredQuote: null,
     recipients: { active: 0, revoked: 1, total: 1 },
     recipientDelivery: [],
+    scopeUpdateAvailable: true,
     responses: { drafting: 0, submitted: 0, total: 0 },
     revision: 2,
     scope: "Framing lumber",
@@ -218,6 +221,8 @@ afterEach(() => cleanup());
 describe("QuoteRoundsSurface", () => {
   test("renders the lifecycle register with independent dimensions, deadline facts, attention priority, and a nullable Preferred Quote", () => {
     renderSurface();
+
+    expect(screen.getAllByText("Update available")).toHaveLength(2);
 
     expect(screen.getByText("Quote requests")).toBeTruthy();
     for (const title of lifecycleRows.map((row) => row.title)) {

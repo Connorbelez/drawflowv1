@@ -52,6 +52,11 @@ export async function authorizeQuoteAdministrativeRecovery(
     !standardCapacityAvailable &&
     baseAuthorization.roles.includes("principle-broker")
   ) {
+    if (input.breakGlassConfirmed === true) {
+      throw new ConvexError(
+        "Break-glass confirmation is valid only for Brokerage Admin recovery."
+      );
+    }
     return {
       authorization: selectActiveBuildAuthorizationCapacity(
         baseAuthorization,

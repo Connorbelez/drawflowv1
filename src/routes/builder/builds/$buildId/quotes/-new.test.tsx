@@ -4,7 +4,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-let routeContext: { organizationId?: unknown } = {
+let routeContext: {
+  organizationId?: unknown;
+  role?: string | null;
+  roles?: string[];
+} = {
   organizationId: "org-quote-rounds",
 };
 const routeParams = { buildId: "build-quote-rounds" };
@@ -26,14 +30,18 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock(
   "#/features/quote-solicitation/QuoteRoundComposerRoute.tsx",
-  () => ({
-    normalizeQuoteRoundOrganizationId: (value: unknown) =>
-      typeof value === "string" && value.trim() ? value.trim() : undefined,
-    QuoteRoundComposerRoute: (props: Record<string, unknown>) => {
-      composerRouteProps(props);
-      return <div data-testid="quote-round-composer-route" />;
-    },
-  })
+  async (importOriginal) => {
+    const actual = await importOriginal<
+      typeof import("#/features/quote-solicitation/QuoteRoundComposerRoute.tsx")
+    >();
+    return {
+      ...actual,
+      QuoteRoundComposerRoute: (props: Record<string, unknown>) => {
+        composerRouteProps(props);
+        return <div data-testid="quote-round-composer-route" />;
+      },
+    };
+  }
 );
 
 import { Route as BuilderQuoteRoute } from "./new.tsx";
@@ -47,9 +55,9 @@ interface QuoteRouteModule {
   };
 }
 
-const builderRoute = BuilderQuoteRoute as QuoteRouteModule;
-const builderStaffRoute = BuilderStaffQuoteRoute as QuoteRouteModule;
-const backofficeRoute = BackofficeQuoteRoute as QuoteRouteModule;
+const builderRoute = BuilderQuoteRoute as unknown as QuoteRouteModule;
+const builderStaffRoute = BuilderStaffQuoteRoute as unknown as QuoteRouteModule;
+const backofficeRoute = BackofficeQuoteRoute as unknown as QuoteRouteModule;
 
 afterEach(cleanup);
 
@@ -70,6 +78,7 @@ describe("Quote Round composer routes", () => {
     expect(composerRouteProps).toHaveBeenLastCalledWith({
       buildId: "build-quote-rounds",
       organizationId: "org-quote-rounds",
+      republishCapacity: "builder",
       roundId: "quote-round-7",
       routeBase: "/builder",
     });
@@ -86,6 +95,7 @@ describe("Quote Round composer routes", () => {
     expect(composerRouteProps).toHaveBeenLastCalledWith({
       buildId: "build-quote-rounds",
       organizationId: "org-quote-rounds",
+      republishCapacity: "builder-staff",
       roundId: "quote-round-7",
       routeBase: "/builder-staff",
     });
@@ -101,6 +111,7 @@ describe("Quote Round composer routes", () => {
     expect(composerRouteProps).toHaveBeenLastCalledWith({
       buildId: "build-quote-rounds",
       organizationId: "org-quote-rounds",
+      republishCapacity: undefined,
       roundId: "quote-round-7",
       routeBase: "/backoffice",
     });
@@ -114,8 +125,26 @@ describe("Quote Round composer routes", () => {
     expect(composerRouteProps).toHaveBeenLastCalledWith({
       buildId: "build-quote-rounds",
       organizationId: undefined,
+      republishCapacity: "builder",
       roundId: "quote-round-7",
       routeBase: "/builder",
     });
   });
+
+  test.each([
+    ["admin", ["admin"], "admin"],
+    ["principal-broker", ["principal-broker"], "principle-broker"],
+    ["broker-only", ["broker"], undefined],
+  ] as const)(
+    "maps backoffice %s role to the explicit Quote Round republish capacity",
+    (_label, roles, republishCapacity) => {
+      routeContext = { organizationId: "org-quote-rounds", roles: [...roles] };
+
+      render(<backofficeRoute.component />);
+
+      expect(composerRouteProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ republishCapacity })
+      );
+    }
+  );
 });

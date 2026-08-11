@@ -11,7 +11,11 @@ import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { api } from "../../../convex/_generated/api";
-import { QuoteRoundComparisonSurface } from "./QuoteRoundComparisonSurface.tsx";
+import {
+  PackageRevisionNavigation,
+  parseAppDateTimeLocal,
+  QuoteRoundComparisonSurface,
+} from "./QuoteRoundComparisonSurface.tsx";
 
 const queryByRef = new Map<string, unknown>();
 const mutationByRef = new Map<string, ReturnType<typeof vi.fn>>();
@@ -153,6 +157,7 @@ const comparison = {
   canClearPreferred: false,
   canSetPreferred: true,
   invitations: [invitation("Northline"), invitation("Lakefront")],
+  isHistoricalPackageRevision: false,
   package: {
     _id: "package-1",
     attachments: [],
@@ -168,6 +173,14 @@ const comparison = {
     siteMapUrlSnapshot: "https://maps.example.test/build",
     timelineStartDateSnapshot: "2026-08-01",
   },
+  packageRevisionHistory: [
+    {
+      _id: "package-1",
+      publishedAt: 200,
+      responseDeadline: 2_000_000_000_000,
+      revision: 2,
+    },
+  ],
   preferred: null,
   round: {
     _id: "round-1",
@@ -212,7 +225,10 @@ describe("QuoteRoundComparisonSurface", () => {
     );
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   test("renders a responsive immutable multi-response comparison and selects the exact submission revision", async () => {
     const setPreferred = mutationByRef.get(
@@ -256,6 +272,446 @@ describe("QuoteRoundComparisonSurface", () => {
         workosOrganizationId: "org-1",
       })
     );
+  });
+
+  test("keeps stale outer navigation rows out of the rendered history", () => {
+    const onSelectPackageRevision = vi.fn();
+    render(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        onSelectPackageRevision={onSelectPackageRevision}
+        organizationId="org-1"
+        packageRevisionHistory={[
+          {
+            _id: "package-1",
+            publishedAt: 200,
+            responseDeadline: 2_000_000_000_000,
+            revision: 2,
+          },
+          {
+            _id: "stale-package-99",
+            publishedAt: 99,
+            responseDeadline: 2_100_000_000_000,
+            revision: 99,
+          },
+        ]}
+        quoteRoundId="round-1"
+      />
+    );
+
+    expect(screen.getByText("Package v2")).toBeTruthy();
+    expect(screen.getByText("Package Revision 2", { exact: false })).toBeTruthy();
+    expect(screen.queryByText("Package v99")).toBeNull();
+    expect(
+      (screen.getByRole("button", {
+        name: "Previous Package Revision",
+      }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", {
+        name: "Next Package Revision",
+      }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Next Package Revision" })
+    );
+    expect(onSelectPackageRevision).not.toHaveBeenCalled();
+  });
+
+  test("navigates immutable Package Revisions and republishes with an explicit replacement deadline", async () => {
+    const onSelectPackageRevision = vi.fn();
+    const onRepublish = vi.fn().mockResolvedValue(undefined);
+    queryByRef.set(
+      getFunctionName(api.quote_comparisons.getQuoteRoundComparison),
+      {
+        ...comparison,
+        packageRevisionHistory: [
+          {
+            _id: "package-0",
+            publishedAt: 100,
+            responseDeadline: 1_900_000_000_000,
+            revision: 1,
+          },
+          {
+            _id: "package-1",
+            publishedAt: 200,
+            responseDeadline: 2_000_000_000_000,
+            revision: 2,
+          },
+        ],
+      }
+    );
+    render(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        onRepublish={onRepublish}
+        onSelectPackageRevision={onSelectPackageRevision}
+        organizationId="org-1"
+        packageRevisionHistory={[
+          {
+            _id: "package-0",
+            publishedAt: 100,
+            responseDeadline: 1_900_000_000_000,
+            revision: 1,
+          },
+          {
+            _id: "package-1",
+            publishedAt: 200,
+            responseDeadline: 2_000_000_000_000,
+            revision: 2,
+          },
+        ]}
+        quoteRoundId="round-1"
+        republishCapacity="admin"
+        scopeUpdateAvailable
+        selectedPackageRevisionId="package-1"
+      />
+    );
+
+    expect(screen.getByText("Update available")).toBeTruthy();
+    expect(screen.getByText("Package v2")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Previous Package Revision" })
+    );
+    expect(onSelectPackageRevision).toHaveBeenCalledWith("package-0");
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish Scope update" }));
+    fireEvent.change(screen.getByLabelText("Deadline policy"), {
+      target: { value: "replace" },
+    });
+    fireEvent.change(screen.getByLabelText("Replacement response deadline"), {
+      target: { value: "2026-03-08T02:30" },
+    });
+    fireEvent.change(screen.getByLabelText("Package revision reason"), {
+      target: { value: "Issue the effective framing Scope." },
+    });
+    expect(
+      screen.getByText(/valid America\/Toronto wall time/i)
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Confirm publish" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText("Replacement response deadline"), {
+      target: { value: "2034-01-15T12:30" },
+    });
+    expect(
+      screen.getByText(/Replacement response deadline \(America\/Toronto\)/)
+    ).toBeTruthy();
+    expect(screen.getByText(/Parsed instant:/)).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Confirm publish" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /I acknowledge this administrative break-glass republish/,
+      })
+    );
+    expect(
+      screen.getByRole("checkbox", {
+        name: /I acknowledge this administrative break-glass republish/,
+      }).getAttribute("aria-labelledby")
+    ).toBe("quote-round-republish-break-glass-label");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm publish" }));
+
+    await waitFor(() =>
+      expect(onRepublish).toHaveBeenCalledWith({
+        deadlinePolicy: {
+          kind: "replace",
+          responseDeadline: parseAppDateTimeLocal("2034-01-15T12:30"),
+        },
+        breakGlassConfirmed: true,
+        reason: "Issue the effective framing Scope.",
+      })
+    );
+  });
+
+  test("rejects an expired replacement deadline while keeping a future deadline submit-ready", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T16:00:00.000Z"));
+    const onRepublish = vi.fn().mockResolvedValue(undefined);
+    render(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        onRepublish={onRepublish}
+        organizationId="org-1"
+        quoteRoundId="round-1"
+        republishCapacity="builder"
+        scopeUpdateAvailable
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish Scope update" }));
+    fireEvent.change(screen.getByLabelText("Deadline policy"), {
+      target: { value: "replace" },
+    });
+    fireEvent.change(screen.getByLabelText("Replacement response deadline"), {
+      target: { value: "2026-08-11T11:59" },
+    });
+    fireEvent.change(screen.getByLabelText("Package revision reason"), {
+      target: { value: "Issue the effective framing Scope." },
+    });
+
+    expect(
+      screen.getByText("The response deadline must be in the future.")
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Confirm publish" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Replacement response deadline"), {
+      target: { value: "2026-08-11T12:01" },
+    });
+
+    expect(
+      screen.queryByText("The response deadline must be in the future.")
+    ).toBeNull();
+    expect(
+      (screen.getByRole("button", { name: "Confirm publish" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
+  });
+
+  test("uses the backend-queried revision when a selected Package Revision is outside bounded history", () => {
+    queryByRef.set(
+      getFunctionName(api.quote_comparisons.getQuoteRoundComparison),
+      {
+        ...comparison,
+        package: {
+          ...comparison.package,
+          _id: "package-current",
+          revision: 3,
+        },
+      }
+    );
+
+    render(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        organizationId="org-1"
+        quoteRoundId="round-1"
+        selectedPackageRevisionId="package-missing"
+      />
+    );
+
+    expect(screen.getByText("Package v3")).toBeTruthy();
+    expect(screen.getByText("Package Revision 3", { exact: false })).toBeTruthy();
+    expect(
+      (screen.getByRole("button", {
+        name: "Previous Package Revision",
+      }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", {
+        name: "Next Package Revision",
+      }) as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
+  test("resets the republish form and error after cancelling a failed attempt", async () => {
+    const onRepublish = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Publish failed."));
+    render(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        onRepublish={onRepublish}
+        organizationId="org-1"
+        quoteRoundId="round-1"
+        republishCapacity="admin"
+        scopeUpdateAvailable
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish Scope update" }));
+    fireEvent.change(screen.getByLabelText("Deadline policy"), {
+      target: { value: "replace" },
+    });
+    fireEvent.change(screen.getByLabelText("Replacement response deadline"), {
+      target: { value: "2034-01-15T12:30" },
+    });
+    fireEvent.change(screen.getByLabelText("Package revision reason"), {
+      target: { value: "Temporary test reason" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /I acknowledge this administrative break-glass republish/,
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm publish" }));
+    await waitFor(() => expect(screen.getByText("Publish failed.")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish Scope update" }));
+
+    expect(
+      (screen.getByLabelText("Deadline policy") as HTMLSelectElement).value
+    ).toBe("keep");
+    expect(
+      screen.queryByLabelText("Replacement response deadline")
+    ).toBeNull();
+    expect(
+      (screen.getByLabelText("Package revision reason") as HTMLTextAreaElement)
+        .value
+    ).toBe("");
+    expect(screen.queryByText("Publish failed.")).toBeNull();
+    expect(
+      (screen.getByRole("checkbox", {
+        name: /I acknowledge this administrative break-glass republish/,
+      }) as HTMLInputElement).getAttribute("aria-checked")
+    ).toBe("false");
+  });
+
+  test("parses replacement deadlines in America/Toronto across DST changes", () => {
+    expect(parseAppDateTimeLocal("2026-01-15T12:30")).toBe(
+      Date.UTC(2026, 0, 15, 17, 30)
+    );
+    expect(parseAppDateTimeLocal("2026-07-15T12:30")).toBe(
+      Date.UTC(2026, 6, 15, 16, 30)
+    );
+    expect(parseAppDateTimeLocal("2026-03-08T02:30")).toBeUndefined();
+    expect(parseAppDateTimeLocal("2026-03-08T03:30")).toBe(
+      Date.UTC(2026, 2, 8, 7, 30)
+    );
+    expect(parseAppDateTimeLocal("2026-11-01T01:30")).toBe(
+      Date.UTC(2026, 10, 1, 5, 30)
+    );
+  });
+
+  test("disables both Package Revision navigation buttons when selection is not in history", () => {
+    render(
+      <PackageRevisionNavigation
+        history={[
+          {
+            _id: "package-1",
+            publishedAt: 100,
+            responseDeadline: 1_900_000_000_000,
+            revision: 1,
+          },
+          {
+            _id: "package-2",
+            publishedAt: 200,
+            responseDeadline: 2_000_000_000_000,
+            revision: 2,
+          },
+        ]}
+        onSelect={vi.fn()}
+        selectedRevision={{
+          _id: "package-missing",
+          publishedAt: 300,
+          responseDeadline: 2_100_000_000_000,
+          revision: 3,
+        }}
+      />
+    );
+
+    expect(
+      (screen.getByRole("button", {
+        name: "Previous Package Revision",
+      }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", {
+        name: "Next Package Revision",
+      }) as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
+  test("gates Scope republishing on an explicit route capacity", () => {
+    const onRepublish = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        onRepublish={onRepublish}
+        organizationId="org-1"
+        quoteRoundId="round-1"
+        scopeUpdateAvailable
+      />
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Publish Scope update" })
+    ).toBeNull();
+
+    rerender(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        onRepublish={onRepublish}
+        organizationId="org-1"
+        quoteRoundId="round-1"
+        republishCapacity="principle-broker"
+        scopeUpdateAvailable
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: "Publish Scope update" })
+    ).toBeTruthy();
+  });
+
+  test("keeps a selected historical Package Revision read-only", () => {
+    queryByRef.set(
+      getFunctionName(api.quote_comparisons.getQuoteRoundComparison),
+      {
+        ...comparison,
+        isHistoricalPackageRevision: true,
+        package: {
+          ...comparison.package,
+          _id: "package-0",
+          revision: 1,
+        },
+        packageRevisionHistory: [
+          {
+            _id: "package-0",
+            publishedAt: 100,
+            responseDeadline: 1_900_000_000_000,
+            revision: 1,
+          },
+          {
+            _id: "package-1",
+            publishedAt: 200,
+            responseDeadline: 2_000_000_000_000,
+            revision: 2,
+          },
+        ],
+      }
+    );
+    render(
+      <QuoteRoundComparisonSurface
+        buildId="build-1"
+        onExit={vi.fn()}
+        organizationId="org-1"
+        packageRevisionHistory={[
+          {
+            _id: "package-0",
+            publishedAt: 100,
+            responseDeadline: 1_900_000_000_000,
+            revision: 1,
+          },
+          {
+            _id: "package-1",
+            publishedAt: 200,
+            responseDeadline: 2_000_000_000_000,
+            revision: 2,
+          },
+        ]}
+        quoteRoundId="round-1"
+        selectedPackageRevisionId="package-0"
+      />
+    );
+
+    expect(screen.getByText("Historical revision")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Select .* as Preferred Quote/ })
+    ).toBeNull();
   });
 
   test("disables every Preferred control while one mutation is pending", async () => {
