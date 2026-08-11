@@ -1,5 +1,8 @@
 import { v } from "convex/values";
-import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import {
+  type ActiveBuildAuthorization,
+  authorizeActiveBuildAccessForViewer,
+} from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
 import { enqueueBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery";
@@ -10,10 +13,13 @@ import type {
   NotificationEffectInput,
   ResolvedNotificationEffect,
 } from "./build_collaboration_publication_bundle";
+import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
+import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
-import type { Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx } from "./types";
 
 export type BuildCollaborationNotificationKind =
   | "ordinary_activity"
@@ -28,6 +34,22 @@ export type BuildCollaborationNotificationKind =
   | "acknowledgement_received"
   | "reminder"
   | "escalation";
+
+interface CanonicalNotificationTarget {
+  canonicalSubmilestone?: Doc<"buildSubmilestones">;
+  generatedCompanion?: Doc<"buildActionItems">;
+}
+
+interface CanonicalNotificationInput {
+  actionItemId?: Id<"buildActionItems">;
+  authorization: ActiveBuildAuthorization;
+  buildSubmilestoneId?: Id<"buildSubmilestones">;
+  entityId: string;
+  entityType: string;
+  href: string;
+  now: number;
+  recipientWorkosUserId: string;
+}
 
 const OPTIONAL_NOTIFICATION_KINDS = new Set<BuildCollaborationNotificationKind>(
   ["ordinary_activity", "acknowledgement_received"]
@@ -94,6 +116,7 @@ export async function emitCanonicalBuildCollaborationNotification(
     actionItemId?: Id<"buildActionItems">;
     approvedChannel?: "in_app" | "email" | "push";
     assetId?: Id<"buildCollaborationAssets">;
+    buildSubmilestoneId?: Id<"buildSubmilestones">;
     actionLabel: string;
     authorization: ActiveBuildAuthorization;
     body: string;
@@ -121,6 +144,17 @@ export async function emitCanonicalBuildCollaborationNotification(
   if (!currentReaders.has(input.recipientWorkosUserId)) {
     return null;
   }
+  const canonicalTarget = await resolveCanonicalNotificationTarget(ctx, input);
+  if (
+    !(await canRecipientReadCanonicalNotificationTarget(
+      ctx,
+      input,
+      canonicalTarget
+    ))
+  ) {
+    return null;
+  }
+  const canonicalFields = canonicalNotificationFields(input, canonicalTarget);
   const mandatory = isMandatoryBuildCollaborationNotification(input.kind);
   const preference = await ctx.db
     .query("buildCollaborationNotificationPreferences")
@@ -181,23 +215,28 @@ export async function emitCanonicalBuildCollaborationNotification(
     return existing._id;
   }
   const recipientDeliveryId = await ctx.db.insert("recipientDeliveries", {
-    actionLabel: input.actionLabel,
+    actionLabel: canonicalFields?.actionLabel ?? input.actionLabel,
     actionRequired: mandatory,
-    body: input.body.slice(0, 280),
+    body: (canonicalFields?.body ?? input.body).slice(0, 280),
     brokerageId: input.authorization.brokerage._id,
     collaborationActionItemId: input.actionItemId,
     collaborationAssetId: input.assetId,
     collaborationBuildId: input.authorization.build._id,
+    collaborationBuildSubmilestoneId:
+      canonicalTarget.canonicalSubmilestone?._id,
     collaborationCommentId: input.commentId,
     collaborationEventKind: input.kind,
     collaborationPostId: input.postId,
     collaborationReferenceId: input.referenceId,
     createdAt: input.now,
     dedupeKey: input.dedupeKey,
-    entityId: input.entityId,
-    entityLabel: input.entityLabel ?? input.authorization.build.buildName,
-    entityType: input.entityType,
-    href: input.href,
+    entityId: canonicalFields?.entityId ?? input.entityId,
+    entityLabel:
+      canonicalFields?.entityLabel ??
+      input.entityLabel ??
+      input.authorization.build.buildName,
+    entityType: canonicalFields?.entityType ?? input.entityType,
+    href: canonicalFields?.href ?? input.href,
     inAppVisible,
     organizationId: input.authorization.organizationId,
     recipientWorkosUserId: input.recipientWorkosUserId,
@@ -221,6 +260,149 @@ export async function emitCanonicalBuildCollaborationNotification(
     recipientWorkosUserId: input.recipientWorkosUserId,
   });
   return recipientDeliveryId;
+}
+
+async function resolveCanonicalNotificationTarget(
+  ctx: MutationCtx,
+  input: CanonicalNotificationInput
+): Promise<CanonicalNotificationTarget> {
+  let canonicalSubmilestoneId =
+    input.buildSubmilestoneId ??
+    (input.entityType === "submilestone" ||
+    input.entityType === "buildSubmilestone"
+      ? (ctx.db.normalizeId("buildSubmilestones", input.entityId) ?? undefined)
+      : undefined);
+  let generatedCompanion: Doc<"buildActionItems"> | undefined;
+  if (input.actionItemId) {
+    const actionItem = await ctx.db.get(input.actionItemId);
+    if (
+      actionItem?.systemMode === "generated_milestone_submilestone" &&
+      actionItem.buildId === input.authorization.build._id &&
+      actionItem.organizationId === input.authorization.organizationId &&
+      actionItem.brokerageId === input.authorization.brokerage._id
+    ) {
+      generatedCompanion = actionItem;
+      const presentation = await deriveMilestoneSystemActionItemPresentation(
+        ctx,
+        {
+          actionItem,
+          asOf: input.now,
+          build: input.authorization.build,
+        }
+      );
+      canonicalSubmilestoneId =
+        presentation?.bindingState === "valid"
+          ? actionItem.canonicalBuildSubmilestoneId
+          : undefined;
+    }
+  }
+  const canonicalSubmilestone = canonicalSubmilestoneId
+    ? await ctx.db.get(canonicalSubmilestoneId)
+    : null;
+  if (
+    canonicalSubmilestoneId &&
+    (!canonicalSubmilestone ||
+      canonicalSubmilestone.buildId !== input.authorization.build._id ||
+      canonicalSubmilestone.organizationId !==
+        input.authorization.organizationId ||
+      canonicalSubmilestone.brokerageId !== input.authorization.brokerage._id)
+  ) {
+    throw buildCollaborationValidationError(
+      "The notification Sub-milestone is unavailable."
+    );
+  }
+  return {
+    canonicalSubmilestone: canonicalSubmilestone ?? undefined,
+    generatedCompanion,
+  };
+}
+
+async function canRecipientReadCanonicalNotificationTarget(
+  ctx: MutationCtx,
+  input: CanonicalNotificationInput,
+  target: CanonicalNotificationTarget
+) {
+  if (!(target.canonicalSubmilestone || target.generatedCompanion)) {
+    return true;
+  }
+  let recipientAuthorization: ActiveBuildAuthorization;
+  try {
+    recipientAuthorization = await authorizeActiveBuildAccessForViewer(
+      ctx,
+      {
+        capability: "authenticated",
+        organizationId: input.authorization.organizationId,
+        roles: [],
+        subject: input.recipientWorkosUserId,
+        tokenIdentifier: `build-collaboration-notification:${input.recipientWorkosUserId}`,
+      },
+      {
+        buildId: input.authorization.build._id,
+        organizationId: input.authorization.organizationId,
+      }
+    );
+  } catch {
+    return false;
+  }
+  if (target.canonicalSubmilestone) {
+    try {
+      await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization: recipientAuthorization,
+        entityId: target.canonicalSubmilestone._id,
+        entityKind: "submilestone",
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return target.generatedCompanion
+    ? await canReadMilestoneSystemActionItem(ctx, {
+        actionItem: target.generatedCompanion,
+        buildId: input.authorization.build._id,
+        role: recipientAuthorization.effectiveRole.role,
+        workosUserId: input.recipientWorkosUserId,
+      })
+    : true;
+}
+
+function canonicalNotificationFields(
+  input: CanonicalNotificationInput,
+  target: CanonicalNotificationTarget
+) {
+  if (target.canonicalSubmilestone) {
+    return {
+      actionLabel: "Open Sub-milestone",
+      body: target.canonicalSubmilestone.name,
+      entityId: target.canonicalSubmilestone._id,
+      entityLabel: target.canonicalSubmilestone.name,
+      entityType: "buildSubmilestone",
+      href: canonicalSubmilestoneNotificationHref(
+        input.href,
+        target.canonicalSubmilestone._id
+      ),
+    };
+  }
+  return target.generatedCompanion
+    ? {
+        actionLabel: "Open Sub-milestone",
+        body: target.generatedCompanion.title,
+        entityId: target.generatedCompanion._id,
+        entityLabel: target.generatedCompanion.title,
+        entityType: "buildSubmilestoneIntegrity",
+        href: input.href,
+      }
+    : null;
+}
+
+function canonicalSubmilestoneNotificationHref(
+  href: string,
+  submilestoneId: Id<"buildSubmilestones">
+) {
+  const url = new URL(href, "https://drawflow.local");
+  url.searchParams.set("focus", `submilestone:${submilestoneId}`);
+  url.searchParams.set("detailTab", "collaboration");
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function selectedNotificationChannels(input: {

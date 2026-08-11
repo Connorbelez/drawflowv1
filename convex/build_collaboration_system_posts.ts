@@ -76,6 +76,7 @@ export type SystemActionItemPresentationColumn =
 
 export type SystemActionItemPresentation = {
   attention?: "overdue_completion";
+  bindingState: "valid" | "invalid";
   canAddEvidence?: boolean;
   canReview?: boolean;
   canRecommendReview?: boolean;
@@ -134,6 +135,7 @@ export type SystemActionItemPresentation = {
   executionOwnership?: {
     assigneeDisplayName?: string;
     assigneeId?: Id<"contractorProfiles">;
+    assigneeWorkosUserId?: string;
     state: "assigned" | "assignment_required";
     viewerIsAssignee: boolean;
   };
@@ -300,8 +302,12 @@ export function buildLocalMidnightUtc(date: string, timezone: string) {
   );
 }
 
-function unknownSystemActionItemPresentation(reason: string) {
+function unknownSystemActionItemPresentation(
+  reason: string,
+  bindingState: SystemActionItemPresentation["bindingState"]
+) {
   return {
+    bindingState,
     column: "backlog" as const,
     state: "unknown" as const,
     unknownReason: reason,
@@ -350,7 +356,7 @@ function derivedMilestoneReviewDecisionState(
 }
 
 export async function deriveMilestoneSystemActionItemPresentation(
-  ctx: QueryCtx,
+  ctx: QueryCtx | MutationCtx,
   input: {
     actionItem: Doc<"buildActionItems">;
     asOf: number;
@@ -373,7 +379,8 @@ export async function deriveMilestoneSystemActionItemPresentation(
     )
   ) {
     return unknownSystemActionItemPresentation(
-      "Generated System Action Item is missing its canonical Milestone binding."
+      "Generated System Action Item is missing its canonical Milestone binding.",
+      "invalid"
     );
   }
   const [milestone, submilestone] = await Promise.all([
@@ -391,7 +398,8 @@ export async function deriveMilestoneSystemActionItemPresentation(
     submilestone.buildMilestoneId !== milestone._id
   ) {
     return unknownSystemActionItemPresentation(
-      "Canonical Milestone or Sub-milestone binding is unavailable."
+      "Canonical Milestone or Sub-milestone binding is unavailable.",
+      "invalid"
     );
   }
   let plannedStartDate: string;
@@ -407,7 +415,8 @@ export async function deriveMilestoneSystemActionItemPresentation(
     );
   } catch {
     return unknownSystemActionItemPresentation(
-      "Build start date is invalid; schedule state requires a valid Build-local calendar date."
+      "Build start date is invalid; schedule state requires a valid Build-local calendar date.",
+      "valid"
     );
   }
   const execution = input.viewer
@@ -423,7 +432,8 @@ export async function deriveMilestoneSystemActionItemPresentation(
   if (!input.build.timezone) {
     return {
       ...unknownSystemActionItemPresentation(
-        "Build timezone is unavailable; schedule state requires an explicit IANA timezone."
+        "Build timezone is unavailable; schedule state requires an explicit IANA timezone.",
+        "valid"
       ),
       ...execution,
     };
@@ -434,12 +444,14 @@ export async function deriveMilestoneSystemActionItemPresentation(
   } catch {
     return {
       ...unknownSystemActionItemPresentation(
-        "Build timezone is invalid; schedule state requires an explicit IANA timezone."
+        "Build timezone is invalid; schedule state requires an explicit IANA timezone.",
+        "valid"
       ),
       ...execution,
     };
   }
   const base = {
+    bindingState: "valid" as const,
     plannedCompletionDate,
     plannedStartDate,
     planningState: (submilestone.planningState ?? "active") as
@@ -808,6 +820,12 @@ async function projectMilestoneExecutionPresentation(
           ? {
               assigneeDisplayName: ownership.contractor.name,
               assigneeId: ownership.contractor._id,
+              ...(ownership.contractor.accountWorkosUserId
+                ? {
+                    assigneeWorkosUserId:
+                      ownership.contractor.accountWorkosUserId,
+                  }
+                : {}),
             }
           : {}),
       state: ownership.state,

@@ -4182,6 +4182,118 @@ describe("Build collaboration canonical reference authorization", () => {
     ).toBe(false);
   });
 
+  test("normalizes generated companion references to one canonical Sub-milestone", async () => {
+    const fixture = await seedActiveBuild();
+    const entities = await seedCollaborationReferenceEntities(fixture);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(entities.actionItemId, {
+        canonicalBindingRevision: 1,
+        canonicalBuildMilestoneId: entities.milestoneId,
+        canonicalBuildSubmilestoneId: entities.submilestoneId,
+        canonicalPlanningState: "active",
+        primaryReferenceId: entities.submilestoneId,
+        primaryReferenceKind: "submilestone",
+        systemMode: "generated_milestone_submilestone",
+      });
+    });
+
+    const options = await fixture.admin.query(
+      (api as any).build_collaboration_references
+        .listBuildCollaborationTagOptions,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(
+      options.filter(
+        (option: any) =>
+          option.entityKind === "submilestone" &&
+          option.entityId === entities.submilestoneId,
+      ),
+    ).toHaveLength(1);
+    expect(
+      options.some(
+        (option: any) =>
+          option.entityKind === "actionItem" &&
+          option.entityId === entities.actionItemId,
+      ),
+    ).toBe(false);
+
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Footings coordination update.",
+        postType: "update",
+        references: [
+          {
+            entityId: entities.actionItemId,
+            entityKind: "actionItem",
+            label: "Forged companion label",
+            primary: true,
+          },
+          {
+            entityId: entities.submilestoneId,
+            entityKind: "submilestone",
+            label: "Forged child label",
+          },
+        ],
+        requestedReaderIds: [],
+        tiptapJson: collaborationDocument("Footings coordination update."),
+      },
+    );
+    const storedReferences = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_postId", (query) => query.eq("postId", postId))
+        .collect(),
+    );
+    expect(storedReferences).toEqual([
+      expect.objectContaining({
+        entityId: entities.submilestoneId,
+        entityKind: "submilestone",
+        labelSnapshot: "Footings",
+        primary: true,
+      }),
+    ]);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(entities.actionItemId, {
+        canonicalBuildSubmilestoneId: undefined,
+      });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          audienceMode: "author_tier_and_higher",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Malformed companion must fail closed.",
+          postType: "update",
+          references: [
+            {
+              entityId: entities.actionItemId,
+              entityKind: "actionItem",
+              label: "Malformed companion",
+            },
+          ],
+          requestedReaderIds: [],
+          tiptapJson: collaborationDocument(
+            "Malformed companion must fail closed.",
+          ),
+        },
+      ),
+    ).rejects.toThrow(/does not exist|archived/i);
+  });
+
   test("indexes every canonical kind while omitting restricted fields and entities for lower roles", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {
@@ -4500,6 +4612,12 @@ describe("Build collaboration canonical reference authorization", () => {
       displayName: "Broker Reviewer",
       role: "broker",
       subject: "user_broker",
+    });
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Homeowner",
+      role: "homeowner",
+      subject: "user_homeowner",
     });
     const mentionDocument = (id: string, label: string, kind = "participant") =>
       JSON.stringify({
@@ -4892,6 +5010,191 @@ describe("Build collaboration canonical reference authorization", () => {
         dedupeKey: "notification:mandatory-dedupe",
       }),
     ]);
+  });
+
+  test("stores and projects generated companion notifications as canonical Sub-milestones", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Broker Reviewer",
+      role: "broker",
+      subject: "user_broker",
+    });
+    const entities = await seedCollaborationReferenceEntities(fixture);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(entities.actionItemId, {
+        canonicalBindingRevision: 1,
+        canonicalBuildMilestoneId: entities.milestoneId,
+        canonicalBuildSubmilestoneId: entities.submilestoneId,
+        canonicalPlanningState: "active",
+        primaryReferenceId: entities.submilestoneId,
+        primaryReferenceKind: "submilestone",
+        systemMode: "generated_milestone_submilestone",
+      });
+    });
+    await fixture.admin.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      const brokerage = build ? await ctx.db.get(build.brokerageId) : null;
+      if (!(build && brokerage)) {
+        throw new Error("Active Build notification fixture is unavailable.");
+      }
+      const notification = {
+        actionItemId: entities.actionItemId,
+        actionLabel: "Open Action Item",
+        authorization: {
+          brokerage,
+          build,
+          organizationId: ORGANIZATION_ID,
+          viewer: { subject: "user_admin" },
+        } as never,
+        body: "Generic companion body",
+        dedupeKey: "generated-companion:canonical-notification",
+        entityId: entities.actionItemId,
+        entityLabel: "Generic companion label",
+        entityType: "buildActionItem",
+        href: `/backoffice/builds/${fixture.buildId}?tab=details&focus=actionItem%3A${entities.actionItemId}`,
+        kind: "direct_mention" as const,
+        now: 100,
+        readerIds: ["user_admin", "user_broker"],
+        recipientWorkosUserId: "user_broker",
+        title: "You were mentioned",
+      };
+      const first = await emitCanonicalBuildCollaborationNotification(
+        ctx as never,
+        notification,
+      );
+      const replay = await emitCanonicalBuildCollaborationNotification(
+        ctx as never,
+        notification,
+      );
+      expect(replay).toBe(first);
+      await expect(
+        emitCanonicalBuildCollaborationNotification(ctx as never, {
+          ...notification,
+          dedupeKey: "generated-companion:homeowner-redacted",
+          readerIds: ["user_admin", "user_homeowner"],
+          recipientWorkosUserId: "user_homeowner",
+        }),
+      ).resolves.toBeNull();
+    });
+
+    const stored = await fixture.base.run(async (ctx) => {
+      const allDeliveries = await ctx.db.query("recipientDeliveries").collect();
+      const deliveries = allDeliveries.filter(
+        (delivery) =>
+          delivery.dedupeKey ===
+          "generated-companion:canonical-notification",
+      );
+      return {
+        deliveries,
+        external: (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).filter(
+          (delivery) =>
+            delivery.recipientDeliveryId === deliveries[0]?._id,
+        ),
+        homeownerRedacted: allDeliveries.some(
+          (delivery) =>
+            delivery.dedupeKey ===
+            "generated-companion:homeowner-redacted",
+        ),
+      };
+    });
+    expect(stored.deliveries).toEqual([
+      expect.objectContaining({
+        actionLabel: "Open Sub-milestone",
+        collaborationActionItemId: entities.actionItemId,
+        collaborationBuildSubmilestoneId: entities.submilestoneId,
+        entityId: entities.submilestoneId,
+        entityLabel: "Footings",
+        entityType: "buildSubmilestone",
+      }),
+    ]);
+    expect(stored.deliveries[0]?.href).toContain(
+      `focus=submilestone%3A${String(entities.submilestoneId)}&detailTab=collaboration`,
+    );
+    expect(stored.external).toHaveLength(1);
+    expect(stored.homeownerRedacted).toBe(false);
+
+    const broker = withIdentity(fixture.base, {
+      roles: ["broker"],
+      subject: "user_broker",
+    });
+    const inbox = await broker.query(
+      (api as any).build_collaboration_inbox.listRecipientInbox,
+      {
+        paginationOpts: { cursor: null, numItems: 20 },
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(inbox.page).toEqual([
+      expect.objectContaining({
+        actionLabel: "Open Sub-milestone",
+        entityId: entities.submilestoneId,
+        entityLabel: "Footings",
+        entityType: "buildSubmilestone",
+      }),
+    ]);
+    expect(inbox.page[0]?.href).toContain(
+      `focus=submilestone%3A${String(entities.submilestoneId)}&detailTab=collaboration`,
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(entities.actionItemId, {
+        canonicalBuildSubmilestoneId: undefined,
+      });
+    });
+    await fixture.admin.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      const brokerage = build ? await ctx.db.get(build.brokerageId) : null;
+      if (!(build && brokerage)) {
+        throw new Error("Active Build notification fixture is unavailable.");
+      }
+      await emitCanonicalBuildCollaborationNotification(ctx as never, {
+        actionItemId: entities.actionItemId,
+        actionLabel: "Open Action Item",
+        authorization: {
+          brokerage,
+          build,
+          organizationId: ORGANIZATION_ID,
+          viewer: { subject: "user_admin" },
+        } as never,
+        body: "Generic companion body",
+        dedupeKey: "generated-companion:integrity-notification",
+        entityId: entities.actionItemId,
+        entityLabel: "Generic companion label",
+        entityType: "buildActionItem",
+        href: `/backoffice/builds/${fixture.buildId}?tab=details&focus=actionItem%3A${entities.actionItemId}`,
+        kind: "direct_mention",
+        now: 101,
+        readerIds: ["user_admin", "user_broker"],
+        recipientWorkosUserId: "user_broker",
+        title: "You were mentioned",
+      });
+    });
+    const malformed = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (query) =>
+          query
+            .eq("organizationId", ORGANIZATION_ID)
+            .eq("recipientWorkosUserId", "user_broker")
+            .eq(
+              "dedupeKey",
+              "generated-companion:integrity-notification",
+            ),
+        )
+        .unique(),
+    );
+    expect(malformed).toMatchObject({
+      actionLabel: "Open Sub-milestone",
+      entityId: entities.actionItemId,
+      entityLabel: "Upload engineer seal",
+      entityType: "buildSubmilestoneIntegrity",
+    });
+    expect(malformed?.href).toContain(
+      `focus=actionItem%3A${String(entities.actionItemId)}`,
+    );
+    expect(malformed).not.toHaveProperty("collaborationBuildSubmilestoneId");
   });
 
   test("rebuilds notification previews from readable canonical data and hides them after access revocation", async () => {

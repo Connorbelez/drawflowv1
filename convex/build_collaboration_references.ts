@@ -6,9 +6,6 @@ import type {
 } from "./activeBuildAccess";
 import { authenticatedQuery } from "./authz";
 import { collaborationTagOptionValidator } from "./build_collaboration_contracts";
-import {
-  isInternalDrawCoordinationEligible,
-} from "./build_draw_coordination";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import type { ReferenceInput } from "./build_collaboration_publication_bundle";
@@ -19,6 +16,7 @@ import {
   isDrawSystemPost,
 } from "./build_collaboration_system_event_access";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
+import { isInternalDrawCoordinationEligible } from "./build_draw_coordination";
 import type { Doc, QueryCtx } from "./types";
 
 const MAX_OPTIONS_PER_KIND = 500;
@@ -106,7 +104,19 @@ export async function resolveCanonicalBuildCollaborationReferences(
       })
     );
   }
-  return canonical;
+  const normalized = new Map<string, CanonicalBuildCollaborationReference>();
+  for (const reference of canonical) {
+    const key = `${reference.entityKind}:${reference.entityId}`;
+    const existing = normalized.get(key);
+    if (!existing) {
+      normalized.set(key, reference);
+      continue;
+    }
+    if (reference.primary && !existing.primary) {
+      normalized.set(key, { ...existing, primary: true });
+    }
+  }
+  return [...normalized.values()];
 }
 
 export async function resolveCurrentBuildCollaborationReference(
@@ -221,7 +231,7 @@ async function resolveCanonicalReference(
         authorization
       );
       const milestone = await ctx.db.get(submilestone.buildMilestoneId);
-      if (!milestone || !isScopedDoc(milestone, authorization)) {
+      if (!(milestone && isScopedDoc(milestone, authorization))) {
         throw unavailableReference();
       }
       const readersCanRead = await Promise.all(
@@ -350,8 +360,8 @@ async function resolveDrawReference(
         organizationId: input.authorization.organizationId,
         role: reader.role,
         workosUserId: reader.workosUserId,
-      }),
-    ),
+      })
+    )
   );
   if (readersCanCoordinate.includes(false)) {
     throw incompatibleReference();
@@ -502,7 +512,7 @@ async function resolveActionItemReference(
     input.authorization
   );
   const post = await ctx.db.get(item.originatingPostId);
-  if (!post || !isScopedDoc(post, input.authorization)) {
+  if (!(post && isScopedDoc(post, input.authorization))) {
     throw unavailableReference();
   }
   const readerAccess = await Promise.all(
@@ -516,7 +526,9 @@ async function resolveActionItemReference(
         role: reader.role,
         workosUserId: reader.workosUserId,
       });
-      if (!canReadActionItem) return false;
+      if (!canReadActionItem) {
+        return false;
+      }
       if (
         isDrawSystemPost(post) &&
         !(await isInternalDrawCoordinationEligible(ctx, {
@@ -533,6 +545,18 @@ async function resolveActionItemReference(
   );
   if (readerAccess.includes(false)) {
     throw incompatibleReference();
+  }
+  if (item.systemMode === "generated_milestone_submilestone") {
+    if (!item.canonicalBuildSubmilestoneId) {
+      throw unavailableReference();
+    }
+    return await resolveCanonicalReference(ctx, {
+      authorization: input.authorization,
+      entityId: item.canonicalBuildSubmilestoneId,
+      entityKind: "submilestone",
+      primary: input.common.primary,
+      readers: input.readers,
+    });
   }
   return {
     ...input.common,
@@ -642,10 +666,14 @@ async function listReferenceCandidates(
       entityId: entity._id,
       entityKind: "material" as const,
     })),
-    ...actionItems.map((entity) => ({
-      entityId: entity._id,
-      entityKind: "actionItem" as const,
-    })),
+    ...actionItems
+      .filter(
+        (entity) => entity.systemMode !== "generated_milestone_submilestone"
+      )
+      .map((entity) => ({
+        entityId: entity._id,
+        entityKind: "actionItem" as const,
+      })),
   ];
 }
 
@@ -773,6 +801,9 @@ function collaborationEntityHref(
   entityKind: string,
   entityId: string
 ) {
+  if (entityKind === "submilestone") {
+    return `?tab=details&focus=${encodeURIComponent(`submilestone:${entityId}`)}&detailTab=collaboration`;
+  }
   const tabByKind: Record<string, string> = {
     actionItem: "details",
     document: "documents",
@@ -783,7 +814,6 @@ function collaborationEntityHref(
     milestone: "milestones",
     participant: "details",
     siteVisit: "calendar",
-    submilestone: "milestones",
   };
   const tab = tabByKind[entityKind] ?? "details";
   return `?tab=${tab}&focus=${encodeURIComponent(`${entityKind}:${entityId}`)}`;

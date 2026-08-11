@@ -89,7 +89,7 @@ const auditEventResourceTypeValidator = v.union(
   v.literal("siteVisit"),
   v.literal("contractor"),
   v.literal("capitalEvent"),
-  v.literal("reminder"),
+  v.literal("reminder")
 );
 
 const demoTimelineIconValidator = v.union(
@@ -4220,6 +4220,7 @@ export default defineSchema({
     collaborationActionItemId: v.optional(v.id("buildActionItems")),
     collaborationAssetId: v.optional(v.id("buildCollaborationAssets")),
     collaborationBuildId: v.optional(v.id("activeBuilds")),
+    collaborationBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
     collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
     collaborationEventKind: v.optional(
       buildCollaborationNotificationKindValidator

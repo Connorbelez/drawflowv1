@@ -1,4 +1,8 @@
 import type { Id } from "../../../convex/_generated/dataModel";
+
+const BUILD_DETAIL_FOCUS_PREFIX_PATTERN =
+  /^(?:actionItem|milestone|submilestone):/;
+
 import { parseBuildCollaborationFocus } from "../build-collaboration/referenceFocus.ts";
 
 export type BuildDetailTarget =
@@ -21,12 +25,12 @@ export type BuildDetailTargetKind = BuildDetailTarget["kind"];
 export function isBuildDetailFocusCandidate(value: unknown) {
   return (
     typeof value === "string" &&
-    /^(?:actionItem|milestone|submilestone):/.test(value.trim())
+    BUILD_DETAIL_FOCUS_PREFIX_PATTERN.test(value.trim())
   );
 }
 
 export function parseBuildDetailFocus(
-  value: unknown,
+  value: unknown
 ): BuildDetailTarget | undefined {
   const parsed = parseBuildCollaborationFocus(value);
   if (!parsed) {
@@ -57,16 +61,14 @@ export function focusForBuildDetailTarget(target: BuildDetailTarget) {
     return `milestone:${target.milestoneId}`;
   }
   if (target.kind === "submilestone") {
-    return target.companionId
-      ? `actionItem:${target.companionId}`
-      : `submilestone:${target.submilestoneId}`;
+    return `submilestone:${target.submilestoneId}`;
   }
   return `actionItem:${target.actionItemId}`;
 }
 
 export function sameBuildDetailTarget(
   left: BuildDetailTarget | undefined,
-  right: BuildDetailTarget | undefined,
+  right: BuildDetailTarget | undefined
 ) {
   if (!(left && right) || left.kind !== right.kind) {
     return left === right;

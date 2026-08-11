@@ -140,6 +140,68 @@ describe("BuildCollaborationSearch", () => {
     expect(onOpen).toHaveBeenCalledWith(result);
   });
 
+  test("presents a generated companion as a canonical Sub-milestone result", async () => {
+    const submilestoneResult = {
+      ...result,
+      actionItemId: "action-item-companion",
+      assigneeWorkosUserId: "user-contractor",
+      commentId: undefined,
+      entityId: "submilestone-1",
+      entityKind: "submilestone" as const,
+      focusEntityId: "submilestone-1",
+      focusEntityKind: "submilestone" as const,
+      href: "/builder/builds/build-1?tab=details&focus=submilestone%3Asubmilestone-1&detailTab=collaboration",
+      id: "submilestone-1",
+      resultType: "submilestone" as const,
+      status: "in_progress" as const,
+      title: "Excavation",
+    } satisfies BuildCollaborationSearchResult;
+    mocks.response = {
+      continueCursor: null,
+      generation: 1,
+      indexing: false,
+      isDone: true,
+      page: [submilestoneResult],
+    };
+    const onOpen = vi.fn();
+    render(
+      <BuildCollaborationSearch
+        buildId={"build-1" as never}
+        onOpen={onOpen}
+        organizationId="org-1"
+        participants={participants}
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Search all authorized Build collaboration",
+      }),
+      { target: { value: "excavation" } },
+    );
+
+    await screen.findByText("Sub-milestone");
+    expect(screen.queryByText("Action Item")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Excavation" }),
+    );
+    expect(onOpen).toHaveBeenCalledWith(submilestoneResult);
+    expect(
+      searchRequestFilters({
+        assignee: "any",
+        attachmentPresence: "any",
+        audience: "any",
+        author: "any",
+        createdFrom: "",
+        createdTo: "",
+        entity: "any",
+        resolution: "any",
+        status: "any",
+        type: "submilestone",
+      }),
+    ).toMatchObject({ types: ["submilestone"] });
+  });
+
   test("continues a stable server cursor and appends the next authorized page", async () => {
     mocks.response = {
       continueCursor: "cursor-page-2",

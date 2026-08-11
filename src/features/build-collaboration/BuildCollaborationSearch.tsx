@@ -51,6 +51,7 @@ type SearchResultType =
   | "post"
   | "comment"
   | "actionItem"
+  | "submilestone"
   | "asset"
   | "reference";
 
@@ -93,7 +94,12 @@ export interface BuildCollaborationSearchResult {
   entityKind?: ReferenceKind;
   excerpt: string;
   focusEntityId?: string;
-  focusEntityKind?: "post" | "comment" | "actionItem" | "asset";
+  focusEntityKind?:
+    | "post"
+    | "comment"
+    | "actionItem"
+    | "submilestone"
+    | "asset";
   hasAttachments: boolean;
   href: string;
   id: string;
@@ -785,6 +791,8 @@ function searchResultIcon(type: SearchResultType) {
       return MessageCircle;
     case "actionItem":
       return ListChecks;
+    case "submilestone":
+      return Workflow;
     case "asset":
       return Paperclip;
     case "reference":
@@ -798,6 +806,8 @@ function resultTypeLabel(type: SearchResultType) {
   switch (type) {
     case "actionItem":
       return "Action Item";
+    case "submilestone":
+      return "Sub-milestone";
     case "asset":
       return "File";
     case "comment":
@@ -826,6 +836,7 @@ const TYPE_OPTIONS = [
   { label: "Posts", value: "post" },
   { label: "Replies", value: "comment" },
   { label: "Action Items", value: "actionItem" },
+  { label: "Sub-milestones", value: "submilestone" },
   { label: "Files", value: "asset" },
   { label: "References", value: "reference" },
 ];

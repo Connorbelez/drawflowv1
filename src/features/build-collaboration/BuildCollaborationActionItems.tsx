@@ -26,12 +26,15 @@ import {
 } from "#/components/ui/select.tsx";
 import { cn } from "#/lib/utils.ts";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
+import { focusForBuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import {
   type ActionStatus,
   type CollaborationActionItem,
   type CollaborationActionItemQueueRow,
-  isCanonicalMilestoneItem,
+  classifyCollaborationActionItem,
   initials,
+  isCanonicalMilestoneItem,
   type ReferenceOption,
   systemPresentationLabels,
   systemPresentationSummary,
@@ -48,14 +51,11 @@ type SystemPresentation = NonNullable<
   CollaborationActionItem["systemPresentation"]
 >;
 
-export {
-  systemPresentationLabels,
-  systemPresentationSummary,
-} from "./model.ts";
-
 function SystemPresentationBadges({
+  id,
   presentation,
 }: {
+  id?: string;
   presentation?: SystemPresentation;
 }) {
   if (!presentation) {
@@ -63,9 +63,10 @@ function SystemPresentationBadges({
   }
   const summary = systemPresentationSummary(presentation);
   return (
-    <div
+    <fieldset
       aria-label={summary}
-      className="flex flex-wrap items-center gap-1"
+      className="m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0"
+      id={id}
     >
       <Badge
         variant={
@@ -86,7 +87,7 @@ function SystemPresentationBadges({
           {presentation.unknownReason ? `: ${presentation.unknownReason}` : ""}
         </span>
       ) : null}
-    </div>
+    </fieldset>
   );
 }
 
@@ -137,125 +138,239 @@ export function BuildCollaborationActionItemQueue({
     })
   );
   const remainingCount = Math.max(0, rows.length - visibleRows.length);
+  const generatedCount = rows.filter(
+    (row) =>
+      classifyCollaborationActionItem(row.item).kind ===
+      "generated_submilestone"
+  ).length;
+  const actionItemCount = rows.length - generatedCount;
   return (
     <Frame>
       <FramePanel className="space-y-3 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Flag aria-hidden="true" className="size-4 text-primary" />
-            <p className="font-medium text-sm">{title}</p>
-          </div>
-          <Badge variant="outline">
-            {rows.length}
-            {hasMore ? "+" : ""}
-          </Badge>
-        </div>
-        {loading ? (
-          <p className="text-muted-foreground text-xs">Loading work…</p>
-        ) : rows.length === 0 ? (
-          <div className="space-y-2">
-            <p className="text-muted-foreground text-xs">{emptyLabel}</p>
-            <QueueLoadMoreButton
-              hasMore={hasMore}
-              loadingMore={loadingMore}
-              onLoadMore={onLoadMore}
-              remainingCount={0}
-              setVisibleCount={setVisibleCount}
-              totalRows={rows.length}
-            />
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {visibleRows.map((row, index) => {
-              const systemSummary = systemPresentationSummary(
-                row.item.systemPresentation,
-              );
-              const systemSummaryId = systemSummary
-                ? `queue-system-presentation-${String(title).replace(
-                    /[^a-zA-Z0-9_-]/g,
-                    "-",
-                  )}-${index}-${String(row.item._id).replace(
-                    /[^a-zA-Z0-9_-]/g,
-                    "-",
-                  )}`
-                : undefined;
-              return (
-                <Card
-                  className={cn(
-                    "rounded-xl text-left",
-                    compactOnNarrow &&
-                      "max-xl:rounded-lg max-xl:border-0 max-xl:bg-transparent max-xl:shadow-none max-xl:before:hidden",
-                    compactOnNarrow &&
-                      index >= 3 &&
-                      !mobileExpanded &&
-                      "max-xl:hidden",
-                  )}
-                  key={row.item._id}
-                  render={
-                    <button
-                      aria-describedby={systemSummaryId}
-                      aria-label={`Open ${row.item.title}`}
-                      onClick={() => onOpen(row)}
-                      type="button"
-                    />
-                  }
-                >
-                  <CardPanel className="space-y-2 p-3 max-xl:flex max-xl:items-center max-xl:gap-2 max-xl:p-2">
-                    <div className="flex w-full items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-sm">
-                          {row.item.title}
-                        </p>
-                        <p className="truncate text-muted-foreground text-xs">
-                          {row.buildName}
-                        </p>
-                        {row.item.systemPresentation ? (
-                          <SystemPresentationBadges
-                            presentation={row.item.systemPresentation}
-                          />
-                        ) : null}
-                      </div>
-                      {row.overdue ? (
-                        <Badge variant="destructive">Overdue</Badge>
-                      ) : null}
-                    </div>
-                    {systemSummary ? (
-                      <span className="sr-only" id={systemSummaryId}>
-                        {systemSummary}
-                      </span>
-                    ) : null}
-                  </CardPanel>
-                </Card>
-              );
-            })}
-            {compactOnNarrow && (rows.length > 3 || hasMore) ? (
-              <Button
-                className="w-full xl:hidden"
-                onClick={() => setMobileExpanded((current) => !current)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                {mobileExpanded
-                  ? "Show fewer"
-                  : `View all ${rows.length}${hasMore ? "+" : ""}`}
-              </Button>
-            ) : null}
-            <QueueLoadMoreButton
-              className={cn(
-                compactOnNarrow && !mobileExpanded && "max-xl:hidden"
-              )}
-              hasMore={hasMore}
-              loadingMore={loadingMore}
-              onLoadMore={onLoadMore}
-              remainingCount={remainingCount}
-              setVisibleCount={setVisibleCount}
-              totalRows={rows.length}
-            />
-          </div>
-        )}
+        <ActionItemQueueHeader
+          actionItemCount={actionItemCount}
+          generatedCount={generatedCount}
+          hasMore={hasMore}
+          title={title}
+        />
+        <ActionItemQueueContent
+          compactOnNarrow={compactOnNarrow}
+          emptyLabel={emptyLabel}
+          hasMore={hasMore}
+          loading={loading}
+          loadingMore={loadingMore}
+          mobileExpanded={mobileExpanded}
+          onLoadMore={onLoadMore}
+          onOpen={onOpen}
+          remainingCount={remainingCount}
+          rows={rows}
+          setMobileExpanded={setMobileExpanded}
+          setVisibleCount={setVisibleCount}
+          title={title}
+          visibleRows={visibleRows}
+        />
       </FramePanel>
     </Frame>
+  );
+}
+
+function ActionItemQueueHeader({
+  actionItemCount,
+  generatedCount,
+  hasMore,
+  title,
+}: {
+  actionItemCount: number;
+  generatedCount: number;
+  hasMore: boolean;
+  title: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <Flag aria-hidden="true" className="size-4 text-primary" />
+        <p className="font-medium text-sm">{title}</p>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        {generatedCount > 0 ? (
+          <Badge variant="secondary">
+            {generatedCount} Sub-milestone{generatedCount === 1 ? "" : "s"}
+            {hasMore ? "+" : ""}
+          </Badge>
+        ) : null}
+        {actionItemCount > 0 || generatedCount === 0 ? (
+          <Badge variant="outline">
+            {actionItemCount} Action Item{actionItemCount === 1 ? "" : "s"}
+            {hasMore ? "+" : ""}
+          </Badge>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ActionItemQueueContent({
+  compactOnNarrow,
+  emptyLabel,
+  hasMore,
+  loading,
+  loadingMore,
+  mobileExpanded,
+  onLoadMore,
+  onOpen,
+  remainingCount,
+  rows,
+  setMobileExpanded,
+  setVisibleCount,
+  title,
+  visibleRows,
+}: {
+  compactOnNarrow: boolean;
+  emptyLabel: string;
+  hasMore: boolean;
+  loading: boolean;
+  loadingMore: boolean;
+  mobileExpanded: boolean;
+  onLoadMore?: () => void;
+  onOpen: (row: CollaborationActionItemQueueRow) => void;
+  remainingCount: number;
+  rows: CollaborationActionItemQueueRow[];
+  setMobileExpanded: Dispatch<SetStateAction<boolean>>;
+  setVisibleCount: Dispatch<SetStateAction<number>>;
+  title: string;
+  visibleRows: CollaborationActionItemQueueRow[];
+}) {
+  if (loading) {
+    return <p className="text-muted-foreground text-xs">Loading work…</p>;
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="space-y-2">
+        <p className="text-muted-foreground text-xs">{emptyLabel}</p>
+        <QueueLoadMoreButton
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={onLoadMore}
+          remainingCount={0}
+          setVisibleCount={setVisibleCount}
+          totalRows={rows.length}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {visibleRows.map((row, index) => (
+        <ActionItemQueueRowCard
+          compactOnNarrow={compactOnNarrow}
+          index={index}
+          key={row.item._id}
+          mobileExpanded={mobileExpanded}
+          onOpen={onOpen}
+          row={row}
+          title={title}
+        />
+      ))}
+      {compactOnNarrow && (rows.length > 3 || hasMore) ? (
+        <Button
+          className="w-full xl:hidden"
+          onClick={() => setMobileExpanded((current) => !current)}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          {mobileExpanded
+            ? "Show fewer"
+            : `View all ${rows.length}${hasMore ? "+" : ""}`}
+        </Button>
+      ) : null}
+      <QueueLoadMoreButton
+        className={cn(compactOnNarrow && !mobileExpanded && "max-xl:hidden")}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadMore={onLoadMore}
+        remainingCount={remainingCount}
+        setVisibleCount={setVisibleCount}
+        totalRows={rows.length}
+      />
+    </div>
+  );
+}
+
+function ActionItemQueueRowCard({
+  compactOnNarrow,
+  index,
+  mobileExpanded,
+  onOpen,
+  row,
+  title,
+}: {
+  compactOnNarrow: boolean;
+  index: number;
+  mobileExpanded: boolean;
+  onOpen: (row: CollaborationActionItemQueueRow) => void;
+  row: CollaborationActionItemQueueRow;
+  title: string;
+}) {
+  const presentation = classifyCollaborationActionItem(row.item);
+  const systemSummary = systemPresentationSummary(row.item.systemPresentation);
+  const systemSummaryId = systemSummary
+    ? `queue-system-presentation-${String(title).replace(
+        /[^a-zA-Z0-9_-]/g,
+        "-"
+      )}-${index}-${String(row.item._id).replace(/[^a-zA-Z0-9_-]/g, "-")}`
+    : undefined;
+  return (
+    <Card
+      className={cn(
+        "rounded-xl text-left",
+        compactOnNarrow &&
+          "max-xl:rounded-lg max-xl:border-0 max-xl:bg-transparent max-xl:shadow-none max-xl:before:hidden",
+        compactOnNarrow && index >= 3 && !mobileExpanded && "max-xl:hidden"
+      )}
+      render={
+        <button
+          aria-describedby={systemSummaryId}
+          aria-label={`Open ${presentation.label}: ${row.item.title}`}
+          onClick={() => onOpen(row)}
+          type="button"
+        />
+      }
+    >
+      <CardPanel className="space-y-2 p-3 max-xl:flex max-xl:items-center max-xl:gap-2 max-xl:p-2">
+        <div className="flex w-full items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate font-medium text-sm">{row.item.title}</p>
+            <Badge
+              className="mt-1"
+              variant={
+                presentation.kind === "generated_submilestone"
+                  ? "secondary"
+                  : "outline"
+              }
+            >
+              {presentation.label}
+            </Badge>
+            <p className="truncate text-muted-foreground text-xs">
+              {row.buildName}
+            </p>
+            {row.item.systemPresentation ? (
+              <SystemPresentationBadges
+                presentation={row.item.systemPresentation}
+              />
+            ) : null}
+          </div>
+          {row.overdue && presentation.kind !== "generated_submilestone" ? (
+            <Badge variant="destructive">Overdue</Badge>
+          ) : null}
+        </div>
+        {systemSummary ? (
+          <span className="sr-only" id={systemSummaryId}>
+            {systemSummary}
+          </span>
+        ) : null}
+      </CardPanel>
+    </Card>
   );
 }
 
@@ -318,7 +433,7 @@ export function BuildCollaborationActionItems({
   mutationsAllowed: boolean;
   onCreate: () => void;
   onMove: MoveActionItem;
-  onOpen: (actionItemId: Id<"buildActionItems">) => void;
+  onOpen: (target: BuildDetailTarget) => void;
   participants: ReferenceOption[];
 }) {
   const columns: Array<{ label: string; status: ActionStatus }> = [
@@ -328,13 +443,27 @@ export function BuildCollaborationActionItems({
     { label: "Blocked", status: "blocked" },
     { label: "Done", status: "done" },
   ];
+  const generatedCount = items.filter(
+    (item) =>
+      classifyCollaborationActionItem(item).kind === "generated_submilestone"
+  ).length;
+  const actionItemCount = items.length - generatedCount;
+  const countSummary = [
+    generatedCount > 0
+      ? `${generatedCount} Sub-milestone${generatedCount === 1 ? "" : "s"}`
+      : undefined,
+    actionItemCount > 0
+      ? `${actionItemCount} Action Item${actionItemCount === 1 ? "" : "s"}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" and ");
 
   return (
     <section className="min-w-0 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-xs">
-          {items.length} {items.length === 1 ? "item" : "items"} anchored to
-          this post
+          {countSummary || "No Action Items"} anchored to this post
         </p>
         <Button
           disabled={!mutationsAllowed}
@@ -361,7 +490,9 @@ export function BuildCollaborationActionItems({
                   <p className="mb-2 font-medium text-xs">{column.label}</p>
                   <div className="space-y-2">
                     {items
-                      .filter((item) => item.status === column.status)
+                      .filter(
+                        (item) => actionItemBoardStatus(item) === column.status
+                      )
                       .map((item) => (
                         <ActionItemCard
                           item={item}
@@ -409,7 +540,112 @@ function ActionItemCard({
   item: CollaborationActionItem;
   mutationsAllowed: boolean;
   onMove: MoveActionItem;
-  onOpen: (actionItemId: Id<"buildActionItems">) => void;
+  onOpen: (target: BuildDetailTarget) => void;
+  participants: ReferenceOption[];
+  view: "board" | "list";
+}) {
+  const presentation = classifyCollaborationActionItem(item);
+  if (presentation.kind === "generated_submilestone") {
+    return (
+      <GeneratedSubmilestoneCard
+        item={item}
+        onOpen={onOpen}
+        target={presentation.target}
+        view={view}
+      />
+    );
+  }
+  return (
+    <GenericActionItemCard
+      item={item}
+      mutationsAllowed={mutationsAllowed}
+      onMove={onMove}
+      onOpen={onOpen}
+      participants={participants}
+      view={view}
+    />
+  );
+}
+
+function GeneratedSubmilestoneCard({
+  item,
+  onOpen,
+  target,
+  view,
+}: {
+  item: CollaborationActionItem;
+  onOpen: (target: BuildDetailTarget) => void;
+  target: BuildDetailTarget;
+  view: "board" | "list";
+}) {
+  const systemSummary = systemPresentationSummary(item.systemPresentation);
+  const systemSummaryId = systemSummary
+    ? `submilestone-system-presentation-${String(item._id).replace(
+        /[^a-zA-Z0-9_-]/g,
+        "-"
+      )}`
+    : undefined;
+  const card = (
+    <Card
+      aria-describedby={systemSummaryId}
+      aria-label={`Open Sub-milestone: ${item.title}`}
+      className={cn(
+        "w-full rounded-lg text-left shadow-none transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        view === "board" && "min-h-24"
+      )}
+      data-collaboration-focus={focusForBuildDetailTarget(target)}
+      onClick={() => onOpen(target)}
+      render={<button type="button" />}
+    >
+      <CardPanel
+        className={cn(
+          "gap-3 p-3",
+          view === "board"
+            ? "grid min-h-24 content-between"
+            : "flex min-h-12 items-center justify-between"
+        )}
+      >
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="break-words font-medium text-sm leading-5 [overflow-wrap:anywhere]">
+            {item.title}
+          </p>
+          <div className="flex flex-wrap items-center gap-1">
+            <Badge variant="secondary">Sub-milestone</Badge>
+            <SystemPresentationBadges
+              id={systemSummaryId}
+              presentation={item.systemPresentation}
+            />
+          </div>
+        </div>
+        <CanonicalSubmilestoneMetadata presentation={item.systemPresentation} />
+      </CardPanel>
+    </Card>
+  );
+  if (view === "board") {
+    return card;
+  }
+  return (
+    <div className="space-y-2">
+      {card}
+      <p className="text-muted-foreground text-xs">
+        Status follows the canonical Sub-milestone.
+      </p>
+    </div>
+  );
+}
+
+function GenericActionItemCard({
+  item,
+  mutationsAllowed,
+  onMove,
+  onOpen,
+  participants,
+  view,
+}: {
+  item: CollaborationActionItem;
+  mutationsAllowed: boolean;
+  onMove: MoveActionItem;
+  onOpen: (target: BuildDetailTarget) => void;
   participants: ReferenceOption[];
   view: "board" | "list";
 }) {
@@ -434,14 +670,7 @@ function ActionItemCard({
     0,
     (item.actionableUnreadCount ?? 0) - unreadCommentCount
   );
-  const canonicalMilestoneItem = isCanonicalMilestoneItem(item);
-  const systemSummary = systemPresentationSummary(item.systemPresentation);
-  const systemSummaryId = systemSummary
-    ? `action-item-system-presentation-${String(item._id).replace(
-        /[^a-zA-Z0-9_-]/g,
-        "-",
-      )}`
-    : undefined;
+  const target = classifyCollaborationActionItem(item).target;
 
   const selectStatus = (status: ActionStatus) => {
     if (status === "blocked") {
@@ -501,13 +730,12 @@ function ActionItemCard({
   const actionItemCard = (
     <Card
       aria-label={`Open Action Item: ${item.title}`}
-      aria-describedby={systemSummaryId}
       className={cn(
         "w-full rounded-lg text-left shadow-none transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         view === "board" && "min-h-24"
       )}
-      data-collaboration-focus={`actionItem:${item._id}`}
-      onClick={() => onOpen(item._id)}
+      data-collaboration-focus={focusForBuildDetailTarget(target)}
+      onClick={() => onOpen(target)}
       render={<button type="button" />}
     >
       <CardPanel
@@ -523,101 +751,19 @@ function ActionItemCard({
             <p className="break-words font-medium text-sm leading-5 [overflow-wrap:anywhere]">
               {item.title}
             </p>
-            {item.systemMode === "generated_milestone_submilestone" ? (
-              <div className="flex flex-wrap items-center gap-1">
-                <Badge variant="secondary">System · Milestone</Badge>
-                <SystemPresentationBadges
-                  presentation={item.systemPresentation}
-                />
-              </div>
-            ) : null}
           </div>
         </div>
-        {item.dependencyCount > 0 ||
-        item.unblocksCount > 0 ||
-        unreadCommentCount > 0 ||
-        otherUnreadCount > 0 ? (
-          <div className="flex min-w-0 flex-wrap gap-1">
-            {item.dependencyCount > 0 ? (
-              <Badge variant="warning">
-                <Link2 aria-hidden="true" />
-                Blocked by {item.dependencyCount}
-              </Badge>
-            ) : null}
-            {item.unblocksCount > 0 ? (
-              <Badge variant="secondary">
-                <Link2 aria-hidden="true" />
-                Blocking {item.unblocksCount}
-              </Badge>
-            ) : null}
-            {unreadCommentCount > 0 ? (
-              <Badge
-                aria-label={`${unreadCommentCount} unread comments`}
-                variant="info"
-              >
-                <MessageCircle aria-hidden="true" />
-                {unreadCommentCount} unread
-              </Badge>
-            ) : null}
-            {otherUnreadCount > 0 ? (
-              <Badge
-                aria-label={`${otherUnreadCount} other unread updates`}
-                variant="outline"
-              >
-                <Bell aria-hidden="true" />
-                {otherUnreadCount}
-              </Badge>
-            ) : null}
-          </div>
-        ) : null}
-        {(item.labels ?? []).length > 0 ? (
-          <div className="flex min-w-0 flex-wrap gap-1">
-            {(item.labels ?? []).map((label) => (
-              <Badge key={label} variant="outline">
-                {label}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
-        {item.status === "blocked" && item.blockedReason ? (
-          <p className="line-clamp-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-amber-900 text-xs dark:text-amber-200">
-            {item.blockedReason}
-          </p>
-        ) : null}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs">
-          <div className="flex items-center gap-2">
-            <Avatar
-              aria-label={`Assignee: ${assigneeLabel}`}
-              className="size-6 border text-xs"
-              title={`${assigneeLabel} · ${assignmentStateLabel}`}
-            >
-              <AvatarFallback className="bg-muted">
-                {assignee ? (
-                  initials(assigneeLabel)
-                ) : (
-                  <UserRound aria-hidden="true" className="size-3.5" />
-                )}
-              </AvatarFallback>
-            </Avatar>
-            <span className="flex items-center gap-1">
-              <Clock3 aria-hidden="true" className="size-3.5" />
-              {actionItemAge(item.createdAt)}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {item.dueAt ? (
-              <span className="flex items-center gap-1">
-                <CalendarClock aria-hidden="true" className="size-3.5" />
-                {actionItemDueLabel(item.dueAt)}
-              </span>
-            ) : null}
-          </div>
-          {systemSummary ? (
-            <span className="sr-only" id={systemSummaryId}>
-              {systemSummary}
-            </span>
-          ) : null}
-        </div>
+        <GenericActionItemSignals
+          item={item}
+          otherUnreadCount={otherUnreadCount}
+          unreadCommentCount={unreadCommentCount}
+        />
+        <GenericActionItemMetadata
+          assignee={assignee}
+          assigneeLabel={assigneeLabel}
+          assignmentStateLabel={assignmentStateLabel}
+          item={item}
+        />
       </CardPanel>
     </Card>
   );
@@ -631,7 +777,7 @@ function ActionItemCard({
       <div className="flex min-w-0 items-stretch gap-2">
         {actionItemCard}
         <Select
-          disabled={!mutationsAllowed || canonicalMilestoneItem}
+          disabled={!mutationsAllowed}
           onValueChange={(value) => selectStatus(value as ActionStatus)}
           value={item.status}
         >
@@ -652,15 +798,168 @@ function ActionItemCard({
           </SelectContent>
         </Select>
       </div>
-      {canonicalMilestoneItem ? (
-        <p className="text-muted-foreground text-xs">
-          System · Milestone — status follows the canonical Sub-milestone.
-        </p>
-      ) : (
-        renderTerminalReasonEditor()
-      )}
+      {renderTerminalReasonEditor()}
     </div>
   );
+}
+
+function GenericActionItemSignals({
+  item,
+  otherUnreadCount,
+  unreadCommentCount,
+}: {
+  item: CollaborationActionItem;
+  otherUnreadCount: number;
+  unreadCommentCount: number;
+}) {
+  const hasSignals =
+    item.dependencyCount > 0 ||
+    item.unblocksCount > 0 ||
+    unreadCommentCount > 0 ||
+    otherUnreadCount > 0;
+  return (
+    <>
+      {hasSignals ? (
+        <div className="flex min-w-0 flex-wrap gap-1">
+          {item.dependencyCount > 0 ? (
+            <Badge variant="warning">
+              <Link2 aria-hidden="true" />
+              Blocked by {item.dependencyCount}
+            </Badge>
+          ) : null}
+          {item.unblocksCount > 0 ? (
+            <Badge variant="secondary">
+              <Link2 aria-hidden="true" />
+              Blocking {item.unblocksCount}
+            </Badge>
+          ) : null}
+          {unreadCommentCount > 0 ? (
+            <Badge
+              aria-label={`${unreadCommentCount} unread comments`}
+              variant="info"
+            >
+              <MessageCircle aria-hidden="true" />
+              {unreadCommentCount} unread
+            </Badge>
+          ) : null}
+          {otherUnreadCount > 0 ? (
+            <Badge
+              aria-label={`${otherUnreadCount} other unread updates`}
+              variant="outline"
+            >
+              <Bell aria-hidden="true" />
+              {otherUnreadCount}
+            </Badge>
+          ) : null}
+        </div>
+      ) : null}
+      {(item.labels ?? []).length > 0 ? (
+        <div className="flex min-w-0 flex-wrap gap-1">
+          {(item.labels ?? []).map((label) => (
+            <Badge key={label} variant="outline">
+              {label}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+      {item.status === "blocked" && item.blockedReason ? (
+        <p className="line-clamp-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-amber-900 text-xs dark:text-amber-200">
+          {item.blockedReason}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function GenericActionItemMetadata({
+  assignee,
+  assigneeLabel,
+  assignmentStateLabel,
+  item,
+}: {
+  assignee?: ReferenceOption;
+  assigneeLabel: string;
+  assignmentStateLabel: string;
+  item: CollaborationActionItem;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs">
+      <div className="flex items-center gap-2">
+        <Avatar
+          aria-label={`Assignee: ${assigneeLabel}`}
+          className="size-6 border text-xs"
+          title={`${assigneeLabel} · ${assignmentStateLabel}`}
+        >
+          <AvatarFallback className="bg-muted">
+            {assignee ? (
+              initials(assigneeLabel)
+            ) : (
+              <UserRound aria-hidden="true" className="size-3.5" />
+            )}
+          </AvatarFallback>
+        </Avatar>
+        <span className="flex items-center gap-1">
+          <Clock3 aria-hidden="true" className="size-3.5" />
+          {actionItemAge(item.createdAt)}
+        </span>
+      </div>
+      {item.dueAt ? (
+        <span className="flex items-center gap-1">
+          <CalendarClock aria-hidden="true" className="size-3.5" />
+          {actionItemDueLabel(item.dueAt)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function CanonicalSubmilestoneMetadata({
+  presentation,
+}: {
+  presentation?: SystemPresentation;
+}) {
+  const owner = presentation?.executionOwnership;
+  const start = presentation?.plannedStartDate;
+  const completion = presentation?.plannedCompletionDate;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs">
+      <span className="flex items-center gap-1">
+        <UserRound aria-hidden="true" className="size-3.5" />
+        {owner?.assigneeDisplayName ??
+          (owner?.state === "assignment_required"
+            ? "Assignment required"
+            : "Canonical owner unavailable")}
+      </span>
+      {start || completion ? (
+        <fieldset
+          aria-label={`Planned schedule: ${start ?? "unscheduled"} to ${completion ?? "unscheduled"}`}
+          className="m-0 flex min-w-0 items-center gap-1 border-0 p-0"
+        >
+          <CalendarClock aria-hidden="true" className="size-3.5" />
+          {start ?? "Unscheduled"} – {completion ?? "Unscheduled"}
+        </fieldset>
+      ) : null}
+    </div>
+  );
+}
+
+function actionItemBoardStatus(item: CollaborationActionItem): ActionStatus {
+  if (!isCanonicalMilestoneItem(item)) {
+    return item.status;
+  }
+  switch (item.systemPresentation?.column) {
+    case "in_progress":
+      return "in_progress";
+    case "in_review":
+      return "in_review";
+    case "approved":
+    case "superseded":
+      return "done";
+    case "behind_schedule":
+      return "blocked";
+    default:
+      return "todo";
+  }
 }
 
 function actionItemAge(createdAt: number) {

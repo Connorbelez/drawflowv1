@@ -8,11 +8,11 @@ import type { AuthorizedViewer } from "./authz";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireReadableActionItem } from "./build_action_items";
 import { canReadCollaborationPost } from "./build_collaboration_access";
-import { canReadDrawCoordination } from "./build_draw_coordination";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { BuildCollaborationNotificationKind } from "./build_collaboration_notifications";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import type { Doc, Id, QueryCtx } from "./types";
 
 const recipientDeliveryStatusValidator = v.union(
@@ -208,12 +208,81 @@ export async function projectAuthorizedCollaborationDelivery(
   ) {
     return null;
   }
+  if (record.collaborationBuildSubmilestoneId) {
+    try {
+      const reference = await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: record.collaborationBuildSubmilestoneId,
+        entityKind: "submilestone",
+      });
+      return projectStoredDelivery(record, {
+        actionLabel: "Open Sub-milestone",
+        body: reference.label,
+        entityId: reference.entityId,
+        entityLabel: reference.label,
+        entityType: "buildSubmilestone",
+        href: buildCollaborationDeepLink({
+          buildId: authorization.build._id,
+          detailTab: "collaboration",
+          focus: `submilestone:${reference.entityId}`,
+          recipientRole: authorization.effectiveRole.role,
+        }),
+        title: canonicalNotificationTitle(record.collaborationEventKind),
+      });
+    } catch {
+      return null;
+    }
+  }
   if (record.collaborationActionItemId) {
     const item = await requireReadableActionItem(
       ctx,
       authorization,
       record.collaborationActionItemId
     );
+    if (item.systemMode === "generated_milestone_submilestone") {
+      if (item.canonicalBuildSubmilestoneId) {
+        try {
+          const reference = await resolveCurrentBuildCollaborationReference(
+            ctx,
+            {
+              authorization,
+              entityId: item.canonicalBuildSubmilestoneId,
+              entityKind: "submilestone",
+            }
+          );
+          return projectStoredDelivery(record, {
+            actionLabel: "Open Sub-milestone",
+            body: reference.label,
+            entityId: reference.entityId,
+            entityLabel: reference.label,
+            entityType: "buildSubmilestone",
+            href: buildCollaborationDeepLink({
+              buildId: authorization.build._id,
+              detailTab: "collaboration",
+              focus: `submilestone:${reference.entityId}`,
+              recipientRole: authorization.effectiveRole.role,
+            }),
+            title: canonicalNotificationTitle(record.collaborationEventKind),
+          });
+        } catch {
+          return null;
+        }
+      }
+      return projectStoredDelivery(record, {
+        actionLabel: "Open Sub-milestone",
+        body: item.title,
+        entityId: item._id,
+        entityLabel: item.title,
+        entityType: "buildSubmilestoneIntegrity",
+        href: buildCollaborationDeepLink({
+          buildId: authorization.build._id,
+          focus: `actionItem:${item._id}`,
+          postId: item.originatingPostId,
+          recipientRole: authorization.effectiveRole.role,
+        }),
+        title: canonicalNotificationTitle(record.collaborationEventKind),
+      });
+    }
     return projectStoredDelivery(record, {
       actionLabel: "Open Action Item",
       body: item.title,

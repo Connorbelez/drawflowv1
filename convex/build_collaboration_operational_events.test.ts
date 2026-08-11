@@ -1167,6 +1167,56 @@ describe("Build Collaboration operational events", () => {
     expect(
       systemCards.map((item) => item.canonicalBuildSubmilestoneId),
     ).toEqual(expect.arrayContaining(submilestoneIds));
+    const excavateCompanion = systemCards.find(
+      (item) => item.title === "Excavate",
+    );
+    if (!excavateCompanion?.canonicalBuildSubmilestoneId) {
+      throw new Error("Expected the Excavate canonical companion.");
+    }
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await finishSearchMaintenance(fixture.base);
+    const submilestoneSearch = await fixture.admin.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["submilestone"] },
+        organizationId: ORGANIZATION_ID,
+        query: "Excavate",
+      },
+    );
+    const canonicalSearchResult = submilestoneSearch.page.find(
+      (candidate: any) => candidate.actionItemId === excavateCompanion._id,
+    );
+    expect(canonicalSearchResult).toMatchObject({
+      actionItemId: excavateCompanion._id,
+      entityId: excavateCompanion.canonicalBuildSubmilestoneId,
+      entityKind: "submilestone",
+      focusEntityId: excavateCompanion.canonicalBuildSubmilestoneId,
+      focusEntityKind: "submilestone",
+      id: excavateCompanion.canonicalBuildSubmilestoneId,
+      resultType: "submilestone",
+    });
+    expect(canonicalSearchResult?.href).toContain(
+      `focus=submilestone%3A${String(excavateCompanion.canonicalBuildSubmilestoneId)}&detailTab=collaboration`,
+    );
+    const genericActionItemSearch = await fixture.admin.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["actionItem"] },
+        organizationId: ORGANIZATION_ID,
+        query: "Excavate",
+      },
+    );
+    expect(
+      genericActionItemSearch.page.some(
+        (candidate: any) => candidate.actionItemId === excavateCompanion._id,
+      ),
+    ).toBe(false);
     await fixture.base.run(async (ctx) => {
       await ctx.db.patch(fixture.buildId, { timezone: "America/Toronto" });
     });
@@ -1190,6 +1240,95 @@ describe("Build Collaboration operational events", () => {
       { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     expect(contractorItems).toEqual([]);
+    await fixture.base.run(async (ctx) => {
+      const assignment = await ctx.db
+        .query("milestoneContractorAssignments")
+        .filter((query) => query.eq(query.field("buildId"), fixture.buildId))
+        .first();
+      if (!assignment) {
+        throw new Error("Expected the fixture contractor assignment.");
+      }
+      await ctx.db.patch(assignment._id, {
+        buildSubmilestoneId:
+          excavateCompanion.canonicalBuildSubmilestoneId,
+        submilestoneKey: "foundation-1",
+        updatedAt: Date.now(),
+      });
+    });
+    const assignedContractorItems = await fixture.assignedContractor.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(
+      assignedContractorItems.some(
+        (row: any) => row.item._id === excavateCompanion._id,
+      ),
+    ).toBe(true);
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await finishSearchMaintenance(fixture.base);
+    const contractorSearch = await fixture.assignedContractor.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["submilestone"] },
+        organizationId: ORGANIZATION_ID,
+        query: "Excavate",
+      },
+    );
+    expect(contractorSearch.page).toContainEqual(
+      expect.objectContaining({
+        entityId: excavateCompanion.canonicalBuildSubmilestoneId,
+        resultType: "submilestone",
+      }),
+    );
+    const homeownerSearch = await fixture.homeowner.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["submilestone"] },
+        organizationId: ORGANIZATION_ID,
+        query: "Excavate",
+      },
+    );
+    expect(homeownerSearch.page).toEqual([]);
+    await fixture.base.run(async (ctx) => {
+      const assignment = await ctx.db
+        .query("milestoneContractorAssignments")
+        .filter((query) =>
+          query.eq(
+            query.field("buildSubmilestoneId"),
+            excavateCompanion.canonicalBuildSubmilestoneId,
+          ),
+        )
+        .first();
+      if (!assignment) {
+        throw new Error("Expected the canonical Sub-milestone assignment.");
+      }
+      await ctx.db.patch(assignment._id, {
+        status: "removed",
+        updatedAt: Date.now(),
+      });
+    });
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await finishSearchMaintenance(fixture.base);
+    const revokedContractorSearch = await fixture.assignedContractor.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["submilestone"] },
+        organizationId: ORGANIZATION_ID,
+        query: "Excavate",
+      },
+    );
+    expect(revokedContractorSearch.page).toEqual([]);
     const generatedCard = systemCards[0]!;
     await expect(
       fixture.admin.mutation(

@@ -209,6 +209,7 @@ export const systemMilestonePlanningSummaryValidator = v.object({
 });
 
 export const systemActionItemPresentationValidator = v.object({
+  bindingState: v.union(v.literal("valid"), v.literal("invalid")),
   attention: v.optional(v.literal("overdue_completion")),
   canAddEvidence: v.optional(v.boolean()),
   canReview: v.optional(v.boolean()),
@@ -289,6 +290,7 @@ export const systemActionItemPresentationValidator = v.object({
     v.object({
       assigneeDisplayName: v.optional(v.string()),
       assigneeId: v.optional(v.id("contractorProfiles")),
+      assigneeWorkosUserId: v.optional(v.string()),
       state: v.union(v.literal("assigned"), v.literal("assignment_required")),
       viewerIsAssignee: v.boolean(),
     })
@@ -407,6 +409,7 @@ export const collaborationActionItemSummaryValidator = v.object({
   dependencyCount: v.number(),
   dueAt: v.optional(v.number()),
   labels: v.array(v.string()),
+  parentActionItemId: v.optional(v.id("buildActionItems")),
   priority: buildActionItemPriorityValidator,
   status: buildActionItemStatusValidator,
   systemPresentation: v.optional(systemActionItemPresentationValidator),
