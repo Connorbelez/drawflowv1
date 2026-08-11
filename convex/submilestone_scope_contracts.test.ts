@@ -9,16 +9,29 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 const ORG = "org_submilestone_scope_contract";
 const OTHER_ORG = "org_other_scope";
+const ADMIN_USER = `scope_admin_${ORG}`;
+const PRINCIPLE_BROKER_USER = "scope_principle_broker";
+const BUILDER_USER = "scope_builder_owner";
+const BUILDER_STAFF_USER = "scope_builder_staff";
+const BUILDER_MANY_LINKS_USER = "scope_builder_many_links";
+const BROKER_STAFF_USER = "scope_broker_staff";
 
-function withIdentity(t: any, organizationId = ORG) {
+function withIdentity(
+  t: any,
+  organizationId = ORG,
+  roles = ["admin"],
+  subject = roles.includes("admin")
+    ? `scope_admin_${organizationId}`
+    : `scope_${roles[0]}_${organizationId}`,
+) {
   return t.withIdentity({
-    email: "scope-admin@example.com",
-    name: "Scope Admin",
+    email: `${subject}@example.com`,
+    name: subject,
     organizationId,
-    role: "admin",
-    roles: ["admin"],
-    subject: `scope_admin_${organizationId}`,
-    tokenIdentifier: `https://api.workos.com/|scope_admin_${organizationId}`,
+    role: roles[0],
+    roles,
+    subject,
+    tokenIdentifier: `https://api.workos.com/|${subject}`,
   } as any);
 }
 
@@ -64,7 +77,7 @@ async function seedScopeFixture() {
       updatedAt: now,
     });
     const proposalId = await ctx.db.insert("buildProposals", {
-      assignedBrokerWorkosUserId: `scope_admin_${ORG}`,
+      assignedBrokerWorkosUserId: ADMIN_USER,
       borrowerCoPayBps: 2_000,
       borrowerStartingCashCents: 35_000_000,
       borrowerWorkingCapitalLimitCents: 35_000_000,
@@ -72,7 +85,7 @@ async function seedScopeFixture() {
       buildName: "Scope contract fixture",
       builderProfileId,
       createdAt: now,
-      createdByWorkosUserId: `scope_admin_${ORG}`,
+      createdByWorkosUserId: ADMIN_USER,
       interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 55_000_000,
       location: "10 Scope Contract Lane",
@@ -81,7 +94,7 @@ async function seedScopeFixture() {
       status: "draft",
       totalBudgetCents: 25_000_000,
       updatedAt: now,
-      updatedByWorkosUserId: `scope_admin_${ORG}`,
+      updatedByWorkosUserId: ADMIN_USER,
     });
     const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
       brokerageId,
@@ -117,13 +130,79 @@ async function seedScopeFixture() {
         updatedAt: now,
       },
     );
+    await ctx.db.insert("builderAccountLinks", {
+      brokerageId,
+      builderProfileId,
+      createdAt: now,
+      role: "owner",
+      status: "active",
+      updatedAt: now,
+      workosUserId: BUILDER_USER,
+    });
+    await ctx.db.insert("builderAccountLinks", {
+      brokerageId,
+      builderProfileId,
+      createdAt: now,
+      role: "staff",
+      status: "active",
+      updatedAt: now,
+      workosUserId: BUILDER_STAFF_USER,
+    });
     const proposalSubmilestone = await ctx.db.get(proposalSubmilestoneId);
     if (!proposalSubmilestone) {
       throw new Error("Expected one proposal Sub-milestone fixture.");
     }
-    return { proposalId, proposalSubmilestone };
+    return { builderProfileId, proposalId, proposalSubmilestone };
   });
-  return { admin, base, ...fixture };
+  return {
+    admin,
+    base,
+    builder: withIdentity(base, ORG, ["builder"], BUILDER_USER),
+    builderStaff: withIdentity(
+      base,
+      ORG,
+      ["builder-staff"],
+      BUILDER_STAFF_USER,
+    ),
+    lenderAdmin: withIdentity(
+      base,
+      ORG,
+      ["principle-broker"],
+      PRINCIPLE_BROKER_USER,
+    ),
+    brokerStaff: withIdentity(
+      base,
+      ORG,
+      ["broker-staff"],
+      BROKER_STAFF_USER,
+    ),
+    ...fixture,
+  };
+}
+
+const scopeApi = (api as any).submilestone_scope_contracts;
+
+async function publishRevision(
+  admin: any,
+  proposalSubmilestoneId: any,
+  text: string,
+  changeReason = "Scope change for decision test.",
+) {
+  const revisionId = await admin.mutation(
+    scopeApi.createSubmilestoneScopeDraft,
+    { proposalSubmilestoneId, workosOrganizationId: ORG },
+  );
+  await admin.mutation(scopeApi.saveSubmilestoneScopeDraft, {
+    revisionId,
+    scopeOfWorkTiptapJson: tiptap(text),
+    workosOrganizationId: ORG,
+  });
+  await admin.mutation(scopeApi.publishSubmilestoneScopeRevision, {
+    changeReason,
+    revisionId,
+    workosOrganizationId: ORG,
+  });
+  return revisionId;
 }
 
 describe("Sub-milestone Scope contract", () => {
@@ -597,21 +676,594 @@ describe("Sub-milestone Scope contract", () => {
     ).rejects.toThrow("Forbidden: organization scope");
   });
 
-  // SFG-05 owns the decision commands and their behavioral coverage. Keep
-  // these scenarios explicit until the command implementation is delivered.
-  test.todo(
-    "SFG-05: borrower acknowledgement records a decision per revision and allows the acknowledged revision to become effective",
-  );
-  test.todo(
-    "SFG-05: borrower rejection requires a non-empty reason, records it per revision, and prevents that revision from becoming effective",
-  );
-  test.todo(
-    "SFG-05: a revision published after Proposal approval or Build activation requires both borrower acknowledgement and lender-admin approval, in either order",
-  );
-  test.todo(
-    "SFG-05: broker-staff cannot reject, approve, or override a Scope revision",
-  );
-  test.todo(
-    "SFG-05: lender-admin rejection override requires a non-empty reason and records an audited outcome with actor, roles, bypassed gates, prior revision, and new revision",
-  );
+  test("records borrower acknowledgement per revision and is idempotent", async () => {
+    const { admin, base, builder, builderStaff, proposalSubmilestone } =
+      await seedScopeFixture();
+    const builderRolesA = withIdentity(
+      base,
+      ORG,
+      ["builder", "builder-staff"],
+      BUILDER_USER,
+    );
+    const builderRolesB = withIdentity(
+      base,
+      ORG,
+      ["builder-staff", "builder"],
+      BUILDER_USER,
+    );
+    const v1 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Initial contractual scope.",
+    );
+    const v2 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Updated contractual scope before approval.",
+    );
+    await expect(
+      admin.mutation(scopeApi.acknowledgeSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-admin-impersonation-ack-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/borrower Scope decision authority/i);
+
+    const first = await builderRolesA.mutation(
+      scopeApi.acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-ack-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(first).toMatchObject({
+      effectiveRevisionId: v2,
+      replayed: false,
+    });
+    const replay = await builderRolesB.mutation(
+      scopeApi.acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-ack-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toMatchObject({
+      decisionId: first.decisionId,
+      effectiveRevisionId: v2,
+      replayed: true,
+    });
+    await expect(
+      builderRolesB.mutation(scopeApi.acknowledgeSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-ack-v2-002",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/borrower_acknowledged.*already recorded.*duplicate/i);
+
+    const v3 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Third contractual scope before approval.",
+    );
+    await builderStaff.mutation(
+      scopeApi.acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-ack-v3-001",
+        revisionId: v3,
+        workosOrganizationId: ORG,
+      },
+    );
+    const history = await admin.query(scopeApi.getSubmilestoneScopeHistory, {
+      proposalSubmilestoneId: proposalSubmilestone._id,
+      workosOrganizationId: ORG,
+    });
+    expect(history).toMatchObject({ effectiveRevisionId: v3 });
+    expect(
+      await base.run(async (ctx: any) =>
+        ctx.db
+          .query("submilestoneScopeDecisions")
+          .withIndex("by_contractId_and_idempotencyKey", (query: any) =>
+            query.eq("contractId", history.contractId),
+          )
+          .collect(),
+      ),
+    ).toHaveLength(2);
+    expect(v1).not.toBe(v2);
+  });
+
+  test("authorizes a bounded lookup when more than twenty matching links include a valid active link", async () => {
+    const { admin, base, builderProfileId, proposalSubmilestone } =
+      await seedScopeFixture();
+    await base.run(async (ctx: any) => {
+      const builderProfile = await ctx.db.get(builderProfileId);
+      if (!builderProfile) {
+        throw new Error("Expected builder profile fixture row.");
+      }
+      const now = Date.now();
+      for (let index = 0; index < 20; index += 1) {
+        await ctx.db.insert("builderAccountLinks", {
+          brokerageId: builderProfile.brokerageId,
+          builderProfileId,
+          createdAt: now + index,
+          role: "owner",
+          status: "inactive",
+          updatedAt: now + index,
+          workosUserId: BUILDER_MANY_LINKS_USER,
+        });
+      }
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId: builderProfile.brokerageId,
+        builderProfileId,
+        createdAt: now + 20,
+        role: "owner",
+        status: "active",
+        updatedAt: now + 20,
+        workosUserId: BUILDER_MANY_LINKS_USER,
+      });
+    });
+    const manyLinksBuilder = withIdentity(
+      base,
+      ORG,
+      ["builder"],
+      BUILDER_MANY_LINKS_USER,
+    );
+    const matchingLinkCount = await base.run(async (ctx: any) =>
+      ctx.db
+        .query("builderAccountLinks")
+        .withIndex("by_builder_user", (query: any) =>
+          query
+            .eq("builderProfileId", builderProfileId)
+            .eq("workosUserId", BUILDER_MANY_LINKS_USER),
+        )
+        .collect()
+        .then((links: unknown[]) => links.length),
+    );
+    expect(matchingLinkCount).toBe(21);
+
+    const revisionId = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Scope for bounded matching-link authorization.",
+    );
+    await expect(
+      manyLinksBuilder.mutation(scopeApi.acknowledgeSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-ack-many-links-001",
+        revisionId,
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({
+      effectiveRevisionId: revisionId,
+      replayed: false,
+    });
+  });
+
+  test("requires a trimmed borrower rejection reason and keeps the revision ineffective", async () => {
+    const { admin, base, builder, proposalSubmilestone } =
+      await seedScopeFixture();
+    await publishRevision(admin, proposalSubmilestone._id, "Initial scope.");
+    const v2 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Rejected scope revision.",
+    );
+
+    for (const reason of ["", "   "]) {
+      await expect(
+        builder.mutation(scopeApi.rejectSubmilestoneScopeRevision, {
+          idempotencyKey: `scope-reject-invalid-${reason.length}`,
+          reason,
+          revisionId: v2,
+          workosOrganizationId: ORG,
+        }),
+      ).rejects.toThrow(/reason/i);
+    }
+
+    await builder.mutation(scopeApi.rejectSubmilestoneScopeRevision, {
+      idempotencyKey: "scope-reject-v2-001",
+      reason: "  Does not match the agreed borrower scope.  ",
+      revisionId: v2,
+      workosOrganizationId: ORG,
+    });
+    const history = await admin.query(scopeApi.getSubmilestoneScopeHistory, {
+      proposalSubmilestoneId: proposalSubmilestone._id,
+      workosOrganizationId: ORG,
+    });
+    expect(history?.effectiveRevisionId).not.toBe(v2);
+    expect(
+      await base.run(async (ctx: any) =>
+        ctx.db
+          .query("submilestoneScopeDecisions")
+          .withIndex("by_revisionId_and_kind", (query: any) =>
+            query.eq("revisionId", v2).eq("kind", "borrower_rejected"),
+          )
+          .unique(),
+      ),
+    ).toMatchObject({ reason: "Does not match the agreed borrower scope." });
+
+    const replay = await builder.mutation(
+      scopeApi.rejectSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-reject-v2-001",
+        reason: "Does not match the agreed borrower scope.",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toMatchObject({ replayed: true });
+    await expect(
+      builder.mutation(scopeApi.rejectSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-reject-v2-002",
+        reason: "Does not match the agreed borrower scope.",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/borrower_rejected.*already recorded.*duplicate/i);
+    await expect(
+      builder.mutation(scopeApi.acknowledgeSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-ack-rejected-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/conflicts.*borrower_rejected/i);
+
+    const stillRejected = await admin.query(
+      scopeApi.getSubmilestoneScopeHistory,
+      {
+        proposalSubmilestoneId: proposalSubmilestone._id,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(stillRejected?.effectiveRevisionId).not.toBe(v2);
+  });
+
+  test("rejects a borrower rejection after acknowledgement on the same revision", async () => {
+    const { admin, builder, proposalSubmilestone } = await seedScopeFixture();
+    await publishRevision(admin, proposalSubmilestone._id, "Initial scope.");
+    const v2 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Acknowledged scope revision.",
+    );
+
+    const acknowledgement = await builder.mutation(
+      scopeApi.acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-ack-before-reject-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    const acknowledgementReplay = await builder.mutation(
+      scopeApi.acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-ack-before-reject-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(acknowledgementReplay).toMatchObject({
+      decisionId: acknowledgement.decisionId,
+      replayed: true,
+    });
+
+    await expect(
+      builder.mutation(scopeApi.rejectSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-reject-after-ack-v2-001",
+        reason: "The borrower changed the requested scope.",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/conflicts.*borrower_acknowledged/i);
+  });
+
+  test("requires borrower acknowledgement and lender-admin approval after Proposal approval in either order", async () => {
+    const { admin, base, builder, lenderAdmin, proposalId, proposalSubmilestone } =
+      await seedScopeFixture();
+    const v1 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Initial scope.",
+    );
+    await base.run((ctx: any) => ctx.db.patch(proposalId, { status: "approved" }));
+    const v2 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Approved Proposal scope revision.",
+    );
+
+    const approvalFirst = await lenderAdmin.mutation(
+      scopeApi.approveSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-approve-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(approvalFirst).toMatchObject({
+      effectiveRevisionId: v1,
+      replayed: false,
+    });
+    const approvalReplay = await lenderAdmin.mutation(
+      scopeApi.approveSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-approve-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(approvalReplay).toMatchObject({
+      decisionId: approvalFirst.decisionId,
+      effectiveRevisionId: v1,
+      replayed: true,
+    });
+    await expect(
+      lenderAdmin.mutation(scopeApi.approveSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-approve-v2-002",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/lender_admin_approved.*already recorded.*duplicate/i);
+    const acknowledgementSecond = await builder.mutation(
+      scopeApi.acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-ack-approved-v2-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(acknowledgementSecond).toMatchObject({
+      effectiveRevisionId: v2,
+      replayed: false,
+    });
+
+    const v3 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Second approved Proposal scope revision.",
+    );
+    const acknowledgementFirst = await builder.mutation(
+      scopeApi.acknowledgeSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-ack-approved-v3-001",
+        revisionId: v3,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(acknowledgementFirst).toMatchObject({
+      effectiveRevisionId: v2,
+      replayed: false,
+    });
+    const approvalSecond = await lenderAdmin.mutation(
+      scopeApi.approveSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-approve-v3-001",
+        revisionId: v3,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(approvalSecond).toMatchObject({
+      effectiveRevisionId: v3,
+      replayed: false,
+    });
+    const decisionCount = await base.run(async (ctx: any) => {
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+        )
+        .unique();
+      if (!contract) {
+        throw new Error("Expected Scope contract fixture row.");
+      }
+      return await ctx.db
+        .query("submilestoneScopeDecisions")
+        .withIndex("by_contractId", (query: any) =>
+          query.eq("contractId", contract._id),
+        )
+        .collect();
+    });
+    expect(decisionCount).toHaveLength(4);
+  });
+
+  test("denies broker-staff rejection, approval, and override commands", async () => {
+    const { admin, brokerStaff, proposalSubmilestone } =
+      await seedScopeFixture();
+    await publishRevision(admin, proposalSubmilestone._id, "Initial scope.");
+    const v2 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Broker-staff cannot decide.",
+    );
+    await expect(
+      brokerStaff.mutation(scopeApi.rejectSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-broker-staff-reject-001",
+        reason: "Not authorized.",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/Forbidden/i);
+    await expect(
+      brokerStaff.mutation(scopeApi.approveSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-broker-staff-approve-001",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/Forbidden/i);
+    await expect(
+      brokerStaff.mutation(scopeApi.overrideSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-broker-staff-override-001",
+        reason: "Not authorized.",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/Forbidden/i);
+  });
+
+  test("requires an audited lender-admin override reason and records bypasses and effective pointers", async () => {
+    const { admin, base, builder, lenderAdmin, proposalSubmilestone } =
+      await seedScopeFixture();
+    await publishRevision(admin, proposalSubmilestone._id, "Initial scope.");
+    const v2 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Borrower-rejected scope.",
+    );
+    await builder.mutation(scopeApi.rejectSubmilestoneScopeRevision, {
+      idempotencyKey: "scope-reject-for-override-001",
+      reason: "Borrower requested a correction.",
+      revisionId: v2,
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      lenderAdmin.mutation(scopeApi.overrideSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-override-invalid-001",
+        reason: "   ",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/reason/i);
+
+    const result = await lenderAdmin.mutation(
+      scopeApi.overrideSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-override-v2-001",
+        reason: "  Final authority accepts the documented exception. ",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(result).toMatchObject({
+      bypassedDecisionKinds: ["borrower_rejected"],
+      effectiveRevisionId: v2,
+      replayed: false,
+    });
+    const replay = await lenderAdmin.mutation(
+      scopeApi.overrideSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-override-v2-001",
+        reason: "  Final authority accepts the documented exception. ",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toMatchObject({ decisionId: result.decisionId, replayed: true });
+
+    const state = await base.run(async (ctx: any) => {
+      const decision = await ctx.db.get(result.decisionId);
+      const auditRows = await ctx.db.query("auditEvents").collect();
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", proposalSubmilestone._id),
+        )
+        .unique();
+      return {
+        audit: auditRows.find(
+          (row: any) => row.eventType === "submilestone_scope_revision.admin_override",
+        ),
+        contract,
+        decision,
+      };
+    });
+    expect(state.contract?.effectiveRevisionId).toBe(v2);
+    expect(state.decision).toMatchObject({
+      actorRoles: ["principle-broker"],
+      bypassedDecisionKinds: ["borrower_rejected"],
+      newEffectiveRevisionId: v2,
+      priorEffectiveRevisionId: expect.any(String),
+      reason: "Final authority accepts the documented exception.",
+    });
+    expect(state.audit).toMatchObject({
+      actorRoles: ["principle-broker"],
+      actorWorkosUserId: PRINCIPLE_BROKER_USER,
+      command: "overrideSubmilestoneScopeRevision",
+      entityId: String(v2),
+      eventType: "submilestone_scope_revision.admin_override",
+      newState: expect.stringContaining(String(v2)),
+      priorState: expect.stringContaining("effectiveRevisionId"),
+      reason: "Final authority accepts the documented exception.",
+      warnings: ["bypassed:borrower_rejected"],
+      createdAt: expect.any(Number),
+    });
+
+    await expect(
+      builder.mutation(scopeApi.rejectSubmilestoneScopeRevision, {
+        idempotencyKey: "scope-override-v2-001",
+        reason: "Different payload.",
+        revisionId: v2,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/idempotency key/i);
+  });
+
+  test("does not claim a new effective revision when an override targets a stale revision", async () => {
+    const { admin, base, lenderAdmin, proposalSubmilestone } =
+      await seedScopeFixture();
+    const v1 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Initial scope for stale override.",
+    );
+    const v2 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Current effective scope for stale override.",
+    );
+
+    await lenderAdmin.mutation(scopeApi.overrideSubmilestoneScopeRevision, {
+      idempotencyKey: "scope-override-current-001",
+      reason: "Accept the current documented exception.",
+      revisionId: v2,
+      workosOrganizationId: ORG,
+    });
+    const staleOverride = await lenderAdmin.mutation(
+      scopeApi.overrideSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-override-stale-001",
+        reason: "Record the stale revision review outcome.",
+        revisionId: v1,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(staleOverride).toMatchObject({
+      effectiveRevisionId: v2,
+      replayed: false,
+    });
+
+    const replay = await lenderAdmin.mutation(
+      scopeApi.overrideSubmilestoneScopeRevision,
+      {
+        idempotencyKey: "scope-override-stale-001",
+        reason: "Record the stale revision review outcome.",
+        revisionId: v1,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toMatchObject({
+      decisionId: staleOverride.decisionId,
+      effectiveRevisionId: v2,
+      replayed: true,
+    });
+
+    const state = await base.run(async (ctx: any) => {
+      const decision = await ctx.db.get(staleOverride.decisionId);
+      const audit = (await ctx.db.query("auditEvents").collect()).find(
+        (row: any) =>
+          row.entityId === String(v1) &&
+          row.eventType === "submilestone_scope_revision.admin_override",
+      );
+      return { audit, decision };
+    });
+    expect(state.decision).toMatchObject({
+      priorEffectiveRevisionId: v2,
+    });
+    expect(state.decision).not.toHaveProperty("newEffectiveRevisionId");
+    const auditNewState = JSON.parse(state.audit?.newState ?? "{}");
+    expect(auditNewState).toMatchObject({
+      effectiveRevisionId: String(v2),
+    });
+    expect(auditNewState).not.toHaveProperty("newEffectiveRevisionId");
+  });
 });
