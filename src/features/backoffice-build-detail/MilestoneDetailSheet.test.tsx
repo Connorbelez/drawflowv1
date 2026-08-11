@@ -85,6 +85,9 @@ describe("MilestoneDetailSheet", () => {
     expect(screen.queryByText("Submilestone detail")).toBeNull();
     expect(screen.queryByText("Guided completion")).toBeNull();
     expect(screen.queryByRole("tab")).toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: "Open Sub-milestone" })[0],
+    ).toHaveProperty("disabled", true);
   });
 
   test("routes the child ledger to the canonical Overview exactly once", () => {
@@ -137,12 +140,14 @@ describe("MilestoneDetailSheet", () => {
 
   test("fails closed when a child has no canonical id", () => {
     const onOpenCanonicalTarget = vi.fn();
+    const firstChild = sheetData.submilestones?.[0];
+    if (!firstChild) {
+      throw new Error("Expected a child fixture.");
+    }
     renderSheet({
       data: {
         ...sheetData,
-        submilestones: [
-          { ...sheetData.submilestones?.[0], submilestoneId: undefined },
-        ],
+        submilestones: [{ ...firstChild, submilestoneId: undefined }],
       },
       onOpenCanonicalTarget,
     });

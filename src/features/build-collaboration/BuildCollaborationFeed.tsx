@@ -68,6 +68,7 @@ import {
   type BuildDetailTarget,
   parseBuildDetailFocus,
 } from "../build-detail-targets/buildDetailTarget.ts";
+import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
 import {
   BuildActionItemDetailSheet,
   type BuildActionItemSheetTarget,
@@ -359,12 +360,16 @@ export function buildActionItemSheetHref(
 
 export function buildDetailTargetSheetHref(
   currentHref: string,
-  target: BuildDetailTarget
+  target: BuildDetailTarget,
+  context?: Pick<BuildDetailTargetContext, "selectedTab">,
 ) {
   const url = new URL(currentHref, "http://localhost");
   if (target.kind === "submilestone") {
     url.searchParams.set("focus", `submilestone:${target.submilestoneId}`);
-    url.searchParams.set("detailTab", "collaboration");
+    url.searchParams.set(
+      "detailTab",
+      context?.selectedTab ?? "collaboration",
+    );
   } else if (target.kind === "actionItem") {
     url.searchParams.set("tab", "details");
     url.searchParams.set("focus", `actionItem:${target.actionItemId}`);
@@ -1073,10 +1078,17 @@ function BuildCollaborationFeedContent({
     focusedEntityReference,
     resolvedDetailTarget?.kind,
   ]);
-  const openDetailTarget = (target: BuildDetailTarget) => {
+  const openDetailTarget = (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => {
     if (target.kind === "submilestone") {
       setActionItemSheetTarget(null);
-      const href = buildDetailTargetSheetHref(window.location.href, target);
+      const href = buildDetailTargetSheetHref(
+        window.location.href,
+        target,
+        context,
+      );
       if (!onOpenReference) {
         window.history.replaceState(window.history.state, "", href);
         return;
@@ -1093,7 +1105,11 @@ function BuildCollaborationFeedContent({
     }
     const actionItemId = target.actionItemId;
     setActionItemSheetTarget({ actionItemId, kind: "detail" });
-    const href = buildDetailTargetSheetHref(window.location.href, target);
+    const href = buildDetailTargetSheetHref(
+      window.location.href,
+      target,
+      context,
+    );
     onOpenReference?.({
       entityId: actionItemId,
       entityKind: "actionItem",

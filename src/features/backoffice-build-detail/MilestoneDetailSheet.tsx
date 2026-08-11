@@ -344,6 +344,7 @@ export function MilestoneDetailSheet({
                 <div className="grid gap-3">
                   {rows.map((row) => (
                     <ParentScopeRow
+                      canOpenCanonicalTarget={Boolean(onOpenCanonicalTarget)}
                       key={row.key}
                       onOpen={(tab) => openCanonicalForRow(row, tab)}
                       row={row}
@@ -450,13 +451,16 @@ export function MilestoneDetailSheet({
 }
 
 function ParentScopeRow({
+  canOpenCanonicalTarget,
   onOpen,
   row,
 }: {
+  canOpenCanonicalTarget: boolean;
   onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
   row: MilestoneSheetSubmilestone;
 }) {
-  const hasCanonicalTarget = Boolean(row.submilestoneId);
+  const hasCanonicalTarget =
+    canOpenCanonicalTarget && Boolean(row.submilestoneId);
   const openButton = (label: string, tab: BuildSubmilestoneDetailTab) => (
     <Button
       disabled={!hasCanonicalTarget}

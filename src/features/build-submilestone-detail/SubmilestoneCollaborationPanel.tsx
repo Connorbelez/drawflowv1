@@ -117,6 +117,7 @@ export function SubmilestoneCollaborationPanel({
   milestoneKey,
   organizationId,
   onReferenceOpen,
+  onOpenCanonicalTarget,
   readOnly,
   submilestoneKey,
   superseded,
