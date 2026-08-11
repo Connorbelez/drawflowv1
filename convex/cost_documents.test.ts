@@ -104,6 +104,11 @@ describe("Cost Document public contract", () => {
       title: "Foundation invoice",
       vendorName: "Cedar Forming Ltd.",
     });
+    expect(result?.vendor).toEqual({
+      displayName: "Cedar Forming Ltd.",
+      partyType: "vendor",
+      resolution: "unresolved_legacy",
+    });
     expect(result).not.toHaveProperty("receipt");
     expect(result).not.toHaveProperty("uploaderEmailSnapshot");
     expect(result).not.toHaveProperty("uploaderWorkosUserId");
@@ -186,6 +191,113 @@ describe("Cost Document public contract", () => {
       },
     });
     expect(revokedResponse.status).toBe(403);
+  });
+
+  test("links vendor identity and lists linked history across Builds", async () => {
+    const fixture = await seedFixture();
+    const vendorOptions = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentVendorOptions,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        search: "Cedar Forming",
+      }
+    );
+    expect(vendorOptions).toEqual([
+      expect.objectContaining({
+        name: "Cedar Forming Ltd.",
+        partyType: "contractor",
+        profileId: fixture.vendorProfileId,
+      }),
+    ]);
+
+    const batchId = await createBatch(fixture, "linked-vendor-history");
+    const draftId = await addDraft(fixture, batchId, "invoice", "labour");
+    const assetId = await stageDraftAsset(fixture, draftId, "linked-vendor.pdf");
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 12_000,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-01",
+      grossTotalCents: 12_000,
+      pageAssetIds: [assetId],
+      title: "Linked vendor invoice",
+      vendorName: "Stale free-text value",
+      vendorProfileId: fixture.vendorProfileId,
+    });
+    await completeDraft(fixture, draftId);
+    const submitted = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "linked-vendor-history-submit",
+      }
+    );
+    const linkedCostDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    const linkedDocument = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: linkedCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(linkedDocument).toMatchObject({
+      vendor: {
+        displayName: "Cedar Forming Ltd.",
+        partyType: "contractor",
+        profileId: fixture.vendorProfileId,
+        resolution: "linked",
+      },
+      vendorName: "Cedar Forming Ltd.",
+    });
+
+    const secondBuildId = await addSecondAccessibleBuild(fixture);
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(secondBuildId);
+      if (!build) {
+        throw new Error("Missing second Cost Document history build");
+      }
+      const now = Date.now();
+      await ctx.db.insert("costDocuments", {
+        brokerageId: build.brokerageId,
+        buildId: secondBuildId,
+        category: "materials",
+        createdAt: now,
+        currency: "CAD",
+        documentDate: "2026-08-02",
+        grossTotalCents: 3_210,
+        kind: "receipt",
+        organizationId: ORGANIZATION_ID,
+        state: "submitted",
+        submittedAt: now,
+        title: "Linked vendor receipt",
+        uploaderEmailSnapshot: "builder_owner@example.com",
+        uploaderWorkosUserId: "builder_owner",
+        vendorName: "Cedar Forming Ltd. snapshot",
+        vendorProfileId: fixture.vendorProfileId,
+      });
+    });
+
+    const history = await fixture.admin.query(
+      (api as any).cost_documents.listCostDocumentsByVendor,
+      {
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+        vendorProfileId: fixture.vendorProfileId,
+      }
+    );
+    expect(history.page).toHaveLength(2);
+    expect(history.page.map((document: { buildName: string }) => document.buildName)).toEqual(
+      expect.arrayContaining(["147 Cedar Ridge", "148 Cedar Ridge"])
+    );
+    expect(history.page.every((document: { vendor: { profileId?: string } }) =>
+      document.vendor.profileId === fixture.vendorProfileId
+    )).toBe(true);
   });
 
   test("creates one immutable Receipt communication intent atomically and replays without duplicating it", async () => {
@@ -5333,6 +5445,17 @@ async function seedFixture() {
       workflowRuleSnapshotId,
     });
     await ctx.db.patch(proposalId, { activeBuildId: buildId });
+    const vendorProfileId = await ctx.db.insert("contractorProfiles", {
+      brokerageId: foundation.brokerageId,
+      createdAt: now,
+      email: "accounts@cedar.example",
+      name: "Cedar Forming Ltd.",
+      organizationId: ORGANIZATION_ID,
+      quoteRecipientCapabilities: ["contractor"],
+      status: "active",
+      trades: ["concrete"],
+      updatedAt: now,
+    });
     await ctx.db.insert("buildCollaborationTenantSettings", {
       activatedAt: now,
       activatedByWorkosUserId: "admin",
@@ -5411,6 +5534,8 @@ async function seedFixture() {
       buildId,
       builderProfileId: foundation.builderProfileId,
       buildSubmilestoneId,
+      brokerageId: foundation.brokerageId,
+      vendorProfileId,
     };
   });
   return { admin, base, builder, ...seeded };
@@ -5874,6 +5999,7 @@ async function saveDraft(
     grossTotalCents?: number;
     pageAssetIds?: Id<"buildCollaborationAssets">[];
     title?: string;
+    vendorProfileId?: Id<"contractorProfiles">;
     vendorName?: string;
     workingStateJson?: string;
   },

@@ -91,7 +91,19 @@ interface CostDocumentSummary {
   submittedAt: number;
   title: string;
   uploaderScope: "other" | "self";
+  vendor?: {
+    displayName: string;
+    partyType: "contractor" | "supplier" | "vendor";
+    profileId?: Id<"contractorProfiles">;
+    resolution: "linked" | "unresolved_legacy";
+  };
   vendorName: string;
+}
+
+function displayCostDocumentVendor(
+  document: Pick<CostDocumentSummary, "vendor" | "vendorName">
+) {
+  return document.vendor?.displayName || document.vendorName;
 }
 
 export type CostDocumentDetail = Omit<
@@ -822,8 +834,8 @@ function CostDocumentRoadmapReconciliationContent({
                     />
                     <div className="mt-2 flex flex-wrap justify-between gap-2 text-muted-foreground text-xs">
                       <p>
-                        A planning comparison only. Coverage does not communicate
-                        completion or eligibility.
+                        A planning comparison only. Coverage does not
+                        communicate completion or eligibility.
                       </p>
                       {selectedMilestoneBudget ? (
                         <p className="tabular-nums">
@@ -1001,7 +1013,9 @@ function SubmilestoneReconciliationSection({
           <FrameDescription>{recordSummary}</FrameDescription>
         </div>
         <div className="text-right">
-          <p className="text-muted-foreground text-xs">Documentation coverage</p>
+          <p className="text-muted-foreground text-xs">
+            Documentation coverage
+          </p>
           <p className="font-semibold tabular-nums">
             {group.budgetCents ? formatCoverage(coverage) : "—"}
           </p>
@@ -1009,9 +1023,7 @@ function SubmilestoneReconciliationSection({
             <p className="mt-1 text-muted-foreground text-xs tabular-nums">
               {withoutReceiptCents > 0
                 ? `${formatCad(withoutReceiptCents)} ${
-                    group.usesActualCost
-                      ? "without receipt"
-                      : "undocumented"
+                    group.usesActualCost ? "without receipt" : "undocumented"
                   }`
                 : group.usesActualCost
                   ? "Fully documented"
@@ -1093,7 +1105,7 @@ function SubmilestoneCategoryLane({
           </FrameDescription>
         </div>
         <div className="max-w-[11rem] text-right">
-          <p className="text-muted-foreground text-[0.65rem] uppercase tracking-wide">
+          <p className="text-muted-foreground text-xs uppercase tracking-wide">
             Documentation coverage
           </p>
           <p className="font-semibold text-sm tabular-nums">
@@ -1252,8 +1264,13 @@ function CostDocumentCard({
             </div>
             <p className="truncate font-semibold">{document.title}</p>
             <p className="text-muted-foreground text-sm">
-              {document.vendorName} · {document.documentDate}
+              {displayCostDocumentVendor(document)} · {document.documentDate}
             </p>
+            {document.vendor?.resolution === "unresolved_legacy" ? (
+              <Badge size="sm" variant="warning">
+                Unresolved vendor
+              </Badge>
+            ) : null}
           </div>
           <div className="text-right">
             <p className="font-semibold tabular-nums">
@@ -1596,7 +1613,8 @@ export function CostDocumentDetail({
           <div className="min-w-0">
             <SheetTitle>{document.title}</SheetTitle>
             <SheetDescription>
-              {document.vendorName} · {formatCad(document.grossTotalCents)} ·{" "}
+              {displayCostDocumentVendor(document)} ·{" "}
+              {formatCad(document.grossTotalCents)} ·{" "}
               {titleCase(document.lifecycle.state)} record
             </SheetDescription>
           </div>
@@ -1618,7 +1636,14 @@ export function CostDocumentDetail({
               ["Kind", titleCase(document.kind)],
               ["Category", titleCase(document.category)],
               ["Document date", document.documentDate],
-              ["Vendor", document.vendorName],
+              [
+                "Vendor",
+                `${displayCostDocumentVendor(document)}${
+                  document.vendor?.resolution === "unresolved_legacy"
+                    ? " (unresolved legacy text)"
+                    : ""
+                }`,
+              ],
               ["Lifecycle", titleCase(document.lifecycle.state)],
               [
                 "Description",
@@ -2084,6 +2109,7 @@ function matchesFilters(
   const searchHaystack = [
     document.documentDate,
     document.title,
+    displayCostDocumentVendor(document),
     document.vendorName,
     ...document.allocations.flatMap((allocation) => [
       allocation.submilestoneKey,

@@ -98,6 +98,7 @@ type BatchDraft = {
   self: { workosUserId: string };
   submittedCostDocumentId?: Id<"costDocuments">;
   title?: string;
+  vendorProfileId?: Id<"contractorProfiles">;
   vendorName?: string;
   workingStateJson?: string;
 };
@@ -153,6 +154,8 @@ function makeDraft(overrides: Partial<BatchDraft> = {}): BatchDraft {
     pages: [],
     revision: 1,
     self: { workosUserId: "builder-owner" },
+    vendorName: "Cedar Forming Ltd.",
+    vendorProfileId: "vendor-profile-1" as Id<"contractorProfiles">,
     ...overrides,
   };
 }
@@ -283,6 +286,26 @@ describe("CostDocumentBatchWorkspace", () => {
         functionName === getFunctionName(api.cost_documents.getCostDocumentDraft)
       ) {
         return args === "skip" ? undefined : exactDraftQuery;
+      }
+      if (
+        functionName ===
+        getFunctionName(api.cost_documents.listCostDocumentVendorOptions)
+      ) {
+        return [
+          {
+            city: "Toronto",
+            email: "accounts@cedar.example",
+            name: "Cedar Forming Ltd.",
+            partyType: "contractor",
+            profileId: "vendor-profile-1",
+          },
+          {
+            city: "Hamilton",
+            name: "Northline Supply Co.",
+            partyType: "supplier",
+            profileId: "vendor-profile-2",
+          },
+        ];
       }
       return undefined;
     });

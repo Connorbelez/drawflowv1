@@ -1455,7 +1455,7 @@ export default defineSchema({
       v.object({
         cameraAnglesTiptapJson: v.string(),
         whatToVerifyTiptapJson: v.string(),
-      }),
+      })
     ),
     milestoneKey: v.string(),
     name: v.string(),
@@ -2106,6 +2106,12 @@ export default defineSchema({
     .index("by_brokerage", ["brokerageId"])
     .index("by_account_user", ["accountWorkosUserId"])
     .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"])
+    .index("by_organizationId_and_brokerageId_and_status_and_name", [
+      "organizationId",
+      "brokerageId",
+      "status",
+      "name",
+    ])
     .index("by_brokerage_normalized_email", ["brokerageId", "normalizedEmail"]),
   contractorCapabilities: defineTable({
     brokerageId: v.id("brokerages"),
@@ -3374,7 +3380,7 @@ export default defineSchema({
       v.object({
         cameraAnglesTiptapJson: v.string(),
         whatToVerifyTiptapJson: v.string(),
-      }),
+      })
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -3592,10 +3598,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"])
-    .index("by_organizationId_and_proposalId", [
-      "organizationId",
-      "proposalId",
-    ])
+    .index("by_organizationId_and_proposalId", ["organizationId", "proposalId"])
     .index("by_organizationId_and_buildId", ["organizationId", "buildId"])
     .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
   submilestoneScopeRevisions: defineTable({
@@ -3669,10 +3672,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_proposalSubmilestoneId", ["proposalSubmilestoneId"])
-    .index("by_organizationId_and_proposalId", [
-      "organizationId",
-      "proposalId",
-    ])
+    .index("by_organizationId_and_proposalId", ["organizationId", "proposalId"])
     .index("by_organizationId_and_buildId", ["organizationId", "buildId"])
     .index("by_buildSubmilestoneId", ["buildSubmilestoneId"]),
   proposalContractorAssignments: defineTable({
@@ -7897,6 +7897,10 @@ export default defineSchema({
     // access fails closed when this value is absent or no longer matches the
     // exact linked profile.
     contractorProfileId: v.optional(v.id("contractorProfiles")),
+    // Canonical organization party selected for vendor/supplier/contractor
+    // identity. `vendorName` remains as an immutable snapshot and supports
+    // explicit unresolved legacy records.
+    vendorProfileId: v.optional(v.id("contractorProfiles")),
     kind: v.union(v.literal("invoice"), v.literal("receipt")),
     category: v.union(v.literal("labour"), v.literal("materials")),
     state: v.literal("submitted"),
@@ -7926,6 +7930,11 @@ export default defineSchema({
     .index("by_buildId_and_submittedAt", ["buildId", "submittedAt"])
     .index("by_batchId", ["batchId"])
     .index("by_draftId", ["draftId"])
+    .index("by_organizationId_and_vendorProfileId_and_submittedAt", [
+      "organizationId",
+      "vendorProfileId",
+      "submittedAt",
+    ])
     .index("by_organizationId_and_submittedAt", [
       "organizationId",
       "submittedAt",
@@ -8070,6 +8079,7 @@ export default defineSchema({
     batchId: v.id("costDocumentBatches"),
     ownerWorkosUserId: v.string(),
     contractorProfileId: v.optional(v.id("contractorProfiles")),
+    vendorProfileId: v.optional(v.id("contractorProfiles")),
     order: v.number(),
     kind: v.union(v.literal("invoice"), v.literal("receipt")),
     category: v.union(v.literal("labour"), v.literal("materials")),

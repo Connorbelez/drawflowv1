@@ -54,6 +54,7 @@ import {
   type CostDocumentActorCapacity,
   CostDocumentRoadmapReconciliation,
 } from "./CostDocumentRoadmapReconciliation.tsx";
+import { CostDocumentVendorAutocomplete } from "./CostDocumentVendorAutocomplete.tsx";
 import {
   type CostDocumentSubmilestoneOption,
   formatCad,
@@ -125,6 +126,7 @@ interface BatchDraft {
   submittedCostDocumentId?: Id<"costDocuments">;
   title?: string;
   vendorName?: string;
+  vendorProfileId?: Id<"contractorProfiles">;
   workingStateJson?: string;
 }
 
@@ -189,6 +191,7 @@ interface DraftEditor {
   pageAssetIds: string[];
   title: string;
   vendorName: string;
+  vendorProfileId?: string;
 }
 
 interface DraftWorkingState {
@@ -223,6 +226,7 @@ interface DraftAutosavePayload {
   grossTotalCents?: number;
   title: string;
   vendorName: string;
+  vendorProfileId: Id<"contractorProfiles"> | null;
   workingStateJson: string;
 }
 
@@ -245,6 +249,7 @@ interface CostDocumentDraftSaveInput {
   pageAssetIds?: Id<"buildCollaborationAssets">[];
   title?: string;
   vendorName?: string;
+  vendorProfileId?: Id<"contractorProfiles"> | null;
   workingStateJson?: string;
 }
 
@@ -1021,6 +1026,7 @@ export function CostDocumentBatchWorkspace({
       draftId: draft._id,
       pageAssetIds: pageAssetIds as Id<"buildCollaborationAssets">[],
       title: facts.title,
+      vendorProfileId: facts.vendorProfileId,
       vendorName: facts.vendorName,
     });
     updateDraftOverride(String(draft._id), {
@@ -1039,6 +1045,7 @@ export function CostDocumentBatchWorkspace({
         };
       }),
       title: facts.title,
+      vendorProfileId: facts.vendorProfileId,
       vendorName: facts.vendorName,
     });
     const nextEditor = { ...currentEditor, pageAssetIds };
@@ -1439,6 +1446,7 @@ export function CostDocumentBatchWorkspace({
           financialComponents: balance.financialComponents,
           grossTotalCents: balance.grossTotalCents,
           title: facts.title,
+          vendorProfileId: facts.vendorProfileId,
           vendorName: facts.vendorName,
         });
         updateDraftOverride(draftId, {
@@ -1877,7 +1885,9 @@ export function CostDocumentBatchWorkspace({
             <div className="min-w-0" data-testid="cost-document-batch-editor">
               {activeDraft && editor ? (
                 <CostDocumentDraftEditor
+                  actorCapacity={actorCapacity}
                   autosaveStatus={autosaveStatuses[String(activeDraft._id)]}
+                  buildId={buildId}
                   busy={draftBusy || uploadingPages}
                   collaborationBusy={collaborationBusy}
                   collaborationError={collaborationError}
@@ -1940,6 +1950,7 @@ export function CostDocumentBatchWorkspace({
                   onReplaceSavedPage={replaceSavedPage}
                   onRevokeCollaborator={revokeCollaborator}
                   onUploadPages={uploadPages}
+                  organizationId={organizationId}
                   pendingFiles={pendingFiles}
                   submilestones={submilestones}
                   uploadingPages={uploadingPages}
@@ -2338,6 +2349,11 @@ function CostDocumentRegisterCard({
               {amount}
             </span>
           </div>
+          {draft.vendorName?.trim() && !draft.vendorProfileId ? (
+            <Badge size="sm" variant="warning">
+              Unresolved legacy vendor
+            </Badge>
+          ) : null}
           <p className="text-muted-foreground text-xs">
             {draft.kind === "invoice" ? "Invoice" : "Receipt"} ·{" "}
             {draft.category === "materials" ? "Materials" : "Labour"} ·{" "}
@@ -2807,7 +2823,9 @@ function CostDocumentSourcePreview({
 }
 
 interface CostDocumentDraftEditorProps {
+  actorCapacity?: CostDocumentActorCapacity;
   autosaveStatus?: DraftAutosaveStatus;
+  buildId: Id<"activeBuilds">;
   busy: boolean;
   collaborationBusy: boolean;
   collaborationError?: string;
@@ -2838,14 +2856,17 @@ interface CostDocumentDraftEditorProps {
     expectedRevision: number;
   }) => Promise<void>;
   onUploadPages: () => void;
+  organizationId: string;
   pendingFiles: File[];
   submilestones: CostDocumentSubmilestoneOption[];
   uploadingPages: boolean;
 }
 
 function CostDocumentDraftEditor({
+  actorCapacity,
   autosaveStatus,
   busy,
+  buildId,
   collaborationBusy,
   collaborationError,
   draft,
@@ -2869,6 +2890,7 @@ function CostDocumentDraftEditor({
   onRevokeCollaborator,
   onReplaceSavedPage,
   onUploadPages,
+  organizationId,
   pendingFiles,
   submilestones,
   uploadingPages,
@@ -2939,7 +2961,9 @@ function CostDocumentDraftEditor({
 
   const stepBody = (
     <DraftStepBody
+      actorCapacity={actorCapacity}
       balance={balance}
+      buildId={buildId}
       collaborationBusy={collaborationBusy}
       collaborationError={collaborationError}
       draft={draft}
@@ -2952,6 +2976,7 @@ function CostDocumentDraftEditor({
       onRemoveAllocation={onRemoveAllocation}
       onRemoveFinancialComponent={onRemoveFinancialComponent}
       onRevokeCollaborator={onRevokeCollaborator}
+      organizationId={organizationId}
       submilestones={submilestones}
     />
   );
@@ -3115,7 +3140,9 @@ function DraftEditorHeader({
 }
 
 function DraftStepBody({
+  actorCapacity,
   balance,
+  buildId,
   collaborationBusy,
   collaborationError,
   draft,
@@ -3128,9 +3155,12 @@ function DraftStepBody({
   onRemoveAllocation,
   onRemoveFinancialComponent,
   onRevokeCollaborator,
+  organizationId,
   submilestones,
 }: {
+  actorCapacity?: CostDocumentActorCapacity;
   balance: ReturnType<typeof balancePreview>;
+  buildId: Id<"activeBuilds">;
   collaborationBusy: boolean;
   collaborationError?: string;
   draft: BatchDraft;
@@ -3149,11 +3179,18 @@ function DraftStepBody({
     collaboratorWorkosUserId: string;
     expectedRevision: number;
   }) => Promise<void>;
+  organizationId: string;
   submilestones: CostDocumentSubmilestoneOption[];
 }) {
   if (draft.activeStep === "capture_confirm") {
     return (
-      <CaptureConfirmStep editor={editor} onEditorChange={onEditorChange} />
+      <CaptureConfirmStep
+        actorCapacity={actorCapacity}
+        buildId={buildId}
+        editor={editor}
+        onEditorChange={onEditorChange}
+        organizationId={organizationId}
+      />
     );
   }
   if (draft.activeStep === "balance_allocate") {
@@ -3289,11 +3326,17 @@ function DraftEditorActions({
 }
 
 function CaptureConfirmStep({
+  actorCapacity,
+  buildId,
   editor,
   onEditorChange,
+  organizationId,
 }: {
+  actorCapacity?: CostDocumentActorCapacity;
+  buildId: Id<"activeBuilds">;
   editor: DraftEditor;
   onEditorChange: (patch: Partial<DraftEditor>) => void;
+  organizationId: string;
 }) {
   return (
     <div className="space-y-5">
@@ -3318,17 +3361,19 @@ function CaptureConfirmStep({
             value={editor.title}
           />
         </Field>
-        <Field>
-          <FieldLabel htmlFor="cost-document-batch-vendor">Vendor</FieldLabel>
-          <Input
-            id="cost-document-batch-vendor"
-            onChange={(event) =>
-              onEditorChange({ vendorName: event.currentTarget.value })
-            }
-            required
-            value={editor.vendorName}
-          />
-        </Field>
+        <CostDocumentVendorAutocomplete
+          actorCapacity={actorCapacity}
+          buildId={buildId}
+          legacyVendorName={editor.vendorName}
+          onValueChange={({ displayName, profileId }) =>
+            onEditorChange({
+              vendorName: displayName,
+              vendorProfileId: profileId ? String(profileId) : undefined,
+            })
+          }
+          organizationId={organizationId}
+          value={editor.vendorProfileId as Id<"contractorProfiles"> | undefined}
+        />
         <Field>
           <FieldLabel htmlFor="cost-document-batch-date">
             Document date
@@ -3833,6 +3878,9 @@ function autosavePayload(editor: DraftEditor): DraftAutosavePayload {
     description: editor.description,
     draftId: editor.draftId as Id<"costDocumentDrafts">,
     title: editor.title,
+    vendorProfileId: editor.vendorProfileId
+      ? (editor.vendorProfileId as Id<"contractorProfiles">)
+      : null,
     vendorName: editor.vendorName,
     workingStateJson: serializeDraftWorkingState(editor),
   };
@@ -3926,6 +3974,9 @@ function editorOverrideForAutosave(
     description: editor.description.trim() || undefined,
     documentDate: editor.documentDate.trim() || undefined,
     title: editor.title.trim() || undefined,
+    vendorProfileId: editor.vendorProfileId
+      ? (editor.vendorProfileId as Id<"contractorProfiles">)
+      : undefined,
     vendorName: editor.vendorName.trim() || undefined,
   };
   if (payload.grossTotalCents !== undefined) {
@@ -3989,6 +4040,9 @@ function draftToEditor(draft: BatchDraft): DraftEditor {
         : "",
     pageAssetIds: draft.pages.map((page) => String(page.assetId)),
     title: draft.title ?? "",
+    vendorProfileId: draft.vendorProfileId
+      ? String(draft.vendorProfileId)
+      : undefined,
     vendorName: draft.vendorName ?? "",
   };
   return restoreDraftWorkingState(canonicalEditor, draft.workingStateJson);
@@ -4094,8 +4148,10 @@ function requiredCaptureFacts(editor: DraftEditor) {
   if (!title) {
     throw new Error("Title is required before continuing.");
   }
-  if (!vendorName) {
-    throw new Error("Vendor is required before continuing.");
+  if (!(vendorName && editor.vendorProfileId)) {
+    throw new Error(
+      "Select a linked organization vendor, supplier, or contractor before continuing."
+    );
   }
   if (!documentDate) {
     throw new Error("Document date is required before continuing.");
@@ -4104,6 +4160,7 @@ function requiredCaptureFacts(editor: DraftEditor) {
     description: editor.description.trim() || undefined,
     documentDate,
     title,
+    vendorProfileId: editor.vendorProfileId as Id<"contractorProfiles">,
     vendorName,
   };
 }

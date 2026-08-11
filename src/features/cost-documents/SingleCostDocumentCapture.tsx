@@ -31,6 +31,7 @@ import {
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { CostDocumentVendorAutocomplete } from "./CostDocumentVendorAutocomplete.tsx";
 
 const SUPPORTING_CONTEXT_DISCLOSURE =
   "This Cost Document does not prove payment, completion, reimbursement eligibility, Draw inclusion, or approval.";
@@ -168,6 +169,9 @@ export function SingleCostDocumentCapture({
   const [kind, setKind] = useState<"invoice" | "receipt">("invoice");
   const [category, setCategory] = useState<"labour" | "materials">("materials");
   const [title, setTitle] = useState("");
+  const [vendorProfileId, setVendorProfileId] = useState<
+    Id<"contractorProfiles"> | undefined
+  >();
   const [vendorName, setVendorName] = useState("");
   const [description, setDescription] = useState("");
   const [documentDate, setDocumentDate] = useState("");
@@ -197,6 +201,11 @@ export function SingleCostDocumentCapture({
       if (!submilestoneId) {
         throw new Error("Choose a Sub-milestone allocation.");
       }
+      if (!vendorProfileId) {
+        throw new Error(
+          "Select a linked organization vendor, supplier, or contractor."
+        );
+      }
       const grossTotalCents = parseCadCents(grossTotal);
       uploadedAssetIds = await uploadGovernedCollaborationAssets(files, {
         abandonAssets,
@@ -224,6 +233,7 @@ export function SingleCostDocumentCapture({
         organizationId,
         pageAssetIds: uploadedAssetIds,
         title,
+        vendorProfileId,
         vendorName,
       });
       setSubmittedId(id);
@@ -316,7 +326,7 @@ export function SingleCostDocumentCapture({
                   <div>
                     <p className="font-semibold">{submitted.title}</p>
                     <p className="text-muted-foreground text-sm">
-                      {submitted.vendorName} ·{" "}
+                      {submitted.vendor?.displayName ?? submitted.vendorName} ·{" "}
                       {formatCad(submitted.grossTotalCents)}
                     </p>
                   </div>
@@ -538,15 +548,15 @@ export function SingleCostDocumentCapture({
                 value={title}
               />
             </Field>
-            <Field>
-              <FieldLabel htmlFor="cost-document-vendor">Vendor</FieldLabel>
-              <Input
-                id="cost-document-vendor"
-                onChange={(event) => setVendorName(event.target.value)}
-                required
-                value={vendorName}
-              />
-            </Field>
+            <CostDocumentVendorAutocomplete
+              buildId={buildId}
+              onValueChange={({ displayName, profileId }) => {
+                setVendorName(displayName);
+                setVendorProfileId(profileId);
+              }}
+              organizationId={organizationId}
+              value={vendorProfileId}
+            />
             <Field>
               <FieldLabel htmlFor="cost-document-date">
                 Document date
