@@ -3986,9 +3986,6 @@ export default defineSchema({
     priorState: v.optional(v.string()),
     newState: v.optional(v.string()),
     reason: v.optional(v.string()),
-    // Historical active-Build planning events recorded their governed app
-    // resource. Preserve that immutable audit context during schema cutovers.
-    resourceType: v.optional(v.string()),
     reconciliationKey: v.optional(v.string()),
     drawFlowCorrelationId: v.optional(v.string()),
     providerCorrelationId: v.optional(v.string()),
