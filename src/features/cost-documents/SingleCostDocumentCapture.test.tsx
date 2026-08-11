@@ -83,8 +83,22 @@ describe("SingleCostDocumentCapture", () => {
     );
     uploadAssets.mockResolvedValue(["asset-page-1"]);
     submitCostDocument.mockResolvedValue("cost-document-1");
-    useQuery.mockImplementation((_ref, args) =>
-      args === "skip"
+    useQuery.mockImplementation((ref, args) => {
+      if (
+        getFunctionName(ref) ===
+        getFunctionName(api.cost_documents.listCostDocumentVendorOptions)
+      ) {
+        return [
+          {
+            city: "Toronto",
+            email: "accounts@cedar.example",
+            name: "Cedar Forming Ltd.",
+            partyType: "contractor",
+            profileId: "vendor-profile-1",
+          },
+        ];
+      }
+      return args === "skip"
         ? undefined
         : {
             grossTotalCents: 12_345,
@@ -102,8 +116,8 @@ describe("SingleCostDocumentCapture", () => {
             },
             title: "Foundation invoice",
             vendorName: "Cedar Forming Ltd.",
-          }
-    );
+          };
+    });
   });
 
   afterEach(() => cleanup());
@@ -137,6 +151,9 @@ describe("SingleCostDocumentCapture", () => {
     fireEvent.change(screen.getByLabelText("Vendor"), {
       target: { value: "Cedar Forming Ltd." },
     });
+    fireEvent.click(
+      await screen.findByRole("option", { name: /Cedar Forming Ltd\./ })
+    );
     fireEvent.change(screen.getByLabelText("Document date"), {
       target: { value: "2026-08-01" },
     });

@@ -11,7 +11,12 @@ import {
   appendGovernedAuditEvent,
   authorizeAdministrativeRecovery,
 } from "./administrative_override_policy";
-import { authenticatedMutation, authenticatedQuery } from "./authz";
+import {
+  type AuthorizedViewer,
+  authenticatedMutation,
+  authenticatedQuery,
+  backofficeQuery,
+} from "./authz";
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { abandonUnpublishedCostDocumentDraftAsset } from "./build_collaboration_assets";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
@@ -52,6 +57,7 @@ const MAX_BATCH_DRAFTS = 10;
 const MAX_BATCH_PAGES = 100;
 const MAX_BATCH_ALLOCATIONS = 200;
 const MAX_BATCH_FINANCIAL_COMPONENTS = 200;
+const MAX_VENDOR_OPTIONS = 100;
 const MAX_ROADMAP_RECONCILIATION_INTEGRITY_EXCEPTIONS = 50;
 const COST_DOCUMENT_INTEGRITY_KINDS = [
   "unavailable",
@@ -156,6 +162,28 @@ const costDocumentReviewAttentionValidator = v.union(
   v.literal("reviewed"),
   v.literal("needs_correction")
 );
+const costDocumentVendorPartyTypeValidator = v.union(
+  v.literal("contractor"),
+  v.literal("supplier"),
+  v.literal("vendor")
+);
+const costDocumentVendorResolutionValidator = v.union(
+  v.literal("linked"),
+  v.literal("unresolved_legacy")
+);
+const costDocumentVendorProjectionValidator = v.object({
+  displayName: v.string(),
+  partyType: costDocumentVendorPartyTypeValidator,
+  profileId: v.optional(v.id("contractorProfiles")),
+  resolution: costDocumentVendorResolutionValidator,
+});
+const costDocumentVendorOptionValidator = v.object({
+  city: v.optional(v.string()),
+  email: v.optional(v.string()),
+  name: v.string(),
+  partyType: costDocumentVendorPartyTypeValidator,
+  profileId: v.id("contractorProfiles"),
+});
 const costDocumentIntegrityExceptionProjectionValidator = v.object({
   actionRequired: v.boolean(),
   assetId: v.id("buildCollaborationAssets"),
@@ -173,6 +201,7 @@ const costDocumentSummaryValidator = v.object({
   state: v.literal("submitted"),
   submittedAt: v.number(),
   title: v.string(),
+  vendor: costDocumentVendorProjectionValidator,
   vendorName: v.string(),
 });
 
@@ -197,6 +226,7 @@ const costDocumentRoadmapReconciliationSummaryValidator = v.object({
   submittedAt: v.number(),
   title: v.string(),
   uploaderScope: v.union(v.literal("self"), v.literal("other")),
+  vendor: costDocumentVendorProjectionValidator,
   vendorName: v.string(),
 });
 
@@ -261,7 +291,24 @@ const costDocumentProjectionValidator = v.object({
   submittedAt: v.number(),
   supportingContextDisclosure: v.string(),
   title: v.string(),
+  vendor: costDocumentVendorProjectionValidator,
   uploaderScope: v.union(v.literal("self"), v.literal("other")),
+  vendorName: v.string(),
+});
+
+const costDocumentVendorHistorySummaryValidator = v.object({
+  _id: v.id("costDocuments"),
+  buildId: v.id("activeBuilds"),
+  buildName: v.string(),
+  category: costDocumentCategoryValidator,
+  currency: v.literal("CAD"),
+  documentDate: v.string(),
+  grossTotalCents: v.number(),
+  kind: costDocumentKindValidator,
+  state: v.literal("submitted"),
+  submittedAt: v.number(),
+  title: v.string(),
+  vendor: costDocumentVendorProjectionValidator,
   vendorName: v.string(),
 });
 
@@ -334,6 +381,7 @@ const costDocumentDraftProjectionValidator = v.object({
   self: v.object({ workosUserId: v.string() }),
   submittedCostDocumentId: v.optional(v.id("costDocuments")),
   title: v.optional(v.string()),
+  vendorProfileId: v.optional(v.id("contractorProfiles")),
   vendorName: v.optional(v.string()),
   workingStateJson: v.optional(v.string()),
 });
@@ -363,6 +411,7 @@ const collaborativeCostDocumentDraftProjectionValidator = v.object({
   revision: v.number(),
   self: v.object({ workosUserId: v.string() }),
   title: v.optional(v.string()),
+  vendorProfileId: v.optional(v.id("contractorProfiles")),
   vendorName: v.optional(v.string()),
   workingStateJson: v.optional(v.string()),
 });
@@ -408,6 +457,7 @@ export const submitCostDocument = authenticatedMutation
     kind: costDocumentKindValidator,
     pageAssetIds: v.array(v.id("buildCollaborationAssets")),
     title: v.string(),
+    vendorProfileId: v.optional(v.id("contractorProfiles")),
     vendorName: v.string(),
   })
   .returns(v.id("costDocuments"))
@@ -561,6 +611,53 @@ export const listCostDocumentSubmilestoneOptions = authenticatedQuery
   })
   .public();
 
+/**
+ * Organization-scoped party options for Cost Document capture. The Build
+ * authorization still gates the route, while the profile lookup stays on the
+ * canonical brokerage identity table used by quote recipients and Contractor
+ * Workspace assignments.
+ */
+export const listCostDocumentVendorOptions = authenticatedQuery
+  .input({
+    ...activeBuildScopeFields,
+    search: v.optional(v.string()),
+  })
+  .returns(v.array(costDocumentVendorOptionValidator))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const normalizedSearch = args.search?.trim().toLocaleLowerCase("en-CA");
+    const profiles = await ctx.db
+      .query("contractorProfiles")
+      .withIndex(
+        "by_organizationId_and_brokerageId_and_status_and_name",
+        (query) =>
+          query
+            .eq("organizationId", authorization.organizationId)
+            .eq("brokerageId", authorization.brokerage._id)
+            .eq("status", "active")
+      )
+      .take(MAX_VENDOR_OPTIONS * 3);
+    return profiles
+      .filter(
+        (profile) =>
+          !normalizedSearch ||
+          [profile.name, profile.email, profile.city, ...profile.trades]
+            .filter(Boolean)
+            .join(" ")
+            .toLocaleLowerCase("en-CA")
+            .includes(normalizedSearch)
+      )
+      .slice(0, MAX_VENDOR_OPTIONS)
+      .map((profile) => ({
+        ...(profile.city ? { city: profile.city } : {}),
+        ...(profile.email ? { email: profile.email } : {}),
+        name: profile.name,
+        partyType: costDocumentVendorPartyTypeForProfile(profile),
+        profileId: profile._id,
+      }));
+  })
+  .public();
+
 export const getCostDocument = authenticatedQuery
   .input({
     ...activeBuildScopeFields,
@@ -644,7 +741,7 @@ export const listCostDocuments = authenticatedQuery
       authorization,
       contractorSubmittedReadScope,
       paginationOpts: args.paginationOpts,
-      project: projectCostDocumentSummary,
+      project: (document) => projectCostDocumentSummary(ctx, document),
     });
   })
   .public();
@@ -693,6 +790,94 @@ export const listCostDocumentRoadmapReconciliation = authenticatedQuery
   })
   .public();
 
+/**
+ * Backoffice vendor history across every Build in one WorkOS organization.
+ * This query intentionally uses the durable profile foreign key and never
+ * reconstructs identity from the denormalized vendor snapshot.
+ */
+export const listCostDocumentsByVendor = backofficeQuery
+  .input({
+    organizationId: v.string(),
+    paginationOpts: paginationOptsValidator,
+    vendorProfileId: v.id("contractorProfiles"),
+  })
+  .returns(paginationResultValidator(costDocumentVendorHistorySummaryValidator))
+  .handler(async (ctx, args) => {
+    const scope = await resolveCostDocumentVendorHistoryScope(
+      ctx,
+      args.organizationId
+    );
+    const profile = await ctx.db.get(args.vendorProfileId);
+    if (
+      !profile ||
+      profile.organizationId !== args.organizationId.trim() ||
+      profile.brokerageId !== scope.brokerage._id
+    ) {
+      throw new Error("Cost Document vendor history is unavailable.");
+    }
+    const page = await ctx.db
+      .query("costDocuments")
+      .withIndex(
+        "by_organizationId_and_vendorProfileId_and_submittedAt",
+        (query) =>
+          query
+            .eq("organizationId", args.organizationId.trim())
+            .eq("vendorProfileId", args.vendorProfileId)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const projected = [] as Array<{
+      _id: Id<"costDocuments">;
+      buildId: Id<"activeBuilds">;
+      buildName: string;
+      category: "labour" | "materials";
+      currency: "CAD";
+      documentDate: string;
+      grossTotalCents: number;
+      kind: "invoice" | "receipt";
+      state: "submitted";
+      submittedAt: number;
+      title: string;
+      vendor: Awaited<ReturnType<typeof projectCostDocumentVendor>>;
+      vendorName: string;
+    }>;
+    for (const document of page.page) {
+      if (
+        document.organizationId !== args.organizationId.trim() ||
+        document.brokerageId !== scope.brokerage._id ||
+        document.vendorProfileId !== args.vendorProfileId ||
+        document.state !== "submitted"
+      ) {
+        throw new Error("Cost Document vendor history is unavailable.");
+      }
+      const build = await ctx.db.get(document.buildId);
+      if (
+        !build ||
+        build.organizationId !== args.organizationId.trim() ||
+        build.brokerageId !== scope.brokerage._id
+      ) {
+        throw new Error("Cost Document vendor history is unavailable.");
+      }
+      projected.push({
+        _id: document._id,
+        buildId: document.buildId,
+        buildName: build.buildName,
+        category: document.category,
+        currency: document.currency,
+        documentDate: document.documentDate,
+        grossTotalCents: document.grossTotalCents,
+        kind: document.kind,
+        state: document.state,
+        submittedAt: document.submittedAt,
+        title: document.title,
+        vendor: await projectCostDocumentVendor(ctx, document),
+        vendorName: document.vendorName,
+      });
+    }
+    return { ...page, page: projected };
+  })
+  .public();
+
 async function resolveContractorSubmittedReadScope(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization
@@ -709,6 +894,99 @@ async function resolveContractorSubmittedReadScope(
   } catch {
     return null;
   }
+}
+
+function costDocumentVendorPartyTypeForProfile(
+  profile: Doc<"contractorProfiles">
+) {
+  const capabilities = profile.quoteRecipientCapabilities;
+  if (
+    capabilities?.includes("supplier") &&
+    !capabilities.includes("contractor")
+  ) {
+    return "supplier" as const;
+  }
+  if (!capabilities || capabilities.includes("contractor")) {
+    return "contractor" as const;
+  }
+  return "vendor" as const;
+}
+
+async function projectCostDocumentVendor(
+  ctx: QueryCtx,
+  document: Doc<"costDocuments">
+) {
+  if (document.vendorProfileId) {
+    const profile = await ctx.db.get(document.vendorProfileId);
+    if (
+      profile &&
+      profile.organizationId === document.organizationId &&
+      profile.brokerageId === document.brokerageId
+    ) {
+      return {
+        displayName: profile.name,
+        partyType: costDocumentVendorPartyTypeForProfile(profile),
+        profileId: profile._id,
+        resolution: "linked" as const,
+      };
+    }
+  }
+  return {
+    displayName: document.vendorName,
+    partyType: "vendor" as const,
+    resolution: "unresolved_legacy" as const,
+  };
+}
+
+async function requireActiveCostDocumentVendorProfile(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  profileId: Id<"contractorProfiles">
+) {
+  const profile = await ctx.db.get(profileId);
+  if (
+    !profile ||
+    profile.organizationId !== authorization.organizationId ||
+    profile.brokerageId !== authorization.brokerage._id ||
+    profile.status !== "active"
+  ) {
+    throw new Error(
+      "Select an active organization vendor, supplier, or contractor."
+    );
+  }
+  return profile;
+}
+
+async function resolveCostDocumentVendorHistoryScope(
+  ctx: QueryCtx & { viewer: AuthorizedViewer },
+  organizationId: string
+) {
+  const normalizedOrganizationId = organizationId.trim();
+  if (!normalizedOrganizationId) {
+    throw new Error("Cost Document vendor history is unavailable.");
+  }
+  const membership = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (query) =>
+      query.eq("workosUserId", ctx.viewer.subject)
+    )
+    .filter((query) =>
+      query.eq(query.field("workosOrganizationId"), normalizedOrganizationId)
+    )
+    .first();
+  if (!membership || membership.status !== "active") {
+    throw new Error("Cost Document vendor history is unavailable.");
+  }
+  const brokerage = await ctx.db
+    .query("brokerages")
+    .withIndex("by_workos_organization", (query) =>
+      query.eq("workosOrganizationId", normalizedOrganizationId)
+    )
+    .unique();
+  if (!brokerage || brokerage.status !== "active") {
+    throw new Error("Cost Document vendor history is unavailable.");
+  }
+  return { brokerage };
 }
 
 async function listAuthorizedCostDocumentPage<T>(
@@ -806,7 +1084,10 @@ async function listReadableCostDocuments(
   return input.documents.filter((_, index) => readable[index]);
 }
 
-function projectCostDocumentSummary(document: Doc<"costDocuments">) {
+async function projectCostDocumentSummary(
+  ctx: QueryCtx,
+  document: Doc<"costDocuments">
+) {
   return {
     _id: document._id,
     category: document.category,
@@ -816,6 +1097,7 @@ function projectCostDocumentSummary(document: Doc<"costDocuments">) {
     state: document.state,
     submittedAt: document.submittedAt,
     title: document.title,
+    vendor: await projectCostDocumentVendor(ctx, document),
     vendorName: document.vendorName,
   };
 }
@@ -953,6 +1235,7 @@ async function projectCostDocumentRoadmapReconciliationSummary(
       document.uploaderWorkosUserId === authorization.viewer.subject
         ? ("self" as const)
         : ("other" as const),
+    vendor: await projectCostDocumentVendor(ctx, document),
     vendorName: document.vendorName,
   };
 }
@@ -1429,6 +1712,7 @@ export const getCostDocumentDraft = authenticatedQuery
         revision: currentCostDocumentDraftRevision(access.draft),
         self: { workosUserId: access.authorization.viewer.subject },
         title: projected.title,
+        vendorProfileId: projected.vendorProfileId,
         vendorName: projected.vendorName,
         workingStateJson: projected.workingStateJson,
       };
@@ -1853,6 +2137,7 @@ export const saveCostDocumentDraft = authenticatedMutation
     ),
     pageAssetIds: v.optional(v.array(v.id("buildCollaborationAssets"))),
     title: v.optional(v.string()),
+    vendorProfileId: v.optional(v.union(v.id("contractorProfiles"), v.null())),
     vendorName: v.optional(v.string()),
     workingStateJson: v.optional(v.string()),
   })
@@ -1877,6 +2162,7 @@ export const saveCostDocumentDraft = authenticatedMutation
       grossTotalCents?: number;
       kind?: "invoice" | "receipt";
       title?: string;
+      vendorProfileId?: Id<"contractorProfiles">;
       vendorName?: string;
       workingStateJson?: string;
       revision: number;
@@ -1891,7 +2177,21 @@ export const saveCostDocumentDraft = authenticatedMutation
     if (args.title !== undefined) {
       updates.title = optionalDraftText(args.title, "Title", 240);
     }
-    if (args.vendorName !== undefined) {
+    if (args.vendorProfileId !== undefined && args.vendorProfileId !== null) {
+      const profile = await requireActiveCostDocumentVendorProfile(
+        ctx,
+        authorization,
+        args.vendorProfileId
+      );
+      updates.vendorProfileId = profile._id;
+      updates.vendorName = profile.name;
+    } else if (args.vendorProfileId === null) {
+      updates.vendorProfileId = undefined;
+    }
+    if (
+      args.vendorName !== undefined &&
+      (args.vendorProfileId === undefined || args.vendorProfileId === null)
+    ) {
       updates.vendorName = optionalDraftText(args.vendorName, "Vendor", 240);
     }
     if (args.description !== undefined) {
@@ -3526,6 +3826,7 @@ async function projectCostDocumentDraft(
     pages,
     submittedCostDocumentId: draft.submittedCostDocumentId,
     title: draft.title,
+    vendorProfileId: draft.vendorProfileId,
     vendorName: draft.vendorName,
     workingStateJson: draft.workingStateJson,
   };
@@ -3958,7 +4259,7 @@ async function validateDraftCapture(
   authorization: ActiveBuildAuthorization,
   draft: Doc<"costDocumentDrafts">
 ) {
-  requiredDraftFacts(draft);
+  await requiredDraftFacts(ctx, authorization, draft);
   const pages = await currentDraftPages(ctx, draft);
   if (pages.length < 1 || pages.length > MAX_PAGES) {
     throw new Error(`A Cost Document requires 1-${MAX_PAGES} source pages.`);
@@ -4077,7 +4378,7 @@ async function validateDraftForSubmission(
   }
   const pages = await validateDraftCapture(ctx, authorization, draft);
   const balance = await validateDraftBalance(ctx, authorization, draft);
-  const facts = requiredDraftFacts(draft);
+  const facts = await requiredDraftFacts(ctx, authorization, draft);
   const allocations = [] as {
     amountCents: number;
     submilestone: Doc<"buildSubmilestones">;
@@ -4102,6 +4403,7 @@ async function validateDraftForSubmission(
     kind: draft.kind,
     pages: await resolveDraftAssets(ctx, authorization, pages),
     title: facts.title,
+    vendorProfileId: facts.vendorProfileId,
     vendorName: facts.vendorName,
   };
 }
@@ -4117,11 +4419,37 @@ async function awaitSubmilestone(
   return submilestone;
 }
 
-function requiredDraftFacts(draft: Doc<"costDocumentDrafts">) {
+async function requiredDraftFacts(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  draft: Doc<"costDocumentDrafts">
+) {
+  // New capture writes a durable profile link. The name-only branch is kept
+  // for historical drafts and stale clients so their records remain usable as
+  // explicit unresolved legacy vendor text until a linked party is selected.
+  if (draft.vendorProfileId) {
+    try {
+      const profile = await requireActiveCostDocumentVendorProfile(
+        ctx,
+        authorization,
+        draft.vendorProfileId
+      );
+      return {
+        documentDate: requiredDocumentDate(draft.documentDate ?? ""),
+        title: requiredText(draft.title ?? "", "Title", 240),
+        vendorName: profile.name,
+        vendorProfileId: profile._id,
+      };
+    } catch {
+      // A stale or retired profile link remains usable as explicit unresolved
+      // legacy text until a current party is selected.
+    }
+  }
   return {
     documentDate: requiredDocumentDate(draft.documentDate ?? ""),
     title: requiredText(draft.title ?? "", "Title", 240),
     vendorName: requiredText(draft.vendorName ?? "", "Vendor", 240),
+    vendorProfileId: undefined,
   };
 }
 
@@ -4262,6 +4590,7 @@ async function insertSubmittedCostDocument(
     title: input.title,
     uploaderEmailSnapshot: input.uploaderEmail,
     uploaderWorkosUserId: authorization.viewer.subject,
+    vendorProfileId: input.vendorProfileId,
     vendorName: input.vendorName,
   });
   for (const [index, asset] of input.pages.entries()) {
@@ -4734,6 +5063,7 @@ async function projectCostDocument(
       document.uploaderWorkosUserId === authorization.viewer.subject
         ? ("self" as const)
         : ("other" as const),
+    vendor: await projectCostDocumentVendor(ctx, document),
     vendorName: document.vendorName,
   };
 }
@@ -5024,7 +5354,7 @@ async function assessCostDocumentDuplicates(
     }
     assets.push(asset);
   }
-  const facts = requiredDraftFacts(draft);
+  const facts = await requiredDraftFacts(ctx, authorization, draft);
   return await assessCostDocumentIdentity(ctx, authorization, {
     category: draft.category,
     documentDate: facts.documentDate,
@@ -5434,6 +5764,7 @@ async function createCostDocumentCorrection(
     supersedesCostDocumentId: document._id,
     title: document.title,
     updatedAt: now,
+    vendorProfileId: document.vendorProfileId,
     vendorName: document.vendorName,
   });
   if (input.reuseSourcePages) {
