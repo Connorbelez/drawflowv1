@@ -1564,7 +1564,16 @@ describe("BuildCollaborationFeed", () => {
           target,
         ),
       ).toBe(
-        `${pathname}?tab=details&filter=mine&focus=submilestone%3Asubmilestone-9&detailTab=collaboration`,
+          `${pathname}?tab=details&filter=mine&focus=submilestone%3Asubmilestone-9&detailTab=collaboration`,
+      );
+      expect(
+        buildDetailTargetSheetHref(
+          `https://drawflow.test${pathname}?tab=details&filter=mine`,
+          target,
+          { selectedTab: "review" },
+        ),
+      ).toBe(
+        `${pathname}?tab=details&filter=mine&focus=submilestone%3Asubmilestone-9&detailTab=review`,
       );
       expect(
         buildDetailTargetQueueHref(
