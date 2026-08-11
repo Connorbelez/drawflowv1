@@ -27,6 +27,7 @@ import {
   assertExpectedCostDocumentDraftRevision,
   authorizeCostDocumentIntent,
   type CurrentCostDocumentContractorScope,
+  canCreateCostDocumentVendor,
   canManageCostDocumentDraftCollaboration,
   canReadSubmittedCostDocument,
   costDocumentDraftCapabilities,
@@ -183,6 +184,14 @@ const costDocumentVendorOptionValidator = v.object({
   name: v.string(),
   partyType: costDocumentVendorPartyTypeValidator,
   profileId: v.id("contractorProfiles"),
+});
+const costDocumentVendorCreateAccessValidator = v.object({
+  canCreate: v.boolean(),
+});
+const costDocumentVendorCreationResultValidator = v.object({
+  created: v.boolean(),
+  duplicateOptions: v.array(costDocumentVendorOptionValidator),
+  option: v.optional(costDocumentVendorOptionValidator),
 });
 const costDocumentIntegrityExceptionProjectionValidator = v.object({
   actionRequired: v.boolean(),
@@ -626,17 +635,7 @@ export const listCostDocumentVendorOptions = authenticatedQuery
   .handler(async (ctx, args) => {
     const authorization = await authorizeCostDocumentBuilder(ctx, args);
     const normalizedSearch = args.search?.trim().toLocaleLowerCase("en-CA");
-    const profiles = await ctx.db
-      .query("contractorProfiles")
-      .withIndex(
-        "by_organizationId_and_brokerageId_and_status_and_name",
-        (query) =>
-          query
-            .eq("organizationId", authorization.organizationId)
-            .eq("brokerageId", authorization.brokerage._id)
-            .eq("status", "active")
-      )
-      .take(MAX_VENDOR_OPTIONS * 3);
+    const profiles = await listCostDocumentVendorProfiles(ctx, authorization);
     return profiles
       .filter(
         (profile) =>
@@ -648,13 +647,119 @@ export const listCostDocumentVendorOptions = authenticatedQuery
             .includes(normalizedSearch)
       )
       .slice(0, MAX_VENDOR_OPTIONS)
-      .map((profile) => ({
-        ...(profile.city ? { city: profile.city } : {}),
-        ...(profile.email ? { email: profile.email } : {}),
-        name: profile.name,
-        partyType: costDocumentVendorPartyTypeForProfile(profile),
-        profileId: profile._id,
-      }));
+      .map(costDocumentVendorOptionForProfile);
+  })
+  .public();
+
+export const getCostDocumentVendorCreateAccess = authenticatedQuery
+  .input(activeBuildScopeFields)
+  .returns(costDocumentVendorCreateAccessValidator)
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeCostDocumentVendorAccess(ctx, args);
+    return { canCreate: canCreateCostDocumentVendor(authorization) };
+  })
+  .public();
+
+/**
+ * Creates a canonical organization party from the Capture & confirm picker.
+ * Duplicate candidates are returned before insertion so the UI can keep the
+ * current draft open and let the uploader link existing history instead.
+ */
+export const createCostDocumentVendorProfile = authenticatedMutation
+  .input({
+    ...activeBuildScopeFields,
+    allowDuplicate: v.optional(v.boolean()),
+    city: v.optional(v.string()),
+    email: v.optional(v.string()),
+    name: v.string(),
+    partyType: costDocumentVendorPartyTypeValidator,
+    phone: v.optional(v.string()),
+  })
+  .returns(costDocumentVendorCreationResultValidator)
+  .handler(async (ctx, args) => {
+    const accessAuthorization = await authorizeCostDocumentVendorAccess(
+      ctx,
+      args
+    );
+    if (!canCreateCostDocumentVendor(accessAuthorization)) {
+      throw new Error(
+        "You do not have permission to create a party from Cost Document capture."
+      );
+    }
+    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+
+    const name = requiredText(args.name, "Party name", 160);
+    const email = optionalText(args.email, "Email", 320);
+    const normalizedEmail = normalizeContractorEmail(email);
+    if (email && !normalizedEmail) {
+      throw new Error("Enter a valid email address or leave it blank.");
+    }
+    const city = optionalText(args.city, "City", 120);
+    const phone = optionalText(args.phone, "Phone", 80);
+    const existingProfiles = await listCostDocumentVendorProfiles(
+      ctx,
+      authorization
+    );
+    const existingEmailProfile = normalizedEmail
+      ? existingProfiles.find(
+          (profile) =>
+            profile.normalizedEmail === normalizedEmail ||
+            normalizeContractorEmail(profile.email) === normalizedEmail
+        )
+      : undefined;
+    if (existingEmailProfile) {
+      return {
+        created: false,
+        duplicateOptions: [],
+        option: costDocumentVendorOptionForProfile(existingEmailProfile),
+      };
+    }
+    const duplicateOptions = existingProfiles
+      .filter((profile) =>
+        isPotentialCostDocumentVendorDuplicate(profile.name, name)
+      )
+      .slice(0, 5)
+      .map(costDocumentVendorOptionForProfile);
+    if (duplicateOptions.length > 0 && !args.allowDuplicate) {
+      return {
+        created: false,
+        duplicateOptions,
+      };
+    }
+
+    const now = Date.now();
+    const profileId = await ctx.db.insert("contractorProfiles", {
+      brokerageId: authorization.brokerage._id,
+      city,
+      costDocumentPartyType: args.partyType,
+      createdAt: now,
+      email,
+      kind: "company",
+      name,
+      normalizedEmail: normalizedEmail || undefined,
+      onboardingStatus: "profile_only",
+      organizationId: authorization.organizationId,
+      quoteRecipientCapabilities:
+        args.partyType === "vendor" ? [] : [args.partyType],
+      source:
+        authorization.effectiveRole.role === "admin" ||
+        authorization.effectiveRole.role === "principle-broker"
+          ? "backoffice_created"
+          : "builder_created",
+      status: "active",
+      phone,
+      trades: [],
+      updatedAt: now,
+    });
+    const profile = await ctx.db.get(profileId);
+    if (!profile) {
+      throw new Error("The new Cost Document party could not be loaded.");
+    }
+    return {
+      created: true,
+      duplicateOptions: [],
+      option: costDocumentVendorOptionForProfile(profile),
+    };
   })
   .public();
 
@@ -896,9 +1001,41 @@ async function resolveContractorSubmittedReadScope(
   }
 }
 
+async function listCostDocumentVendorProfiles(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization
+) {
+  return await ctx.db
+    .query("contractorProfiles")
+    .withIndex(
+      "by_organizationId_and_brokerageId_and_status_and_name",
+      (query) =>
+        query
+          .eq("organizationId", authorization.organizationId)
+          .eq("brokerageId", authorization.brokerage._id)
+          .eq("status", "active")
+    )
+    .take(MAX_VENDOR_OPTIONS * 3);
+}
+
+function costDocumentVendorOptionForProfile(
+  profile: Doc<"contractorProfiles">
+) {
+  return {
+    ...(profile.city ? { city: profile.city } : {}),
+    ...(profile.email ? { email: profile.email } : {}),
+    name: profile.name,
+    partyType: costDocumentVendorPartyTypeForProfile(profile),
+    profileId: profile._id,
+  };
+}
+
 function costDocumentVendorPartyTypeForProfile(
   profile: Doc<"contractorProfiles">
 ) {
+  if (profile.costDocumentPartyType) {
+    return profile.costDocumentPartyType;
+  }
   const capabilities = profile.quoteRecipientCapabilities;
   if (
     capabilities?.includes("supplier") &&
@@ -910,6 +1047,36 @@ function costDocumentVendorPartyTypeForProfile(
     return "contractor" as const;
   }
   return "vendor" as const;
+}
+
+function isPotentialCostDocumentVendorDuplicate(left: string, right: string) {
+  const leftKey = normalizeCostDocumentVendorNameForMatch(left);
+  const rightKey = normalizeCostDocumentVendorNameForMatch(right);
+  if (!(leftKey && rightKey)) {
+    return false;
+  }
+  if (
+    leftKey === rightKey ||
+    leftKey.includes(rightKey) ||
+    rightKey.includes(leftKey)
+  ) {
+    return true;
+  }
+  const leftTokens = new Set(leftKey.split(" "));
+  const rightTokens = new Set(rightKey.split(" "));
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token));
+  return (
+    overlap.length >= 2 &&
+    overlap.length / Math.min(leftTokens.size, rightTokens.size) >= 0.5
+  );
+}
+
+function normalizeCostDocumentVendorNameForMatch(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase("en-CA")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 async function projectCostDocumentVendor(
@@ -2972,6 +3139,20 @@ async function authorizeCostDocumentBuilder(
   }
 ) {
   return await authorizeCostDocumentIntent(ctx, { ...input, intent: "create" });
+}
+
+async function authorizeCostDocumentVendorAccess(
+  ctx: AuthorizedCostDocumentCtx,
+  input: {
+    actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"];
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  }
+) {
+  return await authorizeCostDocumentIntent(ctx, {
+    ...input,
+    intent: "submitted.read",
+  });
 }
 
 async function currentCostDocumentCreatorProfileId(

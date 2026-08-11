@@ -1041,6 +1041,16 @@ function canCreateOrCollaborateOnDrafts(
 }
 
 /**
+ * Inline party creation is part of the Cost Document create workflow. Keep
+ * its role policy aligned with the existing Draft create/collaborate policy.
+ */
+export function canCreateCostDocumentVendor(
+  authorization: ActiveBuildAuthorization
+) {
+  return canCreateOrCollaborateOnDrafts(authorization);
+}
+
+/**
  * Draft sharing is intentionally never organization-wide. The eligible-
  * recipient resolver remains Builder-owner / Builder-staff only; this gate
  * lets an authorized creator manage only those exact grants.

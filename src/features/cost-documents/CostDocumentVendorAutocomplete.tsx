@@ -1,9 +1,10 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { Search } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import {
   Autocomplete,
   AutocompleteEmpty,
@@ -13,7 +14,10 @@ import {
   AutocompletePopup,
 } from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import { Field, FieldDescription, FieldLabel } from "#/components/ui/field.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { Input } from "#/components/ui/input.tsx";
 import { cn } from "#/lib/utils.ts";
 
 import { api } from "../../../convex/_generated/api";
@@ -36,6 +40,14 @@ export interface CostDocumentVendorValue {
 }
 
 const COST_DOCUMENT_VENDOR_QUERY_TERMS = /\s+/;
+const COST_DOCUMENT_VENDOR_CREATE_CAPACITIES = new Set([
+  "admin",
+  "principle-broker",
+  "builder",
+  "builder-staff",
+  "homeowner",
+  "contractor",
+]);
 
 export function CostDocumentVendorAutocomplete({
   actorCapacity,
@@ -58,9 +70,32 @@ export function CostDocumentVendorAutocomplete({
 }) {
   const [query, setQuery] = useState(legacyVendorName ?? "");
   const [open, setOpen] = useState(false);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
+  const [createPartyType, setCreatePartyType] =
+    useState<CostDocumentVendorPartyType>("vendor");
+  const [createName, setCreateName] = useState("");
+  const [createEmail, setCreateEmail] = useState("");
+  const [createPhone, setCreatePhone] = useState("");
+  const [createCity, setCreateCity] = useState("");
+  const [createError, setCreateError] = useState<string>();
+  const [duplicateOptions, setDuplicateOptions] = useState<
+    CostDocumentVendorOption[]
+  >([]);
+  const [creating, setCreating] = useState(false);
   const inputId = useId();
   const highlightedOptionRef = useRef<CostDocumentVendorOption | undefined>(
     undefined
+  );
+  const createVendorProfile = useMutation(
+    api.cost_documents.createCostDocumentVendorProfile
+  );
+  const createAccess = useQuery(
+    api.cost_documents.getCostDocumentVendorCreateAccess,
+    {
+      ...(actorCapacity ? { actorCapacity } : {}),
+      buildId,
+      organizationId,
+    }
   );
   const debouncedQuery = useDebouncedValue(query, 200);
   const options = useQueryOptions({
@@ -86,7 +121,79 @@ export function CostDocumentVendorAutocomplete({
     highlightedOptionRef.current = option;
     setQuery(option.name);
     setOpen(false);
+    setCreateFormOpen(false);
+    setDuplicateOptions([]);
+    setCreateError(undefined);
     onValueChange({ displayName: option.name, profileId: option.profileId });
+  };
+
+  const canCreateParty =
+    createAccess?.canCreate ??
+    (actorCapacity === undefined ||
+      COST_DOCUMENT_VENDOR_CREATE_CAPACITIES.has(actorCapacity));
+
+  const openCreateForm = () => {
+    setCreateFormOpen(true);
+    setCreateName(query.trim());
+    setCreateError(undefined);
+    setDuplicateOptions([]);
+  };
+
+  const closeCreateForm = () => {
+    setCreateFormOpen(false);
+    setCreateError(undefined);
+    setDuplicateOptions([]);
+  };
+
+  const handleCreate = async (allowDuplicate = false) => {
+    const normalizedName = createName.trim();
+    if (!normalizedName) {
+      setCreateError("Party name is required.");
+      return;
+    }
+    if (!createVendorProfile) {
+      setCreateError("Party creation is unavailable. Try again.");
+      return;
+    }
+    setCreating(true);
+    setCreateError(undefined);
+    try {
+      const result = (await createVendorProfile({
+        ...(actorCapacity ? { actorCapacity } : {}),
+        allowDuplicate,
+        buildId,
+        city: createCity.trim() || undefined,
+        email: createEmail.trim() || undefined,
+        name: normalizedName,
+        organizationId,
+        partyType: createPartyType,
+        phone: createPhone.trim() || undefined,
+      } as never)) as {
+        created: boolean;
+        duplicateOptions?: CostDocumentVendorOption[];
+        option?: CostDocumentVendorOption;
+      };
+      if (!result?.created && result?.duplicateOptions?.length) {
+        setDuplicateOptions(result.duplicateOptions);
+        return;
+      }
+      if (!result?.option) {
+        throw new Error("The new Cost Document party could not be selected.");
+      }
+      selectOption(result.option);
+    } catch (error) {
+      setCreateError(
+        error instanceof Error
+          ? error.message
+          : "The new Cost Document party could not be created."
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const startCreate = (allowDuplicate = false) => {
+    handleCreate(allowDuplicate).catch(() => undefined);
   };
 
   const handleQueryChange = (nextQuery: string, reason: string) => {
@@ -150,15 +257,15 @@ export function CostDocumentVendorAutocomplete({
           aria-label="Vendor"
           disabled={disabled}
           id={inputId}
-          placeholder="Search organization vendors..."
+          placeholder="Search vendors, suppliers, and contractors..."
           showClear
           startAddon={<Search aria-hidden="true" />}
         />
         <AutocompletePopup>
           <AutocompleteEmpty>
             {options.length === 0
-              ? "No active organization vendors are available."
-              : "No organization vendors match this search."}
+              ? "No active organization parties are available."
+              : "No organization parties match this search."}
           </AutocompleteEmpty>
           <AutocompleteList>
             {(option: CostDocumentVendorOption) => (
@@ -189,6 +296,157 @@ export function CostDocumentVendorAutocomplete({
         Select an organization-scoped vendor, supplier, or contractor. The
         linked identity is retained with the Cost Document.
       </FieldDescription>
+      {canCreateParty && !disabled ? (
+        <Button
+          className="self-start"
+          onClick={openCreateForm}
+          size="sm"
+          variant="outline"
+        >
+          Add a vendor, supplier, or contractor
+        </Button>
+      ) : createAccess?.canCreate === false ? (
+        <p className="text-muted-foreground text-xs">
+          Your current role cannot create a new organization party from Cost
+          Document capture.
+        </p>
+      ) : null}
+      {createFormOpen && canCreateParty ? (
+        <Frame className="mt-1">
+          <FramePanel className="grid gap-3 p-3 sm:p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-medium text-sm">New organization party</p>
+                <p className="text-muted-foreground text-xs">
+                  Create it here and it will be linked to this Cost Document.
+                </p>
+              </div>
+              <Button onClick={closeCreateForm} size="sm" variant="ghost">
+                Cancel
+              </Button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor={`${inputId}-party-type`}>
+                  Party type
+                </FieldLabel>
+                <select
+                  className="min-h-9 rounded-lg border border-input bg-background px-3 text-sm"
+                  id={`${inputId}-party-type`}
+                  onChange={(event) =>
+                    setCreatePartyType(
+                      event.target.value as CostDocumentVendorPartyType
+                    )
+                  }
+                  value={createPartyType}
+                >
+                  <option value="vendor">Vendor</option>
+                  <option value="supplier">Supplier</option>
+                  <option value="contractor">Contractor</option>
+                </select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${inputId}-party-name`}>
+                  Party name
+                </FieldLabel>
+                <Input
+                  autoComplete="organization"
+                  id={`${inputId}-party-name`}
+                  onChange={(event) => {
+                    setCreateName(event.currentTarget.value);
+                    setDuplicateOptions([]);
+                  }}
+                  value={createName}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${inputId}-party-email`}>
+                  Email
+                </FieldLabel>
+                <Input
+                  autoComplete="email"
+                  id={`${inputId}-party-email`}
+                  onChange={(event) =>
+                    setCreateEmail(event.currentTarget.value)
+                  }
+                  type="email"
+                  value={createEmail}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${inputId}-party-phone`}>
+                  Phone
+                </FieldLabel>
+                <Input
+                  autoComplete="tel"
+                  id={`${inputId}-party-phone`}
+                  onChange={(event) =>
+                    setCreatePhone(event.currentTarget.value)
+                  }
+                  value={createPhone}
+                />
+              </Field>
+              <Field className="sm:col-span-2">
+                <FieldLabel htmlFor={`${inputId}-party-city`}>City</FieldLabel>
+                <Input
+                  autoComplete="address-level2"
+                  id={`${inputId}-party-city`}
+                  onChange={(event) => setCreateCity(event.currentTarget.value)}
+                  value={createCity}
+                />
+              </Field>
+            </div>
+            {duplicateOptions.length > 0 ? (
+              <Alert variant="warning">
+                <AlertTitle>Possible existing party</AlertTitle>
+                <AlertDescription>
+                  We found a similar organization party. Select it to keep the
+                  existing Cost Document history together.
+                  <div className="grid gap-2">
+                    {duplicateOptions.map((option) => (
+                      <Button
+                        className="justify-start"
+                        key={option.profileId}
+                        onClick={() => selectOption(option)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Use {option.name}
+                      </Button>
+                    ))}
+                    <Button
+                      className="justify-start"
+                      disabled={creating}
+                      onClick={() => startCreate(true)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      Create a separate party anyway
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {createError ? (
+              <Alert variant="error">
+                <AlertDescription>{createError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button onClick={closeCreateForm} variant="ghost">
+                Cancel
+              </Button>
+              <Button
+                disabled={!createName.trim()}
+                loading={creating}
+                onClick={() => startCreate()}
+              >
+                Create party
+              </Button>
+            </div>
+          </FramePanel>
+        </Frame>
+      ) : null}
       {legacyVendorName && !value ? (
         <p className="text-warning-foreground text-xs">
           Unresolved legacy vendor text: {legacyVendorName}. Select a linked

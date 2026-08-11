@@ -465,6 +465,12 @@ const quoteRecipientCapabilityValidator = v.union(
   v.literal("supplier")
 );
 
+const costDocumentPartyTypeValidator = v.union(
+  v.literal("contractor"),
+  v.literal("supplier"),
+  v.literal("vendor")
+);
+
 // A cold Quote recipient is still represented by the canonical,
 // brokerage-scoped contractorProfiles identity. Capabilities distinguish a
 // Contractor from a Supplier without creating a second identity system.
@@ -2076,6 +2082,10 @@ export default defineSchema({
     quoteRecipientCapabilities: v.optional(
       v.array(quoteRecipientCapabilityValidator)
     ),
+    // Cost Documents can link to a vendor that is not a Quote recipient. Keep
+    // that classification on the canonical profile instead of creating a
+    // second organization-party identity table.
+    costDocumentPartyType: v.optional(costDocumentPartyTypeValidator),
     // A provisional quote profile is intentionally not a partner-network
     // membership, Build assignment, or Contractor Workspace admission. An
     // exact-email WorkOS claim changes only this local ownership marker.

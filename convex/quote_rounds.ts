@@ -2927,7 +2927,8 @@ export const getQuoteRoundComposer = authenticatedQuery
         .filter(
           (profile) =>
             profile.organizationId === authorization.organizationId &&
-            profile.status === "active"
+            profile.status === "active" &&
+            profileCapabilities(profile).length > 0
         )
         .sort((left, right) => left.name.localeCompare(right.name))
         .flatMap((profile) => {
