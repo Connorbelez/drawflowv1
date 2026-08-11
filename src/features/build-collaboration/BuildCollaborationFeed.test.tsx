@@ -968,6 +968,8 @@ vi.mock("convex/react", () => ({
           workKind: mocks.actionItemWorkKind,
           ...(mocks.canonicalSystemActionItem
             ? {
+                canonicalBuildMilestoneId: "milestone-1",
+                canonicalBuildSubmilestoneId: "submilestone-1",
                 systemMode: "generated_milestone_submilestone",
                 systemPresentation: {
                   bindingState: "valid",
@@ -1550,7 +1552,7 @@ describe("BuildCollaborationFeed", () => {
     "keeps canonical Sub-milestone navigation on the current role route %s",
     (pathname) => {
       const target = {
-        companionId: "action-generated",
+        companionId: "action-generated" as Id<"buildActionItems">,
         kind: "submilestone" as const,
         submilestoneId:
           "submilestone-9" as Id<"buildSubmilestones">,
@@ -1562,7 +1564,16 @@ describe("BuildCollaborationFeed", () => {
           target,
         ),
       ).toBe(
-        `${pathname}?tab=details&filter=mine&focus=submilestone%3Asubmilestone-9&detailTab=collaboration`,
+          `${pathname}?tab=details&filter=mine&focus=submilestone%3Asubmilestone-9&detailTab=collaboration`,
+      );
+      expect(
+        buildDetailTargetSheetHref(
+          `https://drawflow.test${pathname}?tab=details&filter=mine`,
+          target,
+          { selectedTab: "review" },
+        ),
+      ).toBe(
+        `${pathname}?tab=details&filter=mine&focus=submilestone%3Asubmilestone-9&detailTab=review`,
       );
       expect(
         buildDetailTargetQueueHref(
@@ -1650,383 +1661,6 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.getByText(
         "Status follows the canonical Sub-milestone.",
-      ),
-    ).toBeTruthy();
-  });
-
-  test("shows builder Start and backoffice Approve on expanded Sub-milestone rows", () => {
-    const builderEntry = canonicalMilestoneSystemPostEntryFixture() as {
-      actionItems: Array<{
-        systemPresentation: Record<string, unknown>;
-      }>;
-    };
-    const presentation = builderEntry.actionItems[0]?.systemPresentation;
-    expect(presentation).toBeTruthy();
-    Object.assign(presentation!, {
-      executionOwnership: {
-        assigneeDisplayName: "Alex Builder",
-        state: "assigned",
-        viewerIsAssignee: true,
-      },
-      startCommand: {
-        ...(presentation!.startCommand as Record<string, unknown>),
-        allowed: true,
-        denialReason: undefined,
-      },
-    });
-    mocks.viewerBinding = {
-      ...mocks.viewerBinding,
-      role: "builder",
-      roles: ["builder"],
-      workosUserId: "user_builder",
-    };
-    mocks.feedRows = [builderEntry];
-    window.history.replaceState(
-      {},
-      "",
-      "/builder/builds/build-1?tab=collaboration",
-    );
-
-    const { unmount } = render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
-    expect(
-      screen.getByRole("button", { name: "Start Sub-milestone" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Complete Sub-milestone" }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Approve Sub-milestone" }),
-    ).toBeNull();
-    expect(screen.queryByText("Backoffice commands")).toBeNull();
-    expect(screen.queryByText("Builder commands")).toBeNull();
-    unmount();
-
-    const dualRoleEntry = canonicalMilestoneSystemPostEntryFixture() as {
-      actionItems: Array<{
-        systemPresentation: Record<string, unknown>;
-      }>;
-    };
-    const dualPresentation = dualRoleEntry.actionItems[0]?.systemPresentation;
-    Object.assign(dualPresentation!, {
-      executionOwnership: {
-        assigneeDisplayName: "Alex Builder",
-        state: "assigned",
-        viewerIsAssignee: true,
-      },
-      startCommand: {
-        ...(dualPresentation!.startCommand as Record<string, unknown>),
-        allowed: true,
-        denialReason: undefined,
-      },
-    });
-    mocks.viewerBinding = {
-      ...mocks.viewerBinding,
-      role: "admin",
-      roles: ["admin", "builder"],
-      workosUserId: "user_admin_builder",
-    };
-    mocks.feedRows = [dualRoleEntry];
-    window.history.replaceState(
-      {},
-      "",
-      "/builder/builds/build-1?tab=collaboration",
-    );
-    const dual = render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
-    expect(
-      screen.getByRole("button", { name: "Start Sub-milestone" }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Approve Sub-milestone" }),
-    ).toBeNull();
-    expect(
-      screen.queryByText(
-        "You are not the assigned operator for this Sub-milestone.",
-      ),
-    ).toBeNull();
-    dual.unmount();
-
-    const adminOnlyEntry = canonicalMilestoneSystemPostEntryFixture() as {
-      actionItems: Array<{
-        systemPresentation: Record<string, unknown>;
-      }>;
-    };
-    const adminPresentation = adminOnlyEntry.actionItems[0]?.systemPresentation;
-    Object.assign(adminPresentation!, {
-      executionOwnership: {
-        state: "assignment_required",
-        viewerIsAssignee: false,
-      },
-      startCommand: {
-        ...(adminPresentation!.startCommand as Record<string, unknown>),
-        allowed: true,
-        denialReason: undefined,
-      },
-    });
-    mocks.viewerBinding = {
-      ...mocks.viewerBinding,
-      role: "admin",
-      roles: ["admin"],
-      workosUserId: "user_admin_only",
-    };
-    mocks.feedRows = [adminOnlyEntry];
-    window.history.replaceState(
-      {},
-      "",
-      "/builder/builds/build-1?tab=collaboration",
-    );
-    const adminOnly = render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
-    const adminStart = screen.getByRole("button", {
-      name: "Start Sub-milestone",
-    });
-    expect(adminStart).toBeTruthy();
-    expect(adminStart.hasAttribute("disabled")).toBe(false);
-    expect(
-      screen.queryByText(
-        "You are not the assigned operator for this Sub-milestone.",
-      ),
-    ).toBeNull();
-    expect(
-      screen.queryByText("You do not have Sub-milestone update permission."),
-    ).toBeNull();
-    adminOnly.unmount();
-
-    const backofficeEntry = canonicalMilestoneSystemPostEntryFixture() as {
-      actionItems: Array<{
-        systemPresentation: Record<string, unknown>;
-      }>;
-    };
-    const backofficePresentation =
-      backofficeEntry.actionItems[0]?.systemPresentation;
-    Object.assign(backofficePresentation!, {
-      canApproveSubmilestone: true,
-      column: "in_review",
-      reviewDecisionState: "in_review",
-      reviewRevision: 2,
-      startCommand: {
-        ...(backofficePresentation!.startCommand as Record<string, unknown>),
-        allowed: false,
-        denialReason: "already_started",
-      },
-    });
-    mocks.viewerBinding = {
-      ...mocks.viewerBinding,
-      role: "admin",
-      roles: ["admin", "builder"],
-      workosUserId: "user_admin",
-    };
-    mocks.feedRows = [backofficeEntry];
-    window.history.replaceState(
-      {},
-      "",
-      "/backoffice/builds/build-1?tab=collaboration",
-    );
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
-    expect(
-      screen.getByRole("button", { name: "Approve Sub-milestone" }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Start Sub-milestone" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Complete Sub-milestone" }),
-    ).toBeNull();
-    expect(screen.queryByText("Builder commands")).toBeNull();
-    expect(screen.queryByText("Backoffice commands")).toBeNull();
-    expect(
-      screen.queryByText("Your role cannot start this Sub-milestone."),
-    ).toBeNull();
-  });
-
-  test("orders a Site Visit with canonical Sub-milestone identity and Guidance", async () => {
-    const entry = canonicalMilestoneSystemPostEntryFixture() as {
-      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
-    };
-    Object.assign(entry.actionItems[0]!.systemPresentation, {
-      canReview: true,
-      siteVisitRequirement: {
-        manualSignals: [],
-        policySignals: [],
-        required: true,
-        riskSignals: [],
-        status: "required",
-      },
-    });
-    mocks.viewerBinding = {
-      ...mocks.viewerBinding,
-      role: "broker",
-      roles: ["broker"],
-      workosUserId: "user_broker",
-    };
-    mocks.authUserId = "user_broker";
-    mocks.feedRows = [entry];
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Order site visit" }));
-    expect(screen.getByRole("dialog", { name: "Configure site visit" })).toBeTruthy();
-
-    mocks.mutate.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Confirm and order site visit" }),
-    );
-
-    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
-    expect(mocks.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        buildId: "build-1",
-        milestoneKey: "foundation",
-        submilestoneGuidanceSections: [
-          expect.objectContaining({
-            buildSubmilestoneId: "submilestone-1",
-            proposalSubmilestoneId: "proposal-submilestone-1",
-          }),
-        ],
-        submilestoneKeys: ["foundation-1"],
-        workosOrganizationId: "org-1",
-      }),
-    );
-  });
-
-  test("explains revision-gated Sub-milestone controls before a refresh", () => {
-    const entry = canonicalMilestoneSystemPostEntryFixture() as {
-      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
-    };
-    const presentation = entry.actionItems[0]!.systemPresentation;
-    delete presentation.workflowRevision;
-    Object.assign(presentation, {
-      canAddEvidence: true,
-      canSubmitForReview: true,
-      evidencePackageRevision: 1,
-      evidencePackageRevisionId: "package-1",
-      startCommand: {
-        ...(presentation.startCommand as Record<string, unknown>),
-        allowed: true,
-        denialReason: undefined,
-      },
-    });
-    mocks.viewerBinding = {
-      ...mocks.viewerBinding,
-      role: "builder",
-      roles: ["builder"],
-      workosUserId: "user_builder",
-    };
-    mocks.feedRows = [entry];
-    window.history.replaceState(
-      {},
-      "",
-      "/builder/builds/build-1?tab=collaboration",
-    );
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
-
-    const reason =
-      "Refresh this collaboration card; the canonical workflow revision is unavailable.";
-    expect(screen.getAllByText(reason).length).toBeGreaterThanOrEqual(2);
-    expect(
-      screen.getByRole("button", { name: "Start Sub-milestone" }).hasAttribute(
-        "disabled",
-      ),
-    ).toBe(true);
-    expect(
-      screen
-        .getByRole("button", { name: "Complete Sub-milestone" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
-  });
-
-  test("freezes evidence with a stable key before submitting at the returned revision", async () => {
-    const entry = canonicalMilestoneSystemPostEntryFixture() as {
-      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
-    };
-    const presentation = entry.actionItems[0]!.systemPresentation;
-    Object.assign(presentation, {
-      canSubmitForReview: true,
-      evidencePackageRevision: 1,
-      evidencePackageRevisionId: "package-1",
-      evidenceReviewState: "not_ready",
-      startCommand: {
-        ...(presentation.startCommand as Record<string, unknown>),
-        allowed: false,
-        denialReason: "already_started",
-      },
-    });
-    mocks.viewerBinding = {
-      ...mocks.viewerBinding,
-      role: "builder",
-      roles: ["builder"],
-      workosUserId: "user_builder",
-    };
-    mocks.feedRows = [entry];
-    mocks.mutate
-      .mockReset()
-      .mockResolvedValueOnce({ revision: 3 })
-      .mockResolvedValueOnce({ revision: 4 });
-    window.history.replaceState(
-      {},
-      "",
-      "/builder/builds/build-1?tab=collaboration",
-    );
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Complete Sub-milestone" }),
-    );
-
-    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(2));
-    expect(mocks.mutate.mock.calls[0]?.[0]).toMatchObject({
-      expectedRevision: 2,
-      idempotencyKey: expect.stringMatching(/^evidence-freeze:/),
-      packageRevisionId: "package-1",
-      submilestoneKey: "foundation-1",
-    });
-    expect(mocks.mutate.mock.calls[1]?.[0]).toMatchObject({
-      expectedRevision: 3,
-      idempotencyKey: expect.stringMatching(/^completion-review:/),
-      packageRevisionId: "package-1",
-      submilestoneKey: "foundation-1",
-    });
-  });
-
-  test("keeps canonical Milestone status transitions disabled in the detail sheet", async () => {
-    mocks.canonicalSystemActionItem = true;
-    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Show Action Items as a list" }),
-    );
-    const actionCard = screen.getByRole("button", {
-      name: "Open Action Item: Excavate",
-    });
-    expect(actionCard.getAttribute("aria-describedby")).toBeTruthy();
-    expect(
-      document.getElementById(actionCard.getAttribute("aria-describedby")!)
-        ?.textContent,
-    ).toContain("Behind Schedule · Assignment required");
-    fireEvent.click(actionCard);
-
-    const status = await screen.findByRole("combobox", {
-      name: "Change Action Item status",
-    });
-    expect((status as HTMLSelectElement).disabled).toBe(true);
-    expect(
-      screen.getByText(
-        "System · Milestone — status follows the canonical Sub-milestone.",
       ),
     ).toBeTruthy();
   });
@@ -3740,6 +3374,38 @@ describe("BuildCollaborationFeed", () => {
         screen.queryByRole("heading", { name: "Upload engineer seal" }),
       ).toBeNull(),
     );
+  });
+
+  test("dispatches a generated companion before generic Action Item rendering", async () => {
+    mocks.canonicalSystemActionItem = true;
+    const onOpenReference = vi.fn();
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        detailResolutionState="visible"
+        focusedReference="actionItem:action-1"
+        onOpenReference={onOpenReference}
+        organizationId="org-1"
+        resolvedDetailTarget={{
+          actionItemId: "action-1" as Id<"buildActionItems">,
+          kind: "actionItem",
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onOpenReference).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityId: "submilestone-1",
+          entityKind: "submilestone",
+          href: expect.stringContaining("detailTab=collaboration"),
+        }),
+      ),
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Change Action Item status" }),
+    ).toBeNull();
+    expect(screen.queryByText("Canonical Sub-milestone facts")).toBeNull();
   });
 
   test("creates Action Items from a live post with inherited audience context", async () => {

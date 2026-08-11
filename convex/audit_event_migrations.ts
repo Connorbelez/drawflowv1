@@ -106,7 +106,7 @@ const HISTORICAL_CHILD_RESOURCE_TYPES: Readonly<Record<string, AuditResourceType
     "contractor",
   "scheduleActiveBuildSiteVisit|site_visit.scheduled": "siteVisit",
   "rescheduleActiveBuildSiteVisit|site_visit.rescheduled": "siteVisit",
-  "cancelActiveBuildSiteVisit|site_visit.cancelled": "siteVisit",
+  "cancelActiveBuildSiteVisit|calendar.event.cancelled": "siteVisit",
   "assignActiveBuildSiteVisit|active_build.site_visit.requested": "siteVisit",
   "recordActiveBuildSiteVisit|active_build.site_visit.recorded": "siteVisit",
   "requestActiveBuildSiteVisitReplacementLink|active_build.site_visit.replacement_link_requested":
@@ -513,7 +513,7 @@ function isScopedSubmilestone(
   );
 }
 
-function deriveResourceType(
+export function deriveResourceType(
   event: Doc<"auditEvents">,
 ): AuditResourceType | undefined {
   const signal = `${event.eventType} ${event.command}`.toLowerCase();

@@ -57,6 +57,7 @@ import {
   toBackendReferenceKind,
   toCollaborationTagOption,
 } from "../build-collaboration/model.ts";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 
 type RawCollaborationTagOption = FunctionReturnType<
   typeof api.build_collaboration_references.listBuildCollaborationTagOptions
@@ -92,6 +93,10 @@ interface SubmilestoneCollaborationPanelProps {
     entityKind: string;
     href: string;
   }) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: { selectedTab?: string },
+  ) => void;
   readOnly: boolean;
   submilestoneKey: string;
   superseded: boolean;
@@ -112,6 +117,7 @@ export function SubmilestoneCollaborationPanel({
   milestoneKey,
   organizationId,
   onReferenceOpen,
+  onOpenCanonicalTarget,
   readOnly,
   submilestoneKey,
   superseded,
@@ -160,6 +166,7 @@ export function SubmilestoneCollaborationPanel({
       milestoneKey={milestoneKey}
       organizationId={organizationId}
       onReferenceOpen={onReferenceOpen}
+      onOpenCanonicalTarget={onOpenCanonicalTarget}
       promoteEvidenceAllowed={promoteEvidenceAllowed}
       readOnly={companionReadOnly}
       structureCapabilities={structureCapabilities}
@@ -182,6 +189,7 @@ function VisibleSubmilestoneCollaboration({
   milestoneKey,
   organizationId,
   onReferenceOpen,
+  onOpenCanonicalTarget,
   promoteEvidenceAllowed,
   readOnly,
   structureCapabilities,
@@ -207,6 +215,10 @@ function VisibleSubmilestoneCollaboration({
     entityKind: string;
     href: string;
   }) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: { selectedTab?: string },
+  ) => void;
   promoteEvidenceAllowed: boolean;
   readOnly: boolean;
   structureCapabilities?: BuildActionItemStructureCapabilities;
@@ -717,6 +729,7 @@ function VisibleSubmilestoneCollaboration({
         canGoForward={false}
         onGoBack={childBack}
         onGoForward={childForward}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
         onOpenChange={(open) => {
           if (!open) {
             closeChild();

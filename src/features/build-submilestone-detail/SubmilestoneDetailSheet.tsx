@@ -846,6 +846,7 @@ function VisibleState({
                     companionActionItemId={
                       companionActionItemId ?? bootstrap.companion?.actionItemId
                     }
+                    onOpenCanonicalTarget={onOpenTarget}
                     evidencePackageRevision={
                       bootstrap.evidence.evidencePackageRevision
                     }

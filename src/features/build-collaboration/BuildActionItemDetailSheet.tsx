@@ -6,15 +6,10 @@ import type { FunctionReturnType } from "convex/server";
 import {
   ArrowUpRight,
   CalendarClock,
-  CheckCircle2,
   ChevronRight,
   Clock3,
-  FilePlus2,
   History,
   MessageCircle,
-  Play,
-  Save,
-  Send,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
@@ -48,23 +43,15 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
-import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
   BUILD_ACTION_ITEM_TAGS,
   type BuildActionItemTag,
 } from "../../../convex/build_action_item_tags";
-import {
-  EvidenceUploader,
-  type EvidenceUploaderUploadInput,
-} from "../backoffice-build-detail/MilestoneDetailSheet.tsx";
-import {
-  type MilestoneStartConfirmation,
-  MilestoneStartDialog,
-  type MilestoneStartDialogRequest,
-} from "../backoffice-build-detail/MilestoneStartDialog.tsx";
 import { BuildDetailTargetHeader as DetailSheetHeader } from "../build-detail-targets/BuildDetailTargetHeader.tsx";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
+import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
 import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
@@ -87,11 +74,10 @@ import {
 } from "./CollaborationRichTextEditor.tsx";
 import {
   emptyDocument,
+  classifyCollaborationActionItem,
   formatTimestamp,
-  isCanonicalMilestoneItem,
   parseDocument,
   plainTextFromDocument,
-  systemPresentationLabels,
   toBackendReferenceKind,
   toEditorReferenceKind,
 } from "./model.ts";
@@ -143,6 +129,7 @@ export function BuildActionItemDetailSheet({
   focusedAssetId,
   onCreated,
   onOpenChange,
+  onOpenCanonicalTarget,
   onGoBack = () => undefined,
   onGoForward = () => undefined,
   onReferenceOpen,
@@ -160,6 +147,10 @@ export function BuildActionItemDetailSheet({
   onGoBack?: () => void;
   onGoForward?: () => void;
   onOpenChange: (open: boolean) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext
+  ) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   open: boolean;
   organizationId: string;
@@ -171,7 +162,7 @@ export function BuildActionItemDetailSheet({
     target?.kind === "detail" ? target.actionItemId : undefined;
   const detail = useQuery(
     api.build_action_item_details.getBuildActionItemDetail,
-    open && actionItemId ? { actionItemId, buildId, organizationId } : "skip",
+    open && actionItemId ? { actionItemId, buildId, organizationId } : "skip"
   ) as ActionItemDetail | undefined;
   return (
     <Sheet modal={false} onOpenChange={onOpenChange} open={open}>
@@ -216,9 +207,9 @@ export function BuildActionItemDetailSheet({
             focusedAssetId={focusedAssetId}
             onGoBack={onGoBack}
             onGoForward={onGoForward}
+            onOpenCanonicalTarget={onOpenCanonicalTarget}
             onOpenChange={onOpenChange}
             onReferenceOpen={onReferenceOpen}
-            open={open}
             organizationId={organizationId}
             readOnly={readOnly}
             tagOptions={tagOptions}
@@ -251,21 +242,21 @@ function ActionItemCreatePanel({
   tagOptions: CollaborationTagOption[];
 }) {
   const createActionItem = useBuildCollaborationMutation(
-    api.build_action_items.createBuildActionItem,
+    api.build_action_items.createBuildActionItem
   );
   const beginAssetUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
   const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage,
+      .registerBuildCollaborationAssetUploadedStorage
   );
   const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload,
+      .finalizeAndScanBuildCollaborationAssetUpload
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const [title, setTitle] = useState("");
   const [document, setDocument] = useState<JSONContent>(emptyDocument());
@@ -280,7 +271,7 @@ function ActionItemCreatePanel({
   const [requestId] = useState(() => newActionItemRequestId());
   const [submitting, setSubmitting] = useState(false);
   const participants = tagOptions.filter(
-    (option) => option.kind === "participant",
+    (option) => option.kind === "participant"
   );
   const effectiveWorkKind = effectiveActionItemWorkKind(workKind, references);
 
@@ -342,9 +333,7 @@ function ActionItemCreatePanel({
         reason: "Action Item creation failed after asset upload.",
       });
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to create Action Item.",
+        error instanceof Error ? error.message : "Unable to create Action Item."
       );
     } finally {
       setSubmitting(false);
@@ -469,7 +458,7 @@ function ActionItemDetailPanel({
   canGoForward,
   detail,
   focusedAssetId,
-  open,
+  onOpenCanonicalTarget,
   onOpenChange,
   onGoBack,
   onGoForward,
@@ -483,7 +472,10 @@ function ActionItemDetailPanel({
   canGoForward: boolean;
   detail: ActionItemDetail | undefined;
   focusedAssetId?: Id<"buildCollaborationAssets">;
-  open: boolean;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext
+  ) => void;
   onOpenChange: (open: boolean) => void;
   onGoBack: () => void;
   onGoForward: () => void;
@@ -534,6 +526,37 @@ function ActionItemDetailPanel({
       </>
     );
   }
+  if (detail.item.systemMode === "generated_milestone_submilestone") {
+    const classification = classifyCollaborationActionItem({
+      _id: detail.item.actionItemId,
+      canonicalBuildSubmilestoneId: detail.item.canonicalBuildSubmilestoneId,
+      systemMode: detail.item.systemMode,
+      systemPresentation: detail.item.systemPresentation,
+    });
+    if (classification.target.kind !== "submilestone") {
+      return (
+        <CanonicalCompanionUnavailablePanel
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onGoBack={onGoBack}
+          onGoForward={onGoForward}
+          onOpenChange={onOpenChange}
+        />
+      );
+    }
+    return (
+      <CanonicalCompanionRedirectPanel
+        actionItemId={detail.item.actionItemId}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        canonicalId={classification.target.submilestoneId}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        onOpenChange={onOpenChange}
+      />
+    );
+  }
   return (
     <VisibleActionItemDetail
       buildId={buildId}
@@ -545,11 +568,135 @@ function ActionItemDetailPanel({
       onGoForward={onGoForward}
       onOpenChange={onOpenChange}
       onReferenceOpen={onReferenceOpen}
-      open={open}
       organizationId={organizationId}
       readOnly={readOnly}
       tagOptions={tagOptions}
     />
+  );
+}
+
+function CanonicalCompanionUnavailablePanel({
+  canGoBack,
+  canGoForward,
+  onGoBack,
+  onGoForward,
+  onOpenChange,
+}: {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <>
+      <DetailSheetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={() => onOpenChange(false)}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+      >
+        <Badge variant="secondary">Generated companion</Badge>
+        <SheetTitle>Canonical detail unavailable</SheetTitle>
+        <SheetDescription>
+          This generated companion has no valid Sub-milestone binding and
+          cannot be edited as a generic Action Item.
+        </SheetDescription>
+      </DetailSheetHeader>
+      <SheetFooter>
+        <Button onClick={() => onOpenChange(false)} variant="outline">
+          Close
+        </Button>
+      </SheetFooter>
+    </>
+  );
+}
+
+function CanonicalCompanionRedirectPanel({
+  actionItemId,
+  canGoBack,
+  canGoForward,
+  canonicalId,
+  onGoBack,
+  onGoForward,
+  onOpenCanonicalTarget,
+  onOpenChange,
+}: {
+  actionItemId: Id<"buildActionItems">;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  canonicalId?: Id<"buildSubmilestones"> | null;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext
+  ) => void;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const redirectKey =
+    canonicalId && onOpenCanonicalTarget
+      ? `${actionItemId}:${canonicalId}`
+      : null;
+  const redirectedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !(canonicalId && onOpenCanonicalTarget && redirectKey) ||
+      redirectedKey.current === redirectKey
+    ) {
+      return;
+    }
+    redirectedKey.current = redirectKey;
+    onOpenCanonicalTarget(
+      {
+        companionId: actionItemId,
+        kind: "submilestone",
+        submilestoneId: canonicalId,
+      },
+      { selectedTab: "collaboration" }
+    );
+  }, [actionItemId, canonicalId, onOpenCanonicalTarget, redirectKey]);
+  return (
+    <>
+      <DetailSheetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={() => onOpenChange(false)}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+      >
+        <Badge variant="secondary">Generated companion</Badge>
+        <SheetTitle>Sub-milestone collaboration</SheetTitle>
+        <SheetDescription>
+          This generated Action Item is a collaboration companion. Its canonical
+          scope, evidence, assignments, materials, and review are owned by the
+          unified Sub-milestone detail surface.
+        </SheetDescription>
+      </DetailSheetHeader>
+      <SheetPanel>
+        <Frame>
+          <FramePanel className="space-y-3 text-sm">
+            {canonicalId && onOpenCanonicalTarget ? (
+              <p aria-live="polite">Opening the canonical Sub-milestone…</p>
+            ) : (
+              <>
+                <p className="font-medium">Canonical detail unavailable</p>
+                <p className="text-muted-foreground">
+                  This generated companion has no valid Sub-milestone binding.
+                  It cannot be edited as a generic Action Item.
+                </p>
+              </>
+            )}
+          </FramePanel>
+        </Frame>
+      </SheetPanel>
+      <SheetFooter>
+        <Button onClick={() => onOpenChange(false)} variant="outline">
+          Close
+        </Button>
+      </SheetFooter>
+    </>
   );
 }
 
@@ -560,7 +707,6 @@ function VisibleActionItemDetail({
   canGoForward,
   detail,
   focusedAssetId,
-  open,
   onOpenChange,
   onGoBack,
   onGoForward,
@@ -574,7 +720,6 @@ function VisibleActionItemDetail({
   canGoForward: boolean;
   detail: VisibleActionItemDetail;
   focusedAssetId?: Id<"buildCollaborationAssets">;
-  open: boolean;
   onOpenChange: (open: boolean) => void;
   onGoBack: () => void;
   onGoForward: () => void;
@@ -584,75 +729,42 @@ function VisibleActionItemDetail({
   tagOptions: CollaborationTagOption[];
 }) {
   const updateActionItem = useBuildCollaborationMutation(
-    api.build_action_items.updateBuildActionItem,
+    api.build_action_items.updateBuildActionItem
   );
   const addComment = useBuildCollaborationMutation(
-    api.build_action_item_details.addBuildActionItemComment,
+    api.build_action_item_details.addBuildActionItemComment
   );
   const toggleCommentReaction = useBuildCollaborationMutation(
-    api.build_action_item_details.toggleBuildActionItemCommentReaction,
+    api.build_action_item_details.toggleBuildActionItemCommentReaction
   );
   const markActivityRead = useBuildCollaborationReadMutation(
-    api.build_collaboration_inbox.markBuildActionItemActivityRead,
+    api.build_collaboration_inbox.markBuildActionItemActivityRead
   );
   const addReplacementComment = useBuildCollaborationMutation(
-    api.build_collaboration_threads.addBuildCollaborationComment,
+    api.build_collaboration_threads.addBuildCollaborationComment
   );
   const beginReplacementUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
   const registerReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage,
+      .registerBuildCollaborationAssetUploadedStorage
   );
   const finalizeAndScanReplacement = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload,
+      .finalizeAndScanBuildCollaborationAssetUpload
   );
   const abandonReplacementAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const assignActionItem = useBuildCollaborationMutation(
-    api.build_action_item_workflow.assignBuildActionItem,
+    api.build_action_item_workflow.assignBuildActionItem
   );
   const acceptAssignment = useBuildCollaborationMutation(
-    api.build_action_item_workflow.acceptBuildActionItemAssignment,
+    api.build_action_item_workflow.acceptBuildActionItemAssignment
   );
   const transitionActionItem = useBuildCollaborationMutation(
-    api.build_action_item_workflow.transitionBuildActionItem,
-  );
-  const startCanonicalMilestone = useBuildCollaborationMutation(
-    api.production_proposals.startActiveBuildMilestone,
-  );
-  const updateCanonicalProgress = useBuildCollaborationMutation(
-    api.production_proposals.updateActiveBuildSubmilestoneProgress,
-  );
-  const generateCanonicalEvidenceUploadUrl = useBuildCollaborationMutation(
-    api.production_proposals.generateActiveBuildEvidenceUploadUrl,
-  );
-  const addCanonicalEvidence = useBuildCollaborationMutation(
-    api.production_proposals.addActiveBuildSubmilestoneEvidence,
-  );
-  const freezeCanonicalEvidencePackage = useBuildCollaborationMutation(
-    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
-  );
-  const submitCanonicalCompletionForReview = useBuildCollaborationMutation(
-    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview,
-  );
-  const recommendCanonicalReview = useBuildCollaborationMutation(
-    api.build_submilestone_review.recommendActiveBuildSubmilestoneReview,
-  );
-  const requestCanonicalChanges = useBuildCollaborationMutation(
-    api.build_submilestone_review.requestActiveBuildSubmilestoneChanges,
-  );
-  const waiveCanonicalSiteVisit = useBuildCollaborationMutation(
-    api.build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
-  );
-  const approveCanonicalSubmilestone = useBuildCollaborationMutation(
-    api.build_submilestone_review.approveActiveBuildSubmilestone,
-  );
-  const retractCanonicalSubmilestoneApproval = useBuildCollaborationMutation(
-    api.build_submilestone_review.retractActiveBuildSubmilestoneApproval,
+    api.build_action_item_workflow.transitionBuildActionItem
   );
   const workflow = useQuery(
     api.build_action_item_workflow.getBuildActionItemWorkflowContext,
@@ -660,18 +772,18 @@ function VisibleActionItemDetail({
       actionItemId: detail.item.actionItemId,
       buildId,
       organizationId,
-    },
+    }
   ) as WorkflowContext | undefined;
   const [title, setTitle] = useState(detail.item.title);
   const [priority, setPriority] = useState(detail.item.priority);
   const [dueDate, setDueDate] = useState(dateInputValue(detail.item.dueAt));
   const [labels, setLabels] = useState<BuildActionItemTag[]>(
     detail.labels.filter((label): label is BuildActionItemTag =>
-      BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag),
-    ),
+      BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
+    )
   );
   const [briefDocument, setBriefDocument] = useState<JSONContent>(() =>
-    parseDocument(detail.item.descriptionTiptapJson),
+    parseDocument(detail.item.descriptionTiptapJson)
   );
   const [briefReferences, setBriefReferences] = useState<
     CollaborationTagReference[]
@@ -681,10 +793,10 @@ function VisibleActionItemDetail({
         tagOptions.find(
           (option) =>
             option.id === reference.entityId &&
-            option.kind === toEditorReferenceKind(reference.entityKind),
-        ),
+            option.kind === toEditorReferenceKind(reference.entityKind)
+        )
       )
-      .filter((option): option is CollaborationTagOption => Boolean(option)),
+      .filter((option): option is CollaborationTagOption => Boolean(option))
   );
   const [briefDirty, setBriefDirty] = useState(false);
   const [briefSaveState, setBriefSaveState] = useState<
@@ -693,7 +805,7 @@ function VisibleActionItemDetail({
   const [definitionReason, setDefinitionReason] = useState("");
   const [commentHtml, setCommentHtml] = useState("");
   const [commentDocument, setCommentDocument] = useState<JSONContent>(
-    emptyDocument(),
+    emptyDocument()
   );
   const [commentReferences, setCommentReferences] = useState<
     CollaborationTagReference[]
@@ -705,71 +817,10 @@ function VisibleActionItemDetail({
   const [saving, setSaving] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [transitionReason, setTransitionReason] = useState("");
-  const [canonicalStartRequest, setCanonicalStartRequest] =
-    useState<MilestoneStartDialogRequest | null>(null);
-  const [canonicalProgress, setCanonicalProgress] = useState(0);
-  const [canonicalForecast, setCanonicalForecast] = useState("");
-  const [canonicalActualCost, setCanonicalActualCost] = useState("");
-  const [canonicalFieldNote, setCanonicalFieldNote] = useState("");
-  const [canonicalCompletionNote, setCanonicalCompletionNote] = useState("");
-  const [canonicalEvidenceBusy, setCanonicalEvidenceBusy] = useState(false);
-  const [canonicalReviewNote, setCanonicalReviewNote] = useState("");
-  const [canonicalReviewReason, setCanonicalReviewReason] = useState("");
-  const [
-    canonicalReviewSiteVisitRequired,
-    setCanonicalReviewSiteVisitRequired,
-  ] = useState(false);
-  const [canonicalReviewBusy, setCanonicalReviewBusy] = useState(false);
-  const canonicalCommandKeys = useRef(new Map<string, string>());
-
-  const canonicalPresentation = detail.item.systemPresentation;
-  const canonicalStartCommand = canonicalPresentation?.startCommand;
-  const canonicalStartRevision = canonicalPresentation?.workflowRevision;
-  const canonicalStartRevisionAvailable =
-    typeof canonicalStartRevision === "number" &&
-    Number.isFinite(canonicalStartRevision);
-  const [canonicalStartRevisionError, setCanonicalStartRevisionError] =
-    useState<string | null>(null);
-  const canonicalProgressValue = canonicalPresentation?.progressPercent ?? 0;
-  const canonicalForecastValue =
-    canonicalPresentation?.completionForecastDate ?? "";
-  useEffect(() => {
-    setCanonicalProgress(canonicalProgressValue);
-    setCanonicalForecast(canonicalForecastValue);
-  }, [canonicalForecastValue, canonicalProgressValue]);
-
-  useEffect(() => {
-    canonicalCommandKeys.current.clear();
-    setCanonicalFieldNote("");
-    setCanonicalCompletionNote("");
-    setCanonicalReviewNote("");
-    setCanonicalReviewReason("");
-    setCanonicalReviewSiteVisitRequired(false);
-  }, [
-    canonicalStartCommand?.milestoneKey,
-    canonicalStartCommand?.submilestoneKey,
-    detail.item.actionItemId,
-    open,
-  ]);
-
-  const canonicalCommandKey = (scope: string) => {
-    const scopedScope = `${detail.item.actionItemId}:${scope}`;
-    const existing = canonicalCommandKeys.current.get(scopedScope);
-    if (existing) {
-      return existing;
-    }
-    const generated = `${scope}:${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
-    canonicalCommandKeys.current.set(scopedScope, generated);
-    return generated;
-  };
-
-  const clearCanonicalCommandKey = (scope: string) => {
-    canonicalCommandKeys.current.delete(`${detail.item.actionItemId}:${scope}`);
-  };
 
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
-    file: File,
+    file: File
   ) => {
     let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
@@ -814,7 +865,7 @@ function VisibleActionItemDetail({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to publish the attachment replacement.",
+          : "Unable to publish the attachment replacement."
       );
     }
   };
@@ -825,8 +876,8 @@ function VisibleActionItemDetail({
     setDueDate(dateInputValue(detail.item.dueAt));
     setLabels(
       detail.labels.filter((label): label is BuildActionItemTag =>
-        BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag),
-      ),
+        BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
+      )
     );
   }, [
     detail.item.dueAt,
@@ -877,7 +928,7 @@ function VisibleActionItemDetail({
       } catch (error) {
         setBriefSaveState("conflict");
         toast.error(
-          error instanceof Error ? error.message : "Unable to save the brief.",
+          error instanceof Error ? error.message : "Unable to save the brief."
         );
       }
     }, 700);
@@ -917,9 +968,7 @@ function VisibleActionItemDetail({
       toast.success("Action Item updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to update Action Item.",
+        error instanceof Error ? error.message : "Unable to update Action Item."
       );
     } finally {
       setSaving(false);
@@ -971,7 +1020,7 @@ function VisibleActionItemDetail({
         reason: "Action Item comment failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to add comment.",
+        error instanceof Error ? error.message : "Unable to add comment."
       );
     }
   };
@@ -988,11 +1037,11 @@ function VisibleActionItemDetail({
       toast.success(
         workosUserId
           ? "Action Item assignment updated."
-          : "Action Item unassigned.",
+          : "Action Item unassigned."
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update assignment.",
+        error instanceof Error ? error.message : "Unable to update assignment."
       );
     } finally {
       setWorkflowBusy(false);
@@ -1010,19 +1059,13 @@ function VisibleActionItemDetail({
       toast.success("Assignment accepted.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to accept assignment.",
+        error instanceof Error ? error.message : "Unable to accept assignment."
       );
     } finally {
       setWorkflowBusy(false);
     }
   };
   const transition = async (nextStatus: ActionStatus) => {
-    if (isCanonicalMilestoneItem(detail.item)) {
-      toast.error(
-        "System Milestone Action Items follow the canonical Sub-milestone status.",
-      );
-      return;
-    }
     setWorkflowBusy(true);
     try {
       await transitionActionItem({
@@ -1037,431 +1080,13 @@ function VisibleActionItemDetail({
       toast.success("Action Item status updated.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to update status.",
+        error instanceof Error ? error.message : "Unable to update status."
       );
     } finally {
       setWorkflowBusy(false);
     }
   };
 
-  const openCanonicalStart = () => {
-    const command = detail.item.systemPresentation?.startCommand;
-    if (!command?.allowed || readOnly) {
-      return;
-    }
-    if (!canonicalStartRevisionAvailable) {
-      setCanonicalStartRevisionError(
-        "Refresh this Action Item before starting; the canonical workflow revision is unavailable.",
-      );
-      return;
-    }
-    setCanonicalStartRevisionError(null);
-    setCanonicalStartRequest({
-      action: "start",
-      buildName: command.buildName,
-      dependencyBlockers: command.dependencyBlockers,
-      expectedRevision: canonicalStartRevision,
-      milestoneKey: command.milestoneKey,
-      milestoneName: command.milestoneName,
-      plannedStartDate: command.plannedStartDate,
-      scope: command.scope,
-      source: command.source,
-      startParent: false,
-      submilestoneKey: command.submilestoneKey,
-      submilestoneName: command.submilestoneName,
-    });
-  };
-
-  const confirmCanonicalStart = async (input: MilestoneStartConfirmation) => {
-    if (
-      input.action !== "start" ||
-      input.actualStartedAt === undefined ||
-      input.expectedRevision === undefined
-    ) {
-      throw new Error(
-        "Refresh this Action Item before starting; the canonical workflow revision is unavailable.",
-      );
-    }
-    await startCanonicalMilestone({
-      actualStartedAt: input.actualStartedAt,
-      buildId,
-      dependencyOverrideReason: input.dependencyOverrideReason,
-      expectedRevision: input.expectedRevision,
-      idempotencyKey: input.idempotencyKey,
-      milestoneKey: input.milestoneKey,
-      source: input.source,
-      startParent: false,
-      submilestoneKey: input.submilestoneKey,
-      workosOrganizationId: organizationId,
-    });
-    toast.success("Canonical Sub-milestone start recorded.");
-  };
-
-  const updateCanonicalExecution = async () => {
-    if (!canonicalStartCommand || readOnly) {
-      return;
-    }
-    if (
-      !canonicalStartRevisionAvailable ||
-      canonicalStartRevision === undefined
-    ) {
-      toast.error(
-        "Refresh this Action Item before updating execution; the canonical workflow revision is unavailable.",
-      );
-      return;
-    }
-    const actualCostInput = canonicalActualCost.trim();
-    const actualCostCents = actualCostInput
-      ? Number(actualCostInput)
-      : undefined;
-    if (
-      actualCostInput &&
-      (!Number.isInteger(actualCostCents) || (actualCostCents ?? 0) < 0)
-    ) {
-      toast.error("Actual cost must be a non-negative whole number of cents.");
-      return;
-    }
-    setCanonicalEvidenceBusy(true);
-    try {
-      await updateCanonicalProgress({
-        actualCostCents,
-        buildId,
-        completionForecastDate: canonicalForecast.trim() || undefined,
-        fieldNote: canonicalFieldNote.trim() || undefined,
-        expectedRevision: canonicalStartRevision,
-        idempotencyKey: canonicalCommandKey("progress"),
-        milestoneKey: canonicalStartCommand.milestoneKey,
-        progressPercent: canonicalProgress,
-        submilestoneKey: canonicalStartCommand.submilestoneKey,
-        workosOrganizationId: organizationId,
-      });
-      clearCanonicalCommandKey("progress");
-      setCanonicalFieldNote("");
-      toast.success("Canonical progress updated.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Unable to update progress.",
-      );
-    } finally {
-      setCanonicalEvidenceBusy(false);
-    }
-  };
-
-  const addCanonicalEvidenceFile = async ({
-    file,
-  }: EvidenceUploaderUploadInput) => {
-    if (!(canonicalStartCommand && file) || readOnly) {
-      return;
-    }
-    if (
-      !canonicalStartRevisionAvailable ||
-      canonicalStartRevision === undefined
-    ) {
-      toast.error(
-        "Refresh this Action Item before adding evidence; the canonical workflow revision is unavailable.",
-      );
-      return;
-    }
-    setCanonicalEvidenceBusy(true);
-    try {
-      const uploadFile = await normalizeEvidenceFileForUpload(file);
-      const uploadUrl = await generateCanonicalEvidenceUploadUrl({
-        buildId,
-        workosOrganizationId: organizationId,
-      });
-      const uploadResponse = await fetch(uploadUrl, {
-        body: uploadFile,
-        headers: {
-          "Content-Type": uploadFile.type || "application/octet-stream",
-        },
-        method: "POST",
-      });
-      if (!uploadResponse.ok) {
-        throw new Error("Evidence upload failed.");
-      }
-      const uploadResult = (await uploadResponse.json()) as {
-        storageId?: Id<"_storage">;
-      };
-      if (!uploadResult.storageId) {
-        throw new Error("Evidence upload did not return a storage id.");
-      }
-      await addCanonicalEvidence({
-        buildId,
-        evidence: {
-          fileName: uploadFile.name,
-          locationAttempt: {
-            attempted: false,
-            permissionOutcome: "not_requested",
-            verified: false,
-          },
-          mimeType: uploadFile.type || "application/octet-stream",
-          sizeBytes: uploadFile.size,
-          storageId: uploadResult.storageId,
-        },
-        expectedRevision: canonicalStartRevision,
-        idempotencyKey: canonicalCommandKey("evidence"),
-        milestoneKey: canonicalStartCommand.milestoneKey,
-        submilestoneKey: canonicalStartCommand.submilestoneKey,
-        workosOrganizationId: organizationId,
-      });
-      clearCanonicalCommandKey("evidence");
-      toast.success("Evidence added to the canonical package.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Unable to add evidence.",
-      );
-    } finally {
-      setCanonicalEvidenceBusy(false);
-    }
-  };
-
-  const freezeCanonicalPackage = async () => {
-    if (
-      !(
-        canonicalStartCommand &&
-        canonicalPresentation?.evidencePackageRevisionId
-      ) ||
-      readOnly
-    ) {
-      return;
-    }
-    if (
-      !canonicalStartRevisionAvailable ||
-      canonicalStartRevision === undefined
-    ) {
-      toast.error(
-        "Refresh this Action Item before freezing evidence; the canonical workflow revision is unavailable.",
-      );
-      return;
-    }
-    setCanonicalEvidenceBusy(true);
-    try {
-      await freezeCanonicalEvidencePackage({
-        buildId,
-        expectedRevision: canonicalStartRevision,
-        milestoneKey: canonicalStartCommand.milestoneKey,
-        packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
-        submilestoneKey: canonicalStartCommand.submilestoneKey,
-        workosOrganizationId: organizationId,
-      });
-      toast.success("Evidence Package revision frozen.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to freeze Evidence Package.",
-      );
-    } finally {
-      setCanonicalEvidenceBusy(false);
-    }
-  };
-
-  const submitCanonicalReview = async () => {
-    if (
-      !(
-        canonicalStartCommand &&
-        canonicalPresentation?.evidencePackageRevisionId
-      ) ||
-      canonicalPresentation.evidencePackageRevision === undefined ||
-      readOnly ||
-      !canonicalStartRevisionAvailable ||
-      canonicalStartRevision === undefined
-    ) {
-      return;
-    }
-    setCanonicalEvidenceBusy(true);
-    try {
-      await submitCanonicalCompletionForReview({
-        buildId,
-        completionNote: canonicalCompletionNote.trim() || undefined,
-        declareComplete: true,
-        expectedPackageRevision: canonicalPresentation.evidencePackageRevision,
-        expectedRevision: canonicalStartRevision,
-        idempotencyKey: canonicalCommandKey("completion-review"),
-        milestoneKey: canonicalStartCommand.milestoneKey,
-        packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
-        submilestoneKey: canonicalStartCommand.submilestoneKey,
-        workosOrganizationId: organizationId,
-      });
-      clearCanonicalCommandKey("completion-review");
-      setCanonicalCompletionNote("");
-      toast.success("Completion entered lender review.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to submit completion for review.",
-      );
-    } finally {
-      setCanonicalEvidenceBusy(false);
-    }
-  };
-
-  const canonicalReviewTarget = canonicalStartCommand
-    ? {
-        milestoneKey: canonicalStartCommand.milestoneKey,
-        submilestoneKey: canonicalStartCommand.submilestoneKey,
-      }
-    : null;
-  const canonicalReviewRevision =
-    canonicalPresentation?.reviewRevision ??
-    canonicalPresentation?.workflowRevision;
-  const runCanonicalReviewCommand = async (
-    commandScope: string,
-    command: () => Promise<unknown>,
-    successMessage: string,
-    fallbackMessage: string,
-  ) => {
-    setCanonicalReviewBusy(true);
-    try {
-      await command();
-      clearCanonicalCommandKey(commandScope);
-      toast.success(successMessage);
-      setCanonicalReviewReason("");
-      setCanonicalReviewNote("");
-      setCanonicalReviewSiteVisitRequired(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : fallbackMessage);
-    } finally {
-      setCanonicalReviewBusy(false);
-    }
-  };
-  const recommendCanonicalReviewCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    if (canonicalReviewRevision === undefined) {
-      toast.error(
-        "Refresh this Action Item before recording review; the canonical review revision is unavailable.",
-      );
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-recommendation",
-      () =>
-        recommendCanonicalReview({
-          buildId,
-          expectedRevision: canonicalReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-recommendation"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          note: canonicalReviewNote.trim() || undefined,
-          siteVisitRequired: canonicalReviewSiteVisitRequired,
-          submilestoneKey: canonicalReviewTarget.submilestoneKey,
-          workosOrganizationId: organizationId,
-        }),
-      "Review recommendation recorded.",
-      "Unable to record review recommendation.",
-    );
-  };
-  const requestCanonicalChangesCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    if (canonicalReviewRevision === undefined) {
-      toast.error(
-        "Refresh this Action Item before requesting changes; the canonical review revision is unavailable.",
-      );
-      return;
-    }
-    const reason = canonicalReviewReason.trim();
-    if (!reason) {
-      toast.error("Changes requested reason is required.");
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-changes",
-      () =>
-        requestCanonicalChanges({
-          buildId,
-          expectedRevision: canonicalReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-changes"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          reason,
-          submilestoneKey: canonicalReviewTarget.submilestoneKey,
-          workosOrganizationId: organizationId,
-        }),
-      "Changes requested; the child returned to In Progress.",
-      "Unable to request changes.",
-    );
-  };
-  const waiveCanonicalSiteVisitCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    if (canonicalReviewRevision === undefined) {
-      toast.error(
-        "Refresh this Action Item before waiving the Site Visit; the canonical review revision is unavailable.",
-      );
-      return;
-    }
-    const reason = canonicalReviewReason.trim();
-    if (!reason) {
-      toast.error("Site Visit waiver reason is required.");
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-site-visit-waiver",
-      () =>
-        waiveCanonicalSiteVisit({
-          buildId,
-          expectedRevision: canonicalReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-site-visit-waiver"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          reason,
-          submilestoneKey: canonicalReviewTarget.submilestoneKey,
-          workosOrganizationId: organizationId,
-        }),
-      "Required Site Visit waived with an audit reason.",
-      "Unable to waive the required Site Visit.",
-    );
-  };
-  const approveCanonicalSubmilestoneCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    if (canonicalReviewRevision === undefined) {
-      toast.error(
-        "Refresh this Action Item before approving; the canonical review revision is unavailable.",
-      );
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-child-approval",
-      () =>
-        approveCanonicalSubmilestone({
-          buildId,
-          expectedRevision: canonicalReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-child-approval"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          note: canonicalReviewNote.trim() || undefined,
-          submilestoneKey: canonicalReviewTarget.submilestoneKey,
-          workosOrganizationId: organizationId,
-        }),
-      "Sub-milestone approved.",
-      "Unable to approve this Sub-milestone.",
-    );
-  };
-  const retractCanonicalSubmilestoneCommand = () => {
-    if (!canonicalReviewTarget || readOnly) return;
-    if (canonicalReviewRevision === undefined) {
-      toast.error(
-        "Refresh this Action Item before retracting approval; the canonical review revision is unavailable.",
-      );
-      return;
-    }
-    const reason = canonicalReviewReason.trim();
-    if (!reason) {
-      toast.error("Child approval retraction reason is required.");
-      return;
-    }
-    void runCanonicalReviewCommand(
-      "review-child-retraction",
-      () =>
-        retractCanonicalSubmilestoneApproval({
-          buildId,
-          expectedRevision: canonicalReviewRevision,
-          idempotencyKey: canonicalCommandKey("review-child-retraction"),
-          milestoneKey: canonicalReviewTarget.milestoneKey,
-          reason,
-          submilestoneKey: canonicalReviewTarget.submilestoneKey,
-          workosOrganizationId: organizationId,
-        }),
-      "Sub-milestone approval retracted; this child is reopened.",
-      "Unable to retract Sub-milestone approval.",
-    );
-  };
   return (
     <>
       <DetailSheetHeader
@@ -1473,9 +1098,6 @@ function VisibleActionItemDetail({
       >
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{statusLabel(detail.item.status)}</Badge>
-          {detail.item.systemMode === "generated_milestone_submilestone" ? (
-            <Badge variant="secondary">System · Milestone</Badge>
-          ) : null}
           {detail.labels.map((label) => (
             <Badge key={label} variant="secondary">
               {label}
@@ -1509,44 +1131,6 @@ function VisibleActionItemDetail({
       </DetailSheetHeader>
       <SheetPanel className="space-y-6">
         <AudienceInheritanceNotice audienceMode={detail.item.audienceMode} />
-        {detail.item.systemMode === "generated_milestone_submilestone" ? (
-          <CanonicalMilestoneActionItemFacts
-            actualCost={canonicalActualCost}
-            canonicalStartRevisionError={canonicalStartRevisionError}
-            completionNote={canonicalCompletionNote}
-            detail={detail}
-            evidenceBusy={canonicalEvidenceBusy}
-            fieldNote={canonicalFieldNote}
-            forecast={canonicalForecast}
-            tagOptions={tagOptions}
-            onActualCostChange={setCanonicalActualCost}
-            onCompletionNoteChange={setCanonicalCompletionNote}
-            onFieldNoteChange={setCanonicalFieldNote}
-            onForecastChange={setCanonicalForecast}
-            onFreezePackage={freezeCanonicalPackage}
-            onProgressChange={setCanonicalProgress}
-            onStart={openCanonicalStart}
-            onSubmitReview={submitCanonicalReview}
-            onApproveSubmilestone={approveCanonicalSubmilestoneCommand}
-            onRecommendReview={recommendCanonicalReviewCommand}
-            onRequestChanges={requestCanonicalChangesCommand}
-            onRetractSubmilestone={retractCanonicalSubmilestoneCommand}
-            onWaiveSiteVisit={waiveCanonicalSiteVisitCommand}
-            reviewBusy={canonicalReviewBusy}
-            reviewNote={canonicalReviewNote}
-            reviewReason={canonicalReviewReason}
-            reviewSiteVisitRequired={canonicalReviewSiteVisitRequired}
-            onReviewNoteChange={setCanonicalReviewNote}
-            onReviewReasonChange={setCanonicalReviewReason}
-            onReviewSiteVisitRequiredChange={
-              setCanonicalReviewSiteVisitRequired
-            }
-            onUpdateExecution={updateCanonicalExecution}
-            onUploadEvidence={addCanonicalEvidenceFile}
-            progress={canonicalProgress}
-            readOnly={readOnly}
-          />
-        ) : null}
         {readOnly ? (
           <Frame>
             <FramePanel className="text-muted-foreground text-sm">
@@ -1747,7 +1331,7 @@ function VisibleActionItemDetail({
                     />
                     {detail.comments
                       .filter(
-                        (reply) => reply.parentCommentId === entry.commentId,
+                        (reply) => reply.parentCommentId === entry.commentId
                       )
                       .map((reply) => (
                         <div
@@ -1833,753 +1417,11 @@ function VisibleActionItemDetail({
           Close
         </Button>
       </SheetFooter>
-      {canonicalStartRequest ? (
-        <MilestoneStartDialog
-          onClose={() => setCanonicalStartRequest(null)}
-          onConfirm={confirmCanonicalStart}
-          request={canonicalStartRequest}
-        />
-      ) : null}
     </>
   );
 }
 
-function CanonicalMilestoneActionItemFacts({
-  actualCost,
-  canonicalStartRevisionError,
-  onApproveSubmilestone,
-  completionNote,
-  detail,
-  evidenceBusy,
-  fieldNote,
-  forecast,
-  onActualCostChange,
-  onCompletionNoteChange,
-  onFieldNoteChange,
-  onForecastChange,
-  onFreezePackage,
-  onRecommendReview,
-  onRequestChanges,
-  onRetractSubmilestone,
-  onStart,
-  onSubmitReview,
-  onUploadEvidence,
-  onUpdateExecution,
-  onWaiveSiteVisit,
-  onProgressChange,
-  progress,
-  readOnly,
-  reviewBusy,
-  reviewNote,
-  reviewReason,
-  reviewSiteVisitRequired,
-  tagOptions,
-  onReviewNoteChange,
-  onReviewReasonChange,
-  onReviewSiteVisitRequiredChange,
-}: {
-  actualCost: string;
-  canonicalStartRevisionError: string | null;
-  onApproveSubmilestone: () => void;
-  completionNote: string;
-  detail: VisibleActionItemDetail;
-  evidenceBusy: boolean;
-  fieldNote: string;
-  forecast: string;
-  onActualCostChange: (value: string) => void;
-  onCompletionNoteChange: (value: string) => void;
-  onFieldNoteChange: (value: string) => void;
-  onForecastChange: (value: string) => void;
-  onFreezePackage: () => void;
-  onRecommendReview: () => void;
-  onRequestChanges: () => void;
-  onRetractSubmilestone: () => void;
-  onStart?: () => void;
-  onSubmitReview: () => void;
-  onUploadEvidence: (
-    input: EvidenceUploaderUploadInput,
-  ) => Promise<unknown> | unknown;
-  onUpdateExecution: () => void;
-  onWaiveSiteVisit: () => void;
-  onProgressChange: (value: number) => void;
-  progress: number;
-  readOnly: boolean;
-  reviewBusy: boolean;
-  reviewNote: string;
-  reviewReason: string;
-  reviewSiteVisitRequired: boolean;
-  tagOptions: CollaborationTagOption[];
-  onReviewNoteChange: (value: string) => void;
-  onReviewReasonChange: (value: string) => void;
-  onReviewSiteVisitRequiredChange: (value: boolean) => void;
-}) {
-  const milestoneReference = detail.references.find(
-    (reference) => reference.entityKind === "milestone",
-  );
-  const submilestoneReference = detail.references.find(
-    (reference) => reference.entityKind === "submilestone",
-  );
-  const canonicalStartRevision =
-    detail.item.systemPresentation?.workflowRevision;
-  const canonicalStartRevisionAvailable =
-    typeof canonicalStartRevision === "number" &&
-    Number.isFinite(canonicalStartRevision);
-  return (
-    <Frame className="border-dashed bg-muted/20" size="sm">
-      <FramePanel className="space-y-2 p-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Badge variant="secondary">Canonical Sub-milestone</Badge>
-          {detail.item.systemPresentation ? (
-            <Badge
-              variant={
-                detail.item.systemPresentation.column === "behind_schedule"
-                  ? "warning"
-                  : "outline"
-              }
-            >
-              {systemPresentationLabels[detail.item.systemPresentation.column]}
-            </Badge>
-          ) : null}
-          {detail.item.systemPresentation?.attention ===
-          "overdue_completion" ? (
-            <Badge variant="destructive">Overdue completion</Badge>
-          ) : null}
-          {detail.item.systemPresentation?.executionOwnership?.state ===
-          "assignment_required" ? (
-            <Badge variant="warning">Assignment required</Badge>
-          ) : null}
-          <span className="text-muted-foreground">System-owned binding</span>
-        </div>
-        <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
-          <ReadOnlyField
-            label="Milestone"
-            value={milestoneReference?.label ?? "Canonical Milestone"}
-          />
-          <ReadOnlyField
-            label="Sub-milestone"
-            value={submilestoneReference?.label ?? detail.item.title}
-          />
-        </dl>
-        {detail.item.systemPresentation?.state === "unknown" ? (
-          <p className="text-muted-foreground text-xs">
-            Schedule state unavailable
-            {detail.item.systemPresentation.unknownReason
-              ? `: ${detail.item.systemPresentation.unknownReason}`
-              : ""}
-          </p>
-        ) : null}
-        {detail.item.systemPresentation?.startCommand?.allowed &&
-        !readOnly &&
-        canonicalStartRevisionAvailable ? (
-          <Button onClick={onStart} size="sm" type="button">
-            <Play aria-hidden="true" className="size-4" />
-            Start work
-          </Button>
-        ) : null}
-        {detail.item.systemPresentation?.startCommand?.allowed &&
-        !readOnly &&
-        !canonicalStartRevisionAvailable ? (
-          <p className="text-muted-foreground text-xs" role="status">
-            Refresh this Action Item before starting; canonical workflow
-            revision is unavailable.
-          </p>
-        ) : null}
-        {canonicalStartRevisionError ? (
-          <p className="text-destructive-text text-xs" role="alert">
-            {canonicalStartRevisionError}
-          </p>
-        ) : null}
-        {detail.item.systemPresentation?.canUpdateExecution &&
-        !readOnly &&
-        canonicalStartRevisionAvailable ? (
-          <CanonicalFieldExecutionPanel
-            actualCost={actualCost}
-            evidenceBusy={evidenceBusy}
-            fieldNote={fieldNote}
-            forecast={forecast}
-            onActualCostChange={onActualCostChange}
-            onFieldNoteChange={onFieldNoteChange}
-            onForecastChange={onForecastChange}
-            onProgressChange={onProgressChange}
-            onUpdateExecution={onUpdateExecution}
-            progress={progress}
-          />
-        ) : null}
-        {detail.item.systemPresentation?.canUpdateExecution &&
-        !readOnly &&
-        !canonicalStartRevisionAvailable ? (
-          <p className="text-muted-foreground text-xs" role="status">
-            Refresh this Action Item before updating execution; canonical
-            workflow revision is unavailable.
-          </p>
-        ) : null}
-        {detail.item.systemPresentation?.canAddEvidence &&
-        !readOnly &&
-        canonicalStartRevisionAvailable ? (
-          <CanonicalEvidencePackagePanel
-            completionNote={completionNote}
-            detail={detail}
-            evidenceBusy={evidenceBusy}
-            onCompletionNoteChange={onCompletionNoteChange}
-            onFreezePackage={onFreezePackage}
-            onSubmitReview={onSubmitReview}
-            onUploadEvidence={onUploadEvidence}
-          />
-        ) : null}
-        {detail.item.systemPresentation?.canAddEvidence &&
-        !readOnly &&
-        !canonicalStartRevisionAvailable ? (
-          <p className="text-muted-foreground text-xs" role="status">
-            Refresh this Action Item before adding evidence; canonical workflow
-            revision is unavailable.
-          </p>
-        ) : null}
-        <CanonicalReviewLifecyclePanel
-          detail={detail}
-          onApproveSubmilestone={onApproveSubmilestone}
-          onRecommendReview={onRecommendReview}
-          onRequestChanges={onRequestChanges}
-          onRetractSubmilestone={onRetractSubmilestone}
-          onReviewNoteChange={onReviewNoteChange}
-          onReviewReasonChange={onReviewReasonChange}
-          onReviewSiteVisitRequiredChange={onReviewSiteVisitRequiredChange}
-          onWaiveSiteVisit={onWaiveSiteVisit}
-          readOnly={readOnly}
-          reviewBusy={reviewBusy}
-          reviewNote={reviewNote}
-          reviewReason={reviewReason}
-          reviewSiteVisitRequired={reviewSiteVisitRequired}
-          tagOptions={tagOptions}
-        />
-        <p className="text-muted-foreground text-xs">
-          Status, completion, ownership, and identity follow the canonical
-          roadmap. Start work is a canonical milestone command; this
-          collaboration card is not an independent workflow.
-        </p>
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function CanonicalFieldExecutionPanel({
-  actualCost,
-  evidenceBusy,
-  fieldNote,
-  forecast,
-  onActualCostChange,
-  onFieldNoteChange,
-  onForecastChange,
-  onProgressChange,
-  onUpdateExecution,
-  progress,
-}: {
-  actualCost: string;
-  evidenceBusy: boolean;
-  fieldNote: string;
-  forecast: string;
-  onActualCostChange: (value: string) => void;
-  onFieldNoteChange: (value: string) => void;
-  onForecastChange: (value: string) => void;
-  onProgressChange: (value: number) => void;
-  onUpdateExecution: () => void;
-  progress: number;
-}) {
-  return (
-    <Frame className="bg-background" size="sm">
-      <FramePanel className="space-y-3 p-3">
-        <div className="flex items-center gap-2 font-medium text-sm">
-          <Save aria-hidden="true" className="size-4" />
-          Field execution
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Label className="space-y-1 text-xs">
-            <span>Progress percent</span>
-            <Input
-              aria-label="Progress percent"
-              max={100}
-              min={0}
-              onChange={(event) =>
-                onProgressChange(
-                  Math.min(100, Math.max(0, Number(event.target.value) || 0)),
-                )
-              }
-              type="number"
-              value={progress}
-            />
-          </Label>
-          <Label className="space-y-1 text-xs">
-            <span>Completion forecast</span>
-            <Input
-              aria-label="Completion forecast"
-              onChange={(event) => onForecastChange(event.target.value)}
-              type="date"
-              value={forecast}
-            />
-          </Label>
-          <Label className="space-y-1 text-xs">
-            <span>Actual cost (cents)</span>
-            <Input
-              aria-label="Actual cost in cents"
-              min={0}
-              onChange={(event) => onActualCostChange(event.target.value)}
-              type="number"
-              value={actualCost}
-            />
-          </Label>
-        </div>
-        <Label className="space-y-1 text-xs">
-          <span>Field note</span>
-          <Input
-            aria-label="Field note"
-            onChange={(event) => onFieldNoteChange(event.target.value)}
-            value={fieldNote}
-          />
-        </Label>
-        <Button
-          disabled={evidenceBusy}
-          onClick={onUpdateExecution}
-          size="sm"
-          type="button"
-        >
-          Save progress
-        </Button>
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function CanonicalEvidencePackagePanel({
-  completionNote,
-  detail,
-  evidenceBusy,
-  onCompletionNoteChange,
-  onFreezePackage,
-  onSubmitReview,
-  onUploadEvidence,
-}: {
-  completionNote: string;
-  detail: VisibleActionItemDetail;
-  evidenceBusy: boolean;
-  onCompletionNoteChange: (value: string) => void;
-  onFreezePackage: () => void;
-  onSubmitReview: () => void;
-  onUploadEvidence: (
-    input: EvidenceUploaderUploadInput,
-  ) => Promise<unknown> | unknown;
-}) {
-  const presentation = detail.item.systemPresentation;
-  const startCommand = presentation?.startCommand;
-  return (
-    <Frame className="bg-background" size="sm">
-      <FramePanel className="space-y-3 p-3">
-        <div className="flex items-center gap-2 font-medium text-sm">
-          <FilePlus2 aria-hidden="true" className="size-4" />
-          Evidence Package
-        </div>
-        <EvidenceUploader
-          compact
-          data={{ milestoneKey: startCommand?.milestoneKey ?? "" }}
-          item={{
-            evidence: Array.from(
-              { length: presentation?.evidenceCount ?? 0 },
-              (_, index) => ({
-                evidenceKey: `existing-${index}`,
-                fileName: "",
-                label: "Existing evidence",
-                locationVerified: false,
-                mimeType: "application/octet-stream",
-                sizeBytes: 0,
-                tag: "existing",
-              }),
-            ),
-            key: startCommand?.submilestoneKey ?? "",
-          }}
-          onUpload={onUploadEvidence}
-        />
-        {presentation?.readyExceptFor?.length ? (
-          <div aria-live="polite" className="space-y-1 text-xs">
-            <p className="font-medium">Ready except for:</p>
-            <ul className="list-disc space-y-1 pl-4">
-              {presentation.readyExceptFor.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-xs">
-            Current requirements are satisfied.
-          </p>
-        )}
-        {presentation?.canSubmitForReview ? (
-          <Label className="space-y-1 text-xs">
-            <span>Completion declaration</span>
-            <Input
-              aria-label="Completion declaration"
-              disabled={evidenceBusy}
-              onChange={(event) => onCompletionNoteChange(event.target.value)}
-              value={completionNote}
-            />
-          </Label>
-        ) : null}
-        {presentation?.evidencePackageRevisionId ? (
-          <Button
-            disabled={evidenceBusy}
-            onClick={onFreezePackage}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <CheckCircle2 aria-hidden="true" className="size-4" />
-            Freeze Evidence Package
-          </Button>
-        ) : null}
-        {presentation?.canSubmitForReview ? (
-          <Button
-            disabled={evidenceBusy}
-            onClick={onSubmitReview}
-            size="sm"
-            type="button"
-          >
-            <Send aria-hidden="true" className="size-4" />
-            Submit completion for review
-          </Button>
-        ) : null}
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function reviewDecisionLabel(
-  state:
-    | "in_review"
-    | "changes_requested"
-    | "approved"
-    | "reopened"
-    | "ready_for_approval",
-) {
-  switch (state) {
-    case "approved":
-      return "Approved";
-    case "changes_requested":
-      return "Changes requested";
-    case "ready_for_approval":
-      return "Ready for Admin approval";
-    case "reopened":
-      return "Reopened";
-    default:
-      return "In Review";
-  }
-}
-
-function siteVisitRequirementLabel(
-  status: "not_required" | "required" | "satisfied" | "waived",
-) {
-  switch (status) {
-    case "required":
-      return "Required";
-    case "satisfied":
-      return "Satisfied";
-    case "waived":
-      return "Waived by Admin";
-    default:
-      return "Not required";
-  }
-}
-
-function CanonicalReviewLifecyclePanel({
-  detail,
-  onApproveSubmilestone,
-  onRecommendReview,
-  onRequestChanges,
-  onRetractSubmilestone,
-  onReviewNoteChange,
-  onReviewReasonChange,
-  onReviewSiteVisitRequiredChange,
-  onWaiveSiteVisit,
-  readOnly,
-  reviewBusy,
-  reviewNote,
-  reviewReason,
-  reviewSiteVisitRequired,
-  tagOptions,
-}: {
-  detail: VisibleActionItemDetail;
-  onApproveSubmilestone: () => void;
-  onRecommendReview: () => void;
-  onRequestChanges: () => void;
-  onRetractSubmilestone: () => void;
-  onReviewNoteChange: (value: string) => void;
-  onReviewReasonChange: (value: string) => void;
-  onReviewSiteVisitRequiredChange: (value: boolean) => void;
-  onWaiveSiteVisit: () => void;
-  readOnly: boolean;
-  reviewBusy: boolean;
-  reviewNote: string;
-  reviewReason: string;
-  reviewSiteVisitRequired: boolean;
-  tagOptions: CollaborationTagOption[];
-}) {
-  const presentation = detail.item.systemPresentation;
-  if (!presentation) return null;
-  const canonicalRevisionAvailable =
-    typeof presentation.workflowRevision === "number" &&
-    Number.isFinite(presentation.workflowRevision);
-  const canEditReview =
-    !readOnly &&
-    canonicalRevisionAvailable &&
-    (presentation.canRecommendReview === true ||
-      presentation.canRequestChanges === true ||
-      presentation.canApproveSubmilestone === true ||
-      presentation.canWaiveSiteVisit === true ||
-      presentation.canRetractSubmilestoneApproval === true);
-  const requirement = presentation.siteVisitRequirement;
-  const reviewHistory = presentation.reviewHistory ?? [];
-  const participantOptions = tagOptions.filter(
-    (option) => option.kind === "participant",
-  );
-  const siteVisitSignals = requirement
-    ? [
-        ...requirement.policySignals,
-        ...requirement.riskSignals,
-        ...requirement.manualSignals,
-      ]
-    : [];
-  return (
-    <Frame className="bg-background" size="sm">
-      <FramePanel className="space-y-4 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 font-medium text-sm">
-            <ShieldCheck aria-hidden="true" className="size-4" />
-            Governed review lifecycle
-          </div>
-          <Badge
-            variant={
-              presentation.reviewDecisionState === "approved"
-                ? "success"
-                : presentation.reviewDecisionState === "reopened"
-                  ? "warning"
-                  : "outline"
-            }
-          >
-            {reviewDecisionLabel(
-              presentation.reviewDecisionState ?? "in_review",
-            )}
-          </Badge>
-        </div>
-        <div className="grid gap-3 text-xs sm:grid-cols-2">
-          <ReadOnlyField
-            label="Review round"
-            value={String(presentation.evidenceReviewRound ?? 0)}
-          />
-          <ReadOnlyField
-            label="Parent Milestone"
-            value={reviewDecisionLabel(
-              presentation.milestoneReviewDecisionState ?? "in_review",
-            )}
-          />
-        </div>
-        {presentation.parentReadyForApproval ? (
-          <p className="rounded-md border border-success/30 bg-success/8 px-3 py-2 text-success-foreground text-xs">
-            Every child is independently approved. The parent still requires
-            explicit Lender Admin approval.
-          </p>
-        ) : null}
-        {presentation.reviewDecisionState === "reopened" ||
-        presentation.milestoneReviewDecisionState === "reopened" ? (
-          <p className="rounded-md border border-warning/30 bg-warning/8 px-3 py-2 text-warning-foreground text-xs">
-            This review is reopened. Prior evidence, Site Visits, decisions, and
-            rounds remain immutable history.
-          </p>
-        ) : null}
-        <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-medium">Site Visit requirement</span>
-            <Badge
-              variant={
-                requirement?.status === "required" ? "warning" : "outline"
-              }
-            >
-              {requirement
-                ? siteVisitRequirementLabel(requirement.status)
-                : "No snapshot"}
-            </Badge>
-          </div>
-          {requirement ? (
-            <>
-              <p className="text-muted-foreground text-xs">
-                {requirement.required
-                  ? "Required by the current lender policy/risk/manual evaluation."
-                  : "No Site Visit is required for this review round."}
-              </p>
-              {siteVisitSignals.length > 0 ? (
-                <p className="text-muted-foreground text-xs">
-                  Signals: {siteVisitSignals.join(", ")}
-                </p>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-        {canEditReview ? (
-          <div className="space-y-3 rounded-md border p-3">
-            <p className="font-medium text-xs">Review command</p>
-            {presentation.canRecommendReview ||
-            presentation.canApproveSubmilestone ? (
-              <Label className="space-y-1 text-xs">
-                <span>Reviewer note</span>
-                <Input
-                  aria-label="Review note"
-                  disabled={reviewBusy}
-                  onChange={(event) => onReviewNoteChange(event.target.value)}
-                  value={reviewNote}
-                />
-              </Label>
-            ) : null}
-            {presentation.canRequestChanges ||
-            presentation.canWaiveSiteVisit ||
-            presentation.canRetractSubmilestoneApproval ? (
-              <Label className="space-y-1 text-xs">
-                <span>Reason (required for this command)</span>
-                <Input
-                  aria-label="Review reason"
-                  disabled={reviewBusy}
-                  onChange={(event) => onReviewReasonChange(event.target.value)}
-                  value={reviewReason}
-                />
-              </Label>
-            ) : null}
-            {presentation.canRecommendReview ? (
-              <label className="flex items-center gap-2 text-xs">
-                <Checkbox
-                  aria-label="Recommend a Site Visit"
-                  checked={reviewSiteVisitRequired}
-                  disabled={reviewBusy}
-                  onCheckedChange={(checked) =>
-                    onReviewSiteVisitRequiredChange(checked === true)
-                  }
-                />
-                Recommend a Site Visit
-              </label>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              {presentation.canRecommendReview ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onRecommendReview}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Record recommendation
-                </Button>
-              ) : null}
-              {presentation.canRequestChanges ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onRequestChanges}
-                  size="sm"
-                  type="button"
-                  variant="warning"
-                >
-                  Request changes
-                </Button>
-              ) : null}
-              {presentation.canWaiveSiteVisit ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onWaiveSiteVisit}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Waive Site Visit
-                </Button>
-              ) : null}
-              {presentation.canApproveSubmilestone ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onApproveSubmilestone}
-                  size="sm"
-                  type="button"
-                >
-                  Approve Sub-milestone
-                </Button>
-              ) : null}
-              {presentation.canRetractSubmilestoneApproval ? (
-                <Button
-                  disabled={reviewBusy}
-                  onClick={onRetractSubmilestone}
-                  size="sm"
-                  type="button"
-                  variant="warning"
-                >
-                  Retract child approval
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-        {!readOnly && !canonicalRevisionAvailable ? (
-          <p className="text-muted-foreground text-xs" role="status">
-            Refresh this Action Item before recording review; canonical workflow
-            revision is unavailable.
-          </p>
-        ) : null}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 font-medium text-xs">
-            <History aria-hidden="true" className="size-3.5" />
-            Review history
-          </div>
-          {reviewHistory.length === 0 ? (
-            <p className="text-muted-foreground text-xs">
-              No review decisions recorded yet.
-            </p>
-          ) : (
-            <ol className="space-y-2 text-xs">
-              {reviewHistory.map((entry, index) => (
-                <li
-                  className="rounded-md border bg-muted/20 px-3 py-2"
-                  key={entry.scope + "-" + entry.createdAt + "-" + index}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">
-                      {entry.scope === "milestone"
-                        ? "Milestone"
-                        : "Sub-milestone"}{" "}
-                      · {entry.kind.replaceAll("_", " ")}
-                    </span>
-                    <span className="text-muted-foreground">
-                      Round {entry.reviewRound}
-                    </span>
-                  </div>
-                  <p className="text-muted-foreground">
-                    {entry.actorRoles.join(", ")} ·{" "}
-                    {participantOptions.find(
-                      (option) => option.id === entry.actorWorkosUserId,
-                    )?.label ?? "Former Build participant"}
-                  </p>
-                  {entry.reason || entry.note ? (
-                    <p>{entry.reason ?? entry.note}</p>
-                  ) : null}
-                  {entry.warnings.length > 0 ? (
-                    <p className="text-warning-foreground">
-                      Warnings: {entry.warnings.join(", ")}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      </FramePanel>
-    </Frame>
-  );
-}
-
-const ACTION_ITEM_REACTIONS = [
-  "acknowledged",
-  "agree",
-  "question",
-] as const;
+const ACTION_ITEM_REACTIONS = ["acknowledged", "agree", "question"] as const;
 
 export function ActionItemCommentCard({
   buildId,
@@ -2625,7 +1467,7 @@ export function ActionItemCommentCard({
         <div className="flex flex-wrap items-center gap-1">
           {ACTION_ITEM_REACTIONS.map((reaction) => {
             const summary = entry.reactions.find(
-              (candidate) => candidate.reaction === reaction,
+              (candidate) => candidate.reaction === reaction
             );
             return (
               <Button
@@ -2678,7 +1520,7 @@ function TagTaxonomyPicker({
                 onChange(
                   selected
                     ? labels.filter((candidate) => candidate !== label)
-                    : [...labels, label],
+                    : [...labels, label]
                 )
               }
               size="xs"
@@ -2727,7 +1569,6 @@ function ActionItemWorkflowPanel({
     return null;
   }
   const visibleWorkflow = workflow as VisibleWorkflowContext;
-  const canonicalMilestoneItem = isCanonicalMilestoneItem(detail.item);
   const assignmentStateLabel =
     detail.item.assignmentState === "requested"
       ? "Acceptance requested"
@@ -2735,7 +1576,7 @@ function ActionItemWorkflowPanel({
         ? "Assigned"
         : "Unassigned";
   const statusOptions = Array.from(
-    new Set([detail.item.status, ...visibleWorkflow.availableTransitions]),
+    new Set([detail.item.status, ...visibleWorkflow.availableTransitions])
   );
   const transitionNeedsReason = (nextStatus: ActionStatus) =>
     nextStatus === "blocked" ||
@@ -2745,7 +1586,7 @@ function ActionItemWorkflowPanel({
       return "Unassigned";
     }
     const participant = visibleWorkflow.assignableParticipants.find(
-      (candidate) => candidate.workosUserId === value,
+      (candidate) => candidate.workosUserId === value
     );
     return (
       participant?.displayName ??
@@ -2754,9 +1595,6 @@ function ActionItemWorkflowPanel({
     );
   };
   const chooseStatus = (nextStatus: ActionStatus) => {
-    if (canonicalMilestoneItem) {
-      return;
-    }
     if (nextStatus === detail.item.status) {
       setPendingStatus(null);
       onReasonChange("");
@@ -2828,11 +1666,7 @@ function ActionItemWorkflowPanel({
           <NativeSelect
             aria-label="Change Action Item status"
             className="w-full [&_[data-slot=native-select]]:h-9 [&_[data-slot=native-select]]:rounded-lg [&_[data-slot=native-select]]:bg-background [&_[data-slot=native-select]]:text-sm"
-            disabled={
-              busy ||
-              canonicalMilestoneItem ||
-              visibleWorkflow.availableTransitions.length === 0
-            }
+            disabled={busy || visibleWorkflow.availableTransitions.length === 0}
             onChange={(event) => {
               chooseStatus(event.currentTarget.value as ActionStatus);
             }}
@@ -2912,7 +1746,7 @@ function DetailContext({
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   onReplaceAsset?: (
     asset: BuildCollaborationAssetSummary,
-    file: File,
+    file: File
   ) => Promise<void>;
   organizationId: string;
   tagOptions: CollaborationTagOption[];
@@ -2930,7 +1764,7 @@ function DetailContext({
           const option = tagOptions.find(
             (candidate) =>
               candidate.id === reference.entityId &&
-              candidate.kind === toEditorReferenceKind(reference.entityKind),
+              candidate.kind === toEditorReferenceKind(reference.entityKind)
           );
           return option ? (
             <BuildCollaborationReferenceChip
@@ -2984,26 +1818,26 @@ export function ActionItemStructurePanel({
       actionItemId: detail.item.actionItemId,
       buildId,
       organizationId,
-    },
+    }
   ) as StructureContext | undefined;
   const addChecklistItem = useBuildCollaborationMutation(
-    api.build_action_item_structure.addBuildActionItemChecklistItem,
+    api.build_action_item_structure.addBuildActionItemChecklistItem
   );
   const toggleChecklistItem = useBuildCollaborationMutation(
-    api.build_action_item_structure.toggleBuildActionItemChecklistItem,
+    api.build_action_item_structure.toggleBuildActionItemChecklistItem
   );
   const linkActionItems = useBuildCollaborationMutation(
-    api.build_action_item_structure.linkBuildActionItems,
+    api.build_action_item_structure.linkBuildActionItems
   );
   const unlinkActionItems = useBuildCollaborationMutation(
-    api.build_action_item_structure.unlinkBuildActionItemRelation,
+    api.build_action_item_structure.unlinkBuildActionItemRelation
   );
   const repairRelation = useBuildCollaborationMutation(
-    api.build_action_item_structure.repairBuildActionItemRelation,
+    api.build_action_item_structure.repairBuildActionItemRelation
   );
   const [checklistLabel, setChecklistLabel] = useState("");
   const [relationKind, setRelationKind] = useState<"duplicate" | "related">(
-    "related",
+    "related"
   );
   const [relatedActionItemId, setRelatedActionItemId] = useState("");
   const [dependsOnActionItemId, setDependsOnActionItemId] = useState("");
@@ -3013,7 +1847,7 @@ export function ActionItemStructurePanel({
   const [busy, setBusy] = useState(false);
   const relatedOptions = tagOptions.filter(
     (option) =>
-      option.kind === "action_item" && option.id !== detail.item.actionItemId,
+      option.kind === "action_item" && option.id !== detail.item.actionItemId
   );
   const canCreateChild =
     capabilities?.createChild ??
@@ -3066,9 +1900,7 @@ export function ActionItemStructurePanel({
       toast.success("Checklist step added.");
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to add checklist step.",
+        error instanceof Error ? error.message : "Unable to add checklist step."
       );
     } finally {
       setBusy(false);
@@ -3095,7 +1927,7 @@ export function ActionItemStructurePanel({
       toast.success("Action Item relationship added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to link Action Items.",
+        error instanceof Error ? error.message : "Unable to link Action Items."
       );
     } finally {
       setBusy(false);
@@ -3133,14 +1965,14 @@ export function ActionItemStructurePanel({
       toast.success("Dependency added.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to add dependency.",
+        error instanceof Error ? error.message : "Unable to add dependency."
       );
     } finally {
       setBusy(false);
     }
   };
   const unlinkDependency = async (
-    relationId: Id<"buildActionItemRelations">,
+    relationId: Id<"buildActionItemRelations">
   ) => {
     setBusy(true);
     try {
@@ -3155,7 +1987,7 @@ export function ActionItemStructurePanel({
       toast.success("Dependency removed.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to remove dependency.",
+        error instanceof Error ? error.message : "Unable to remove dependency."
       );
     } finally {
       setBusy(false);
@@ -3163,10 +1995,10 @@ export function ActionItemStructurePanel({
   };
   const openRelatedActionItem = (
     actionItemId: Id<"buildActionItems">,
-    title: string,
+    title: string
   ) => {
     const option = relatedOptions.find(
-      (candidate) => candidate.id === actionItemId,
+      (candidate) => candidate.id === actionItemId
     );
     onReferenceOpen(
       option ?? {
@@ -3175,7 +2007,7 @@ export function ActionItemStructurePanel({
         kind: "action_item",
         label: title,
         summary: "Linked Action Item",
-      },
+      }
     );
   };
   return (
@@ -3189,9 +2021,7 @@ export function ActionItemStructurePanel({
             First-class children carry ownership; checklist steps do not.
           </p>
         </div>
-        {!readOnly &&
-        canCreateChild &&
-        !detail.item.parentActionItemId ? (
+        {!readOnly && canCreateChild && !detail.item.parentActionItemId ? (
           <Button
             onClick={() => setCreatingChild(true)}
             size="sm"
@@ -3221,7 +2051,7 @@ export function ActionItemStructurePanel({
                     const option = tagOptions.find(
                       (candidate) =>
                         candidate.kind === "action_item" &&
-                        candidate.id === child.actionItemId,
+                        candidate.id === child.actionItemId
                     );
                     onReferenceOpen(
                       option ?? {
@@ -3230,7 +2060,7 @@ export function ActionItemStructurePanel({
                         kind: "action_item",
                         label: child.title,
                         summary: `${child.status.replaceAll("_", " ")} · ${child.priority}`,
-                      },
+                      }
                     );
                   }}
                   render={<button type="button" />}
@@ -3261,11 +2091,7 @@ export function ActionItemStructurePanel({
               <Checkbox
                 aria-label={`Mark ${row.label} ${row.completed ? "incomplete" : "complete"}`}
                 checked={row.completed}
-                disabled={
-                  busy ||
-                  readOnly ||
-                  !canToggleChecklist
-                }
+                disabled={busy || readOnly || !canToggleChecklist}
                 onCheckedChange={async () => {
                   if (readOnly || !canToggleChecklist) {
                     return;
@@ -3282,7 +2108,7 @@ export function ActionItemStructurePanel({
                     toast.error(
                       error instanceof Error
                         ? error.message
-                        : "Unable to update checklist step.",
+                        : "Unable to update checklist step."
                     );
                   } finally {
                     setBusy(false);
@@ -3321,10 +2147,10 @@ export function ActionItemStructurePanel({
           onRemove={unlinkDependency}
           onSelectionChange={setDependsOnActionItemId}
           options={relatedOptions}
-          readOnly={readOnly || (!canLinkRelation && !canUnlinkRelation)}
+          readOnly={readOnly || !(canLinkRelation || canUnlinkRelation)}
           relations={visibleStructure.relations.filter(
             (relation) =>
-              relation.kind === "blocks" && relation.direction === "incoming",
+              relation.kind === "blocks" && relation.direction === "incoming"
           )}
           selection={dependsOnActionItemId}
         />
@@ -3338,10 +2164,10 @@ export function ActionItemStructurePanel({
           onRemove={unlinkDependency}
           onSelectionChange={setUnblocksActionItemId}
           options={relatedOptions}
-          readOnly={readOnly || (!canLinkRelation && !canUnlinkRelation)}
+          readOnly={readOnly || !(canLinkRelation || canUnlinkRelation)}
           relations={visibleStructure.relations.filter(
             (relation) =>
-              relation.kind === "blocks" && relation.direction === "outgoing",
+              relation.kind === "blocks" && relation.direction === "outgoing"
           )}
           selection={unblocksActionItemId}
         />
@@ -3353,7 +2179,7 @@ export function ActionItemStructurePanel({
             Related ·{" "}
             {
               visibleStructure.relations.filter(
-                (relation) => relation.kind !== "blocks",
+                (relation) => relation.kind !== "blocks"
               ).length
             }
           </p>
@@ -3406,7 +2232,7 @@ export function ActionItemStructurePanel({
                             toast.error(
                               error instanceof Error
                                 ? error.message
-                                : "Unable to repair relationship.",
+                                : "Unable to repair relationship."
                             );
                           } finally {
                             setBusy(false);
@@ -3564,7 +2390,7 @@ function DependencyDisclosure({
                         onClick={() =>
                           onOpen(
                             relation.otherActionItemId as Id<"buildActionItems">,
-                            relation.otherActionItemTitle ?? "Action Item",
+                            relation.otherActionItemTitle ?? "Action Item"
                           )
                         }
                         size="xs"
@@ -3617,7 +2443,11 @@ function DependencyDisclosure({
   );
 }
 
-export function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
+export function RevisionHistory({
+  detail,
+}: {
+  detail: VisibleActionItemDetail;
+}) {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -3649,7 +2479,11 @@ export function RevisionHistory({ detail }: { detail: VisibleActionItemDetail })
   );
 }
 
-export function ActivityHistory({ detail }: { detail: VisibleActionItemDetail }) {
+export function ActivityHistory({
+  detail,
+}: {
+  detail: VisibleActionItemDetail;
+}) {
   return (
     <section className="space-y-3">
       <h3 className="font-semibold text-base leading-snug">Activity</h3>
@@ -3718,7 +2552,7 @@ function PrioritySelect({
             <SelectItem key={priority} value={priority}>
               {priority}
             </SelectItem>
-          ),
+          )
         )}
       </SelectContent>
     </Select>
@@ -3854,7 +2688,7 @@ function statusLabel(status: ActionStatus) {
 
 function effectiveActionItemWorkKind(
   selectedWorkKind: ActionWorkKind,
-  references: CollaborationTagReference[],
+  references: CollaborationTagReference[]
 ): ActionWorkKind {
   if (selectedWorkKind !== "ordinary") {
     return selectedWorkKind;
@@ -3872,7 +2706,7 @@ function effectiveActionItemWorkKind(
 }
 
 function relationDirectionLabel(
-  relation: VisibleStructureContext["relations"][number],
+  relation: VisibleStructureContext["relations"][number]
 ) {
   if (relation.kind === "blocks") {
     return relation.direction === "outgoing" ? "Blocks" : "Blocked by";
@@ -3882,7 +2716,7 @@ function relationDirectionLabel(
 
 function transitionLabel(
   detail: VisibleActionItemDetail,
-  status: ActionStatus,
+  status: ActionStatus
 ) {
   if (status === "in_review" && detail.item.requiresAcceptance) {
     return "Submit for review";

@@ -814,7 +814,8 @@ async function projectMilestoneExecutionPresentation(
       : {}),
     reviewHistory,
     executionOwnership: {
-      ...(viewerRoles.includes("contractor")
+      ...(viewerRoles.includes("contractor") ||
+      viewerRoles.includes("homeowner")
         ? {}
         : ownership.contractor
           ? {
