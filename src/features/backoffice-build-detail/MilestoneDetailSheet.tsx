@@ -214,6 +214,7 @@ export function MilestoneDetailSheet({
       );
       return false;
     }
+    setLocalError(null);
     onOpenCanonicalTarget(
       { kind: "submilestone", submilestoneId: row.submilestoneId },
       { selectedTab }
