@@ -336,9 +336,11 @@ export function buildDetailTargetQueueHref(
     url.searchParams.set("focus", `submilestone:${target.submilestoneId}`);
     url.searchParams.set("detailTab", "collaboration");
   } else if (target.kind === "actionItem") {
+    url.searchParams.delete("detailTab");
     url.searchParams.set("tab", "details");
     url.searchParams.set("focus", `actionItem:${target.actionItemId}`);
   } else {
+    url.searchParams.delete("detailTab");
     url.searchParams.set("focus", `milestone:${target.milestoneId}`);
   }
   return `${url.pathname}${url.search}`;

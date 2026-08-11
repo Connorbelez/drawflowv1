@@ -202,6 +202,7 @@ export function canonicalizeTiptapContent(tiptapJson: string) {
 export function canonicalizeTiptapReferences(
   tiptapJson: string,
   references: Array<{
+    aliases?: Array<Pick<ReferenceInput, "entityId" | "entityKind">>;
     entityId: string;
     entityKind: ReferenceInput["entityKind"];
     eyebrow: string;
@@ -228,12 +229,19 @@ export function canonicalizeTiptapReferences(
       "Rich text must contain a TipTap document."
     );
   }
-  const referenceByKey = new Map(
-    references.map((reference) => [
+  const referenceByKey = new Map();
+  for (const reference of references) {
+    referenceByKey.set(
       `${editorReferenceKind(reference.entityKind)}:${reference.entityId}`,
       reference,
-    ])
-  );
+    );
+    for (const alias of reference.aliases ?? []) {
+      referenceByKey.set(
+        `${editorReferenceKind(alias.entityKind)}:${alias.entityId}`,
+        reference,
+      );
+    }
+  }
   const rewrittenDocument = rewriteTiptapReferenceNodes(
     document,
     referenceByKey
@@ -309,6 +317,7 @@ function rewriteTiptapReferenceNodes(
   referenceByKey: Map<
     string,
     {
+      aliases?: Array<Pick<ReferenceInput, "entityId" | "entityKind">>;
       entityId: string;
       entityKind: ReferenceInput["entityKind"];
       eyebrow: string;

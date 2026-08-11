@@ -25,6 +25,7 @@ export type BuildCollaborationReferenceKind = ReferenceInput["entityKind"];
 
 export interface CanonicalBuildCollaborationReference
   extends Omit<ReferenceInput, "label" | "summary"> {
+  aliases?: Array<Pick<ReferenceInput, "entityId" | "entityKind">>;
   eyebrow: string;
   href: string;
   label: string;
@@ -112,8 +113,25 @@ export async function resolveCanonicalBuildCollaborationReferences(
       normalized.set(key, reference);
       continue;
     }
+    const aliases = [
+      ...(existing.aliases ?? []),
+      ...(reference.aliases ?? []),
+    ].filter(
+      (alias, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.entityId === alias.entityId &&
+            candidate.entityKind === alias.entityKind,
+        ) === index,
+    );
     if (reference.primary && !existing.primary) {
-      normalized.set(key, { ...existing, primary: true });
+      normalized.set(key, {
+        ...existing,
+        ...(aliases.length > 0 ? { aliases } : {}),
+        primary: true,
+      });
+    } else if (aliases.length > 0) {
+      normalized.set(key, { ...existing, aliases });
     }
   }
   return [...normalized.values()];
@@ -550,13 +568,20 @@ async function resolveActionItemReference(
     if (!item.canonicalBuildSubmilestoneId) {
       throw unavailableReference();
     }
-    return await resolveCanonicalReference(ctx, {
+    const canonical = await resolveCanonicalReference(ctx, {
       authorization: input.authorization,
       entityId: item.canonicalBuildSubmilestoneId,
       entityKind: "submilestone",
       primary: input.common.primary,
       readers: input.readers,
     });
+    return {
+      ...canonical,
+      aliases: [
+        ...(canonical.aliases ?? []),
+        { entityId: input.entityId, entityKind: "actionItem" as const },
+      ],
+    };
   }
   return {
     ...input.common,

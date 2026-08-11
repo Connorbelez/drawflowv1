@@ -11245,6 +11245,7 @@ export const requestLoanFacilityDateChange = authenticatedMutation
       build: auth.build,
       command: "requestLoanFacilityDateChange",
       eventType: "active_build.facility_change.requested",
+      resourceType: "capitalEvent",
       newState: JSON.stringify({ requestId, requestedPaybackDate }),
       priorState: JSON.stringify({
         paybackDate: loanFacility.paybackDate,
@@ -16679,8 +16680,19 @@ export const getActiveBuildDetailByString = authenticatedQuery
       )
       .order("desc")
       .take(ACTIVE_BUILD_AUDIT_LEGACY_COMPATIBILITY_LIMIT);
+    const legacyBuildEntityAuditEvents = await ctx.db
+      .query("auditEvents")
+      .withIndex("by_entity", (q) =>
+        q.eq("entityType", "activeBuild").eq("entityId", String(build._id)),
+      )
+      .order("desc")
+      .take(ACTIVE_BUILD_AUDIT_STREAM_LIMIT);
     const auditEventsById = new Map<string, Doc<"auditEvents">>();
-    for (const event of [...auditEvents, ...legacyAuditEvents]) {
+    for (const event of [
+      ...auditEvents,
+      ...legacyAuditEvents,
+      ...legacyBuildEntityAuditEvents,
+    ]) {
       auditEventsById.set(String(event._id), event);
     }
     const submilestoneById = new Map(
@@ -16707,6 +16719,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
             event.entityType === "submilestone";
           const exposesChildTarget =
             isDirectChildAudit ||
+            auditEventHasSubmilestoneScope(event) ||
             resolveAuditCanonicalSubmilestone(event, submilestoneById) !==
               undefined;
           return (
@@ -17189,6 +17202,35 @@ function resolveAuditCanonicalSubmilestone(
     }
   }
   return undefined;
+}
+
+function auditEventHasSubmilestoneScope(
+  event: Pick<Doc<"auditEvents">, "newState" | "priorState">,
+) {
+  for (const state of [event.newState, event.priorState]) {
+    if (!state) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(state);
+      if (!parsed || typeof parsed !== "object") {
+        continue;
+      }
+      const submilestoneKeys = (parsed as Record<string, unknown>)
+        .submilestoneKeys;
+      if (Array.isArray(submilestoneKeys) && submilestoneKeys.length > 0) {
+        return true;
+      }
+      const submilestoneIds = (parsed as Record<string, unknown>)
+        .submilestoneIds;
+      if (Array.isArray(submilestoneIds) && submilestoneIds.length > 0) {
+        return true;
+      }
+    } catch {
+      // Legacy audit payloads without valid JSON remain parent-scoped.
+    }
+  }
+  return false;
 }
 
 function productionSubmilestoneAuditTab(event: {
@@ -18246,6 +18288,7 @@ export const requestActiveBuildFacilityChange = authenticatedMutation
       build: auth.build,
       command: "requestActiveBuildFacilityChange",
       eventType: "active_build.facility_change.requested",
+      resourceType: "capitalEvent",
       newState: JSON.stringify({
         requestId,
         requestType: args.requestType,
@@ -18351,6 +18394,7 @@ export const reviewActiveBuildFacilityChangeRequest = authenticatedMutation
       build: auth.build,
       command: "reviewActiveBuildFacilityChangeRequest",
       eventType: "active_build.facility_change.reviewed",
+      resourceType: "capitalEvent",
       newState: JSON.stringify(newState),
       priorState: JSON.stringify(priorState),
       reason: args.note,
@@ -18454,6 +18498,7 @@ export const requestActiveBuildBudgetRevision = authenticatedMutation
       build: auth.build,
       command: "requestActiveBuildBudgetRevision",
       eventType: "active_build.budget_revision.requested",
+      resourceType: "capitalEvent",
       newState: JSON.stringify({ requestId, requestedPayload }),
       priorState: JSON.stringify(priorState),
       reason: args.reason.trim(),
@@ -18558,6 +18603,7 @@ export const reviewActiveBuildBudgetRevision = authenticatedMutation
       build: auth.build,
       command: "reviewActiveBuildBudgetRevision",
       eventType: "active_build.budget_revision.reviewed",
+      resourceType: "capitalEvent",
       newState: JSON.stringify({
         approvedCapitalPlanId,
         requestId: request._id,
@@ -19338,6 +19384,7 @@ export const createActiveBuildTimelineCashInfusion = authenticatedMutation
       build: auth.build,
       command: "createActiveBuildTimelineCashInfusion",
       eventType: "active_build.cash_infusion.created",
+      resourceType: "capitalEvent",
       newState: JSON.stringify(args),
     });
     return null;

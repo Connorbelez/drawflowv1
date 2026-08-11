@@ -998,7 +998,10 @@ async function loadSearchOwnerDescriptor(
       ...shared,
       actionItemId: item._id,
       assigneeWorkosUserId: generatedSubmilestone
-        ? canonicalPresentation?.executionOwnership?.assigneeWorkosUserId
+        ? canonicalPresentation?.executionOwnership?.assigneeWorkosUserId ??
+          (canonicalPresentation?.executionOwnership?.viewerIsAssignee
+            ? authorization.viewer.subject
+            : undefined)
         : item.assigneeWorkosUserId,
       authorDisplayName: participantDisplayName(
         authorization,
@@ -1375,7 +1378,10 @@ async function refreshIndexedSearchCandidate(
       candidate = {
         ...candidate,
         assigneeWorkosUserId: generatedSubmilestone
-          ? presentation?.executionOwnership?.assigneeWorkosUserId
+          ? presentation?.executionOwnership?.assigneeWorkosUserId ??
+            (presentation?.executionOwnership?.viewerIsAssignee
+              ? input.authorization.viewer.subject
+              : undefined)
           : item.assigneeWorkosUserId,
         entityId: canonicalSubmilestoneId ?? item.primaryReferenceId,
         entityKind: canonicalSubmilestoneId

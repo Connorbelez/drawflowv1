@@ -360,8 +360,14 @@ async function canRecipientReadCanonicalNotificationTarget(
         organizationId: input.authorization.organizationId,
       }
     );
-  } catch {
-    return false;
+  } catch (error) {
+    if (
+      isBuildCollaborationValidationError(error) ||
+      (error instanceof Error && error.message.startsWith("Forbidden:"))
+    ) {
+      return false;
+    }
+    throw error;
   }
   if (target.canonicalSubmilestone) {
     try {

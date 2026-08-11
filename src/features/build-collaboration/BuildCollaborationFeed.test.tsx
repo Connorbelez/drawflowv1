@@ -1552,7 +1552,7 @@ describe("BuildCollaborationFeed", () => {
     "keeps canonical Sub-milestone navigation on the current role route %s",
     (pathname) => {
       const target = {
-        companionId: "action-generated",
+        companionId: "action-generated" as Id<"buildActionItems">,
         kind: "submilestone" as const,
         submilestoneId:
           "submilestone-9" as Id<"buildSubmilestones">,

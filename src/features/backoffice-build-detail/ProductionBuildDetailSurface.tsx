@@ -977,10 +977,13 @@ export function ProductionBuildDetailSurface({
         (milestone) => milestone.key === activeMilestoneKey,
       ) ?? null)
     : null;
-  const setActiveMilestoneKey = (next: string | null) => {
-    setLocalActiveMilestoneKey(next);
-    onChangeMilestone?.(next ?? undefined);
-  };
+  const setActiveMilestoneKey = useCallback(
+    (next: string | null) => {
+      setLocalActiveMilestoneKey(next);
+      onChangeMilestone?.(next ?? undefined);
+    },
+    [onChangeMilestone],
+  );
   useEffect(() => {
     if (focusedReference?.startsWith("milestone:")) {
       const entityId = focusedReference.slice("milestone:".length);
@@ -1067,6 +1070,7 @@ export function ProductionBuildDetailSurface({
       detail.submilestones,
       onChangeTab,
       onOpenCanonicalTarget,
+      setActiveMilestoneKey,
     ],
   );
   const openMilestoneStart = (
@@ -3644,21 +3648,23 @@ function CompletedSiteVisitReview({
         </p>
       )}
       {rows.length > 0 ? (
-        rows.map((row) => (
-          <div
-            className="rounded-md border bg-card p-3"
-            data-testid={`milestone-review-site-visit-${row.id}`}
-            key={row.id}
-          >
-            <EvidenceReviewSummary row={row} />
-            {row.submilestoneId && onOpenCanonicalTarget ? (
+        rows.map((row) => {
+          const submilestoneId = row.submilestoneId;
+          return (
+            <div
+              className="rounded-md border bg-card p-3"
+              data-testid={`milestone-review-site-visit-${row.id}`}
+              key={row.id}
+            >
+              <EvidenceReviewSummary row={row} />
+              {submilestoneId && onOpenCanonicalTarget ? (
               <Button
                 aria-label={`Open Sub-milestone evidence for ${row.milestoneName}`}
                 onClick={() =>
                   onOpenCanonicalTarget(
                     {
                       kind: "submilestone",
-                      submilestoneId: row.submilestoneId,
+                      submilestoneId,
                     },
                     { selectedTab: "review" },
                   )
@@ -3669,10 +3675,11 @@ function CompletedSiteVisitReview({
               >
                 Open sub-milestone review
               </Button>
-            ) : null}
-            <EvidenceAssetPackage row={row} />
-          </div>
-        ))
+              ) : null}
+              <EvidenceAssetPackage row={row} />
+            </div>
+          );
+        })
       ) : (
         <p className="rounded-md border border-dashed p-4 text-muted-foreground text-sm">
           No site visit files are attached.
