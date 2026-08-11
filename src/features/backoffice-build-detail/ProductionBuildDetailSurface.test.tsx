@@ -56,17 +56,37 @@ vi.mock("convex/react", () => ({
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
   FieldRichTextEditor: ({
     ariaLabel,
+    editable = true,
     onChange,
+    onDocumentChange,
     value,
   }: {
     ariaLabel: string;
-    onChange: (value: string) => void;
-    value: string;
+    editable?: boolean;
+    onChange?: (value: string) => void;
+    onDocumentChange?: (document: Record<string, unknown>) => void;
+    value: unknown;
   }) => (
     <textarea
       aria-label={ariaLabel}
-      onChange={(event) => onChange(event.currentTarget.value)}
-      value={value}
+      data-editable={editable ? "true" : "false"}
+      onChange={(event) => {
+        const next = event.currentTarget.value;
+        onChange?.(next);
+        onDocumentChange?.({
+          content: next.trim()
+            ? [
+                {
+                  content: [{ text: next, type: "text" }],
+                  type: "paragraph",
+                },
+              ]
+            : [{ type: "paragraph" }],
+          type: "doc",
+        });
+      }}
+      readOnly={!editable}
+      value={typeof value === "string" ? value : JSON.stringify(value ?? "")}
     />
   ),
   FieldRichTextPreview: () => null,
@@ -100,7 +120,10 @@ vi.mock("./ActiveBuildTimelineWorkspace", () => ({
     onRequestSiteVisit,
     workspace,
   }: {
-    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    onRequestSiteVisit: (input: {
+      milestoneKey: string;
+      requestedDay?: number;
+    }) => void;
     workspace: any;
   }) => (
     <div data-testid="mock-active-build-timeline">
@@ -109,6 +132,14 @@ vi.mock("./ActiveBuildTimelineWorkspace", () => ({
         type="button"
       >
         Timeline order site visit
+      </button>
+      <button
+        onClick={() =>
+          onRequestSiteVisit({ milestoneKey: "foundation", requestedDay: 5 })
+        }
+        type="button"
+      >
+        Timeline schedule site visit
       </button>
       <div data-testid="mock-active-build-timeline-milestones">
         {workspace.milestones.length}
@@ -125,7 +156,10 @@ vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
     onRequestSiteVisit,
     workspace,
   }: {
-    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    onRequestSiteVisit: (input: {
+      milestoneKey: string;
+      requestedDay?: number;
+    }) => void;
     workspace: any;
   }) => (
     <div data-testid="mock-active-build-timeline">
@@ -134,6 +168,14 @@ vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
         type="button"
       >
         Timeline order site visit
+      </button>
+      <button
+        onClick={() =>
+          onRequestSiteVisit({ milestoneKey: "foundation", requestedDay: 5 })
+        }
+        type="button"
+      >
+        Timeline schedule site visit
       </button>
       <div data-testid="mock-active-build-timeline-milestones">
         {workspace.milestones.length}
@@ -351,10 +393,31 @@ const detail: ProductionBuildDetail = {
   submilestones: [
     {
       _id: "sub-01",
+      fieldGuidance: {
+        cameraAnglesTiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Capture excavation context", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+        whatToVerifyTiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Verify excavation", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
       key: "excavation",
       milestoneKey: "foundation",
       name: "Excavation",
       order: 1,
+      proposalSubmilestoneId: "proposal-sub-01",
       status: "complete",
       workflowRevision: 3,
     },
@@ -558,6 +621,7 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         rail="closed"
+        timelineWorkspace={timelineWorkspace}
       />,
     );
 
@@ -1865,9 +1929,25 @@ describe("ProductionBuildDetailSurface", () => {
   test("preflights site visit scope and editable guidance before creating the visit", async () => {
     const assignSiteVisit = vi.fn().mockResolvedValue(null);
     const whatToVerify =
-      "<ul><li>Verify excavation and footing work against the approved scope.</li></ul>";
+      JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Verify excavation", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      });
     const cameraAngles =
-      "<ul><li>Capture a wide view tying the excavation to the site.</li></ul>";
+      JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Capture context", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      });
 
     render(
       <ProductionBuildDetailSurface
@@ -1904,17 +1984,21 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBeTruthy();
     expect(assignSiteVisit).not.toHaveBeenCalled();
     expect(dialog.getByText("Foundation")).toBeTruthy();
-    expect(dialog.getByText("Excavation")).toBeTruthy();
+    expect(dialog.getAllByText("Excavation").length).toBeGreaterThan(0);
 
-    const verifyEditor = dialog.getByLabelText("What to verify");
-    const anglesEditor = dialog.getByLabelText("Required photo angles");
-    expect((verifyEditor as HTMLTextAreaElement).value).toBe(whatToVerify);
-    expect((anglesEditor as HTMLTextAreaElement).value).toBe(cameraAngles);
+    const verifyEditor = dialog.getByLabelText("Excavation what to verify");
+    const anglesEditor = dialog.getByLabelText(
+      "Excavation recommended camera angles",
+    );
+    expect((verifyEditor as HTMLTextAreaElement).value).toContain(
+      "Verify excavation",
+    );
+    expect((anglesEditor as HTMLTextAreaElement).value).toContain(
+      "Capture excavation context",
+    );
 
-    const editedVerify =
-      "<ul><li>Confirm forms, reinforcing, and concrete dimensions.</li></ul>";
-    const editedAngles =
-      "<ul><li>Capture one wide view and one reinforcing close-up.</li></ul>";
+    const editedVerify = "Confirm forms and concrete dimensions.";
+    const editedAngles = "Capture one wide view and one reinforcing close-up.";
     fireEvent.change(verifyEditor, { target: { value: editedVerify } });
     fireEvent.change(anglesEditor, { target: { value: editedAngles } });
     fireEvent.click(
@@ -1925,9 +2009,35 @@ describe("ProductionBuildDetailSurface", () => {
       expect(assignSiteVisit).toHaveBeenCalledWith({
         milestoneKey: "foundation",
         siteVisitGuidance: {
-          cameraAngles: editedAngles,
-          whatToVerify: editedVerify,
+          cameraAngles,
+          whatToVerify,
         },
+        submilestoneGuidanceSections: [
+          {
+            buildSubmilestoneId: "sub-01",
+            cameraAnglesTiptapJson: JSON.stringify({
+              content: [
+                {
+                  content: [
+                    { text: editedAngles, type: "text" },
+                  ],
+                  type: "paragraph",
+                },
+              ],
+              type: "doc",
+            }),
+            proposalSubmilestoneId: "proposal-sub-01",
+            whatToVerifyTiptapJson: JSON.stringify({
+              content: [
+                {
+                  content: [{ text: editedVerify, type: "text" }],
+                  type: "paragraph",
+                },
+              ],
+              type: "doc",
+            }),
+          },
+        ],
         submilestoneKeys: ["excavation"],
       }),
     );
@@ -2012,8 +2122,10 @@ describe("ProductionBuildDetailSurface", () => {
       expect(dialog.getByText("AI draft ready")).toBeTruthy(),
     );
     expect(dialog.getByText("Draft ready")).toBeTruthy();
-    const verifyEditor = dialog.getByLabelText("What to verify");
-    const anglesEditor = dialog.getByLabelText("Required photo angles");
+    const verifyEditor = dialog.getByLabelText("Visit-wide what to verify");
+    const anglesEditor = dialog.getByLabelText(
+      "Visit-wide required photo angles",
+    );
     await waitFor(() =>
       expect((verifyEditor as HTMLTextAreaElement).value).toContain(
         "Confirm excavation depth",
@@ -2030,6 +2142,52 @@ describe("ProductionBuildDetailSurface", () => {
     });
     expect((verifyEditor as HTMLTextAreaElement).value).toBe(
       editedAfterGeneration,
+    );
+  });
+
+  test("forwards the ordered guidance snapshot array through scheduled visits", async () => {
+    const scheduleSiteVisit = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        activeBuildId="active-build-01"
+        actions={{ scheduleSiteVisit }}
+        activeTab="timeline"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        timelineWorkspace={timelineWorkspace}
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Timeline schedule site visit" }),
+    );
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Configure site visit" }),
+    );
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Confirm and order site visit" }),
+    );
+    await waitFor(() => expect(scheduleSiteVisit).toHaveBeenCalledTimes(1));
+    expect(scheduleSiteVisit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        milestoneKey: "foundation",
+        requestedDay: 5,
+        submilestoneGuidanceSections: [
+          {
+            buildSubmilestoneId: "sub-01",
+            cameraAnglesTiptapJson: expect.stringContaining(
+              "Capture excavation context",
+            ),
+            proposalSubmilestoneId: "proposal-sub-01",
+            whatToVerifyTiptapJson: expect.stringContaining(
+              "Verify excavation",
+            ),
+          },
+        ],
+      }),
     );
   });
 

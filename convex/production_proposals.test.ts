@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import { operationalRequestFingerprint } from "./build_operational_idempotency";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -406,6 +407,34 @@ async function createClosedSingleMilestoneBuild(
   );
 }
 
+async function seedCanonicalSiteVisitGuidanceForBuild(
+  t: any,
+  buildId: any,
+  workosOrganizationId = ORG,
+) {
+  const rows = await t.run(async (ctx: any) =>
+    ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_build", (query: any) => query.eq("buildId", buildId))
+      .collect(),
+  );
+  for (const row of rows) {
+    await t.mutation(
+      (api as any).submilestone_field_guidance.saveSubmilestoneFieldGuidance,
+      {
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+        whatToVerifyTiptapJson: tiptapDocument(
+          `Verify ${row.name} before the Site Visit.`,
+        ),
+        cameraAnglesTiptapJson: tiptapDocument(
+          `Capture ${row.name} from the primary inspection angle.`,
+        ),
+        workosOrganizationId,
+      },
+    );
+  }
+}
+
 async function seedUnassignedSiteVisitEvidence(
   t: any,
   seed: any,
@@ -417,10 +446,12 @@ async function seedUnassignedSiteVisitEvidence(
       { key: "excavation", name: "Excavation", order: 1 },
     ],
   });
+  await seedCanonicalSiteVisitGuidanceForBuild(t, closing.buildId);
   const visit = await t.mutation(
     (api as any).production_proposals.assignActiveBuildSiteVisit,
     {
       buildId: closing.buildId,
+      idempotencyKey: "assign-site-visit-unassigned-evidence",
       milestoneKey: "foundation",
       note: "Inspect the stale target evidence.",
       requestedDay: 21,
@@ -6579,6 +6610,7 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await seedCanonicalSiteVisitGuidanceForBuild(t, closing.buildId);
 
     const principalRequestId = await builder.mutation(
       (api as any).production_proposals.requestActiveBuildFacilityChange,
@@ -6720,6 +6752,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId: closing.buildId,
+        idempotencyKey: "assign-site-visit-workspace-token",
         milestoneKey: "foundation",
         note: "Verify footing photo location.",
         requestedDay: 23,
@@ -7524,6 +7557,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId: primary.buildId,
+        idempotencyKey: "assign-site-visit-primary-token",
         milestoneKey: "foundation",
         note: "Inspect the primary build only.",
         requestedDay: 21,
@@ -10691,10 +10725,12 @@ describe("production proposal foundation", () => {
       }),
     ]);
 
+    await seedCanonicalSiteVisitGuidanceForBuild(t, buildId);
     await t.mutation(
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId,
+        idempotencyKey: "assign-site-visit-dashboard-queue",
         milestoneKey: "foundation",
         note: "Verify completion claim.",
         requestedDay: 31,
@@ -10963,6 +10999,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.assignActiveBuildSiteVisit,
       {
         buildId: closing.buildId,
+        idempotencyKey: "assign-site-visit-staff-review",
         milestoneKey: "foundation",
         note: "Verify the accepted package on site.",
         requestedDay: 21,
@@ -14056,6 +14093,531 @@ describe("Sub-milestone Scope and Field Guidance lineage", () => {
       scopeOfWorkTiptapJson: scope,
       status: "published",
       version: 1,
+    });
+  });
+});
+
+describe("Site Visit Field Guidance snapshots", () => {
+  test("rejects trimmed-empty Sub-milestone keys instead of silently selecting the whole milestone", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms and pour", order: 1 }],
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+        {
+          buildId: closing.buildId,
+          idempotencyKey: "site-visit-guidance-empty-key",
+          milestoneKey: "foundation",
+          requestedDay: 21,
+          submilestoneKeys: ["  "],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/empty Sub-milestone key/i);
+
+    const visits = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+    expect(visits).toHaveLength(0);
+  });
+
+  test("assigns unique deterministic snapshot order when roadmap rows share an order", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { key: "forms", name: "Forms and pour", order: 1 },
+        { key: "excavation", name: "Excavation", order: 1 },
+      ],
+    });
+    const lineage = await admin.run(async (ctx: any) => {
+      const rows = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      return rows.map((row: any) => ({
+        buildSubmilestoneId: row._id,
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+      }));
+    });
+    const guidanceSections = lineage.map((row: any, index: number) => ({
+      ...row,
+      cameraAnglesTiptapJson: tiptapDocument(`Angle ${index}.`),
+      whatToVerifyTiptapJson: tiptapDocument(`Verify ${index}.`),
+    }));
+
+    const visit = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      {
+        buildId: closing.buildId,
+        idempotencyKey: "site-visit-guidance-duplicate-order",
+        milestoneKey: "foundation",
+        requestedDay: 21,
+        submilestoneGuidanceSections: guidanceSections,
+        submilestoneKeys: ["forms", "excavation"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const snapshotOrders = await admin.run(async (ctx: any) => {
+      const visitRow = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", visit.visitId))
+        .unique();
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visitRow?._id),
+        )
+        .collect();
+      return sections
+        .sort((left: any, right: any) => left.order - right.order)
+        .map((section: any) => ({
+          key: section.submilestoneKey,
+          order: section.order,
+        }));
+    });
+
+    expect(snapshotOrders.map((section: any) => section.order)).toEqual([1, 2]);
+    expect(snapshotOrders.map((section: any) => section.key)).toEqual([
+      "excavation",
+      "forms",
+    ]);
+  });
+
+  test("assign retries return the original Visit and reject a changed request", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const args = {
+      buildId: closing.buildId,
+      idempotencyKey: "assign-site-visit-retry",
+      milestoneKey: "foundation",
+      note: "Inspect the foundation.",
+      requestedDay: 21,
+      workosOrganizationId: ORG,
+    };
+
+    const first = await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      args,
+    );
+    const replay = await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      args,
+    );
+    expect(replay.visitId).toBe(first.visitId);
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+        args,
+      ),
+    ).rejects.toThrow(/idempotency key/i);
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.assignActiveBuildSiteVisit,
+        { ...args, note: "Changed request must conflict." },
+      ),
+    ).rejects.toThrow(/idempotency key/i);
+
+    const visits = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    );
+    expect(visits).toHaveLength(1);
+  });
+
+  test("replays a schedule row written with the pre-command fingerprint", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms and pour", order: 1 }],
+    });
+    const verification = tiptapDocument("Verify the forms.");
+    const cameraAngles = tiptapDocument("Capture the forms from the east.");
+    const args = {
+      buildId: closing.buildId,
+      idempotencyKey: "schedule-pre-command-replay",
+      milestoneKey: "foundation",
+      requestedDay: 21,
+      submilestoneKeys: ["forms"],
+      submilestoneGuidanceSections: [] as Array<{
+        buildSubmilestoneId: any;
+        proposalSubmilestoneId: any;
+        whatToVerifyTiptapJson: string;
+        cameraAnglesTiptapJson: string;
+      }>,
+      workosOrganizationId: ORG,
+    };
+    const lineage = await admin.run(async (ctx: any) => {
+      const row = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .unique();
+      return {
+        buildSubmilestoneId: row._id,
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+      };
+    });
+    args.submilestoneGuidanceSections = [
+      {
+        ...lineage,
+        cameraAnglesTiptapJson: cameraAngles,
+        whatToVerifyTiptapJson: verification,
+      },
+    ];
+    const first = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      args,
+    );
+    const persisted = await admin.run(async (ctx: any) => {
+      const visit = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", first.visitId))
+        .unique();
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visit._id),
+        )
+        .collect();
+      return { sections, visit };
+    });
+    const legacyFingerprint = await operationalRequestFingerprint({
+      milestoneKey: "foundation",
+      note: null,
+      requestedDay: 21,
+      requestedTime: null,
+      siteVisitGuidance: first.siteVisitGuidance,
+      submilestoneGuidanceSections: persisted.sections
+        .slice()
+        .sort((left: any, right: any) => left.order - right.order)
+        .map((section: any) => ({
+          buildSubmilestoneId: String(section.buildSubmilestoneId),
+          cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+          proposalSubmilestoneId: String(section.proposalSubmilestoneId),
+          whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+        })),
+      submilestoneKeys: ["forms"],
+    });
+    expect(legacyFingerprint).not.toBe(persisted.visit.scheduleRequestFingerprint);
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(persisted.visit._id, {
+        scheduleRequestFingerprint: legacyFingerprint,
+      });
+    });
+
+    const replay = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      args,
+    );
+    expect(replay.visitId).toBe(first.visitId);
+    const visits = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) => query.eq("buildId", closing.buildId))
+        .collect(),
+    );
+    expect(visits).toHaveLength(1);
+  });
+
+  test("returns a dedicated invalid state when Visit guidance snapshots exceed capacity", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms and pour", order: 1 }],
+    });
+    const lineage = await admin.run(async (ctx: any) => {
+      const row = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .unique();
+      return {
+        buildSubmilestoneId: row._id,
+        proposalSubmilestoneId: row.proposalSubmilestoneId,
+      };
+    });
+    const visit = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      {
+        buildId: closing.buildId,
+        idempotencyKey: "site-visit-guidance-capacity",
+        milestoneKey: "foundation",
+        requestedDay: 21,
+        submilestoneKeys: ["forms"],
+        submilestoneGuidanceSections: [
+          {
+            ...lineage,
+            cameraAnglesTiptapJson: tiptapDocument("Capture the forms."),
+            whatToVerifyTiptapJson: tiptapDocument("Verify the forms."),
+          },
+        ],
+        workosOrganizationId: ORG,
+      },
+    );
+    const source = await admin.run(async (ctx: any) => {
+      const visitRow = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", visit.visitId))
+        .unique();
+      const section = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visitRow._id),
+        )
+        .unique();
+      return { section, visitRow };
+    });
+    await admin.run(async (ctx: any) => {
+      const { _id, _creationTime, ...snapshot } = source.section;
+      for (let order = 2; order <= 501; order += 1) {
+        await ctx.db.insert("buildSiteVisitGuidanceSections", {
+          ...snapshot,
+          order,
+        });
+      }
+    });
+
+    const state = await admin.query(
+      (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+      { buildId: String(closing.buildId), token: visit.visitId },
+    );
+    expect(state).toMatchObject({
+      available: false,
+      build: expect.any(Object),
+      files: [],
+      reason: "guidance_sections_overflow",
+      status: "invalid",
+      targets: [],
+      visit: null,
+    });
+  });
+
+  test("saves canonical pairs and immutable ordered snapshots atomically", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { key: "forms", name: "Forms and pour", order: 1 },
+        { key: "excavation", name: "Excavation", order: 2 },
+      ],
+    });
+    const lineage = await admin.run(async (ctx: any) => {
+      const buildSubmilestones = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      return buildSubmilestones
+        .sort((left: any, right: any) => left.order - right.order)
+        .map((buildSubmilestone: any) => ({
+          buildSubmilestoneId: buildSubmilestone._id,
+          proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
+        }));
+    });
+    const [forms, excavation] = lineage;
+    const formsVerification = tiptapDocument("Verify the forms.");
+    const formsAngles = tiptapDocument("Capture the forms from the east.");
+    const excavationVerification = tiptapDocument("Verify excavation depth.");
+    const excavationAngles = tiptapDocument("Capture the excavation from north.");
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+        {
+          buildId: closing.buildId,
+          idempotencyKey: "site-visit-guidance-invalid",
+          milestoneKey: "foundation",
+          requestedDay: 21,
+          submilestoneKeys: ["forms", "excavation"],
+          submilestoneGuidanceSections: [
+            {
+              buildSubmilestoneId: forms.buildSubmilestoneId,
+              proposalSubmilestoneId: forms.proposalSubmilestoneId,
+              whatToVerifyTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+              cameraAnglesTiptapJson: formsAngles,
+            },
+            {
+              buildSubmilestoneId: excavation.buildSubmilestoneId,
+              proposalSubmilestoneId: excavation.proposalSubmilestoneId,
+              whatToVerifyTiptapJson: excavationVerification,
+              cameraAnglesTiptapJson: excavationAngles,
+            },
+          ],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/whatToVerify|semantic|content|empty/i);
+
+    const beforeValid = await admin.run(async (ctx: any) => ({
+      visits: await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      sections: await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildId", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      guidance: await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", forms.proposalSubmilestoneId),
+        )
+        .unique(),
+    }));
+    expect(beforeValid.visits).toHaveLength(0);
+    expect(beforeValid.sections).toHaveLength(0);
+    expect(beforeValid.guidance).toBeNull();
+
+    const visitArgs = {
+      buildId: closing.buildId,
+      idempotencyKey: "site-visit-guidance-valid",
+      milestoneKey: "foundation",
+      note: "Confirm the ordered guidance package.",
+      requestedDay: 21,
+      submilestoneKeys: ["forms", "excavation"],
+      submilestoneGuidanceSections: [
+        {
+          buildSubmilestoneId: forms.buildSubmilestoneId,
+          proposalSubmilestoneId: forms.proposalSubmilestoneId,
+          whatToVerifyTiptapJson: formsVerification,
+          cameraAnglesTiptapJson: formsAngles,
+        },
+        {
+          buildSubmilestoneId: excavation.buildSubmilestoneId,
+          proposalSubmilestoneId: excavation.proposalSubmilestoneId,
+          whatToVerifyTiptapJson: excavationVerification,
+          cameraAnglesTiptapJson: excavationAngles,
+        },
+      ],
+      workosOrganizationId: ORG,
+    };
+    const visit = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      visitArgs,
+    );
+    const persisted = await admin.run(async (ctx: any) => {
+      const visitRow = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (query: any) => query.eq("visitId", visit.visitId))
+        .unique();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", forms.proposalSubmilestoneId),
+        )
+        .unique();
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", visitRow?._id),
+        )
+        .collect();
+      return { guidance, sections, visitRow };
+    });
+    expect(persisted.guidance).toMatchObject({
+      buildId: closing.buildId,
+      buildSubmilestoneId: forms.buildSubmilestoneId,
+      cameraAnglesTiptapJson: formsAngles,
+      whatToVerifyTiptapJson: formsVerification,
+    });
+    expect(persisted.sections).toEqual([
+      expect.objectContaining({
+        buildSiteVisitId: persisted.visitRow?._id,
+        buildSubmilestoneId: forms.buildSubmilestoneId,
+        cameraAnglesTiptapJson: formsAngles,
+        order: 1,
+        submilestoneKey: "forms",
+        submilestoneName: "Forms and pour",
+        whatToVerifyTiptapJson: formsVerification,
+      }),
+      expect.objectContaining({
+        buildSiteVisitId: persisted.visitRow?._id,
+        buildSubmilestoneId: excavation.buildSubmilestoneId,
+        cameraAnglesTiptapJson: excavationAngles,
+        order: 2,
+        submilestoneKey: "excavation",
+        submilestoneName: "Excavation",
+        whatToVerifyTiptapJson: excavationVerification,
+      }),
+    ]);
+    const updatedAt = persisted.guidance?.updatedAt;
+    const replay = await admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      visitArgs,
+    );
+    expect(replay.visitId).toBe(visit.visitId);
+    const afterReplay = await admin.run(async (ctx: any) => {
+      const guidance = await ctx.db.get(persisted.guidance!._id);
+      const sections = await ctx.db
+        .query("buildSiteVisitGuidanceSections")
+        .withIndex("by_buildSiteVisitId_and_order", (query: any) =>
+          query.eq("buildSiteVisitId", persisted.visitRow?._id),
+        )
+        .collect();
+      return { guidance, sections };
+    });
+    expect(afterReplay.guidance?.updatedAt).toBe(updatedAt);
+    expect(afterReplay.sections).toHaveLength(2);
+
+    await admin.mutation(
+      (api as any).submilestone_field_guidance.saveSubmilestoneFieldGuidance,
+      {
+        proposalSubmilestoneId: forms.proposalSubmilestoneId,
+        whatToVerifyTiptapJson: tiptapDocument("Changed after scheduling."),
+        cameraAnglesTiptapJson: tiptapDocument("New angle after scheduling."),
+        workosOrganizationId: ORG,
+      },
+    );
+    const tokenState = await admin.query(
+      (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+      { buildId: String(closing.buildId), token: visit.visitId },
+    );
+    expect(tokenState.targets[0].guidanceSections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          buildSubmilestoneId: String(forms.buildSubmilestoneId),
+          whatToVerifyTiptapJson: formsVerification,
+          cameraAnglesTiptapJson: formsAngles,
+        }),
+      ]),
+    );
+
+    await admin.run(async (ctx: any) => {
+      const { _creationTime, _id, ...snapshot } = persisted.sections[0];
+      await ctx.db.insert("buildSiteVisitGuidanceSections", {
+        ...snapshot,
+        order: 99,
+        organizationId: "org_other",
+      });
+    });
+    const corruptTokenState = await admin.query(
+      (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+      { buildId: String(closing.buildId), token: visit.visitId },
+    );
+    expect(corruptTokenState).toMatchObject({
+      available: false,
+      reason: "not_found",
+      status: "invalid",
     });
   });
 });

@@ -36,6 +36,18 @@ describe("site visit token route model", () => {
       stamp: "TOKEN CONSUMED",
       title: "Site visit already complete",
     });
+
+    expect(
+      resolveSiteVisitUnavailableCopy({
+        reason: "guidance_sections_overflow",
+        status: "invalid",
+      }),
+    ).toMatchObject({
+      body: expect.stringContaining("Visit data could not be loaded"),
+      canRequestReplacement: false,
+      stamp: "VISIT DATA INVALID",
+      title: "Visit data unavailable",
+    });
   });
 
   test("records geofence pass, geofence failure, and denied attempts without discarding report state", () => {

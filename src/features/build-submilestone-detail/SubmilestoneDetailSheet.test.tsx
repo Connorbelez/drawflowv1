@@ -150,6 +150,7 @@ function makeBootstrap(
     state: "visible",
     submilestone: {
       buildSubmilestoneId: submilestoneId,
+      proposalSubmilestoneId: "proposal-submilestone-01",
       key: "footings",
       name: "Footing forms",
       planningState: "active",
@@ -328,6 +329,30 @@ beforeEach(() => {
       (typeof args === "object" && args !== null && "milestoneKey" in args)
     ) {
       return review;
+    }
+    if (
+      getFunctionName(reference as Parameters<typeof getFunctionName>[0]) ===
+      "submilestone_field_guidance:getSubmilestoneFieldGuidance"
+    ) {
+      const tiptapJson = JSON.stringify({
+        content: [{ content: [{ text: "Verify footings", type: "text" }], type: "paragraph" }],
+        type: "doc",
+      });
+      return {
+        guidance: {
+          _id: "guidance-01",
+          cameraAnglesTiptapJson: tiptapJson,
+          createdAt: 1_750_000_000_000,
+          proposalSubmilestoneId: "proposal-submilestone-01",
+          updatedAt: 1_750_000_000_000,
+          updatedByWorkosUserId: "reviewer-01",
+          whatToVerifyTiptapJson: tiptapJson,
+        },
+        readiness: {
+          missingSections: [],
+          readyForSiteVisit: true,
+        },
+      };
     }
     return bootstrap;
   });
@@ -639,6 +664,12 @@ describe("SubmilestoneDetailSheet", () => {
         buildId,
         milestoneKey: "foundation",
         requestedDay: 0,
+        submilestoneGuidanceSections: [
+          expect.objectContaining({
+            buildSubmilestoneId: submilestoneId,
+            proposalSubmilestoneId: "proposal-submilestone-01",
+          }),
+        ],
         submilestoneKeys: ["footings"],
         workosOrganizationId: organizationId,
       }),

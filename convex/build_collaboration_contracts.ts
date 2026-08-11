@@ -330,9 +330,11 @@ export const systemActionItemPresentationValidator = v.object({
           v.literal("permission_denied")
         )
       ),
+      buildSubmilestoneId: v.id("buildSubmilestones"),
       milestoneKey: v.string(),
       milestoneName: v.string(),
       plannedStartDate: v.string(),
+      proposalSubmilestoneId: v.id("proposalSubmilestones"),
       scope: v.literal("submilestone"),
       source: v.literal("submilestone_detail"),
       submilestoneKey: v.string(),

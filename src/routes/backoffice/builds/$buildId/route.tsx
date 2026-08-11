@@ -375,23 +375,27 @@ function RouteComponent() {
               })
           : undefined,
       assignSiteVisit: canUseAppPermission(appPermissions, "evidence", "update")
-        ? ({
-            milestoneKey,
-            note,
-            requestedTime,
-            siteVisitGuidance,
-            submilestoneKeys,
-          }) =>
-            assignSiteVisit({
+        ? async (input) => {
+            const intent = { ...input, requestedDay: 0 };
+            const idempotencyKey =
+              siteVisitScheduleIntents.current.keyFor(intent);
+            const result = await assignSiteVisit({
               buildId: activeBuildId,
-              milestoneKey,
-              note: note ?? "Assigned from build detail workspace.",
+              idempotencyKey,
+              milestoneKey: input.milestoneKey,
+              note: input.note ?? "Assigned from build detail workspace.",
               requestedDay: 0,
-              requestedTime,
-              siteVisitGuidance,
-              submilestoneKeys,
+              requestedTime: input.requestedTime,
+              siteVisitGuidance: input.siteVisitGuidance,
+              submilestoneGuidanceSections:
+                input.submilestoneGuidanceSections,
+              submilestoneKeys: input.submilestoneKeys,
               workosOrganizationId,
-            })
+            });
+            siteVisitScheduleIntents.current.confirm(intent);
+            toast.success("Site visit assigned.");
+            return result;
+          }
         : undefined,
       generateSiteVisitGuidance: canUseAppPermission(
         appPermissions,

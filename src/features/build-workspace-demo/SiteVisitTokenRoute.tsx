@@ -1,3 +1,4 @@
+import type { JSONContent } from "@tiptap/react";
 import {
   ConvexProvider,
   ConvexReactClient,
@@ -99,11 +100,23 @@ type VisitTarget = {
     cameraAngles?: string | string[];
     whatToVerify?: string | string[];
   };
+  guidanceSections?: VisitGuidanceSnapshotSection[];
   milestoneKey: string;
   milestoneName: string;
   milestoneOrder: number;
   submilestones: VisitSubmilestone[];
 };
+
+interface VisitGuidanceSnapshotSection {
+  buildSubmilestoneId: string;
+  cameraAnglesTiptapJson: string;
+  capturedAt: number;
+  order: number;
+  proposalSubmilestoneId: string;
+  submilestoneKey: string;
+  submilestoneName: string;
+  whatToVerifyTiptapJson: string;
+}
 
 type VisitSubmilestone =
   | string
@@ -176,7 +189,12 @@ type UnavailableVisitState = {
   build?: VisitBuild | null;
   files?: VisitFile[];
   permit?: VisitPermit | null;
-  reason?: "consumed" | "expired" | "not_found" | null;
+  reason?:
+    | "consumed"
+    | "expired"
+    | "guidance_sections_overflow"
+    | "not_found"
+    | null;
   status: "completed" | "expired" | "invalid";
   targets?: VisitTarget[];
   visit?: VisitRecord | null;
@@ -200,13 +218,15 @@ type SubmittedSummary = {
 };
 
 type GuideSection = {
-  html: string;
+  id: string;
+  value: string | JSONContent;
   title: string;
 };
 
 const FALLBACK_GUIDE_SECTIONS: GuideSection[] = [
   {
-    html: guidanceLinesToHtml([
+    id: "fallback:visit-guidance",
+    value: guidanceLinesToHtml([
       "No lender guidance was attached to this visit.",
       "Inspect only the assigned milestone scope and document any uncertainty in the field note.",
     ]),
@@ -2001,8 +2021,8 @@ function DesktopGuidePanel({ targets }: { targets: VisitTarget[] }) {
       <FramePanel className="p-4">
         <SectionTitle title="Guide" />
         <div className="mt-4 grid gap-4">
-          {sections.slice(0, 4).map((section) => (
-            <section key={section.title}>
+          {sections.map((section) => (
+            <section key={section.id}>
               <h3 className="font-semibold text-primary text-xs uppercase tracking-[0.14em]">
                 {section.title}
               </h3>
@@ -2010,7 +2030,7 @@ function DesktopGuidePanel({ targets }: { targets: VisitTarget[] }) {
                 ariaLabel={section.title}
                 className="mt-2 border-0 bg-transparent text-xs [&_.ProseMirror]:max-h-24 [&_.ProseMirror]:overflow-hidden [&_.ProseMirror]:px-0 [&_.ProseMirror]:py-0"
                 imageMaxHeightClass="[&_.ProseMirror_img]:max-h-16"
-                value={section.html}
+                value={section.value}
               />
             </section>
           ))}
@@ -2311,14 +2331,14 @@ function GuidePanel({ targets }: { targets: VisitTarget[] }) {
   return (
     <div className="grid gap-5">
       {sections.map((section) => (
-        <section key={section.title}>
+        <section key={section.id}>
           <h3 className="font-semibold text-primary text-sm uppercase tracking-[0.18em]">
             {section.title}
           </h3>
           <div className="mt-3">
             <FieldRichTextPreview
               ariaLabel={section.title}
-              value={section.html}
+              value={section.value}
             />
           </div>
         </section>
@@ -2611,21 +2631,95 @@ function targetCode(target: VisitTarget, fallbackIndex = 0) {
 function guidanceSectionsForTargets(targets: VisitTarget[]): GuideSection[] {
   const sections = targets.flatMap((target, index) => {
     const code = targetCode(target, index);
+    const snapshotSections = target.guidanceSections
+      ?.slice()
+      .sort((left, right) => left.order - right.order);
+    if (snapshotSections && snapshotSections.length > 0) {
+      return snapshotSections.flatMap((snapshot, snapshotIndex) => {
+        const verification = snapshotRichTextValue(
+          snapshot.whatToVerifyTiptapJson
+        );
+        const cameraAngles = snapshotRichTextValue(
+          snapshot.cameraAnglesTiptapJson
+        );
+        const titlePrefix = `${code} · ${snapshot.submilestoneName}`;
+        const snapshotIdentity =
+          snapshot.buildSubmilestoneId ||
+          snapshot.proposalSubmilestoneId ||
+          snapshot.submilestoneKey ||
+          `index-${snapshotIndex}`;
+        const sectionPrefix = `${target._id}:snapshot:${snapshot.order}:${snapshotIdentity}`;
+        return [
+          {
+            id: `${sectionPrefix}:verification`,
+            value: verification,
+            title: `${titlePrefix} — What to verify`,
+          },
+          {
+            id: `${sectionPrefix}:camera-angles`,
+            value: cameraAngles,
+            title: `${titlePrefix} — Required photo angles`,
+          },
+        ].filter((section) => richTextValueHasContent(section.value));
+      });
+    }
+
     const label = shortMilestoneLabel(target.milestoneName);
     const guidance = normalizedGuidance(target);
     return [
       {
-        html: guidance.whatToVerify,
+        id: `${target._id}:legacy:verification`,
+        value: guidance.whatToVerify,
         title: `${code} · ${label} — What to verify`,
       },
       {
-        html: guidance.cameraAngles,
+        id: `${target._id}:legacy:camera-angles`,
+        value: guidance.cameraAngles,
         title: `${code} · ${label} — Required photo angles`,
       },
-    ].filter((section) => section.html.trim().length > 0);
+    ].filter((section) => richTextValueHasContent(section.value));
   });
 
   return sections.length > 0 ? sections : FALLBACK_GUIDE_SECTIONS;
+}
+
+function snapshotRichTextValue(value: string): string | JSONContent {
+  try {
+    const parsed = JSON.parse(value) as JSONContent;
+    if (parsed && parsed.type === "doc") {
+      return parsed;
+    }
+  } catch {
+    // A malformed historical section should not prevent the rest of the Visit
+    // packet from rendering. The backend validates new snapshots; this keeps
+    // the token route tolerant of older data.
+  }
+  return "";
+}
+
+function richTextValueHasContent(value: string | JSONContent) {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return tiptapValueHasSemanticContent(value);
+}
+
+function tiptapValueHasSemanticContent(node: JSONContent): boolean {
+  if (typeof node.text === "string" && node.text.trim()) {
+    return true;
+  }
+  if (
+    node.type === "image" &&
+    node.attrs &&
+    typeof node.attrs.src === "string" &&
+    node.attrs.src.trim()
+  ) {
+    return true;
+  }
+  if (node.type === "horizontalRule") {
+    return true;
+  }
+  return node.content?.some(tiptapValueHasSemanticContent) ?? false;
 }
 
 function normalizedGuidance(target: VisitTarget): SiteVisitGuidanceHtml {
@@ -2689,6 +2783,15 @@ function targetLabel(
 function visitSubmilestones(
   target: VisitTarget
 ): Array<{ key: string; name: string }> {
+  const snapshotSections = target.guidanceSections
+    ?.slice()
+    .sort((left, right) => left.order - right.order);
+  if (snapshotSections && snapshotSections.length > 0) {
+    return snapshotSections.map((section) => ({
+      key: section.submilestoneKey,
+      name: section.submilestoneName,
+    }));
+  }
   return target.submilestones.map((submilestone) =>
     typeof submilestone === "string"
       ? { key: slugifyTargetKey(submilestone), name: submilestone }

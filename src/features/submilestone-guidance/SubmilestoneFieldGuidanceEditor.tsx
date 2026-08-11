@@ -20,11 +20,19 @@ export interface SubmilestoneFieldGuidanceEditorProps {
   /** Backoffice authoring capability. Route and role checks stay in the controller. */
   canEdit?: boolean;
   className?: string;
+  /** Keep editors mounted while a parent command is pending, but block input. */
+  disabled?: boolean;
   /** The last saved canonical pair. Missing fields are treated as empty. */
   guidance?: Partial<SubmilestoneFieldGuidance> | null;
   /** The stable Build/Proposal Sub-milestone identity used for dirty state. */
   id: string;
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Optional parent-owned draft callback. When provided, the editor emits the
+   * exact TipTap JSON pair without rendering its own Save action. This is used
+   * by compound workflows that persist several rows atomically.
+   */
+  onDraftChange?: (guidance: SubmilestoneFieldGuidance) => void;
   onSave?: (guidance: SubmilestoneFieldGuidance) => Promise<void> | void;
   readOnly?: boolean;
   rowName?: string;
@@ -88,8 +96,10 @@ export function SubmilestoneFieldGuidanceEditor({
   className,
   guidance,
   id,
+  onDraftChange,
   onDirtyChange,
   onSave,
+  disabled = false,
   readOnly = false,
   rowName,
   sectionTestId,
@@ -113,13 +123,22 @@ export function SubmilestoneFieldGuidanceEditor({
   const guidanceIdentityRef = useRef(id);
   const guidanceCanonicalRef = useRef(initialGuidance);
   const onDirtyChangeRef = useRef(onDirtyChange);
-  const editable = Boolean(canEdit && !readOnly && onSave);
+  const onDraftChangeRef = useRef(onDraftChange);
+  const lastEmittedGuidanceRef = useRef(initialGuidance);
+  const editable = Boolean(canEdit && !readOnly && (onSave || onDraftChange));
   const dirty = editable && !guidanceEqual(guidanceDraft, savedGuidance);
+
+  const updateDraft = (
+    update: (current: SubmilestoneFieldGuidance) => SubmilestoneFieldGuidance
+  ) => {
+    setGuidanceDraft((current) => update(current));
+  };
 
   useEffect(() => {
     if (guidanceIdentityRef.current !== id) {
       guidanceIdentityRef.current = id;
       guidanceCanonicalRef.current = initialGuidance;
+      lastEmittedGuidanceRef.current = initialGuidance;
       setGuidanceDraft(initialGuidance);
       setSavedGuidance(initialGuidance);
       setSaveError(null);
@@ -133,6 +152,7 @@ export function SubmilestoneFieldGuidanceEditor({
       )
     ) {
       guidanceCanonicalRef.current = initialGuidance;
+      lastEmittedGuidanceRef.current = initialGuidance;
       setGuidanceDraft(initialGuidance);
       setSavedGuidance(initialGuidance);
       setSaveError(null);
@@ -143,6 +163,18 @@ export function SubmilestoneFieldGuidanceEditor({
     onDirtyChangeRef.current = onDirtyChange;
   }, [onDirtyChange]);
 
+  useEffect(() => {
+    onDraftChangeRef.current = onDraftChange;
+  }, [onDraftChange]);
+
+  useEffect(() => {
+    if (guidanceEqual(lastEmittedGuidanceRef.current, guidanceDraft)) {
+      return;
+    }
+    lastEmittedGuidanceRef.current = guidanceDraft;
+    onDraftChangeRef.current?.(guidanceDraft);
+  }, [guidanceDraft]);
+
   // The identity is a dirty-state namespace. Re-run this effect when the
   // namespace changes so a removed editor cannot leave its key set forever.
   // biome-ignore lint/correctness/useExhaustiveDependencies: id is an intentional dirty namespace boundary.
@@ -152,7 +184,7 @@ export function SubmilestoneFieldGuidanceEditor({
   }, [dirty, id, onDirtyChange]);
 
   const saveGuidance = async () => {
-    if (!(dirty && onSave) || saving) {
+    if (!(dirty && onSave) || saving || disabled) {
       return;
     }
     setSaving(true);
@@ -161,6 +193,7 @@ export function SubmilestoneFieldGuidanceEditor({
       await onSave(guidanceDraft);
       setSavedGuidance(guidanceDraft);
       guidanceCanonicalRef.current = guidanceDraft;
+      lastEmittedGuidanceRef.current = guidanceDraft;
     } catch (caught) {
       setSaveError(
         caught instanceof Error ? caught.message : "Field Guidance save failed."
@@ -192,16 +225,18 @@ export function SubmilestoneFieldGuidanceEditor({
       <div className="flex items-center justify-between gap-2">
         <span>Field Guidance</span>
         {editable ? (
-          <Button
-            data-testid={`${testIdPrefix}-field-guidance-save-${id}`}
-            disabled={!dirty || saving}
-            loading={saving}
-            onClick={saveGuidance}
-            size="sm"
-            type="button"
-          >
-            Save field guidance
-          </Button>
+          onSave ? (
+            <Button
+              data-testid={`${testIdPrefix}-field-guidance-save-${id}`}
+              disabled={!dirty || saving || disabled}
+              loading={saving}
+              onClick={saveGuidance}
+              size="sm"
+              type="button"
+            >
+              Save field guidance
+            </Button>
+          ) : null
         ) : null}
       </div>
 
@@ -210,14 +245,14 @@ export function SubmilestoneFieldGuidanceEditor({
           <span>What to verify</span>
           <FieldRichTextEditor
             ariaLabel={`${subMilestoneName} what to verify`}
-            editable={!saving}
+            editable={!(saving || disabled)}
             editorMinHeightClass="[&_.ProseMirror]:min-h-44"
             // FieldRichTextEditor emits HTML and the canonical JSON document
             // together.  Guidance persists the exact TipTap JSON bytes, so
             // only onDocumentChange may update the local draft.
             onChange={() => undefined}
             onDocumentChange={(document) =>
-              setGuidanceDraft((current) => ({
+              updateDraft((current) => ({
                 ...current,
                 whatToVerifyTiptapJson: stringifyDocument(document),
               }))
@@ -241,11 +276,11 @@ export function SubmilestoneFieldGuidanceEditor({
           <span>Recommended camera angles</span>
           <FieldRichTextEditor
             ariaLabel={`${subMilestoneName} recommended camera angles`}
-            editable={!saving}
+            editable={!(saving || disabled)}
             editorMinHeightClass="[&_.ProseMirror]:min-h-44"
             onChange={() => undefined}
             onDocumentChange={(document) =>
-              setGuidanceDraft((current) => ({
+              updateDraft((current) => ({
                 ...current,
                 cameraAnglesTiptapJson: stringifyDocument(document),
               }))
@@ -306,3 +341,61 @@ function GuidancePreview({
 }
 
 export { EMPTY_GUIDANCE, guidanceEqual, normalizeGuidance };
+
+/**
+ * Return true only when a TipTap document contains visible text or a
+ * meaningful leaf such as an image. Empty paragraphs are not content.
+ */
+export function hasMeaningfulTipTapContent(value?: string | null) {
+  if (!value?.trim()) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (parsed && typeof parsed === "object") {
+      return hasMeaningfulTipTapNode(parsed);
+    }
+  } catch {
+    // Legacy HTML is accepted by the editor. Strip tags for a conservative
+    // semantic check instead of treating `<p></p>` as populated content.
+  }
+  return (
+    value
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .trim().length > 0
+  );
+}
+
+function hasMeaningfulTipTapNode(node: unknown): boolean {
+  if (!node || typeof node !== "object") {
+    return false;
+  }
+  const candidate = node as {
+    attrs?: unknown;
+    content?: unknown;
+    text?: unknown;
+    type?: unknown;
+  };
+  if (candidate.type === "text") {
+    return (
+      typeof candidate.text === "string" && candidate.text.trim().length > 0
+    );
+  }
+  if (candidate.type === "image") {
+    const attrs =
+      candidate.attrs && typeof candidate.attrs === "object"
+        ? (candidate.attrs as { src?: unknown })
+        : undefined;
+    return typeof attrs?.src === "string" && attrs.src.trim().length > 0;
+  }
+  if (candidate.type === "horizontalRule") {
+    return true;
+  }
+  if (candidate.type === "hardBreak") {
+    return false;
+  }
+  return Array.isArray(candidate.content)
+    ? candidate.content.some((child) => hasMeaningfulTipTapNode(child))
+    : false;
+}

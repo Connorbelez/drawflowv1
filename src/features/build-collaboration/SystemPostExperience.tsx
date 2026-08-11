@@ -5,6 +5,7 @@
  * `/prototype/system-posts`. Theme-token styled; mock prototype data is not used.
  */
 
+import { useQuery } from "convex/react";
 import {
   AlertTriangle,
   Banknote,
@@ -797,6 +798,29 @@ function SubMilestoneExpandedDetails({
 }) {
   const presentation = item.systemPresentation;
   const startCommand = presentation?.startCommand;
+  const viewerRoleList = viewerRoles?.length
+    ? viewerRoles
+    : viewerRole
+      ? [viewerRole]
+      : [];
+  const canReadCanonicalFieldGuidance = viewerRoleList.some((role) =>
+    isBackofficeReviewRole(role)
+  );
+  const hasCanonicalSubmilestoneIdentity = Boolean(
+    startCommand?.buildSubmilestoneId &&
+      startCommand?.proposalSubmilestoneId
+  );
+  const fieldGuidance = useQuery(
+    api.submilestone_field_guidance.getSubmilestoneFieldGuidance,
+    startCommand &&
+      hasCanonicalSubmilestoneIdentity &&
+      canReadCanonicalFieldGuidance
+      ? {
+          proposalSubmilestoneId: startCommand.proposalSubmilestoneId,
+          workosOrganizationId: organizationId,
+        }
+      : "skip"
+  );
   const assigneeRequired =
     presentation?.executionOwnership?.state === "assignment_required";
   const assigneeName =
@@ -891,7 +915,9 @@ function SubMilestoneExpandedDetails({
         presentation?.canRecommendReview,
     ) &&
     Boolean(siteVisit?.required) &&
-    siteVisit?.status === "required";
+    siteVisit?.status === "required" &&
+    hasCanonicalSubmilestoneIdentity &&
+    fieldGuidance !== undefined;
   const canUploadEvidence =
     Boolean(presentation?.canAddEvidence) &&
     Boolean(startCommand) &&
@@ -1130,16 +1156,20 @@ function SubMilestoneExpandedDetails({
   const confirmSiteVisit = async (input: SiteVisitOrderConfirmation) => {
     setBusy("site_visit");
     try {
+      const idempotencyKey = commandKey("site-visit");
       await assignSiteVisit({
         buildId,
+        idempotencyKey,
         milestoneKey: input.milestoneKey,
         ...(input.note ? { note: input.note } : {}),
         requestedDay: input.requestedDay ?? 0,
         ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
         siteVisitGuidance: input.siteVisitGuidance,
+        submilestoneGuidanceSections: input.submilestoneGuidanceSections,
         submilestoneKeys: input.submilestoneKeys,
         workosOrganizationId: organizationId,
       });
+      clearCommandKey("site-visit");
       toast.success("Site visit ordered.");
       setSiteVisitOpen(false);
     } catch (error) {
@@ -1376,8 +1406,13 @@ function SubMilestoneExpandedDetails({
           }
           submilestones={[
             {
+              _id: String(startCommand.buildSubmilestoneId),
+              fieldGuidance: fieldGuidance?.guidance ?? null,
               key: startCommand.submilestoneKey,
               name: startCommand.submilestoneName,
+              proposalSubmilestoneId: String(
+                startCommand.proposalSubmilestoneId
+              ),
             },
           ]}
         />

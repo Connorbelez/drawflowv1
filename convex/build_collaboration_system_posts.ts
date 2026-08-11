@@ -157,9 +157,11 @@ export type SystemActionItemPresentation = {
       | "completed"
       | "lender_review_only"
       | "permission_denied";
+    buildSubmilestoneId: Id<"buildSubmilestones">;
     milestoneKey: string;
     milestoneName: string;
     plannedStartDate: string;
+    proposalSubmilestoneId: Id<"proposalSubmilestones">;
     scope: "submilestone";
     source: "submilestone_detail";
     submilestoneKey: string;
@@ -817,11 +819,13 @@ async function projectMilestoneExecutionPresentation(
     startCommand: {
       allowed,
       buildName: input.build.buildName,
+      buildSubmilestoneId: input.submilestone._id,
       dependencyBlockers,
       ...(denialReason ? { denialReason } : {}),
       milestoneKey: input.milestone.key,
       milestoneName: input.milestone.name,
       plannedStartDate: input.plannedStartDate,
+      proposalSubmilestoneId: input.submilestone.proposalSubmilestoneId,
       scope: "submilestone",
       source: "submilestone_detail",
       submilestoneKey: input.submilestone.key,

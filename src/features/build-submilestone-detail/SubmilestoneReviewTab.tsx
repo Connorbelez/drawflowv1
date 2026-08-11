@@ -88,8 +88,10 @@ export interface ReviewTabBootstrap {
     name: string;
   };
   submilestone: {
+    buildSubmilestoneId: Id<"buildSubmilestones">;
     key: string;
     name: string;
+    proposalSubmilestoneId: Id<"proposalSubmilestones">;
   };
 }
 
@@ -125,6 +127,13 @@ export function SubmilestoneReviewTab({
       buildId,
       milestoneKey: bootstrap.milestone.key,
       submilestoneKey: bootstrap.submilestone.key,
+      workosOrganizationId: organizationId,
+    }
+  );
+  const fieldGuidance = useQuery(
+    api.submilestone_field_guidance.getSubmilestoneFieldGuidance,
+    {
+      proposalSubmilestoneId: bootstrap.submilestone.proposalSubmilestoneId,
       workosOrganizationId: organizationId,
     }
   );
@@ -209,7 +218,8 @@ export function SubmilestoneReviewTab({
       capabilities.canonical.approveChild.allowed) &&
     requirement?.required === true &&
     requirement.status === "required" &&
-    currentVisit === null;
+    currentVisit === null &&
+    fieldGuidance !== undefined;
 
   const commandArgs = {
     buildId,
@@ -342,6 +352,7 @@ export function SubmilestoneReviewTab({
             ? { requestedTime: input.requestedTime }
             : {}),
           siteVisitGuidance: input.siteVisitGuidance,
+          submilestoneGuidanceSections: input.submilestoneGuidanceSections,
           submilestoneKeys: input.submilestoneKeys,
           workosOrganizationId: organizationId,
         }),
@@ -470,8 +481,13 @@ export function SubmilestoneReviewTab({
         }
         submilestones={[
           {
+            _id: String(bootstrap.submilestone.buildSubmilestoneId),
+            fieldGuidance: fieldGuidance?.guidance ?? null,
             key: bootstrap.submilestone.key,
             name: bootstrap.submilestone.name,
+            proposalSubmilestoneId: String(
+              bootstrap.submilestone.proposalSubmilestoneId
+            ),
           },
         ]}
       />

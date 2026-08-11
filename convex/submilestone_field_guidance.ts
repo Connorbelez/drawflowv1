@@ -147,6 +147,31 @@ function hasGuidanceContent(value: string) {
   }
 }
 
+/**
+ * Site Visit ordering requires both canonical Guidance sections to contain
+ * semantic TipTap content.  Planning saves may still store empty documents,
+ * so this check is deliberately separate from the regular save mutation.
+ */
+export function assertCompleteSiteVisitFieldGuidance(input: {
+  cameraAnglesTiptapJson: string;
+  whatToVerifyTiptapJson: string;
+}) {
+  parseTiptapDocument(input.whatToVerifyTiptapJson, "whatToVerifyTiptapJson");
+  parseTiptapDocument(input.cameraAnglesTiptapJson, "cameraAnglesTiptapJson");
+  const missingSections: string[] = [];
+  if (!hasGuidanceContent(input.whatToVerifyTiptapJson)) {
+    missingSections.push("whatToVerifyTiptapJson");
+  }
+  if (!hasGuidanceContent(input.cameraAnglesTiptapJson)) {
+    missingSections.push("cameraAnglesTiptapJson");
+  }
+  if (missingSections.length > 0) {
+    throw new Error(
+      `Site Visit Field Guidance requires semantic content in: ${missingSections.join(", ")}.`
+    );
+  }
+}
+
 function guidanceReadiness(
   guidance: Pick<
     Doc<"submilestoneFieldGuidance">,
@@ -592,3 +617,65 @@ export const saveSubmilestoneFieldGuidance = backofficeMutation
     return null;
   })
   .public();
+
+/**
+ * Persist one canonical Guidance pair while ordering a Site Visit.  This
+ * helper intentionally has no auth boundary: its caller must already have
+ * authorized the active Build and validated the exact Proposal-to-Build
+ * lineage.  It shares the same owner row as the regular Guidance mutation so
+ * the Site Visit command does not create a second mutable source of truth.
+ */
+export async function upsertSiteVisitFieldGuidance(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+    buildSubmilestoneId: Id<"buildSubmilestones">;
+    cameraAnglesTiptapJson: string;
+    now: number;
+    organizationId: string;
+    proposalId: Id<"buildProposals">;
+    proposalSubmilestoneId: Id<"proposalSubmilestones">;
+    updatedByWorkosUserId: string;
+    whatToVerifyTiptapJson: string;
+  }
+) {
+  assertCompleteSiteVisitFieldGuidance(input);
+  const existing = await findFieldGuidance(ctx, input.proposalSubmilestoneId);
+  if (existing) {
+    if (
+      existing.organizationId !== input.organizationId ||
+      existing.brokerageId !== input.brokerageId ||
+      existing.proposalId !== input.proposalId ||
+      existing.proposalSubmilestoneId !== input.proposalSubmilestoneId ||
+      (existing.buildId !== undefined && existing.buildId !== input.buildId) ||
+      (existing.buildSubmilestoneId !== undefined &&
+        existing.buildSubmilestoneId !== input.buildSubmilestoneId)
+    ) {
+      throw new Error("Field Guidance lineage is unavailable or conflicting.");
+    }
+    await ctx.db.patch(existing._id, {
+      buildId: input.buildId,
+      buildSubmilestoneId: input.buildSubmilestoneId,
+      cameraAnglesTiptapJson: input.cameraAnglesTiptapJson,
+      updatedAt: input.now,
+      updatedByWorkosUserId: input.updatedByWorkosUserId,
+      whatToVerifyTiptapJson: input.whatToVerifyTiptapJson,
+    });
+    return existing._id;
+  }
+
+  return await ctx.db.insert("submilestoneFieldGuidance", {
+    brokerageId: input.brokerageId,
+    buildId: input.buildId,
+    buildSubmilestoneId: input.buildSubmilestoneId,
+    cameraAnglesTiptapJson: input.cameraAnglesTiptapJson,
+    createdAt: input.now,
+    organizationId: input.organizationId,
+    proposalId: input.proposalId,
+    proposalSubmilestoneId: input.proposalSubmilestoneId,
+    updatedAt: input.now,
+    updatedByWorkosUserId: input.updatedByWorkosUserId,
+    whatToVerifyTiptapJson: input.whatToVerifyTiptapJson,
+  });
+}

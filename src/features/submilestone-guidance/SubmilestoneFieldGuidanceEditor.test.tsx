@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
+  hasMeaningfulTipTapContent,
   SubmilestoneFieldGuidanceEditor,
   type SubmilestoneFieldGuidance,
 } from "./SubmilestoneFieldGuidanceEditor.tsx";
@@ -57,6 +59,30 @@ const guidance: SubmilestoneFieldGuidance = {
 afterEach(() => cleanup());
 
 describe("SubmilestoneFieldGuidanceEditor", () => {
+  test("uses the same semantic image and rule criteria as Site Visit validation", () => {
+    expect(
+      hasMeaningfulTipTapContent(
+        JSON.stringify({
+          content: [{ attrs: {}, type: "image" }],
+          type: "doc",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      hasMeaningfulTipTapContent(
+        JSON.stringify({
+          content: [{ attrs: { src: "https://example.test/site.jpg" }, type: "image" }],
+          type: "doc",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      hasMeaningfulTipTapContent(
+        JSON.stringify({ content: [{ type: "horizontalRule" }], type: "doc" }),
+      ),
+    ).toBe(true);
+  });
+
   test("keeps two editors under one explicit save and reports dirty state", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const onDirtyChange = vi.fn();
@@ -144,6 +170,89 @@ describe("SubmilestoneFieldGuidanceEditor", () => {
 
     expect(screen.queryByRole("button", { name: "Save field guidance" })).toBeNull();
     expect(screen.getByLabelText("Footing forms what to verify")).toBeTruthy();
+  });
+
+  test("supports a parent-owned deferred draft without rendering a save action", () => {
+    const onDraftChange = vi.fn();
+    render(
+      <SubmilestoneFieldGuidanceEditor
+        canEdit
+        guidance={guidance}
+        id="footings"
+        onDraftChange={onDraftChange}
+        subMilestoneName="Footing forms"
+        testIdPrefix="test"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Save field guidance" })).toBeNull();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Footing forms what to verify" }),
+      { target: { value: "updated" } },
+    );
+    expect(onDraftChange).toHaveBeenCalledWith({
+      cameraAnglesTiptapJson: guidance.cameraAnglesTiptapJson,
+      whatToVerifyTiptapJson: JSON.stringify(updatedDocument),
+    });
+  });
+
+  test("emits one deferred draft under StrictMode and drops it when the identity changes", async () => {
+    const onDraftChange = vi.fn();
+    const view = render(
+      <StrictMode>
+        <SubmilestoneFieldGuidanceEditor
+          canEdit
+          guidance={guidance}
+          id="footings"
+          onDraftChange={onDraftChange}
+          subMilestoneName="Footing forms"
+          testIdPrefix="test"
+        />
+      </StrictMode>,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Footing forms what to verify" }),
+      { target: { value: "updated" } },
+    );
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalledTimes(1));
+
+    onDraftChange.mockClear();
+    view.rerender(
+      <StrictMode>
+        <SubmilestoneFieldGuidanceEditor
+          canEdit
+          guidance={guidance}
+          id="walls"
+          onDraftChange={onDraftChange}
+          subMilestoneName="Foundation walls"
+          testIdPrefix="test"
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(onDraftChange).not.toHaveBeenCalled());
+  });
+
+  test("keeps the editor mounted but blocks input while the parent command is pending", () => {
+    const onDraftChange = vi.fn();
+    render(
+      <SubmilestoneFieldGuidanceEditor
+        canEdit
+        disabled
+        guidance={guidance}
+        id="footings"
+        onDraftChange={onDraftChange}
+        subMilestoneName="Footing forms"
+        testIdPrefix="test"
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", {
+      name: "Footing forms what to verify",
+    });
+    expect(editor.getAttribute("data-editable")).toBe("false");
+    expect(editor.hasAttribute("readonly")).toBe(true);
   });
 
   test("clears dirty state when the identity changes", async () => {

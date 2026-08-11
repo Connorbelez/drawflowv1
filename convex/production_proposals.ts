@@ -113,7 +113,9 @@ import {
   withQueryTiming,
 } from "./fluent";
 import {
+  assertCompleteSiteVisitFieldGuidance,
   attachSubmilestoneFieldGuidanceBuildLineage,
+  upsertSiteVisitFieldGuidance,
 } from "./submilestone_field_guidance";
 import {
   attachSubmilestoneScopeBuildLineage,
@@ -145,6 +147,17 @@ import {
 type ProductionSettingsSiteVisitGuidanceInput = Parameters<
   typeof coerceSiteVisitGuidanceInput
 >[0];
+
+const siteVisitGuidanceSectionInput = v.object({
+  buildSubmilestoneId: v.id("buildSubmilestones"),
+  cameraAnglesTiptapJson: v.string(),
+  proposalSubmilestoneId: v.id("proposalSubmilestones"),
+  whatToVerifyTiptapJson: v.string(),
+});
+
+type SiteVisitGuidanceSectionInput = Infer<
+  typeof siteVisitGuidanceSectionInput
+>;
 
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 import { hasProjectedWorkosPermission as hasPermission } from "./workos_permission_access";
@@ -10782,6 +10795,34 @@ function activeBuildSiteVisitScheduleResponse(visit: Doc<"buildSiteVisits">) {
   };
 }
 
+function activeBuildSiteVisitAssignmentResponse(
+  visit: Doc<"buildSiteVisits">,
+) {
+  if (
+    visit.evidencePackageId === undefined ||
+    visit.scopeBoundAt === undefined ||
+    visit.workOrderId === undefined ||
+    visit.siteVisitGuidance === undefined
+  ) {
+    throw new Error("Assigned Site Visit response is incomplete.");
+  }
+  return {
+    evidencePackageId: visit.evidencePackageId,
+    scopeBoundAt: visit.scopeBoundAt,
+    workOrderId: visit.workOrderId,
+    ...(visit.note ? { note: visit.note } : {}),
+    requestedAt: visit.requestedAt,
+    requestedDay: visit.requestedDay,
+    ...(visit.requestedTime ? { requestedTime: visit.requestedTime } : {}),
+    siteVisitGuidance: visit.siteVisitGuidance,
+    status: visit.status,
+    submilestoneKeys: visit.submilestoneKeys ?? [],
+    tokenExpiresAt: visit.tokenExpiresAt,
+    url: visit.url,
+    visitId: visit.visitId,
+  };
+}
+
 export const scheduleActiveBuildSiteVisit = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -10792,6 +10833,9 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
     requestedTime: v.optional(v.string()),
     siteVisitGuidance: v.optional(productionSettingsSiteVisitGuidanceInput),
     submilestoneKeys: v.optional(v.array(v.string())),
+    submilestoneGuidanceSections: v.optional(
+      v.array(siteVisitGuidanceSectionInput),
+    ),
     workosOrganizationId: v.string(),
   })
   .returns(v.any())
@@ -10816,18 +10860,37 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       milestone,
       args.siteVisitGuidance,
       args.submilestoneKeys,
+      args.submilestoneGuidanceSections,
+      auth.build,
     );
     const requestedDay = Math.max(0, Math.round(args.requestedDay));
     const requestedTime = normalizeOptionalString(args.requestedTime);
     const note = normalizeOptionalString(args.note);
-    const scheduleRequestFingerprint = await operationalRequestFingerprint({
+    const scheduleRequestFingerprintPayload = {
       milestoneKey: milestone.key,
       note: note ?? null,
       requestedDay,
       requestedTime: requestedTime ?? null,
       siteVisitGuidance: configuration.siteVisitGuidance,
+      submilestoneGuidanceSections: configuration.guidanceSections.map(
+        (section) => ({
+          buildSubmilestoneId: String(section.buildSubmilestone._id),
+          cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+          proposalSubmilestoneId: String(section.proposalSubmilestoneId),
+          whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+        }),
+      ),
       submilestoneKeys: [...configuration.submilestoneKeys].sort(),
+    };
+    const scheduleRequestFingerprint = await operationalRequestFingerprint({
+      command: "scheduleActiveBuildSiteVisit",
+      ...scheduleRequestFingerprintPayload,
     });
+    // Older scheduled Visits were fingerprinted before the command discriminator
+    // was added. Accept that exact legacy hash for replay, while retaining the
+    // command-specific hash for all newly written rows and conflicts.
+    const legacyScheduleRequestFingerprint =
+      await operationalRequestFingerprint(scheduleRequestFingerprintPayload);
     const existingVisit = await ctx.db
       .query("buildSiteVisits")
       .withIndex("by_build_schedule_idempotency", (query) =>
@@ -10838,7 +10901,8 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       .unique();
     if (existingVisit) {
       if (
-        existingVisit.scheduleRequestFingerprint !== scheduleRequestFingerprint
+        existingVisit.scheduleRequestFingerprint !== scheduleRequestFingerprint &&
+        existingVisit.scheduleRequestFingerprint !== legacyScheduleRequestFingerprint
       ) {
         throw new ConvexError({
           code: "SITE_VISIT_SCHEDULE_IDEMPOTENCY_CONFLICT",
@@ -10868,6 +10932,12 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       url: `/newsitevisit/${String(args.buildId)}/${visitId}`,
       visitId,
     };
+    await saveSiteVisitCanonicalGuidance(ctx, {
+      auth,
+      guidanceSections: configuration.guidanceSections,
+      now,
+      organizationId: args.workosOrganizationId,
+    });
     const siteVisitId = await ctx.db.insert("buildSiteVisits", {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
@@ -10892,6 +10962,14 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       updatedAt: now,
       url: siteVisit.url,
       visitId,
+    });
+    await insertSiteVisitGuidanceSnapshots(ctx, {
+      auth,
+      buildSiteVisitId: siteVisitId,
+      guidanceSections: configuration.guidanceSections,
+      milestone,
+      now,
+      organizationId: args.workosOrganizationId,
     });
     const completionReview = activeBuildCompletionReviewWithSiteVisit(
       milestone.completionReview,
@@ -25468,12 +25546,16 @@ export const requestActiveBuildMilestoneInfo = authenticatedMutation
 export const assignActiveBuildSiteVisit = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    idempotencyKey: v.string(),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
     requestedDay: v.number(),
     requestedTime: v.optional(v.string()),
     siteVisitGuidance: v.optional(productionSettingsSiteVisitGuidanceInput),
     submilestoneKeys: v.optional(v.array(v.string())),
+    submilestoneGuidanceSections: v.optional(
+      v.array(siteVisitGuidanceSectionInput),
+    ),
     workosOrganizationId: v.string(),
   })
   .returns(
@@ -25511,7 +25593,52 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       milestone,
       args.siteVisitGuidance,
       args.submilestoneKeys,
+      args.submilestoneGuidanceSections,
+      auth.build,
     );
+    const idempotencyKey = normalizeOperationalIdempotencyKey(
+      args.idempotencyKey,
+      "Site Visit assignment idempotency key",
+    );
+    const requestedDay = Math.max(0, Math.round(args.requestedDay));
+    const requestedTime = normalizeOptionalString(args.requestedTime);
+    const note = normalizeOptionalString(args.note);
+    const assignRequestFingerprint = await operationalRequestFingerprint({
+      command: "assignActiveBuildSiteVisit",
+      milestoneKey: milestone.key,
+      note: note ?? null,
+      requestedDay,
+      requestedTime: requestedTime ?? null,
+      siteVisitGuidance: configuration.siteVisitGuidance,
+      submilestoneGuidanceSections: configuration.guidanceSections.map(
+        (section) => ({
+          buildSubmilestoneId: String(section.buildSubmilestone._id),
+          cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+          proposalSubmilestoneId: String(section.proposalSubmilestoneId),
+          whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+        }),
+      ),
+      submilestoneKeys: [...configuration.submilestoneKeys].sort(),
+    });
+    const existingVisit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_build_schedule_idempotency", (query) =>
+        query
+          .eq("buildId", args.buildId)
+          .eq("scheduleIdempotencyKey", idempotencyKey),
+      )
+      .unique();
+    if (existingVisit) {
+      if (existingVisit.scheduleRequestFingerprint !== assignRequestFingerprint) {
+        throw new ConvexError({
+          code: "SITE_VISIT_ASSIGN_IDEMPOTENCY_CONFLICT",
+          message:
+            "This Site Visit assignment idempotency key was already used for a different request.",
+          recoverable: true,
+        });
+      }
+      return activeBuildSiteVisitAssignmentResponse(existingVisit);
+    }
     const now = Date.now();
     const visitId = `active_visit_${args.milestoneKey}_${now}`;
     const workOrderId = `WO-${visitId}`;
@@ -25520,10 +25647,10 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       evidencePackageId,
       scopeBoundAt: now,
       workOrderId,
-      ...(args.note ? { note: args.note } : {}),
+      ...(note ? { note } : {}),
       requestedAt: new Date(now).toISOString(),
-      requestedDay: Math.max(0, Math.round(args.requestedDay)),
-      requestedTime: normalizeOptionalString(args.requestedTime),
+      requestedDay,
+      requestedTime,
       siteVisitGuidance: configuration.siteVisitGuidance,
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
@@ -25531,7 +25658,13 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       url: `/newsitevisit/${String(args.buildId)}/${visitId}`,
       visitId,
     };
-    await ctx.db.insert("buildSiteVisits", {
+    await saveSiteVisitCanonicalGuidance(ctx, {
+      auth,
+      guidanceSections: configuration.guidanceSections,
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    const siteVisitId = await ctx.db.insert("buildSiteVisits", {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
       buildMilestoneId: milestone._id,
@@ -25540,11 +25673,13 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       scopeBoundAt: now,
       workOrderId,
       milestoneKey: args.milestoneKey,
-      note: args.note,
+      note,
       organizationId: args.workosOrganizationId,
       requestedAt: siteVisit.requestedAt,
       requestedDay: siteVisit.requestedDay,
       requestedTime: siteVisit.requestedTime,
+      scheduleIdempotencyKey: idempotencyKey,
+      scheduleRequestFingerprint: assignRequestFingerprint,
       siteVisitGuidance: configuration.siteVisitGuidance,
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
@@ -25552,6 +25687,14 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       updatedAt: now,
       url: siteVisit.url,
       visitId,
+    });
+    await insertSiteVisitGuidanceSnapshots(ctx, {
+      auth,
+      buildSiteVisitId: siteVisitId,
+      guidanceSections: configuration.guidanceSections,
+      milestone,
+      now,
+      organizationId: args.workosOrganizationId,
     });
     const completionReview = activeBuildCompletionReviewWithSiteVisit(
       milestone.completionReview,
@@ -25571,7 +25714,7 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       eventType: "active_build.site_visit.requested",
       newState: JSON.stringify(siteVisit),
       priorState: JSON.stringify(milestone.completionReview),
-      reason: args.note,
+      reason: note,
     });
     return siteVisit;
   })
@@ -35906,21 +36049,69 @@ async function resolveActiveBuildSiteVisitConfiguration(
   milestone: Doc<"buildMilestones">,
   guidanceInput: ProductionSettingsSiteVisitGuidanceInput | undefined,
   requestedSubmilestoneKeys: string[] | undefined,
+  guidanceSectionsInput: SiteVisitGuidanceSectionInput[] | undefined,
+  build: Doc<"activeBuilds">,
 ) {
   const submilestones = await ctx.db
     .query("buildSubmilestones")
     .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
-    .collect();
+    .take(501);
+  if (submilestones.length > 500) {
+    throw new Error("Site visit has too many Sub-milestones to order.");
+  }
   const availableKeys = new Set(submilestones.map((item) => item.key));
-  const requestedKeys = Array.from(
-    new Set((requestedSubmilestoneKeys ?? []).map((key) => key.trim())),
-  ).filter(Boolean);
+  const rawRequestedKeys = (requestedSubmilestoneKeys ?? []).map((key) =>
+    key.trim(),
+  );
+  if (rawRequestedKeys.some((key) => !key)) {
+    throw new Error("Site visit scope cannot contain empty Sub-milestone keys.");
+  }
+  const requestedKeys = rawRequestedKeys;
+  if (new Set(requestedKeys).size !== requestedKeys.length) {
+    throw new Error("Site visit scope cannot contain duplicate Sub-milestones.");
+  }
   const invalidKeys = requestedKeys.filter((key) => !availableKeys.has(key));
   if (invalidKeys.length > 0) {
     throw new Error(
       `Site visit scope contains unknown submilestones: ${invalidKeys.join(", ")}.`,
     );
   }
+  const buildSubmilestoneById = new Map(
+    submilestones.map((submilestone) => [
+      String(submilestone._id),
+      submilestone,
+    ]),
+  );
+  const selectedSubmilestones =
+    requestedKeys.length > 0
+      ? submilestones
+          .filter((submilestone) => requestedKeys.includes(submilestone.key))
+          .sort(compareSiteVisitSubmilestones)
+      : guidanceSectionsInput !== undefined
+        ? guidanceSectionsInput
+            .map((section) => {
+              const submilestone = buildSubmilestoneById.get(
+                String(section.buildSubmilestoneId),
+              );
+              if (!submilestone) {
+                throw new Error(
+                  "Site visit Guidance references an unknown Sub-milestone.",
+                );
+              }
+              return submilestone;
+            })
+            .sort(compareSiteVisitSubmilestones)
+        : submilestones.slice().sort(compareSiteVisitSubmilestones);
+  const guidanceSections = await resolveActiveBuildSiteVisitGuidanceSections(
+    ctx,
+    {
+      build,
+      buildSubmilestoneById,
+      guidanceSectionsInput,
+      milestone,
+      selectedSubmilestones,
+    },
+  );
   const fallback = defaultSiteVisitGuidance(
     milestone.key,
     milestone.name,
@@ -35939,14 +36130,209 @@ async function resolveActiveBuildSiteVisitConfiguration(
     );
   }
   return {
+    guidanceSections,
     siteVisitGuidance,
     submilestoneKeys:
       requestedKeys.length > 0
         ? requestedKeys
-        : submilestones
-            .sort((left, right) => left.order - right.order)
-            .map((item) => item.key),
+        : selectedSubmilestones.map((item) => item.key),
   };
+}
+
+type ActiveBuildSiteVisitGuidanceSection = {
+  buildSubmilestone: Doc<"buildSubmilestones">;
+  cameraAnglesTiptapJson: string;
+  proposalSubmilestoneId: Id<"proposalSubmilestones">;
+  whatToVerifyTiptapJson: string;
+};
+
+function compareSiteVisitSubmilestones(
+  left: Doc<"buildSubmilestones">,
+  right: Doc<"buildSubmilestones">,
+) {
+  return (
+    left.order - right.order ||
+    left.key.localeCompare(right.key) ||
+    String(left._id).localeCompare(String(right._id))
+  );
+}
+
+async function resolveActiveBuildSiteVisitGuidanceSections(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    build: Doc<"activeBuilds">;
+    buildSubmilestoneById: Map<string, Doc<"buildSubmilestones">>;
+    guidanceSectionsInput: SiteVisitGuidanceSectionInput[] | undefined;
+    milestone: Doc<"buildMilestones">;
+    selectedSubmilestones: Doc<"buildSubmilestones">[];
+  },
+): Promise<ActiveBuildSiteVisitGuidanceSection[]> {
+  if (input.guidanceSectionsInput !== undefined) {
+    const seenBuildIds = new Set<string>();
+    const byBuildId = new Map<string, SiteVisitGuidanceSectionInput>();
+    for (const section of input.guidanceSectionsInput) {
+      const buildId = String(section.buildSubmilestoneId);
+      if (seenBuildIds.has(buildId)) {
+        throw new Error("Site visit Guidance sections cannot contain duplicates.");
+      }
+      seenBuildIds.add(buildId);
+      const buildSubmilestone = input.buildSubmilestoneById.get(buildId);
+      if (!buildSubmilestone) {
+        throw new Error("Site visit Guidance references an unknown Sub-milestone.");
+      }
+      if (buildSubmilestone.proposalSubmilestoneId !== section.proposalSubmilestoneId) {
+        throw new Error("Site visit Guidance Proposal lineage does not match the Build Sub-milestone.");
+      }
+      if (
+        buildSubmilestone.buildId !== input.build._id ||
+        buildSubmilestone.buildMilestoneId !== input.milestone._id ||
+        buildSubmilestone.organizationId !== input.build.organizationId ||
+        buildSubmilestone.brokerageId !== input.build.brokerageId
+      ) {
+        throw new Error("Site visit Guidance Build lineage is unavailable.");
+      }
+      const proposalSubmilestone = await ctx.db.get(
+        section.proposalSubmilestoneId,
+      );
+      if (
+        !proposalSubmilestone ||
+        proposalSubmilestone.proposalId !== input.build.proposalId ||
+        proposalSubmilestone.proposalMilestoneId !== input.milestone.proposalMilestoneId ||
+        proposalSubmilestone.organizationId !== input.build.organizationId ||
+        proposalSubmilestone.brokerageId !== input.build.brokerageId
+      ) {
+        throw new Error("Site visit Guidance Proposal lineage is unavailable.");
+      }
+      assertCompleteSiteVisitFieldGuidance(section);
+      byBuildId.set(buildId, section);
+    }
+    const selectedIds = new Set(
+      input.selectedSubmilestones.map((submilestone) => String(submilestone._id)),
+    );
+    const extraIds = [...byBuildId.keys()].filter((id) => !selectedIds.has(id));
+    const missingIds = [...selectedIds].filter((id) => !byBuildId.has(id));
+    if (extraIds.length > 0 || missingIds.length > 0) {
+      throw new Error(
+        "Site visit Guidance sections must exactly match the selected Sub-milestones.",
+      );
+    }
+    return input.selectedSubmilestones
+      .slice()
+      .sort(compareSiteVisitSubmilestones)
+      .map((buildSubmilestone) => {
+        const section = byBuildId.get(String(buildSubmilestone._id));
+        if (!section) {
+          throw new Error("Site visit Guidance section is missing.");
+        }
+        return {
+          buildSubmilestone,
+          cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+          proposalSubmilestoneId: section.proposalSubmilestoneId,
+          whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+        };
+      });
+  }
+
+  const rows: ActiveBuildSiteVisitGuidanceSection[] = [];
+  // New Visit commands fail closed when a selected canonical Guidance row is
+  // missing or incomplete. Only token reads preserve the pre-cutover
+  // milestone-wide legacy shape; they must never invent a new snapshot.
+  for (const buildSubmilestone of input.selectedSubmilestones
+    .slice()
+    .sort(compareSiteVisitSubmilestones)) {
+    const guidance = await ctx.db
+      .query("submilestoneFieldGuidance")
+      .withIndex("by_proposalSubmilestoneId", (query) =>
+        query.eq("proposalSubmilestoneId", buildSubmilestone.proposalSubmilestoneId),
+      )
+      .unique();
+    if (!guidance) {
+      throw new Error(
+        `Site Visit Field Guidance is missing for Sub-milestone ${buildSubmilestone.key}.`,
+      );
+    }
+    if (
+      guidance.organizationId !== input.build.organizationId ||
+      guidance.brokerageId !== input.build.brokerageId ||
+      guidance.proposalId !== input.build.proposalId ||
+      guidance.proposalSubmilestoneId !== buildSubmilestone.proposalSubmilestoneId ||
+      (guidance.buildId !== undefined && guidance.buildId !== input.build._id) ||
+      (guidance.buildSubmilestoneId !== undefined &&
+        guidance.buildSubmilestoneId !== buildSubmilestone._id)
+    ) {
+      throw new Error("Site Visit Field Guidance lineage is unavailable.");
+    }
+    assertCompleteSiteVisitFieldGuidance(guidance);
+    rows.push({
+      buildSubmilestone,
+      cameraAnglesTiptapJson: guidance.cameraAnglesTiptapJson,
+      proposalSubmilestoneId: buildSubmilestone.proposalSubmilestoneId,
+      whatToVerifyTiptapJson: guidance.whatToVerifyTiptapJson,
+    });
+  }
+  return rows;
+}
+
+// Site Visit ordering may update mutable canonical Field Guidance before it
+// freezes immutable Visit rows. Scope is the separate versioned/audited
+// contract and is never changed by this helper.
+async function saveSiteVisitCanonicalGuidance(
+  ctx: MutationCtx,
+  input: {
+    auth: Awaited<ReturnType<typeof authorizeActiveBuildOrThrow>>;
+    guidanceSections: ActiveBuildSiteVisitGuidanceSection[];
+    now: number;
+    organizationId: string;
+  },
+) {
+  for (const section of input.guidanceSections) {
+    await upsertSiteVisitFieldGuidance(ctx, {
+      brokerageId: input.auth.brokerage._id,
+      buildId: input.auth.build._id,
+      buildSubmilestoneId: section.buildSubmilestone._id,
+      cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+      now: input.now,
+      organizationId: input.organizationId,
+      proposalId: input.auth.build.proposalId,
+      proposalSubmilestoneId: section.proposalSubmilestoneId,
+      updatedByWorkosUserId: input.auth.subject,
+      whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+    });
+  }
+}
+
+async function insertSiteVisitGuidanceSnapshots(
+  ctx: MutationCtx,
+  input: {
+    auth: Awaited<ReturnType<typeof authorizeActiveBuildOrThrow>>;
+    buildSiteVisitId: Id<"buildSiteVisits">;
+    guidanceSections: ActiveBuildSiteVisitGuidanceSection[];
+    milestone: Doc<"buildMilestones">;
+    now: number;
+    organizationId: string;
+  },
+) {
+  for (const [index, section] of input.guidanceSections.entries()) {
+    await ctx.db.insert("buildSiteVisitGuidanceSections", {
+      brokerageId: input.auth.brokerage._id,
+      buildId: input.auth.build._id,
+      buildMilestoneId: input.milestone._id,
+      buildSiteVisitId: input.buildSiteVisitId,
+      cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+      capturedAt: input.now,
+      milestoneKey: input.milestone.key,
+      // Snapshot order is owned by this ordered array. Build roadmap rows can
+      // carry duplicate or legacy order values, so they must never become the
+      // immutable Visit section identity.
+      order: index + 1,
+      organizationId: input.organizationId,
+      proposalSubmilestoneId: section.proposalSubmilestoneId,
+      buildSubmilestoneId: section.buildSubmilestone._id,
+      submilestoneKey: section.buildSubmilestone.key,
+      submilestoneName: section.buildSubmilestone.name,
+      whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+    });
+  }
 }
 
 async function getActiveBuildSiteVisitTokenState(
@@ -36005,6 +36391,7 @@ async function getActiveBuildSiteVisitTokenState(
   const [
     milestone,
     submilestones,
+    guidanceSections,
     evidenceAssets,
     contractorAssignments,
     permitDocuments,
@@ -36016,6 +36403,12 @@ async function getActiveBuildSiteVisitTokenState(
         q.eq("buildMilestoneId", visit.buildMilestoneId),
       )
       .collect(),
+    ctx.db
+      .query("buildSiteVisitGuidanceSections")
+      .withIndex("by_buildSiteVisitId_and_order", (q) =>
+        q.eq("buildSiteVisitId", visit._id),
+      )
+      .take(501),
     ctx.db
       .query("buildEvidenceAssets")
       .withIndex("by_build_milestone", (q) =>
@@ -36035,12 +36428,34 @@ async function getActiveBuildSiteVisitTokenState(
       )
       .collect(),
   ]);
+  if (guidanceSections.length > 500) {
+    return {
+      available: false,
+      build: buildView,
+      files: [],
+      reason: "guidance_sections_overflow" as const,
+      status: "invalid" as const,
+      targets: [],
+      visit: null,
+    };
+  }
   const expectedWorkOrderId = `WO-${visit.visitId}`;
   const expectedEvidencePackageId = `EP-${String(buildId)}-${visit.milestoneKey}`;
+  const guidanceSectionLineageIsInvalid = guidanceSections.some(
+    (section) =>
+      section.brokerageId !== build.brokerageId ||
+      section.organizationId !== build.organizationId ||
+      section.buildId !== buildId ||
+      section.buildSiteVisitId !== visit._id ||
+      section.buildMilestoneId !== visit.buildMilestoneId ||
+      section.milestoneKey !== visit.milestoneKey,
+  );
   const scopeIdentityIsInvalid =
     (milestone !== null && milestone.buildId !== buildId) ||
     (milestone !== null && milestone.key !== visit.milestoneKey) ||
+    visit.brokerageId !== build.brokerageId ||
     visit.organizationId !== build.organizationId ||
+    guidanceSectionLineageIsInvalid ||
     (visit.workOrderId !== undefined &&
       visit.workOrderId !== expectedWorkOrderId) ||
     (visit.evidencePackageId !== undefined &&
@@ -36105,6 +36520,25 @@ async function getActiveBuildSiteVisitTokenState(
         {
           _id: String(milestone._id),
           guidance: visitGuidance,
+          ...(guidanceSections.length > 0
+            ? {
+                guidanceSections: guidanceSections
+                  .slice()
+                  .sort((left, right) => left.order - right.order)
+                  .map((section) => ({
+                    buildSubmilestoneId: String(section.buildSubmilestoneId),
+                    cameraAnglesTiptapJson: section.cameraAnglesTiptapJson,
+                    capturedAt: section.capturedAt,
+                    order: section.order,
+                    proposalSubmilestoneId: String(
+                      section.proposalSubmilestoneId,
+                    ),
+                    submilestoneKey: section.submilestoneKey,
+                    submilestoneName: section.submilestoneName,
+                    whatToVerifyTiptapJson: section.whatToVerifyTiptapJson,
+                  })),
+              }
+            : {}),
           milestoneKey: milestone.key,
           milestoneName: milestone.name,
           milestoneOrder: milestone.order,

@@ -102,6 +102,7 @@ import type {
   MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import type { BuildSubmilestoneDetailTab } from "#/features/build-detail-targets/buildDetailTab.ts";
+import type { SubmilestoneFieldGuidance } from "#/features/submilestone-guidance/SubmilestoneFieldGuidanceEditor.tsx";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
   convertHeicEvidenceBlobToJpeg,
@@ -163,6 +164,7 @@ import {
   type SiteVisitOrderConfirmation,
   SiteVisitOrderDialog,
   type SiteVisitOrderRequest,
+  type SiteVisitSubmilestoneGuidanceSection,
 } from "./SiteVisitOrderDialog.tsx";
 
 type ProductionBuildStatus = "active" | "paused" | "completed" | string;
@@ -201,6 +203,7 @@ export interface ProductionBuildDetailActions {
     note?: string;
     requestedTime?: string;
     siteVisitGuidance?: SiteVisitGuidance;
+    submilestoneGuidanceSections?: SiteVisitSubmilestoneGuidanceSection[];
     submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   attachAndInviteContractor?: (input: {
@@ -380,6 +383,7 @@ export interface ProductionBuildDetailActions {
     requestedDay: number;
     requestedTime?: string;
     siteVisitGuidance?: SiteVisitGuidance;
+    submilestoneGuidanceSections?: SiteVisitSubmilestoneGuidanceSection[];
     submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   setAdminDecisionTargetDate?: (input: {
@@ -565,12 +569,13 @@ interface ProductionSubmilestone {
   completedAt?: number;
   completedByWorkosUserId?: string;
   durationDays?: number;
+  fieldGuidance?: Partial<SubmilestoneFieldGuidance> | null;
   fieldNote?: string;
-  proposalSubmilestoneId?: string;
   key: string;
   milestoneKey: string;
   name: string;
   order: number;
+  proposalSubmilestoneId?: string;
   startDay?: number;
   startEventId?: string;
   startedByWorkosUserId?: string;
@@ -1169,6 +1174,7 @@ export function ProductionBuildDetailSurface({
         requestedDay: input.requestedDay,
         ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
         siteVisitGuidance: input.siteVisitGuidance,
+        submilestoneGuidanceSections: input.submilestoneGuidanceSections,
         submilestoneKeys: input.submilestoneKeys,
       });
     }
@@ -1177,6 +1183,7 @@ export function ProductionBuildDetailSurface({
       ...(input.note ? { note: input.note } : {}),
       ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
       siteVisitGuidance: input.siteVisitGuidance,
+      submilestoneGuidanceSections: input.submilestoneGuidanceSections,
       submilestoneKeys: input.submilestoneKeys,
     });
   };
@@ -1427,9 +1434,6 @@ export function ProductionBuildDetailSurface({
             )?.key
           }
           key={activeMilestoneKey ?? "milestone-sheet"}
-          readOnly={readOnly}
-          viewerCapacity={viewerCapacity}
-          workosOrganizationId={workosOrganizationId}
           onAmendStart={
             actions?.correctMilestoneStart || actions?.retractMilestoneStart
               ? (action, milestoneKey, submilestoneKey) =>
@@ -1505,14 +1509,22 @@ export function ProductionBuildDetailSurface({
                       candidate.key === input.submilestoneKey,
                   );
                   if (!target) {
-                    throw new Error("Submilestone execution target is unavailable.");
+                    throw new Error(
+                      "Submilestone execution target is unavailable.",
+                    );
                   }
-                  if (target.status === "complete" && input.status === undefined) {
+                  if (
+                    target.status === "complete" &&
+                    input.status === undefined
+                  ) {
                     throw new Error(
                       "Reopen this Sub-milestone before changing its execution details.",
                     );
                   }
-                  if (target.status === "planned" && input.status !== "complete") {
+                  if (
+                    target.status === "planned" &&
+                    input.status !== "complete"
+                  ) {
                     if (!actions.startMilestoneWork) {
                       throw new Error(
                         "Start this Sub-milestone before recording execution details.",
@@ -1594,6 +1606,9 @@ export function ProductionBuildDetailSurface({
               : undefined
           }
           onUploadEvidence={actions?.uploadSubmilestoneEvidence}
+          readOnly={readOnly}
+          viewerCapacity={viewerCapacity}
+          workosOrganizationId={workosOrganizationId}
         />
       )}
       {milestoneStartRequest ? (

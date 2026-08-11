@@ -296,11 +296,13 @@ function canonicalMilestoneSystemPostEntryFixture() {
           startCommand: {
             allowed: false,
             buildName: "UI fixture Build",
+            buildSubmilestoneId: "submilestone-1",
             dependencyBlockers: [],
             denialReason: "assignment_required",
             milestoneKey: "foundation",
             milestoneName: "Foundation",
             plannedStartDate: "2026-08-03",
+            proposalSubmilestoneId: "proposal-submilestone-1",
             scope: "submilestone",
             source: "submilestone_detail",
             submilestoneKey: "foundation-1",
@@ -1052,11 +1054,13 @@ vi.mock("convex/react", () => ({
                   startCommand: {
                     allowed: false,
                     buildName: "UI fixture Build",
+                    buildSubmilestoneId: "submilestone-1",
                     dependencyBlockers: [],
                     denialReason: "already_started",
                     milestoneKey: "foundation",
                     milestoneName: "Foundation",
                     plannedStartDate: "2026-08-03",
+                    proposalSubmilestoneId: "proposal-submilestone-1",
                     scope: "submilestone",
                     source: "submilestone_detail",
                     submilestoneKey: "foundation-1",
@@ -1274,6 +1278,34 @@ vi.mock("convex/react", () => ({
         digestCadence: "daily",
         digestEnabled: true,
         ordinaryMuted: false,
+      };
+    }
+    if (
+      functionName ===
+      "submilestone_field_guidance:getSubmilestoneFieldGuidance"
+    ) {
+      const tiptapJson = JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Verify the selected scope.", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      });
+      return {
+        guidance: {
+          _id: "guidance-1",
+          buildId: "build-1",
+          buildSubmilestoneId: "submilestone-1",
+          cameraAnglesTiptapJson: tiptapJson,
+          createdAt: Date.parse("2026-08-03T12:00:00.000Z"),
+          proposalSubmilestoneId: "proposal-submilestone-1",
+          updatedAt: Date.parse("2026-08-03T12:00:00.000Z"),
+          updatedByWorkosUserId: "user_admin",
+          whatToVerifyTiptapJson: tiptapJson,
+        },
+        readiness: { missingSections: [], readyForSiteVisit: true },
       };
     }
     if (
@@ -1799,6 +1831,56 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByText("Your role cannot start this Sub-milestone."),
     ).toBeNull();
+  });
+
+  test("orders a Site Visit with canonical Sub-milestone identity and Guidance", async () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture() as {
+      actionItems: Array<{ systemPresentation: Record<string, unknown> }>;
+    };
+    Object.assign(entry.actionItems[0]!.systemPresentation, {
+      canReview: true,
+      siteVisitRequirement: {
+        manualSignals: [],
+        policySignals: [],
+        required: true,
+        riskSignals: [],
+        status: "required",
+      },
+    });
+    mocks.viewerBinding = {
+      ...mocks.viewerBinding,
+      role: "broker",
+      roles: ["broker"],
+      workosUserId: "user_broker",
+    };
+    mocks.authUserId = "user_broker";
+    mocks.feedRows = [entry];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Excavate/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Order site visit" }));
+    expect(screen.getByRole("dialog", { name: "Configure site visit" })).toBeTruthy();
+
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm and order site visit" }),
+    );
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: "build-1",
+        milestoneKey: "foundation",
+        submilestoneGuidanceSections: [
+          expect.objectContaining({
+            buildSubmilestoneId: "submilestone-1",
+            proposalSubmilestoneId: "proposal-submilestone-1",
+          }),
+        ],
+        submilestoneKeys: ["foundation-1"],
+        workosOrganizationId: "org-1",
+      }),
+    );
   });
 
   test("explains revision-gated Sub-milestone controls before a refresh", () => {
