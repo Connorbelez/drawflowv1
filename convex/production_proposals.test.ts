@@ -13277,6 +13277,108 @@ describe("Sub-milestone Scope and Field Guidance lineage", () => {
     expect(after).toEqual(before);
   });
 
+  test("creates canonical Scope and Guidance lineage for new active-Build planning rows", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [
+        { budgetCents: 20_000_000, key: "forms", name: "Forms", order: 1 },
+      ],
+    });
+    const submilestones = [
+      {
+        budgetCents: 20_000_000,
+        durationDays: 10,
+        key: "forms",
+        name: "Forms",
+        order: 1,
+      },
+      {
+        budgetCents: 5_000_000,
+        durationDays: 3,
+        key: "drainage",
+        name: "Foundation drainage",
+        order: 2,
+      },
+    ];
+
+    for (let replay = 0; replay < 2; replay += 1) {
+      await admin.mutation(
+        (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          submilestones,
+          workosOrganizationId: ORG,
+        },
+      );
+    }
+
+    const lineage = await admin.run(async (ctx: any) => {
+      const buildSubmilestones = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      const drainage = buildSubmilestones.find(
+        (row: any) => row.key === "drainage" && row.planningState === "active",
+      );
+      if (!drainage) throw new Error("Expected active drainage Sub-milestone.");
+      const contract = await ctx.db
+        .query("submilestoneScopeContracts")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", drainage.proposalSubmilestoneId),
+        )
+        .unique();
+      const guidance = await ctx.db
+        .query("submilestoneFieldGuidance")
+        .withIndex("by_proposalSubmilestoneId", (query: any) =>
+          query.eq("proposalSubmilestoneId", drainage.proposalSubmilestoneId),
+        )
+        .unique();
+      const revisions = contract
+        ? await ctx.db
+            .query("submilestoneScopeRevisions")
+            .withIndex("by_contractId_and_version", (query: any) =>
+              query.eq("contractId", contract._id),
+            )
+            .collect()
+        : [];
+      return { contract, drainage, guidance, revisions };
+    });
+
+    expect(lineage.contract).toMatchObject({
+      activeDraftRevisionId: lineage.revisions[0]?._id,
+      buildId: closing.buildId,
+      buildSubmilestoneId: lineage.drainage._id,
+      latestVersion: 1,
+      proposalSubmilestoneId: lineage.drainage.proposalSubmilestoneId,
+    });
+    expect(lineage.guidance).toMatchObject({
+      buildId: closing.buildId,
+      buildSubmilestoneId: lineage.drainage._id,
+      cameraAnglesTiptapJson: JSON.stringify({
+        content: [{ type: "paragraph" }],
+        type: "doc",
+      }),
+      proposalSubmilestoneId: lineage.drainage.proposalSubmilestoneId,
+      whatToVerifyTiptapJson: JSON.stringify({
+        content: [{ type: "paragraph" }],
+        type: "doc",
+      }),
+    });
+    expect(lineage.revisions).toEqual([
+      expect.objectContaining({
+        scopeOfWorkTiptapJson: JSON.stringify({
+          content: [{ type: "paragraph" }],
+          type: "doc",
+        }),
+        status: "draft",
+        version: 1,
+      }),
+    ]);
+  });
+
   test("materializes dedicated Scope and Field Guidance owners from a draft package", async () => {
     const { proposalId, t } = await directAdminProposalFixture(
       "Canonical authoring proposal",
@@ -13416,24 +13518,36 @@ describe("Sub-milestone Scope and Field Guidance lineage", () => {
       proposal: await ctx.db.get(proposalId),
     }));
     expect(state.proposal?.status).toBe("submitted");
-    expect(state.contracts).toHaveLength(2);
+    expect(state.contracts).toHaveLength(3);
     const published = state.revisions.find(
       (revision: any) => revision.scopeOfWorkTiptapJson === scope,
     );
-    const empty = state.revisions.find(
+    const empty = state.revisions.filter(
       (revision: any) =>
         revision.scopeOfWorkTiptapJson === EMPTY_TIPTAP_DOCUMENT,
     );
     expect(published).toMatchObject({ status: "published", version: 1 });
-    expect(empty).toMatchObject({ status: "draft", version: 1 });
+    expect(empty).toHaveLength(2);
+    expect(empty).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "draft", version: 1 }),
+        expect.objectContaining({ status: "draft", version: 1 }),
+      ]),
+    );
     const publishedContract = state.contracts.find(
       (contract: any) => contract.effectiveRevisionId === published?._id,
     );
     expect(publishedContract?.activeDraftRevisionId).toBeUndefined();
-    const emptyContract = state.contracts.find(
-      (contract: any) => contract.activeDraftRevisionId === empty?._id,
+    const emptyRevisionIds = new Set(empty.map((revision: any) => revision._id));
+    const emptyContracts = state.contracts.filter(
+      (contract: any) => emptyRevisionIds.has(contract.activeDraftRevisionId),
     );
-    expect(emptyContract?.effectiveRevisionId).toBeUndefined();
+    expect(emptyContracts).toHaveLength(2);
+    expect(
+      emptyContracts.every(
+        (contract: any) => contract.effectiveRevisionId === undefined,
+      ),
+    ).toBe(true);
     expect(
       state.audits.filter(
         (audit: any) =>
@@ -14006,10 +14120,16 @@ describe("Sub-milestone Scope and Field Guidance lineage", () => {
       revisions: await ctx.db.query("submilestoneScopeRevisions").collect(),
       submilestones: await ctx.db.query("proposalSubmilestones").collect(),
     }));
-    expect(state.guidance).toHaveLength(0);
-    expect(state.revisions).toHaveLength(0);
+    expect(state.guidance).toHaveLength(1);
+    expect(state.revisions).toEqual([
+      expect.objectContaining({
+        scopeOfWorkTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+        status: "draft",
+        version: 1,
+      }),
+    ]);
     expect(state.submilestones).toHaveLength(1);
-    expect(state.submilestones[0].scopeOfWorkTiptapJson).toBeUndefined();
+    expect("scopeOfWorkTiptapJson" in state.submilestones[0]).toBe(false);
   });
 
   test("fails closed instead of inserting a duplicate v1 after a published pointer is cleared", async () => {
@@ -14486,7 +14606,10 @@ describe("Site Visit Field Guidance snapshots", () => {
     }));
     expect(beforeValid.visits).toHaveLength(0);
     expect(beforeValid.sections).toHaveLength(0);
-    expect(beforeValid.guidance).toBeNull();
+    expect(beforeValid.guidance).toMatchObject({
+      cameraAnglesTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+      whatToVerifyTiptapJson: EMPTY_TIPTAP_DOCUMENT,
+    });
 
     const visitArgs = {
       buildId: closing.buildId,

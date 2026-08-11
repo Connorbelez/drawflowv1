@@ -271,10 +271,10 @@ const quoteRoundDraftProjectionValidator = v.object({
   labourLines: v.array(
     v.object({
       buildSubmilestoneId: v.id("buildSubmilestones"),
-      scopeOfWorkTiptapJson: v.optional(v.string()),
+      scopeOfWorkTiptapJson: v.string(),
       sourceScopeChangeReason: v.optional(v.string()),
-      sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
-      sourceScopeVersion: v.optional(v.number()),
+      sourceScopeRevisionId: v.id("submilestoneScopeRevisions"),
+      sourceScopeVersion: v.number(),
     })
   ),
   labourSubmilestoneIds: v.array(v.id("buildSubmilestones")),

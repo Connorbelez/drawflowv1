@@ -2232,7 +2232,6 @@ async function seedQuoteFixture(
       organizationId: ORGANIZATION_ID,
       proposalId,
       proposalMilestoneId,
-      scopeOfWorkTiptapJson: tiptap("Install engineered wall system exactly."),
       startDay: 10,
       updatedAt: now,
     });
@@ -2249,7 +2248,6 @@ async function seedQuoteFixture(
       order: 1,
       organizationId: ORGANIZATION_ID,
       proposalSubmilestoneId,
-      scopeOfWorkTiptapJson: tiptap("Install engineered wall system exactly."),
       startDay: 10,
       status: "planned",
       updatedAt: now,
@@ -3285,7 +3283,7 @@ describe("Quote Round draft-to-open aggregate", () => {
     expect(persisted.credentials[0]?.deliveryEmailMessageId).toBeUndefined();
 
     await fixture.base.run(async (ctx) => {
-      await ctx.db.patch(fixture.submilestoneId, {
+      await ctx.db.patch(fixture.scopeRevisionId, {
         scopeOfWorkTiptapJson: tiptap("Mutated after publication."),
       });
       await ctx.db.patch(fixture.costItemId, {
@@ -3323,7 +3321,6 @@ describe("Quote Round draft-to-open aggregate", () => {
       await ctx.db.delete(fixture.scopeContractId);
       await ctx.db.patch(fixture.submilestoneId, {
         fieldNote: "Execution-only note: verify the west elevation.",
-        scopeOfWorkTiptapJson: undefined,
       });
     });
 
@@ -3343,13 +3340,8 @@ describe("Quote Round draft-to-open aggregate", () => {
     );
   });
 
-  test("uses the effective canonical Scope revision before pre-cutover Build bytes", async () => {
+  test("uses the effective canonical Scope revision as the sole Scope source", async () => {
     const fixture = await seedQuoteFixture();
-    await fixture.base.run(async (ctx) => {
-      await ctx.db.patch(fixture.submilestoneId, {
-        scopeOfWorkTiptapJson: tiptap("Pre-cutover Build Scope."),
-      });
-    });
 
     const composer = await fixture.builder.query(
       (api as any).quote_rounds.getQuoteRoundComposer,
@@ -3614,17 +3606,68 @@ describe("Quote Round draft-to-open aggregate", () => {
     });
   });
 
+  test("requires mutable draft Scope pins while preserving optional historical Package pins", async () => {
+    const fixture = await seedQuoteFixture();
+    const draft = await configureRound(fixture, "labour");
+    const draftScope = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteRoundDraftLabourScope")
+        .withIndex("by_quoteRoundId_and_order", (query) =>
+          query.eq("quoteRoundId", draft.quoteRoundId)
+        )
+        .unique()
+    );
+    if (!draftScope) {
+      throw new Error("Expected the configured draft Labour Scope row.");
+    }
+    await expect(
+      fixture.base.run((ctx) =>
+        ctx.db.patch(draftScope._id, {
+          scopeOfWorkTiptapJson: undefined,
+        })
+      )
+    ).rejects.toThrow(/required/i);
+
+    const published = await publishCombinedRound(
+      fixture,
+      "historical-package-scope-pins-optional-001"
+    );
+    const packageLine = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quotePackageRevisionLabourLines")
+        .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+          query.eq(
+            "quotePackageRevisionId",
+            published.invitation.quotePackageRevisionId
+          )
+        )
+        .unique()
+    );
+    if (!packageLine) {
+      throw new Error("Expected the published historical Package Labour row.");
+    }
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(packageLine._id, {
+        sourceScopeRevisionId: undefined,
+        sourceScopeVersion: undefined,
+      })
+    );
+    const historical = await fixture.base.run((ctx) =>
+      ctx.db.get(packageLine._id)
+    );
+    expect(historical).toMatchObject({
+      scopeOfWorkTiptapJson: tiptap("Install engineered wall system exactly."),
+    });
+    expect(historical?.sourceScopeRevisionId).toBeUndefined();
+    expect(historical?.sourceScopeVersion).toBeUndefined();
+  });
+
   test("rejects publication when a pinned revision is no longer effective instead of reading legacy Scope", async () => {
     const fixture = await seedQuoteFixture();
     const created = await configureRound(fixture, "labour");
     await fixture.base.run(async (ctx) => {
       await ctx.db.patch(fixture.scopeContractId, {
         effectiveRevisionId: undefined,
-      });
-      await ctx.db.patch(fixture.submilestoneId, {
-        scopeOfWorkTiptapJson: tiptap(
-          "Legacy bytes must not rescue Quote publication."
-        ),
       });
     });
 

@@ -142,10 +142,10 @@ export interface QuoteRoundRecipientSelection {
 export interface QuoteRoundDraft {
   labourLines?: Array<{
     buildSubmilestoneId: string;
-    scopeOfWorkTiptapJson?: string;
+    scopeOfWorkTiptapJson: string;
     sourceScopeChangeReason?: string;
-    sourceScopeRevisionId?: string;
-    sourceScopeVersion?: number;
+    sourceScopeRevisionId: string;
+    sourceScopeVersion: number;
   }>;
   labourSubmilestoneIds: string[];
   materialRows: QuoteRoundMaterialRow[];
@@ -501,19 +501,14 @@ function composerDataWithPinnedDraftScope(
       if (!pinned) {
         return item;
       }
-      const effectiveSourceScopeRevisionId =
-        pinned.sourceScopeRevisionId ?? item.sourceScopeRevisionId;
       return {
         ...item,
-        scopeOfWorkTiptapJson:
-          pinned.scopeOfWorkTiptapJson ?? item.scopeOfWorkTiptapJson,
+        scopeOfWorkTiptapJson: pinned.scopeOfWorkTiptapJson,
         scopeUpdateAvailable:
-          item.sourceScopeRevisionId !== effectiveSourceScopeRevisionId,
-        sourceScopeChangeReason:
-          pinned.sourceScopeChangeReason ?? item.sourceScopeChangeReason,
-        sourceScopeRevisionId: effectiveSourceScopeRevisionId,
-        sourceScopeVersion:
-          pinned.sourceScopeVersion ?? item.sourceScopeVersion,
+          item.sourceScopeRevisionId !== pinned.sourceScopeRevisionId,
+        sourceScopeChangeReason: pinned.sourceScopeChangeReason,
+        sourceScopeRevisionId: pinned.sourceScopeRevisionId,
+        sourceScopeVersion: pinned.sourceScopeVersion,
       };
     }),
   };

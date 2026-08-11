@@ -3012,17 +3012,12 @@ function summaryGuidanceDetails(
         ? { label: "Recommended camera angles", value: cameraAngles }
         : null,
     ].filter((item): item is { label: string; value: string } => Boolean(item));
-    const legacyDescription = plainTextFromTiptapJson(subMilestone.description);
-    const fallbackItems = legacyDescription
-      ? [{ label: "Scope note", value: legacyDescription }]
-      : [];
-    const summaryItems = items.length > 0 ? items : fallbackItems;
     return {
-      active: summaryItems.length > 0,
-      items: summaryItems,
+      active: items.length > 0,
+      items,
       summary:
-        summaryItems.length > 0
-          ? summaryItems.map((item) => `${item.label}: ${item.value}`).join("; ")
+        items.length > 0
+          ? items.map((item) => `${item.label}: ${item.value}`).join("; ")
           : "No field guidance set.",
     };
   }

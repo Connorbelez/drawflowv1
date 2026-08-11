@@ -2517,17 +2517,11 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     quoteRoundId: v.id("quoteRounds"),
     buildSubmilestoneId: v.id("buildSubmilestones"),
-    // Newly selected Labour rows pin the exact effective Scope bytes and
-    // immutable revision identity. Optionality is temporary for historical
-    // drafts created before the canonical Scope cutover. SFG-11 owns the
-    // migration and legacy-field cleanup; every new SFG-10 write populates
-    // these pins even while the schema remains backward-compatible.
-    // SFG-11 retains optionality until legacy rows are migrated and removed.
-    // New draft writes populate every available Scope pin.
-    sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
-    sourceScopeVersion: v.optional(v.number()),
+    // Every Labour draft pins the exact canonical Scope revision and bytes.
+    sourceScopeRevisionId: v.id("submilestoneScopeRevisions"),
+    sourceScopeVersion: v.number(),
     sourceScopeChangeReason: v.optional(v.string()),
-    scopeOfWorkTiptapJson: v.optional(v.string()),
+    scopeOfWorkTiptapJson: v.string(),
     order: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2640,8 +2634,9 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     budgetCents: v.optional(v.number()),
-    // SFG-11 owns the legacy-row migration and eventual required-field
-    // cutover. New Package Revision writes always populate these pins.
+    // Historical Package Revision snapshots may predate canonical Scope
+    // identity, so these provenance pins remain optional and immutable. New
+    // Package Revision writes always populate these pins.
     sourceScopeRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
     sourceScopeVersion: v.optional(v.number()),
     sourceScopeChangeReason: v.optional(v.string()),
@@ -3562,7 +3557,6 @@ export default defineSchema({
     name: v.string(),
     order: v.number(),
     budgetCents: v.optional(v.number()),
-    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     createdAt: v.number(),
@@ -3977,6 +3971,9 @@ export default defineSchema({
     priorState: v.optional(v.string()),
     newState: v.optional(v.string()),
     reason: v.optional(v.string()),
+    // Historical active-Build planning events recorded their governed app
+    // resource. Preserve that immutable audit context during schema cutovers.
+    resourceType: v.optional(v.string()),
     reconciliationKey: v.optional(v.string()),
     drawFlowCorrelationId: v.optional(v.string()),
     providerCorrelationId: v.optional(v.string()),
@@ -7463,10 +7460,6 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
-    // Canonical scope content for recipient-visible Quote Package snapshots.
-    // Legacy fieldNote remains an execution note; Quote consumers must never
-    // synthesize contractual Scope from it.
-    scopeOfWorkTiptapJson: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     completionForecastDate: v.optional(v.string()),
     evidencePackageRevisionId: v.optional(

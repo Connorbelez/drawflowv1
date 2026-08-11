@@ -172,6 +172,7 @@ import type * as quote_rounds from "../quote_rounds.js";
 import type * as siteVisitGuidance from "../siteVisitGuidance.js";
 import type * as submilestone_field_guidance from "../submilestone_field_guidance.js";
 import type * as submilestone_scope_contracts from "../submilestone_scope_contracts.js";
+import type * as submilestone_scope_guidance_migrations from "../submilestone_scope_guidance_migrations.js";
 import type * as todos from "../todos.js";
 import type * as types from "../types.js";
 import type * as workosManagement from "../workosManagement.js";
@@ -349,6 +350,7 @@ declare const fullApi: ApiFromModules<{
   siteVisitGuidance: typeof siteVisitGuidance;
   submilestone_field_guidance: typeof submilestone_field_guidance;
   submilestone_scope_contracts: typeof submilestone_scope_contracts;
+  submilestone_scope_guidance_migrations: typeof submilestone_scope_guidance_migrations;
   todos: typeof todos;
   types: typeof types;
   workosManagement: typeof workosManagement;

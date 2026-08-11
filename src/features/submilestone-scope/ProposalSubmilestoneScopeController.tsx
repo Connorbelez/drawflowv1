@@ -228,60 +228,58 @@ export function ProposalSubmilestoneScopeController({
     }
   }, [canRead, onDirtyChange]);
 
+  async function createDraftFromRevision(
+    sourceRevisionId: string
+  ): Promise<ScopeRevisionLoadResult | undefined> {
+    const revisionId = await createDraft({
+      basedOnRevisionId: sourceRevisionId as Id<"submilestoneScopeRevisions">,
+      proposalSubmilestoneId:
+        proposalSubmilestoneId as Id<"proposalSubmilestones">,
+      workosOrganizationId: workosOrganizationId as string,
+    });
+    // The history query is reactive and will add the new draft. Selecting
+    // its ID here makes the editor switch immediately without inventing a
+    // client-side revision summary or content payload.
+    setSelectedRevisionId(String(revisionId));
+    return;
+  }
   const onCreateDraftFromRevision = canAuthor
-    ? async (
-        sourceRevisionId: string
-      ): Promise<ScopeRevisionLoadResult | undefined> => {
-        const revisionId = await createDraft({
-          basedOnRevisionId:
-            sourceRevisionId as Id<"submilestoneScopeRevisions">,
-          proposalSubmilestoneId:
-            proposalSubmilestoneId as Id<"proposalSubmilestones">,
-          workosOrganizationId: workosOrganizationId as string,
-        });
-        // The history query is reactive and will add the new draft. Selecting
-        // its ID here makes the editor switch immediately without inventing a
-        // client-side revision summary or content payload.
-        setSelectedRevisionId(String(revisionId));
-        return;
-      }
+    ? createDraftFromRevision
     : undefined;
 
   const onLoadDraft = canAuthor
     ? () => Promise.resolve<ScopeRevisionLoadResult | undefined>(undefined)
     : undefined;
 
-  const onSaveDraft = canAuthor
-    ? async ({
-        revisionId,
-        scopeOfWorkTiptapJson,
-      }: {
-        revisionId: string;
-        scopeOfWorkTiptapJson: string;
-      }) => {
-        await saveDraft({
-          revisionId: revisionId as Id<"submilestoneScopeRevisions">,
-          scopeOfWorkTiptapJson,
-          workosOrganizationId: workosOrganizationId as string,
-        });
-      }
-    : undefined;
+  async function saveScopeDraft({
+    revisionId,
+    scopeOfWorkTiptapJson,
+  }: {
+    revisionId: string;
+    scopeOfWorkTiptapJson: string;
+  }) {
+    await saveDraft({
+      revisionId: revisionId as Id<"submilestoneScopeRevisions">,
+      scopeOfWorkTiptapJson,
+      workosOrganizationId: workosOrganizationId as string,
+    });
+  }
+  const onSaveDraft = canAuthor ? saveScopeDraft : undefined;
 
-  const onPublishDraft = canAuthor
-    ? async ({
-        changeReason,
-        revisionId,
-      }: {
-        changeReason?: string;
-        revisionId: string;
-      }) => {
-        await publishDraft({
-          ...(changeReason ? { changeReason } : {}),
-          revisionId: revisionId as Id<"submilestoneScopeRevisions">,
-          workosOrganizationId: workosOrganizationId as string,
-        });
-      }
-    : undefined;
+  async function publishScopeDraft({
+    changeReason,
+    revisionId,
+  }: {
+    changeReason?: string;
+    revisionId: string;
+  }) {
+    await publishDraft({
+      ...(changeReason ? { changeReason } : {}),
+      revisionId: revisionId as Id<"submilestoneScopeRevisions">,
+      workosOrganizationId: workosOrganizationId as string,
+    });
+  }
+  const onPublishDraft = canAuthor ? publishScopeDraft : undefined;
 
   if (!canRead) {
     return null;

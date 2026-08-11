@@ -486,7 +486,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
     ).toContain("2.5 x $80,000");
   });
 
-  test("prefers canonical field guidance and falls back to the legacy scope note", () => {
+  test("summarizes only canonical field guidance", () => {
     render(
       <ControlledWorksheet
         initialWorksheetView="table"
@@ -536,12 +536,13 @@ describe("TimelineMilestoneWorksheetTable", () => {
       />
     );
 
-    const legacyGuidance = screen
+    const missingGuidance = screen
       .getByTestId(
         "timeline-setup-status-site-prep-foundation-sub-1-guidance"
       )
       .getAttribute("aria-label");
-    expect(legacyGuidance).toContain("Scope note: Legacy verification note");
+    expect(missingGuidance).toContain("No field guidance set.");
+    expect(missingGuidance).not.toContain("Legacy verification note");
 
     cleanup();
     render(

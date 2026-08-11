@@ -185,6 +185,22 @@ const BACKOFFICE_ROLES = [
 ] as const satisfies readonly RoleSlug[];
 const APPROVER_ROLES = ["admin", "principle-broker"] as const;
 const BUILDER_ROLES = ["builder", "builder-staff"] as const;
+const EMPTY_CANONICAL_TIPTAP_DOCUMENT = JSON.stringify({
+  content: [{ type: "paragraph" }],
+  type: "doc",
+});
+
+function labeledCanonicalTiptapDocument(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
 const builderOnboardingRecoveryValidator = v.optional(
   v.object({
     intendedDestination: v.literal("/builder"),
@@ -2169,7 +2185,6 @@ async function insertDraftProposalSubmilestone(
     organizationId: input.workosOrganizationId,
     proposalId: input.proposalId,
     proposalMilestoneId: milestone.milestoneId,
-    scopeOfWorkTiptapJson,
     startDay: milestone.submilestone.startDay,
     updatedAt: input.now,
   };
@@ -2179,7 +2194,7 @@ async function insertDraftProposalSubmilestone(
   if (existing) {
     await ctx.db.patch(existing._id, values);
   }
-  if (scopeOfWorkTiptapJson !== undefined) {
+  if (!existing || scopeOfWorkTiptapJson !== undefined) {
     await upsertSubmilestoneScopeV1Draft(ctx, {
       authoredByWorkosUserId: input.auth.subject,
       brokerageId: input.auth.brokerage._id,
@@ -2187,13 +2202,17 @@ async function insertDraftProposalSubmilestone(
       organizationId: input.workosOrganizationId,
       proposalId: input.proposalId,
       proposalSubmilestoneId: submilestoneId,
-      scopeOfWorkTiptapJson,
+      scopeOfWorkTiptapJson:
+        scopeOfWorkTiptapJson ?? EMPTY_CANONICAL_TIPTAP_DOCUMENT,
     });
   }
-  if (milestone.submilestone.fieldGuidance) {
+  if (!existing || milestone.submilestone.fieldGuidance) {
     await upsertProposalSubmilestoneFieldGuidance(ctx, {
       auth: input.auth,
-      fieldGuidance: milestone.submilestone.fieldGuidance,
+      fieldGuidance: milestone.submilestone.fieldGuidance ?? {
+        cameraAnglesTiptapJson: EMPTY_CANONICAL_TIPTAP_DOCUMENT,
+        whatToVerifyTiptapJson: EMPTY_CANONICAL_TIPTAP_DOCUMENT,
+      },
       now: input.now,
       proposalId: input.proposalId,
       proposalSubmilestoneId: submilestoneId,
@@ -3357,7 +3376,6 @@ export const updateProductionTimelineMilestone = authenticatedMutation
               key: submilestone.key,
               name: submilestone.name,
               order: submilestone.order,
-              scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
               startDay:
                 submilestone.startDay === undefined
                   ? undefined
@@ -8785,12 +8803,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
                                 submilestone._id,
                               )!.scopeOfWorkTiptapJson,
                           }
-                        : submilestone.scopeOfWorkTiptapJson === undefined
-                          ? {}
-                          : {
-                              scopeOfWorkTiptapJson:
-                                submilestone.scopeOfWorkTiptapJson,
-                            }),
+                        : {}),
                       ...(submilestone.startDay === undefined
                         ? {}
                         : { startDay: submilestone.startDay }),
@@ -33687,13 +33700,10 @@ async function replaceProductionSubmilestones(
   for (const row of [...input.rows].sort((a, b) => a.order - b.order)) {
     assertProposalSubmilestoneCanonicalAuthoringAllowed(auth.proposal, row);
     const existingRow = existingByKey.get(row.key);
-    const scopeOfWorkTiptapJson =
-      row.scopeOfWorkTiptapJson === undefined
-        ? existingRow?.scopeOfWorkTiptapJson
-        : normalizeOptionalTiptapJson(
-            row.scopeOfWorkTiptapJson,
-            "Sub-milestone Scope of Work",
-          );
+    const scopeOfWorkTiptapJson = normalizeOptionalTiptapJson(
+      row.scopeOfWorkTiptapJson,
+      "Sub-milestone Scope of Work",
+    );
     const values = {
       brokerageId: auth.brokerage._id,
       budgetCents: row.budgetCents,
@@ -33706,7 +33716,6 @@ async function replaceProductionSubmilestones(
       organizationId: auth.proposal.organizationId,
       proposalId: input.proposalId,
       proposalMilestoneId: input.milestone._id,
-      scopeOfWorkTiptapJson,
       startDay: row.startDay,
       updatedAt: now,
     };
@@ -33716,7 +33725,7 @@ async function replaceProductionSubmilestones(
     if (existingRow) {
       await ctx.db.patch(existingRow._id, values);
     }
-    if (row.scopeOfWorkTiptapJson !== undefined) {
+    if (!existingRow || scopeOfWorkTiptapJson !== undefined) {
       await upsertSubmilestoneScopeV1Draft(ctx, {
         authoredByWorkosUserId: auth.subject,
         brokerageId: auth.brokerage._id,
@@ -33724,13 +33733,17 @@ async function replaceProductionSubmilestones(
         organizationId: auth.proposal.organizationId,
         proposalId: input.proposalId,
         proposalSubmilestoneId: submilestoneId,
-        scopeOfWorkTiptapJson: row.scopeOfWorkTiptapJson,
+        scopeOfWorkTiptapJson:
+          scopeOfWorkTiptapJson ?? EMPTY_CANONICAL_TIPTAP_DOCUMENT,
       });
     }
-    if (row.fieldGuidance !== undefined) {
+    if (!existingRow || row.fieldGuidance !== undefined) {
       await upsertProposalSubmilestoneFieldGuidance(ctx, {
         auth,
-        fieldGuidance: row.fieldGuidance,
+        fieldGuidance: row.fieldGuidance ?? {
+          cameraAnglesTiptapJson: EMPTY_CANONICAL_TIPTAP_DOCUMENT,
+          whatToVerifyTiptapJson: EMPTY_CANONICAL_TIPTAP_DOCUMENT,
+        },
         now,
         proposalId: input.proposalId,
         proposalSubmilestoneId: submilestoneId,
@@ -35291,6 +35304,7 @@ async function insertActiveBuildMilestoneFromInput(
     brokerage: Doc<"brokerages">;
     build: Doc<"activeBuilds">;
     proposal: Doc<"buildProposals">;
+    subject: string;
   },
   milestone: {
     budgetCents: number;
@@ -35400,6 +35414,7 @@ async function replaceActiveBuildSubmilestones(
     brokerage: Doc<"brokerages">;
     build: Doc<"activeBuilds">;
     proposal: Doc<"buildProposals">;
+    subject: string;
   },
   input: {
     buildId: Id<"activeBuilds">;
@@ -35535,7 +35550,7 @@ async function replaceActiveBuildSubmilestones(
       startDay: row.startDay,
       updatedAt: now,
     });
-    await ctx.db.insert("buildSubmilestones", {
+    const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
       brokerageId: auth.brokerage._id,
       buildId: input.buildId,
       buildMilestoneId: input.milestone._id,
@@ -35552,6 +35567,42 @@ async function replaceActiveBuildSubmilestones(
       startDay: row.startDay,
       status: "planned",
       updatedAt: now,
+    });
+    await upsertSubmilestoneScopeV1Draft(ctx, {
+      authoredByWorkosUserId: auth.subject,
+      brokerageId: auth.brokerage._id,
+      now,
+      organizationId: auth.build.organizationId,
+      proposalId: auth.proposal._id,
+      proposalSubmilestoneId,
+      scopeOfWorkTiptapJson: EMPTY_CANONICAL_TIPTAP_DOCUMENT,
+    });
+    await upsertProposalSubmilestoneFieldGuidance(ctx, {
+      auth,
+      fieldGuidance: {
+        cameraAnglesTiptapJson: EMPTY_CANONICAL_TIPTAP_DOCUMENT,
+        whatToVerifyTiptapJson: EMPTY_CANONICAL_TIPTAP_DOCUMENT,
+      },
+      now,
+      proposalId: auth.proposal._id,
+      proposalSubmilestoneId,
+      workosOrganizationId: auth.build.organizationId,
+    });
+    await attachSubmilestoneScopeBuildLineage(ctx, {
+      brokerageId: auth.brokerage._id,
+      buildId: input.buildId,
+      buildSubmilestoneId,
+      organizationId: auth.build.organizationId,
+      proposalId: auth.proposal._id,
+      proposalSubmilestoneId,
+    });
+    await attachSubmilestoneFieldGuidanceBuildLineage(ctx, {
+      brokerageId: auth.brokerage._id,
+      buildId: input.buildId,
+      buildSubmilestoneId,
+      organizationId: auth.build.organizationId,
+      proposalId: auth.proposal._id,
+      proposalSubmilestoneId,
     });
   }
   return { supersededIds };
@@ -40191,6 +40242,7 @@ async function ensureSeedScenarioProposal(
 async function seedProposalPackage(
   ctx: MutationCtx,
   input: {
+    auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
     brokerageId: Id<"brokerages">;
     includePermit: boolean;
     now: number;
@@ -40270,7 +40322,9 @@ async function seedProposalPackage(
       updatedAt: input.now,
     });
     for (const submilestone of milestone.submilestones) {
-      await ctx.db.insert("proposalSubmilestones", {
+      const proposalSubmilestoneId = await ctx.db.insert(
+        "proposalSubmilestones",
+        {
         brokerageId: input.brokerageId,
         budgetCents: submilestone.budgetCents,
         createdAt: input.now,
@@ -40284,6 +40338,33 @@ async function seedProposalPackage(
         proposalMilestoneId,
         startDay: submilestone.startDay,
         updatedAt: input.now,
+        },
+      );
+      await upsertSubmilestoneScopeV1Draft(ctx, {
+        authoredByWorkosUserId: input.auth.subject,
+        brokerageId: input.brokerageId,
+        now: input.now,
+        organizationId: input.organizationId,
+        proposalId: input.proposalId,
+        proposalSubmilestoneId,
+        scopeOfWorkTiptapJson: labeledCanonicalTiptapDocument(
+          `${submilestone.name} contractual Scope.`,
+        ),
+      });
+      await upsertProposalSubmilestoneFieldGuidance(ctx, {
+        auth: input.auth,
+        fieldGuidance: {
+          cameraAnglesTiptapJson: labeledCanonicalTiptapDocument(
+            `Capture the work area and completed ${submilestone.name} from multiple angles.`,
+          ),
+          whatToVerifyTiptapJson: labeledCanonicalTiptapDocument(
+            `Verify the completed ${submilestone.name} against its contractual Scope.`,
+          ),
+        },
+        now: input.now,
+        proposalId: input.proposalId,
+        proposalSubmilestoneId,
+        workosOrganizationId: input.organizationId,
       });
     }
     await ctx.db.insert("proposalDrawScheduleRows", {

@@ -307,26 +307,6 @@ describe("QuoteRoundComposer", () => {
     });
   });
 
-  test("falls back to canonical Scope fields when a pinned line omits optional snapshots", async () => {
-    const round = completeRound();
-    round.draft = {
-      ...round.draft!,
-      labourLines: [{ buildSubmilestoneId: "labour-site-prep" }],
-    };
-
-    renderComposer({ round });
-
-    expect(screen.getAllByText("Scope v2").length).toBeGreaterThan(0);
-    fireEvent.focus(
-      screen.getByRole("button", {
-        name: "Inspect schedule and specification for Excavate service trench",
-      })
-    );
-    await waitFor(() =>
-      expect(screen.getByText("Clarified excavation quantities.")).toBeTruthy()
-    );
-  });
-
   test("keeps the five-step publisher, persistent selection counts, and individual non-contiguous labour pricing lines", async () => {
     const { container } = renderComposer();
 
