@@ -819,7 +819,7 @@ function RouteComponent() {
         detailTab={search.detailTab}
         focus={search.focus}
         organizationId={workosOrganizationId}
-        viewerCapacity={selectedViewerCapacity}
+        viewerCapacity={viewerCapacity}
       >
         {(detailSheetHost) => (
       <ProductionBuildDetailSurface
