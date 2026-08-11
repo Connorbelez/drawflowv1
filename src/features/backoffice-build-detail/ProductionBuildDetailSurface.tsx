@@ -101,8 +101,15 @@ import type {
   MaterialPlanningActions,
   MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import type { BuildDetailTarget } from "#/features/build-detail-targets/buildDetailTarget.ts";
 import type { BuildSubmilestoneDetailTab } from "#/features/build-detail-targets/buildDetailTab.ts";
 import type { SubmilestoneFieldGuidance } from "#/features/submilestone-guidance/SubmilestoneFieldGuidanceEditor.tsx";
+import type { BuildDetailTargetContext } from "#/features/build-detail-targets/useBuildDetailTargetController.ts";
+import {
+  BuildDetailIntegritySheet,
+  type BuildDetailSheetHostState,
+} from "#/features/build-detail-targets/BuildDetailSheetHost.tsx";
+import { SubmilestoneDetailSheet } from "#/features/build-submilestone-detail/SubmilestoneDetailSheet.tsx";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
   convertHeicEvidenceBlobToJpeg,
@@ -111,6 +118,7 @@ import {
 } from "#/lib/evidence-image-normalization.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
+import type { Id } from "../../../convex/_generated/dataModel";
 import type { ActiveBuildTimelineWorkspaceProps } from "./ActiveBuildTimelineWorkspace";
 import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
@@ -562,7 +570,7 @@ interface ProductionMilestone {
 }
 
 interface ProductionSubmilestone {
-  _id: string;
+  _id: Id<"buildSubmilestones">;
   actualCostCents?: number;
   actualStartedAt?: number;
   budgetCents?: number;
@@ -689,6 +697,7 @@ interface ProductionEvidenceAsset {
   previewUrl?: string | null;
   sizeBytes: number;
   source?: string;
+  submilestoneId?: Id<"buildSubmilestones">;
   submilestoneKey?: string;
   tag: string;
   updatedAt?: number;
@@ -713,6 +722,8 @@ interface ProductionRailEvent {
   _id: string;
   actionLabel: string;
   body: string;
+  canonicalTarget?: BuildDetailTarget;
+  canonicalTargetContext?: BuildDetailTargetContext;
   createdAt: number;
   entityLabel: string;
   entityType: string;
@@ -739,6 +750,8 @@ interface ProductionAuditEvent {
   eventType: string;
   reason?: string;
   warnings?: string[];
+  canonicalTarget?: BuildDetailTarget;
+  canonicalTargetContext?: BuildDetailTargetContext;
 }
 
 interface ProductionAttachedContractor {
@@ -805,6 +818,7 @@ interface ProductionSiteVisit {
   requestedDay: number;
   requestedTime?: string;
   status: string;
+  submilestoneIds?: Id<"buildSubmilestones">[];
   submilestoneKeys?: string[];
   tokenConsumedAt?: number;
   tokenExpiresAt?: number;
@@ -826,6 +840,7 @@ interface ProductionEvidenceRow {
   milestoneName: string;
   note?: string;
   noteFormat?: "plain_text" | "html";
+  submilestoneId?: Id<"buildSubmilestones">;
   source: ProductionEvidenceSource;
   status: string;
   submittedAt?: string;
@@ -852,6 +867,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref = "/backoffice/builds",
   breadcrumbSectionLabel = "Builds",
   detail,
+  detailSheetHost,
   detailTab,
   focusedReference,
   fundingWorkspaceEnabled = false,
@@ -860,6 +876,7 @@ export function ProductionBuildDetailSurface({
   onChangeCalendarTimeframe,
   onChangeRail,
   onChangeTab,
+  onOpenCanonicalTarget,
   prototypeMilestoneStartTrigger = false,
   quotes,
   rail,
@@ -879,6 +896,7 @@ export function ProductionBuildDetailSurface({
   contractorDetailHrefFor?: (contractorId: string) => string;
   costs?: React.ReactNode;
   detail: ProductionBuildDetail;
+  detailSheetHost?: BuildDetailSheetHostState;
   detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   fundingWorkspaceEnabled?: boolean;
@@ -891,6 +909,10 @@ export function ProductionBuildDetailSurface({
   onChangeMilestone?: (milestoneKey?: string) => void;
   onChangeRail: (rail: "open" | "closed") => void;
   onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   /** PROTOTYPE — exposes the real trigger for planned milestones before the production state model changes. */
   prototypeMilestoneStartTrigger?: boolean;
   quotes?: React.ReactNode;
@@ -932,6 +954,8 @@ export function ProductionBuildDetailSurface({
   } | null>(null);
   const [milestoneStartRevisionError, setMilestoneStartRevisionError] =
     useState<string | null>(null);
+  const [canonicalDetailRetryVersion, setCanonicalDetailRetryVersion] =
+    useState(0);
   const milestoneStartRequest = milestoneStartController?.request ?? null;
   const [localFocusedReference, setLocalFocusedReference] = useState<
     string | undefined
@@ -999,6 +1023,55 @@ export function ProductionBuildDetailSurface({
     projection,
     viewerRole,
   ]);
+  const openCanonicalReference = useCallback(
+    (reference: {
+      entityId: string;
+      entityKind: string;
+      href: string;
+    }) => {
+      if (reference.entityKind === "milestone") {
+        const milestone = detail.milestones.find(
+          (candidate) => candidate._id === reference.entityId,
+        );
+        if (!milestone) {
+          return;
+        }
+        setLocalFocusedReference(`milestone:${milestone._id}`);
+        onChangeTab("details", `milestone:${milestone._id}`);
+        setActiveMilestoneKey(milestone.key);
+        return;
+      }
+      if (reference.entityKind === "submilestone") {
+        const submilestone = detail.submilestones.find(
+          (candidate) => candidate._id === reference.entityId,
+        );
+        if (!onOpenCanonicalTarget || !submilestone) {
+          return;
+        }
+        onOpenCanonicalTarget(
+          {
+            kind: "submilestone",
+            submilestoneId: submilestone._id,
+          },
+          { selectedTab: "collaboration" },
+        );
+        return;
+      }
+      if (reference.entityKind === "actionItem") {
+        // Action Items remain generic collaboration targets. The route-owned
+        // target resolver will promote a generated companion to its canonical
+        // Sub-milestone; a manual Action Item therefore stays in the reusable
+        // collaboration detail sheet without manufacturing a child target.
+        onChangeTab("details", `actionItem:${reference.entityId}`);
+      }
+    },
+    [
+      detail.milestones,
+      detail.submilestones,
+      onChangeTab,
+      onOpenCanonicalTarget,
+    ],
+  );
   const openMilestoneStart = (
     milestoneKey: string,
     source: MilestoneStartSource,
@@ -1274,11 +1347,13 @@ export function ProductionBuildDetailSurface({
               actions={actions}
               currentDay={currentDay}
               detail={detail}
+              detailSheetHost={detailSheetHost}
               detailTab={detailTab}
               focusedReference={effectiveFocusedReference}
               fundingWorkspaceEnabled={fundingWorkspaceEnabled}
               onChangeTab={onChangeTab}
               onFocusReference={setLocalFocusedReference}
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
               onOpenMilestone={setActiveMilestoneKey}
               projection={projection}
               viewerCapacity={viewerCapacity}
@@ -1310,6 +1385,7 @@ export function ProductionBuildDetailSurface({
                       openMilestoneStart(milestoneKey, "milestone_card")
                   : undefined
               }
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
               projection={projection}
               viewerRole={viewerRole}
             />
@@ -1327,6 +1403,7 @@ export function ProductionBuildDetailSurface({
               actions={actions}
               activeBuildId={activeBuildId}
               detail={detail}
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
               onRequestSiteVisit={requestSiteVisit}
               timelineWorkspace={timelineWorkspace}
               viewerRole={viewerRole}
@@ -1341,6 +1418,7 @@ export function ProductionBuildDetailSurface({
               onOpenMilestone={(milestoneKey) =>
                 setActiveMilestoneKey(milestoneKey)
               }
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
               projection={projection}
             />
           ) : null}
@@ -1349,6 +1427,7 @@ export function ProductionBuildDetailSurface({
               actions={actions?.materialPlanning}
               detail={detail}
               focusedReference={effectiveFocusedReference}
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
             />
           ) : null}
           {activeTab === "quotes" ? quotes : null}
@@ -1362,6 +1441,8 @@ export function ProductionBuildDetailSurface({
               focusedReference={effectiveFocusedReference}
               onChangeCalendarTimeframe={onChangeCalendarTimeframe}
               onChangeTab={onChangeTab}
+              onOpenMilestone={setActiveMilestoneKey}
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
               onRequestSiteVisit={requestSiteVisit}
               onStartWork={
                 viewerRole === "builder" && actions?.startMilestoneWork
@@ -1377,6 +1458,7 @@ export function ProductionBuildDetailSurface({
               actions={actions}
               activeBuildId={activeBuildId}
               detail={detail}
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
               onRequestSiteVisit={requestSiteVisit}
               onStartWork={
                 viewerRole === "builder" && actions?.startMilestoneWork
@@ -1390,18 +1472,74 @@ export function ProductionBuildDetailSurface({
           ) : null}
         </section>
       </section>
+      {activeTab !== "details" &&
+      detailSheetHost &&
+      (detailSheetHost.target?.kind === "actionItem" ||
+        effectiveFocusedReference?.startsWith("actionItem:")) ? (
+        <div
+          aria-hidden="true"
+          className="hidden"
+          data-testid="production-external-action-item-workspace"
+        >
+          <DeferredBuildCollaborationWorkspace
+            buildId={detail.build._id}
+            detailSheetHost={detailSheetHost}
+            detailTab={detailTab}
+            eager
+            focusedReference={effectiveFocusedReference}
+            organizationId={workosOrganizationId}
+            viewerCapacity={viewerCapacity}
+          />
+        </div>
+      ) : null}
       <EventRailSheet
         auditEvents={detail.auditEvents ?? []}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
         onOpenChange={(open) => onChangeRail(open ? "open" : "closed")}
         open={eventsOpen}
         quickActionEvents={detail.quickActionEvents ?? []}
       />
+      {detailSheetHost?.integrityError ? (
+        <BuildDetailIntegritySheet
+          error={detailSheetHost.integrityError}
+          onClose={detailSheetHost.controller.close}
+        />
+      ) : null}
+      {detailSheetHost?.target?.kind === "submilestone" ? (
+        <SubmilestoneDetailSheet
+          buildId={detail.build._id as Id<"activeBuilds">}
+          buildSubmilestoneId={detailSheetHost.target.submilestoneId}
+          canGoBack={detailSheetHost.controller.canGoBack}
+          canGoForward={detailSheetHost.controller.canGoForward}
+          companionActionItemId={detailSheetHost.target.companionId}
+          key={`${detailSheetHost.target.submilestoneId}:${canonicalDetailRetryVersion}`}
+          onGoBack={detailSheetHost.controller.back}
+          onGoForward={detailSheetHost.controller.forward}
+          onOpenChange={(open) => {
+            if (!open) {
+              detailSheetHost.controller.close();
+            }
+          }}
+          onOpenTarget={detailSheetHost.controller.openTarget}
+          onReferenceOpen={openCanonicalReference}
+          onRetry={() =>
+            setCanonicalDetailRetryVersion((version) => version + 1)
+          }
+          onSelectedTabChange={detailSheetHost.controller.selectTab}
+          open
+          organizationId={workosOrganizationId ?? ""}
+          readOnly={detailSheetHost.readOnly}
+          selectedTab={detailTab}
+          viewerCapacity={viewerCapacity}
+        />
+      ) : null}
       {viewerRole === "lender" && activeMilestone ? (
         <MilestoneCompletionReviewSheet
           actions={actions}
           detail={detail}
           focusedSubmilestoneId={focusedSubmilestoneId}
           milestone={activeMilestone}
+          onOpenCanonicalTarget={onOpenCanonicalTarget}
           onAmendStart={
             actions?.correctMilestoneStart || actions?.retractMilestoneStart
               ? (action) =>
@@ -1434,6 +1572,7 @@ export function ProductionBuildDetailSurface({
             )?.key
           }
           key={activeMilestoneKey ?? "milestone-sheet"}
+          onOpenCanonicalTarget={onOpenCanonicalTarget}
           onAmendStart={
             actions?.correctMilestoneStart || actions?.retractMilestoneStart
               ? (action, milestoneKey, submilestoneKey) =>
@@ -1830,11 +1969,13 @@ function ProductionDetailsTab({
   actions,
   currentDay,
   detail,
+  detailSheetHost,
   detailTab,
   focusedReference,
   fundingWorkspaceEnabled,
   onChangeTab,
   onFocusReference,
+  onOpenCanonicalTarget,
   onOpenMilestone,
   projection,
   viewerCapacity,
@@ -1844,11 +1985,16 @@ function ProductionDetailsTab({
   actions?: ProductionBuildDetailActions;
   currentDay: number;
   detail: ProductionBuildDetail;
+  detailSheetHost?: BuildDetailSheetHostState;
   detailTab?: BuildSubmilestoneDetailTab;
   focusedReference?: string;
   fundingWorkspaceEnabled: boolean;
   onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
   onFocusReference: (focus?: string) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
   viewerCapacity?: BuildCollaborationRole;
@@ -1923,6 +2069,7 @@ function ProductionDetailsTab({
         <Suspense fallback={<BuildDetailTabFallback label="collaboration" />}>
           <DeferredBuildCollaborationWorkspace
             buildId={detail.build._id}
+            detailSheetHost={detailSheetHost}
             detailTab={detailTab}
             eager={Boolean(focusedReference)}
             focusedReference={focusedReference}
@@ -1930,17 +2077,32 @@ function ProductionDetailsTab({
               const nextFocus = `${reference.entityKind}:${reference.entityId}`;
               onFocusReference(nextFocus);
               if (reference.entityKind === "milestone") {
-                onChangeTab("details", nextFocus);
                 const milestone = detail.milestones.find(
                   (candidate) => candidate._id === reference.entityId,
                 );
+                onChangeTab("details", nextFocus);
                 if (milestone) {
                   onOpenMilestone(milestone.key);
-                  return;
                 }
+                return;
               }
               if (reference.entityKind === "submilestone") {
-                onChangeTab("details", nextFocus);
+                const submilestone = detail.submilestones.find(
+                  (candidate) => candidate._id === reference.entityId,
+                );
+                if (onOpenCanonicalTarget && submilestone) {
+                  onOpenCanonicalTarget(
+                    {
+                      kind: "submilestone",
+                      submilestoneId: submilestone._id,
+                    },
+                    { selectedTab: "collaboration" },
+                  );
+                  return;
+                }
+                if (!onOpenCanonicalTarget) {
+                  onChangeTab("details", nextFocus);
+                }
                 return;
               }
               if (reference.entityKind === "draw") {
@@ -3408,6 +3570,7 @@ function MilestoneCompletionReviewSheet({
   focusedSubmilestoneId,
   milestone,
   onAmendStart,
+  onOpenCanonicalTarget,
   onOpenChange,
   onRequestSiteVisit,
   open,
@@ -3418,6 +3581,10 @@ function MilestoneCompletionReviewSheet({
   focusedSubmilestoneId?: string;
   milestone: ProductionMilestone;
   onAmendStart?: (action: "correct" | "retract") => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onOpenChange: (open: boolean) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   open: boolean;
@@ -3755,9 +3922,29 @@ function MilestoneCompletionReviewSheet({
                           key={row.key}
                         >
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-sm">
-                              {row.name}
-                            </p>
+                            {onOpenCanonicalTarget && row._id ? (
+                              <Button
+                                aria-label={`Open Sub-milestone ${row.name}`}
+                                className="h-auto min-w-0 justify-start p-0 text-left"
+                                onClick={() =>
+                                  onOpenCanonicalTarget(
+                                    {
+                                      kind: "submilestone",
+                                      submilestoneId: row._id,
+                                    },
+                                    { selectedTab: "review" },
+                                  )
+                                }
+                                type="button"
+                                variant="ghost"
+                              >
+                                {row.name}
+                              </Button>
+                            ) : (
+                              <p className="truncate font-medium text-sm">
+                                {row.name}
+                              </p>
+                            )}
                             <p className="text-muted-foreground text-xs">
                               {row.budgetCents
                                 ? formatCentsExact(row.budgetCents)
@@ -3960,6 +4147,7 @@ function MilestoneCompletionReviewSheet({
                   )}
                   {latestVisit?.status === "complete" ? (
                     <CompletedSiteVisitReview
+                      onOpenCanonicalTarget={onOpenCanonicalTarget}
                       rows={siteVisitRows}
                       visit={latestVisit}
                     />
@@ -4322,9 +4510,14 @@ function SiteVisitReviewState({
 }
 
 function CompletedSiteVisitReview({
+  onOpenCanonicalTarget,
   rows,
   visit,
 }: {
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   rows: ProductionEvidenceRow[];
   visit: ProductionSiteVisit;
 }) {
@@ -4356,6 +4549,25 @@ function CompletedSiteVisitReview({
             key={row.id}
           >
             <EvidenceReviewSummary row={row} />
+            {row.submilestoneId && onOpenCanonicalTarget ? (
+              <Button
+                aria-label={`Open Sub-milestone evidence for ${row.milestoneName}`}
+                onClick={() =>
+                  onOpenCanonicalTarget(
+                    {
+                      kind: "submilestone",
+                      submilestoneId: row.submilestoneId,
+                    },
+                    { selectedTab: "review" },
+                  )
+                }
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Open sub-milestone review
+              </Button>
+            ) : null}
             <EvidenceAssetPackage row={row} />
           </div>
         ))
@@ -5557,6 +5769,7 @@ function ProductionDocumentsCard({
 function ProductionMilestonesTab({
   currentDay,
   detail,
+  onOpenCanonicalTarget,
   onAssignContractor,
   onCardClick,
   onStartWork,
@@ -5565,6 +5778,10 @@ function ProductionMilestonesTab({
 }: {
   currentDay: number;
   detail: ProductionBuildDetail;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
   onStartWork?: (milestoneKey: string) => void;
@@ -5583,6 +5800,22 @@ function ProductionMilestonesTab({
         cards={kanbanCards}
         onAssignContractor={onAssignContractor}
         onCardClick={onCardClick}
+        onSubmilestoneClick={
+          onOpenCanonicalTarget
+            ? (_card, submilestone) => {
+                if (!submilestone.submilestoneId) {
+                  return;
+                }
+                onOpenCanonicalTarget(
+                  {
+                    kind: "submilestone",
+                    submilestoneId: submilestone.submilestoneId,
+                  },
+                  { selectedTab: "overview" },
+                );
+              }
+            : undefined
+        }
         onStartWork={
           onStartWork ? (card) => onStartWork(card.milestoneKey) : undefined
         }
@@ -5726,7 +5959,7 @@ function productionBuildMilestonesForContractors(
       submilestoneSnapshot: (detail.submilestones ?? [])
         .filter((submilestone) => submilestone.milestoneKey === milestone.key)
         .sort((a, b) => a.order - b.order)
-        .map((submilestone) => ({
+      .map((submilestone) => ({
           key: submilestone.key,
           name: submilestone.name,
         })),
@@ -5762,6 +5995,7 @@ function ProductionTimelineTab({
   activeBuildId,
   actions,
   detail,
+  onOpenCanonicalTarget,
   onRequestSiteVisit,
   timelineWorkspace,
   viewerRole,
@@ -5770,6 +6004,10 @@ function ProductionTimelineTab({
   activeBuildId?: string;
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   viewerRole: "builder" | "lender";
@@ -5810,6 +6048,7 @@ function ProductionTimelineTab({
           canRequestSiteVisits={Boolean(actions?.assignSiteVisit)}
           canReviewDraws={Boolean(actions?.approveDraw && actions?.rejectDraw)}
           initialRole={viewerRole}
+          onOpenCanonicalTarget={onOpenCanonicalTarget}
           onRequestSiteVisit={onRequestSiteVisit}
           workosOrganizationId={workosOrganizationId}
           workspace={timelineWorkspace}
@@ -5824,12 +6063,17 @@ function ProductionEvidenceTab({
   detail,
   focusedReference,
   onOpenMilestone,
+  onOpenCanonicalTarget,
   projection,
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   focusedReference?: string;
   onOpenMilestone: (milestoneKey: string) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   projection: ProductionBuildProjection;
 }) {
   const builderEvidence = useMemo(
@@ -5894,6 +6138,7 @@ function ProductionEvidenceTab({
           actions={actions}
           emptyLabel="No builder-submitted milestone evidence yet."
           focusedReference={focusedReference}
+          onOpenCanonicalTarget={onOpenCanonicalTarget}
           onOpenMilestone={onOpenMilestone}
           rows={builderEvidence}
           title="Builder Submitted Evidence"
@@ -5901,6 +6146,7 @@ function ProductionEvidenceTab({
         <EvidenceSourcePanel
           emptyLabel="No completed site visits yet."
           focusedReference={focusedReference}
+          onOpenCanonicalTarget={onOpenCanonicalTarget}
           onOpenMilestone={onOpenMilestone}
           rows={completedSiteVisits}
           title="Completed Site Visits"
@@ -5934,6 +6180,7 @@ function EvidenceSourcePanel({
   actions,
   emptyLabel,
   focusedReference,
+  onOpenCanonicalTarget,
   onOpenMilestone,
   rows,
   title,
@@ -5941,6 +6188,10 @@ function EvidenceSourcePanel({
   actions?: ProductionBuildDetailActions;
   emptyLabel: string;
   focusedReference?: string;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   rows: ProductionEvidenceRow[];
   title: string;
@@ -6015,6 +6266,7 @@ function EvidenceSourcePanel({
                 actions={actions}
                 expanded={expandedRowId === row.id}
                 key={row.id}
+                onOpenCanonicalTarget={onOpenCanonicalTarget}
                 onOpenMilestone={onOpenMilestone}
                 onReviewEvidence={reviewEvidence}
                 onToggleExpanded={() =>
@@ -6036,6 +6288,7 @@ function EvidenceSourcePanel({
 function EvidenceRowItem({
   actions,
   expanded,
+  onOpenCanonicalTarget,
   onOpenMilestone,
   onReviewEvidence,
   onToggleExpanded,
@@ -6044,6 +6297,10 @@ function EvidenceRowItem({
 }: {
   actions?: ProductionBuildDetailActions;
   expanded: boolean;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   onReviewEvidence: (
     row: ProductionEvidenceRow,
@@ -6145,13 +6402,25 @@ function EvidenceRowItem({
             {expanded ? "Hide evidence" : "View evidence"}
           </Button>
           <Button
-            onClick={() => onOpenMilestone(row.milestoneKey)}
+            onClick={() => {
+              if (row.submilestoneId && onOpenCanonicalTarget) {
+                onOpenCanonicalTarget(
+                  {
+                    kind: "submilestone",
+                    submilestoneId: row.submilestoneId,
+                  },
+                  { selectedTab: "evidence" },
+                );
+                return;
+              }
+              onOpenMilestone(row.milestoneKey);
+            }}
             size="sm"
             type="button"
             variant="outline"
           >
             <ExternalLink aria-hidden="true" className="size-4" />
-            Open milestone
+            {row.submilestoneId ? "Open sub-milestone" : "Open milestone"}
           </Button>
           {row.source === "builder" && actions?.reviewEvidence ? (
             <>
@@ -6485,10 +6754,15 @@ function ProductionBuildMaterialsTab({
   actions,
   detail,
   focusedReference,
+  onOpenCanonicalTarget,
 }: {
   actions?: MaterialPlanningActions;
   detail: ProductionBuildDetail;
   focusedReference?: string;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
 }) {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones) {
@@ -6508,6 +6782,7 @@ function ProductionBuildMaterialsTab({
         .slice()
         .sort((a, b) => a.order - b.order)
         .map((submilestone) => ({
+          canonicalId: submilestone._id,
           key: submilestone.key,
           milestoneKey: submilestone.milestoneKey,
           name: submilestone.name,
@@ -6528,6 +6803,18 @@ function ProductionBuildMaterialsTab({
         items={detail.costItems ?? []}
         lockBudgetTreatment
         milestones={milestones}
+        onOpenSubmilestone={
+          onOpenCanonicalTarget
+            ? (submilestoneId) =>
+                onOpenCanonicalTarget(
+                  {
+                    kind: "submilestone",
+                    submilestoneId,
+                  },
+                  { selectedTab: "materials" },
+                )
+            : undefined
+        }
         panelLayout="stacked"
         readOnly={!actions}
         scopeLabel="Active Build"
@@ -6544,6 +6831,8 @@ function ProductionCalendarTab({
   focusedReference,
   onChangeCalendarTimeframe,
   onChangeTab,
+  onOpenMilestone,
+  onOpenCanonicalTarget,
   onRequestSiteVisit,
   onStartWork,
   workosOrganizationId,
@@ -6555,6 +6844,11 @@ function ProductionCalendarTab({
   focusedReference?: string;
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
+  onOpenMilestone: (milestoneKey: string) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   onStartWork?: (milestoneKey: string) => void;
   workosOrganizationId?: string;
@@ -6668,6 +6962,46 @@ function ProductionCalendarTab({
       }),
     [adapterActions, detail.build.startDate],
   );
+  const openCalendarDetail = useCallback(
+    (event: DrawFlowCalendarWorkspaceData["events"][number]) => {
+      if (event.entity.type === "submilestone") {
+        if (
+          !onOpenCanonicalTarget ||
+          !detail.submilestones.some(
+            (submilestone) => submilestone._id === event.entity.id,
+          )
+        ) {
+          return "fallback" as const;
+        }
+        onOpenCanonicalTarget(
+          {
+            kind: "submilestone",
+            submilestoneId: event.entity.id,
+          },
+          { selectedTab: "overview" },
+        );
+        return "handled" as const;
+      }
+      if (event.entity.type === "milestone" && event.entity.id) {
+        const milestone = detail.milestones.find(
+          (candidate) => candidate._id === event.entity.id,
+        );
+        if (milestone) {
+          onOpenMilestone(milestone.key);
+          onChangeTab("details");
+          return "handled" as const;
+        }
+      }
+      return "fallback" as const;
+    },
+    [
+      detail.milestones,
+      detail.submilestones,
+      onChangeTab,
+      onOpenCanonicalTarget,
+      onOpenMilestone,
+    ],
+  );
   const commitEdit = useMemo(
     () =>
       createActiveBuildCalendarEditHandler({
@@ -6688,6 +7022,7 @@ function ProductionCalendarTab({
           }
           onCommitEdit={commitEdit}
           onCreateSyncSubscription={actions?.createCalendarSyncSubscription}
+          onOpenDetail={openCalendarDetail}
           onRecordExternalSyncChange={actions?.recordExternalCalendarSyncChange}
           onSaveView={actions?.saveCalendarView}
           onTimeframeChange={onChangeCalendarTimeframe}
@@ -6710,6 +7045,7 @@ function ProductionGanttTab({
   activeBuildId,
   actions,
   detail,
+  onOpenCanonicalTarget,
   onRequestSiteVisit,
   onStartWork,
   timelineWorkspace,
@@ -6719,6 +7055,10 @@ function ProductionGanttTab({
   activeBuildId?: string;
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   onStartWork?: (milestoneKey: string) => void;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
@@ -6745,6 +7085,7 @@ function ProductionGanttTab({
           canApproveMilestones={Boolean(actions?.approveMilestone)}
           canRejectMilestones={Boolean(actions?.rejectMilestone)}
           detail={detail}
+          onOpenCanonicalTarget={onOpenCanonicalTarget}
           onRequestSiteVisit={onRequestSiteVisit}
           onStartWork={onStartWork}
           timelineWorkspace={timelineWorkspace}
@@ -6834,6 +7175,7 @@ function buildProductionKanbanCards(
         key: submilestone.key,
         name: submilestone.name,
         order: submilestone.order,
+        submilestoneId: submilestone._id,
         startDay: submilestone.startDay,
         status:
           submilestone.status === "complete"
@@ -7144,6 +7486,7 @@ function buildMilestoneSheetData(
         // canonical revision 0. Preserve that row-scoped token for governed
         // lifecycle commands instead of borrowing the parent revision.
         workflowRevision: submilestone.workflowRevision ?? 0,
+        submilestoneId: submilestone._id,
       };
     }),
   };
@@ -7465,6 +7808,9 @@ function siteVisitsForMilestone(
       ...(reviewedVisit.recordNoteFormat
         ? { recordNoteFormat: reviewedVisit.recordNoteFormat }
         : {}),
+      ...(reviewedVisit.submilestoneIds?.length
+        ? { submilestoneIds: reviewedVisit.submilestoneIds }
+        : {}),
       ...(reviewedVisit.requestedTime
         ? { requestedTime: reviewedVisit.requestedTime }
         : {}),
@@ -7720,6 +8066,19 @@ function buildBuilderEvidenceRows(
       milestoneKey: milestone.key,
       milestoneName: milestone.name,
       note,
+      ...(canonicalSubmilestoneIdForEvidence(
+        detail,
+        milestone.key,
+        assets.map((asset) => asset.submilestoneId),
+      )
+        ? {
+            submilestoneId: canonicalSubmilestoneIdForEvidence(
+              detail,
+              milestone.key,
+              assets.map((asset) => asset.submilestoneId),
+            ),
+          }
+        : {}),
       source: "builder",
       status,
       submittedAt,
@@ -7760,6 +8119,19 @@ function buildCompletedSiteVisitRows(
       milestoneName: milestone?.name ?? visit.milestoneKey,
       note: visit.recordNote ?? visit.note,
       noteFormat: visit.recordNote ? visit.recordNoteFormat : undefined,
+      ...(canonicalSubmilestoneIdForEvidence(
+        detail,
+        visit.milestoneKey,
+        visit.submilestoneIds,
+      )
+        ? {
+            submilestoneId: canonicalSubmilestoneIdForEvidence(
+              detail,
+              visit.milestoneKey,
+              visit.submilestoneIds,
+            ),
+          }
+        : {}),
       source: "site_visit",
       status: visit.status,
       submittedAt: visit.requestedAt,
@@ -7786,6 +8158,9 @@ function buildCompletedSiteVisitRows(
         ...(siteVisit.recordNoteFormat
           ? { recordNoteFormat: siteVisit.recordNoteFormat }
           : {}),
+        ...(siteVisit.submilestoneIds?.length
+          ? { submilestoneIds: siteVisit.submilestoneIds }
+          : {}),
         ...(siteVisit.tokenExpiresAt
           ? { tokenExpiresAt: siteVisit.tokenExpiresAt }
           : {}),
@@ -7797,6 +8172,28 @@ function buildCompletedSiteVisitRows(
       a.completedAt ?? a.submittedAt ?? "",
     ),
   );
+}
+
+function canonicalSubmilestoneIdForEvidence(
+  detail: ProductionBuildDetail,
+  milestoneKey: string,
+  submilestoneIds?: Array<Id<"buildSubmilestones"> | undefined>,
+) {
+  const uniqueKeys = [
+    ...new Set(
+      (submilestoneIds ?? []).filter(
+        (id): id is Id<"buildSubmilestones"> => Boolean(id),
+      ),
+    ),
+  ];
+  if (uniqueKeys.length !== 1) {
+    return undefined;
+  }
+  return detail.submilestones.find(
+    (submilestone) =>
+      submilestone.milestoneKey === milestoneKey &&
+      submilestone._id === uniqueKeys[0],
+  )?._id;
 }
 
 function hasBuilderSubmittedEvidence(milestone: ProductionMilestone) {

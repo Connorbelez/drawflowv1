@@ -78,6 +78,20 @@ const demoTimelineStatusValidator = v.union(
   v.literal("upcoming")
 );
 
+// Audit resource identity is deliberately closed so Event Rail authorization
+// cannot silently fall back to a broad entity-type interpretation.
+const auditEventResourceTypeValidator = v.union(
+  v.literal("milestone"),
+  v.literal("submilestone"),
+  v.literal("draw"),
+  v.literal("evidence"),
+  v.literal("material"),
+  v.literal("siteVisit"),
+  v.literal("contractor"),
+  v.literal("capitalEvent"),
+  v.literal("reminder"),
+);
+
 const demoTimelineIconValidator = v.union(
   v.literal("change"),
   v.literal("closeout"),
@@ -3950,6 +3964,7 @@ export default defineSchema({
     // revision context. Keep these optional so legacy producers and records
     // remain readable while the shared audit contract rolls out.
     buildId: v.optional(v.id("activeBuilds")),
+    resourceType: v.optional(auditEventResourceTypeValidator),
     entityType: v.string(),
     entityId: v.string(),
     eventType: v.string(),
@@ -3984,6 +3999,11 @@ export default defineSchema({
   })
     .index("by_entity", ["entityType", "entityId"])
     .index("by_brokerage", ["brokerageId"])
+    .index("by_buildId_and_resourceType_and_createdAt", [
+      "buildId",
+      "resourceType",
+      "createdAt",
+    ])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
     .index("by_organizationId_and_reconciliationKey", [
       "organizationId",
@@ -8255,6 +8275,10 @@ export default defineSchema({
     requestedTime: v.optional(v.string()),
     note: v.optional(v.string()),
     siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
+    // Set only when the visit was explicitly scoped to one canonical
+    // Sub-milestone. Display keys remain a scheduling convenience and are
+    // never used by Event Rail to reconstruct this identity.
+    submilestoneId: v.optional(v.id("buildSubmilestones")),
     submilestoneKeys: v.optional(v.array(v.string())),
     completedAt: v.optional(v.string()),
     collaborationEventRevision: v.optional(v.number()),

@@ -38,6 +38,8 @@ import { BuildWorkspaceProvider } from "#/features/build-workspace-demo/workspac
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { BuildDetailTarget } from "#/features/build-detail-targets/buildDetailTarget.ts";
+import type { BuildDetailTargetContext } from "#/features/build-detail-targets/useBuildDetailTargetController.ts";
 import type { ProductionBuildDetail } from "./ProductionBuildDetailSurface";
 import type { SiteVisitOrderRequest } from "./SiteVisitOrderDialog.tsx";
 
@@ -46,6 +48,10 @@ export interface ActiveBuildGanttWorkspaceProps {
   canApproveMilestones?: boolean;
   canRejectMilestones?: boolean;
   detail: ProductionBuildDetail;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   onStartWork?: (milestoneKey: string) => void;
   timelineWorkspace?: {
@@ -72,6 +78,7 @@ export function ActiveBuildGanttWorkspace({
   canApproveMilestones = false,
   canRejectMilestones = false,
   detail,
+  onOpenCanonicalTarget,
   onRequestSiteVisit,
   onStartWork,
   timelineWorkspace,
@@ -731,6 +738,18 @@ export function ActiveBuildGanttWorkspace({
         <BuildWorkspaceDemo
           canFinalizeMilestones={canApproveMilestones && canRejectMilestones}
           layout="embedded"
+          onOpenSubmilestone={
+            onOpenCanonicalTarget
+              ? (submilestoneId) =>
+                  onOpenCanonicalTarget(
+                    {
+                      kind: "submilestone",
+                      submilestoneId,
+                    },
+                    { selectedTab: "overview" },
+                  )
+              : undefined
+          }
           showPrimaryAction={false}
           showRoleSelector={false}
           viewer={viewerRole}
@@ -929,6 +948,13 @@ function mapActiveBuildWorkspace({
       staffRecommendation: milestone.completionReview?.status ?? "",
       startAt: dateFromDay(detail.build.startDate, milestone.dayStart),
       status: mapMilestoneStatus(milestone, currentDay, sortedMilestones),
+      submilestones: detail.submilestones
+        .filter((submilestone) => submilestone.milestoneKey === milestone.key)
+        .map((submilestone) => ({
+          canonicalId: submilestone._id,
+          key: submilestone.key,
+          name: submilestone.name,
+        })),
       warningCount: issues.filter((issue) =>
         issue.milestoneIds.includes(milestone.key)
       ).length,

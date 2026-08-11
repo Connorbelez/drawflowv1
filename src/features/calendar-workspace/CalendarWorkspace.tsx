@@ -63,6 +63,8 @@ import type {
   DrawFlowCalendarWorkspaceData,
 } from "./calendarTypes";
 
+export type CalendarOpenDetailResult = "handled" | "fallback";
+
 export interface CalendarWorkspaceProps {
   actions?: CalendarAction[];
   assignableParticipants?: CalendarAssignableParticipant[];
@@ -93,6 +95,9 @@ export interface CalendarWorkspaceProps {
     icsText: string;
     sourceTitle: string;
   }) => Promise<unknown> | unknown;
+  onOpenDetail?: (
+    event: DrawFlowCalendarEvent
+  ) => CalendarOpenDetailResult | void;
   onRecordExternalSyncChange?: (input: {
     changeKey: string;
     externalEventId?: string;
@@ -125,6 +130,7 @@ export function CalendarWorkspace({
   onCreateSyncSubscription,
   onDeleteReminderEvent,
   onExportIcs,
+  onOpenDetail,
   onRecordExternalSyncChange,
   onSaveView,
   onTimeframeChange,
@@ -140,6 +146,7 @@ export function CalendarWorkspace({
     initialSelectedEventId
   );
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
+  const suppressNextSelectionRef = useRef<string | undefined>();
   const [pendingEdit, setPendingEdit] = useState<CalendarEditRequest | null>(
     null
   );
@@ -275,6 +282,13 @@ export function CalendarWorkspace({
       ) ?? [],
     [normalizedWorkspace, selectedEventIds]
   );
+  const selectEventById = useCallback((eventId: string) => {
+    if (suppressNextSelectionRef.current === eventId) {
+      return;
+    }
+    suppressNextSelectionRef.current = undefined;
+    setSelectedEventId(eventId);
+  }, []);
   const canCreateReminderEvents = Boolean(
     normalizedWorkspace?.surface === "proposal" && onCreateReminderEvent
   );
@@ -317,7 +331,21 @@ export function CalendarWorkspace({
               setReminderDraft(reminderDraftFromEvent(event));
             },
             onNewReminder: (date) => setReminderDraft(emptyReminderDraft(date)),
-            onOpen: (event) => setSelectedEventId(event.id),
+            onOpen: (event) => {
+              if (onOpenDetail) {
+                if (onOpenDetail(event) === "handled") {
+                  suppressNextSelectionRef.current = event.id;
+                  setSelectedEventId(undefined);
+                  setTimeout(() => {
+                    if (suppressNextSelectionRef.current === event.id) {
+                      suppressNextSelectionRef.current = undefined;
+                    }
+                  }, 0);
+                  return;
+                }
+              }
+              setSelectedEventId(event.id);
+            },
             source: normalizedWorkspace.source,
           })
         : [],
@@ -327,6 +355,7 @@ export function CalendarWorkspace({
       canUpdateReminderEvents,
       normalizedWorkspace,
       onDeleteReminderEvent,
+      onOpenDetail,
     ]
   );
   const allActions = useMemo(
@@ -494,7 +523,7 @@ export function CalendarWorkspace({
                       })
                     : undefined
                 }
-                onEventSelect={(event) => setSelectedEventId(event.id)}
+                onEventSelect={(event) => selectEventById(event.id)}
                 onSelectDate={setSelectedDate}
                 onToggleEventSelection={(event) =>
                   setSelectedEventIds((current) =>
@@ -522,7 +551,7 @@ export function CalendarWorkspace({
             actions={allActions}
             className="min-h-[24rem] xl:min-h-0"
             events={filteredEvents}
-            onSelectEvent={(event) => setSelectedEventId(event.id)}
+            onSelectEvent={(event) => selectEventById(event.id)}
             selectedEventId={selectedEventId}
             source={normalizedWorkspace.source}
             surface={normalizedWorkspace.surface}

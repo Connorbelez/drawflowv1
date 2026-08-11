@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useMutation } from "convex/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -26,8 +26,18 @@ vi.mock("#/features/timeline-workspace/-timeline-convex-adapter.ts", () => ({
 }));
 
 vi.mock("#/features/timeline-workspace/index.tsx", () => ({
-  TimelineWorkspace: ({ workspaceMode }: any) => (
-    <div data-testid="mock-active-build-timeline-mode">{workspaceMode}</div>
+  TimelineWorkspace: ({ onOpenSubmilestone, workspaceMode }: any) => (
+    <div data-testid="mock-active-build-timeline-mode">
+      {workspaceMode}
+      {onOpenSubmilestone ? (
+        <button
+          onClick={() => onOpenSubmilestone("sub-01")}
+          type="button"
+        >
+          Open timeline child
+        </button>
+      ) : null}
+    </div>
   ),
 }));
 
@@ -66,6 +76,46 @@ describe("ActiveBuildTimelineWorkspace", () => {
 
     expect(screen.getByTestId("mock-active-build-timeline-mode").textContent).toBe(
       "live"
+    );
+  });
+
+  test("maps a timeline child selection to the canonical target", () => {
+    vi.mocked(useMutation).mockReturnValue(vi.fn().mockResolvedValue({}));
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ActiveBuildTimelineWorkspace
+        backofficeHref="/backoffice/builds/build_123"
+        buildHref="/backoffice/builds/build_123"
+        buildId={"build_123" as any}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        onRequestSiteVisit={vi.fn()}
+        workspace={{
+          capitalEvents: [],
+          draws: [],
+          evidenceAssets: [],
+          milestones: [],
+          permissions: [],
+          plan: {},
+          proposal: {
+            buildName: "Active Build",
+            location: "Toronto, ON",
+            status: "approved",
+            totalBudgetCents: 120_000_00,
+          },
+        } as any}
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open timeline child" }));
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      {
+        kind: "submilestone",
+        submilestoneId: "sub-01",
+      },
+      { selectedTab: "overview" },
     );
   });
 });

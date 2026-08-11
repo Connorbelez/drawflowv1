@@ -268,6 +268,24 @@ const BACKOFFICE_DASHBOARD_EVIDENCE_SCAN_PER_BUILD = 16;
 const BACKOFFICE_DASHBOARD_STORAGE_URL_CAP = 50;
 /** Detail/timeline first-paint caps — full trees remain a follow-up split. */
 const ACTIVE_BUILD_AUDIT_EVENTS_LIMIT = 100;
+// Each authorized resource stream is independently relevant before the global
+// cap; no stream needs more rows than the final rail can return.
+const ACTIVE_BUILD_AUDIT_STREAM_LIMIT = ACTIVE_BUILD_AUDIT_EVENTS_LIMIT;
+const ACTIVE_BUILD_AUDIT_RESOURCE_TYPES = [
+  "milestone",
+  "submilestone",
+  "draw",
+  "evidence",
+  "material",
+  "siteVisit",
+  "contractor",
+  "capitalEvent",
+  "reminder",
+] as const;
+// Temporary compatibility budget while audit_event_migrations backfills the
+// canonical buildId on legacy rows. The query is indexed and bounded; once the
+// migration is complete, the buildId fast path is sufficient on its own.
+const ACTIVE_BUILD_AUDIT_LEGACY_COMPATIBILITY_LIMIT = 500;
 const ACTIVE_BUILD_DOCUMENT_URL_CAP = 40;
 const ACTIVE_BUILD_EVIDENCE_URL_CAP = 60;
 const ACTIVE_BUILD_SITE_PHOTOS_LIMIT = 24;
@@ -3951,7 +3969,14 @@ export const createActiveBuildCostItem = authenticatedMutation
       auth,
       build: auth.build,
       command,
+      ...(scopedSubmilestone
+        ? {
+            entityId: String(scopedSubmilestone._id),
+            entityType: "buildSubmilestone",
+          }
+        : {}),
       eventType: "active_build.cost_item.created",
+      resourceType: "material",
       newState: JSON.stringify({
         ...item,
         _id: itemId,
@@ -4248,7 +4273,14 @@ export const updateActiveBuildCostItem = authenticatedMutation
       auth,
       build: auth.build,
       command,
+      ...(scopedSubmilestone
+        ? {
+            entityId: String(scopedSubmilestone._id),
+            entityType: "buildSubmilestone",
+          }
+        : {}),
       eventType: "active_build.cost_item.updated",
+      resourceType: "material",
       newState: JSON.stringify({
         ...nextItem,
         ...(nextRevision === undefined
@@ -4401,7 +4433,14 @@ export const deleteActiveBuildCostItem = authenticatedMutation
       auth,
       build: auth.build,
       command,
+      ...(scopedSubmilestone
+        ? {
+            entityId: String(scopedSubmilestone._id),
+            entityType: "buildSubmilestone",
+          }
+        : {}),
       eventType: "active_build.cost_item.deleted",
+      resourceType: "material",
       newState: JSON.stringify({
         itemId: item._id,
         ...(scopedSubmilestone === undefined
@@ -9678,11 +9717,14 @@ export const getActiveBuildCalendarWorkspace = authenticatedQuery
           startDay + Math.max(1, submilestone.durationDays ?? 1),
         ),
         entity: {
-          id: String(submilestone._id),
-          key: submilestone.key,
-          type: "milestone",
+          id: submilestone._id,
+          type: "submilestone",
         },
-        id: calendarEventId("activeBuild", "submilestone", submilestone.key),
+        id: calendarEventId(
+          "activeBuild",
+          "submilestone",
+          String(submilestone._id),
+        ),
         kind: "submilestone",
         metrics: { budgetCents: submilestone.budgetCents },
         milestoneKey: submilestone.milestoneKey,
@@ -10801,6 +10843,7 @@ function activeBuildSiteVisitScheduleResponse(visit: Doc<"buildSiteVisits">) {
     requestedTime: visit.requestedTime,
     siteVisitGuidance: visit.siteVisitGuidance,
     status: visit.status,
+    submilestoneId: visit.submilestoneId,
     submilestoneKeys: visit.submilestoneKeys,
     tokenExpiresAt: visit.tokenExpiresAt,
     url: visit.url,
@@ -10939,6 +10982,9 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       requestedDay,
       requestedTime,
       siteVisitGuidance: configuration.siteVisitGuidance,
+      ...(configuration.submilestoneId
+        ? { submilestoneId: configuration.submilestoneId }
+        : {}),
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
       tokenExpiresAt: now + 60 * 60 * 1000,
@@ -10969,6 +11015,9 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       scheduleIdempotencyKey: idempotencyKey,
       scheduleRequestFingerprint,
       siteVisitGuidance: configuration.siteVisitGuidance,
+      ...(configuration.submilestoneId
+        ? { submilestoneId: configuration.submilestoneId }
+        : {}),
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
       tokenExpiresAt: siteVisit.tokenExpiresAt,
@@ -10999,6 +11048,8 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       auth,
       build: auth.build,
       command: "scheduleActiveBuildSiteVisit",
+      entityId: String(siteVisitId),
+      entityType: "buildSiteVisit",
       eventType: "site_visit.scheduled",
       newState: JSON.stringify(siteVisit),
       priorState: JSON.stringify(milestone.completionReview),
@@ -11065,6 +11116,8 @@ export const rescheduleActiveBuildSiteVisit = authenticatedMutation
       auth,
       build: auth.build,
       command: "rescheduleActiveBuildSiteVisit",
+      entityId: String(visit._id),
+      entityType: "buildSiteVisit",
       eventType: "site_visit.rescheduled",
       newState: JSON.stringify({
         requestedDay,
@@ -11125,6 +11178,8 @@ export const cancelActiveBuildSiteVisit = authenticatedMutation
       auth,
       build: auth.build,
       command: "cancelActiveBuildSiteVisit",
+      entityId: String(visit._id),
+      entityType: "buildSiteVisit",
       eventType: "calendar.event.cancelled",
       newState: JSON.stringify({ status: "cancelled", visitId: args.visitId }),
       priorState: JSON.stringify(visit),
@@ -16402,13 +16457,13 @@ export const getActiveBuildDetailByString = authenticatedQuery
     ]);
     // Phase 4: keep domain collections for workspace UI, but cap audit / URL fan-out.
     // Follow-up: split evidence/audit/assignment trees into dedicated queries for first paint.
+    const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
     const [
       documents,
       evidenceAssets,
       assignments,
       milestoneAssignments,
       siteVisits,
-      auditEvents,
       contractorProfiles,
     ] = await Promise.all([
       collectByIndex(ctx, "buildDocuments", "by_build", buildId),
@@ -16421,13 +16476,6 @@ export const getActiveBuildDetailByString = authenticatedQuery
         buildId,
       ),
       collectByIndex(ctx, "buildSiteVisits", "by_build", buildId),
-      ctx.db
-        .query("auditEvents")
-        .withIndex("by_entity", (q) =>
-          q.eq("entityType", "activeBuild").eq("entityId", String(buildId)),
-        )
-        .order("desc")
-        .take(ACTIVE_BUILD_AUDIT_EVENTS_LIMIT),
       ctx.db
         .query("contractorProfiles")
         .withIndex("by_brokerage", (q) =>
@@ -16561,12 +16609,125 @@ export const getActiveBuildDetailByString = authenticatedQuery
         )
       ).filter((entry) => entry[1]),
     );
-    const mappedAuditEvents = auditEvents
+    // The buildId index is the fast path for canonical producers, but older
+    // audit rows predate that field. The bounded organization index provides
+    // temporary compatibility until audit_event_migrations completes; only
+    // known canonical entity pairs below can enter this Build's history.
+    const buildAuditEntityRefs = [
+      { entityId: String(build._id), entityType: "activeBuild" },
+      ...hydratedMilestones.flatMap((milestone) => [
+        { entityId: String(milestone._id), entityType: "buildMilestone" },
+        { entityId: String(milestone._id), entityType: "milestone" },
+      ]),
+      ...hydratedSubmilestones.flatMap((submilestone) => [
+        { entityId: String(submilestone._id), entityType: "buildSubmilestone" },
+        { entityId: String(submilestone._id), entityType: "submilestone" },
+      ]),
+      ...(costItems as Doc<"buildCostItems">[]).flatMap((item) => [
+        { entityId: String(item._id), entityType: "buildCostItem" },
+        { entityId: String(item._id), entityType: "material" },
+      ]),
+      ...(drawRequests as Doc<"activeBuildDrawRequests">[]).flatMap((draw) => [
+        { entityId: String(draw._id), entityType: "activeBuildDrawRequest" },
+        { entityId: String(draw._id), entityType: "draw" },
+      ]),
+      ...(plannedDraws as Doc<"plannedDrawScheduleRows">[]).map((draw) => ({
+        entityId: String(draw._id),
+        entityType: "draw",
+      })),
+      ...(buildEvidenceAssets as Doc<"buildEvidenceAssets">[]).flatMap(
+        (asset) => [
+          { entityId: String(asset._id), entityType: "buildEvidenceAsset" },
+          { entityId: String(asset._id), entityType: "evidence" },
+          { entityId: String(asset._id), entityType: "evidencePackage" },
+        ],
+      ),
+      ...(buildSiteVisits as Doc<"buildSiteVisits">[]).flatMap((visit) => [
+        { entityId: String(visit._id), entityType: "buildSiteVisit" },
+        { entityId: String(visit._id), entityType: "siteVisit" },
+      ]),
+    ];
+    const buildAuditEntityKeys = new Set(
+      buildAuditEntityRefs.map(
+        (ref) => `${ref.entityType}:${ref.entityId}`,
+      ),
+    );
+    const auditEvents = (
+      await Promise.all(
+        ACTIVE_BUILD_AUDIT_RESOURCE_TYPES.filter((resourceType) => {
+          const permissionResource =
+            activeBuildAuditPermissionResource(resourceType);
+          return (
+            permissionResource !== undefined &&
+            canUseAppPermission(appPermissions, permissionResource, "view")
+          );
+        }).map((resourceType) =>
+          ctx.db
+            .query("auditEvents")
+            .withIndex("by_buildId_and_resourceType_and_createdAt", (q) =>
+              q.eq("buildId", buildId).eq("resourceType", resourceType),
+            )
+            .order("desc")
+            .take(ACTIVE_BUILD_AUDIT_STREAM_LIMIT),
+        ),
+      )
+    ).flat();
+    const legacyAuditEvents = await ctx.db
+      .query("auditEvents")
+      .withIndex("by_organizationId_and_createdAt", (q) =>
+        q.eq("organizationId", build.organizationId),
+      )
+      .order("desc")
+      .take(ACTIVE_BUILD_AUDIT_LEGACY_COMPATIBILITY_LIMIT);
+    const auditEventsById = new Map<string, Doc<"auditEvents">>();
+    for (const event of [...auditEvents, ...legacyAuditEvents]) {
+      auditEventsById.set(String(event._id), event);
+    }
+    const submilestoneById = new Map(
+      hydratedSubmilestones.map((submilestone) => [
+        String(submilestone._id),
+        submilestone,
+      ]),
+    );
+    const relevantAuditEvents = [...auditEventsById.values()]
+      .filter(
+        (event) =>
+          event.organizationId === build.organizationId &&
+          event.brokerageId === build.brokerageId &&
+          (event.buildId === undefined || event.buildId === build._id),
+      )
+      .filter((event) =>
+        buildAuditEntityKeys.has(`${event.entityType}:${event.entityId}`),
+      )
+      .filter(
+        (event) => {
+          const resourceType = activeBuildAuditResourceType(event.resourceType);
+          const isDirectChildAudit =
+            event.entityType === "buildSubmilestone" ||
+            event.entityType === "submilestone";
+          const exposesChildTarget =
+            isDirectChildAudit ||
+            resolveAuditCanonicalSubmilestone(event, submilestoneById) !==
+              undefined;
+          return (
+            resourceType !== undefined &&
+            canUseAppPermission(appPermissions, resourceType, "view") &&
+            (!exposesChildTarget ||
+              canUseAppPermission(appPermissions, "submilestone", "view"))
+          );
+        },
+      )
       .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, ACTIVE_BUILD_AUDIT_EVENTS_LIMIT);
+    const mappedAuditEvents = relevantAuditEvents
       .map((event) => {
         const changes = projectAuditStateChanges(
           event.priorState,
           event.newState,
+        );
+        const canonicalSubmilestone = resolveAuditCanonicalSubmilestone(
+          event,
+          submilestoneById,
         );
         return {
           _id: String(event._id),
@@ -16578,14 +16739,24 @@ export const getActiveBuildDetailByString = authenticatedQuery
           changes,
           command: event.command,
           createdAt: event.createdAt,
-          entityLabel: build.buildName,
+          entityLabel: canonicalSubmilestone?.name ?? build.buildName,
           entityType: event.entityType,
           eventType: event.eventType,
           reason: event.reason,
           warnings: event.warnings,
+          ...(canonicalSubmilestone
+            ? {
+                canonicalTarget: {
+                  kind: "submilestone" as const,
+                  submilestoneId: canonicalSubmilestone._id,
+                },
+                canonicalTargetContext: {
+                  selectedTab: productionSubmilestoneAuditTab(event),
+                },
+              }
+            : {}),
         };
       });
-    const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
     const canViewLenderDrawNotes = isBackoffice(auth.roles);
     const quickActionEvents = isBackoffice(auth.roles)
       ? [
@@ -16980,6 +17151,188 @@ export const getActiveBuildDetailByString = authenticatedQuery
     };
   })
   .public();
+
+function resolveAuditCanonicalSubmilestone(
+  event: Pick<
+    Doc<"auditEvents">,
+    "entityType" | "entityId" | "newState" | "priorState"
+  >,
+  submilestoneById: Map<string, Doc<"buildSubmilestones">>,
+) {
+  if (
+    (event.entityType === "buildSubmilestone" ||
+      event.entityType === "submilestone") &&
+    submilestoneById.has(event.entityId)
+  ) {
+    return submilestoneById.get(event.entityId);
+  }
+  if (event.entityType !== "buildSiteVisit" && event.entityType !== "siteVisit") {
+    return undefined;
+  }
+  for (const state of [event.newState, event.priorState]) {
+    if (!state) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(state);
+      if (!parsed || typeof parsed !== "object") {
+        continue;
+      }
+      const candidate =
+        (parsed as Record<string, unknown>).submilestoneId ??
+        (parsed as Record<string, unknown>).buildSubmilestoneId;
+      if (typeof candidate === "string" && submilestoneById.has(candidate)) {
+        return submilestoneById.get(candidate);
+      }
+    } catch {
+      // Legacy audit payloads without valid JSON remain parent-scoped.
+    }
+  }
+  return undefined;
+}
+
+function productionSubmilestoneAuditTab(event: {
+  command?: string;
+  eventType: string;
+}) {
+  const signal = `${event.command ?? ""} ${event.eventType}`.toLowerCase();
+  if (signal.includes("evidence") || signal.includes("photo")) {
+    return "evidence" as const;
+  }
+  if (
+    signal.includes("review") ||
+    signal.includes("site_visit") ||
+    signal.includes("approval")
+  ) {
+    return "review" as const;
+  }
+  if (signal.includes("assign") || signal.includes("contractor")) {
+    return "people" as const;
+  }
+  if (signal.includes("material") || signal.includes("cost")) {
+    return "materials" as const;
+  }
+  if (signal.includes("collaboration") || signal.includes("comment")) {
+    return "collaboration" as const;
+  }
+  return "overview" as const;
+}
+
+type ActiveBuildAuditResourceType =
+  (typeof ACTIVE_BUILD_AUDIT_RESOURCE_TYPES)[number];
+
+function activeBuildAuditPermissionResource(
+  resourceType: string,
+): BuilderStaffPermissionResource | undefined {
+  switch (resourceType) {
+    case "activeBuild":
+    case "buildMilestone":
+    case "milestone":
+      return "milestone";
+    case "buildSubmilestone":
+    case "submilestone":
+      return "submilestone";
+    case "activeBuildDrawRequest":
+    case "draw":
+    case "plannedDrawScheduleRow":
+      return "draw";
+    case "buildEvidenceAsset":
+    case "evidence":
+    case "evidencePackage":
+    case "buildSiteVisit":
+    case "siteVisit":
+      return "evidence";
+    case "material":
+    case "buildCostItem":
+      return "material";
+    case "contractor":
+      return "contractor";
+    case "capitalEvent":
+      return "capitalEvent";
+    case "reminder":
+      return "reminder";
+    default:
+      return undefined;
+  }
+}
+
+function activeBuildAuditResourceType(
+  resourceType: string | undefined,
+): BuilderStaffPermissionResource | undefined {
+  if (!resourceType) {
+    return undefined;
+  }
+  return activeBuildAuditPermissionResource(resourceType);
+}
+
+function deriveActiveBuildAuditResourceType(input: {
+  entityType?: string;
+  eventType: string;
+  command: string;
+}): ActiveBuildAuditResourceType {
+  const entityType = input.entityType;
+  if (
+    entityType === "buildSubmilestone" ||
+    entityType === "submilestone"
+  ) {
+    return "submilestone";
+  }
+  if (
+    entityType === "activeBuildDrawRequest" ||
+    entityType === "draw" ||
+    entityType === "plannedDrawScheduleRow"
+  ) {
+    return "draw";
+  }
+  if (
+    entityType === "buildEvidenceAsset" ||
+    entityType === "evidence" ||
+    entityType === "evidencePackage"
+  ) {
+    return "evidence";
+  }
+  if (
+    entityType === "buildSiteVisit" ||
+    entityType === "siteVisit"
+  ) {
+    return "siteVisit";
+  }
+  if (entityType === "buildCostItem" || entityType === "material") {
+    return "material";
+  }
+  if (entityType === "contractor") {
+    return "contractor";
+  }
+  if (entityType === "capitalEvent") {
+    return "capitalEvent";
+  }
+  if (entityType === "reminder") {
+    return "reminder";
+  }
+  const signal = `${input.eventType} ${input.command}`.toLowerCase();
+  if (signal.includes("site_visit") || signal.includes("site visit")) {
+    return "siteVisit";
+  }
+  if (signal.includes("draw")) {
+    return "draw";
+  }
+  if (signal.includes("evidence") || signal.includes("photo")) {
+    return "evidence";
+  }
+  if (signal.includes("material") || signal.includes("cost_item")) {
+    return "material";
+  }
+  if (signal.includes("assign") || signal.includes("contractor")) {
+    return "contractor";
+  }
+  if (signal.includes("capital")) {
+    return "capitalEvent";
+  }
+  if (signal.includes("reminder")) {
+    return "reminder";
+  }
+  return "milestone";
+}
 
 export const listActiveBuildBuilderStaffPermissions = authenticatedQuery
   .input({
@@ -19116,6 +19469,27 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       args.asset.milestoneKey,
     );
     assertActiveBuildPlanningTargetActive(milestone);
+    const scopedSubmilestone = args.asset.submilestoneKey
+      ? findActiveBuildSubmilestoneByKey(
+          (await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (query) =>
+              query.eq("buildMilestoneId", milestone._id),
+            )
+            .collect()) as Doc<"buildSubmilestones">[],
+          args.asset.submilestoneKey,
+        )
+      : undefined;
+    if (args.asset.submilestoneKey && !scopedSubmilestone) {
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_FOUND",
+        message: "Evidence Sub-milestone is unavailable for this Milestone.",
+        submilestoneKey: args.asset.submilestoneKey,
+      });
+    }
+    if (scopedSubmilestone) {
+      assertActiveBuildPlanningTargetActive(milestone, scopedSubmilestone);
+    }
     const existing = await ctx.db
       .query("buildEvidenceAssets")
       .withIndex("by_build_key", (q) =>
@@ -19157,7 +19531,14 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       auth,
       build: auth.build,
       command: "createActiveBuildTimelineEvidenceAsset",
+      ...(scopedSubmilestone
+        ? {
+            entityId: String(scopedSubmilestone._id),
+            entityType: "buildSubmilestone",
+          }
+        : {}),
       eventType: "active_build.evidence.created",
+      resourceType: "evidence",
       newState: JSON.stringify(args.asset),
     });
     const persistedAsset = await ctx.db.get(assetId);
@@ -19166,27 +19547,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
     }
     const collaborationEventRevision =
       persistedAsset.collaborationEventRevision ?? 1;
-    if (args.asset.submilestoneKey) {
-      const submilestones = (
-        (await ctx.db
-          .query("buildSubmilestones")
-          .withIndex("by_milestone", (query) =>
-            query.eq("buildMilestoneId", milestone._id),
-          )
-          .collect()) as Doc<"buildSubmilestones">[]
-      );
-      const submilestone = findActiveBuildSubmilestoneByKey(
-        submilestones,
-        args.asset.submilestoneKey,
-      );
-      if (!submilestone) {
-        throw new ConvexError({
-          code: "SUBMILESTONE_NOT_FOUND",
-          message: "Evidence Sub-milestone is unavailable for this Milestone.",
-          submilestoneKey: args.asset.submilestoneKey,
-        });
-      }
-      assertActiveBuildPlanningTargetActive(milestone, submilestone);
+    if (scopedSubmilestone) {
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
         actorRoles: auth.roles,
         actorWorkosUserId: auth.subject,
@@ -19194,7 +19555,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
         build: auth.build,
         milestone,
         sourceKind: "canonical_upload",
-        submilestone,
+        submilestone: scopedSubmilestone,
       });
     }
     try {
@@ -19994,7 +20355,10 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     },
     build: auth.build,
     command: "promoteActiveBuildDiscussionAttachmentToEvidence",
+    entityId: String(submilestone._id),
+    entityType: "buildSubmilestone",
     eventType: "active_build.evidence.promoted",
+    resourceType: "evidence",
     newState: JSON.stringify({
       evidenceAssetId,
       evidenceKey,
@@ -20097,6 +20461,11 @@ export const updateActiveBuildTimelineEvidenceAsset = authenticatedMutation
       args.buildId,
       args.evidenceKey,
     );
+    const scopedSubmilestone = await resolveEvidenceAssetSubmilestone(
+      ctx,
+      args.buildId,
+      asset,
+    );
     const patch = {
       ...(args.label === undefined
         ? {}
@@ -20109,7 +20478,14 @@ export const updateActiveBuildTimelineEvidenceAsset = authenticatedMutation
       auth,
       build: auth.build,
       command: "updateActiveBuildTimelineEvidenceAsset",
+      ...(scopedSubmilestone
+        ? {
+            entityId: String(scopedSubmilestone._id),
+            entityType: "buildSubmilestone",
+          }
+        : {}),
       eventType: "active_build.evidence.updated",
+      resourceType: "evidence",
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(asset),
     });
@@ -20136,6 +20512,11 @@ export const deleteActiveBuildTimelineEvidenceAsset = authenticatedMutation
       args.buildId,
       args.evidenceKey,
     );
+    const scopedSubmilestone = await resolveEvidenceAssetSubmilestone(
+      ctx,
+      args.buildId,
+      asset,
+    );
     if (asset.storageId) {
       await ctx.storage.delete(asset.storageId);
     }
@@ -20144,7 +20525,14 @@ export const deleteActiveBuildTimelineEvidenceAsset = authenticatedMutation
       auth,
       build: auth.build,
       command: "deleteActiveBuildTimelineEvidenceAsset",
+      ...(scopedSubmilestone
+        ? {
+            entityId: String(scopedSubmilestone._id),
+            entityType: "buildSubmilestone",
+          }
+        : {}),
       eventType: "active_build.evidence.deleted",
+      resourceType: "evidence",
       priorState: JSON.stringify(asset),
     });
     return null;
@@ -20694,6 +21082,8 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
       auth,
       build: auth.build,
       command,
+      entityId: String(submilestone._id),
+      entityType: "buildSubmilestone",
       eventType: "active_build.submilestone.execution_updated",
       newState: JSON.stringify({
         actualCostCents: patch.actualCostCents,
@@ -20834,6 +21224,8 @@ export const updateActiveBuildSubmilestoneProgress = authenticatedMutation
       auth,
       build: auth.build,
       command,
+      entityId: String(submilestone._id),
+      entityType: "buildSubmilestone",
       eventType: "active_build.submilestone.progress_updated",
       newState: JSON.stringify({
         actualCostCents: patch.actualCostCents,
@@ -20955,7 +21347,10 @@ export const configureActiveBuildSubmilestoneEvidenceRequirements =
         auth,
         build: auth.build,
         command: "configureActiveBuildSubmilestoneEvidenceRequirements",
+        entityId: String(submilestone._id),
+        entityType: "buildSubmilestone",
         eventType: "active_build.submilestone.evidence_requirements_configured",
+        resourceType: "evidence",
         newState: JSON.stringify({
           requirementKeys: requirements.map((requirement) => requirement.requirementKey),
           revision,
@@ -21162,7 +21557,10 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
       auth,
       build: auth.build,
       command,
+      entityId: String(submilestone._id),
+      entityType: "buildSubmilestone",
       eventType: "active_build.submilestone.evidence_added",
+      resourceType: "evidence",
       newState: JSON.stringify({
         evidenceAssetId: persistedAssetId,
         evidencePackageRevision: packageRevision.revision,
@@ -21328,7 +21726,10 @@ export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutatio
       auth,
       build: auth.build,
       command,
+      entityId: String(submilestone._id),
+      entityType: "buildSubmilestone",
       eventType: "active_build.submilestone.evidence_package_frozen",
+      resourceType: "evidence",
       newState: JSON.stringify({
         packageRevisionId: packageRevision._id,
         revision: packageRevision.revision,
@@ -21529,7 +21930,10 @@ export const submitActiveBuildSubmilestoneCompletionForReview =
         auth,
         build: auth.build,
         command: "submitActiveBuildSubmilestoneCompletionForReview",
+        entityId: String(submilestone._id),
+        entityType: "buildSubmilestone",
         eventType: "active_build.submilestone.completion_submitted_for_review",
+        resourceType: "evidence",
         newState: JSON.stringify({
           completionSubmissionId: submissionId,
           idempotencyKey: args.idempotencyKey,
@@ -21987,6 +22391,7 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       : visit.collaborationEventRevision;
     const siteVisit = {
       ...(visit.note ? { note: visit.note } : {}),
+      ...(visit.submilestoneId ? { submilestoneId: visit.submilestoneId } : {}),
       ...(note
         ? { recordNote: note, recordNoteFormat: "plain_text" as const }
         : {}),
@@ -22022,6 +22427,8 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       auth,
       build: auth.build,
       command: "recordActiveBuildSiteVisit",
+      entityId: String(visit._id),
+      entityType: "buildSiteVisit",
       eventType: "active_build.site_visit.recorded",
       newState: JSON.stringify(siteVisit),
       priorState: JSON.stringify(visit),
@@ -22106,13 +22513,18 @@ export const requestActiveBuildSiteVisitReplacementLink = publicMutation
       actorRoles: ["contractor"],
       actorWorkosUserId: "tokenized_site_visitor",
       brokerageId: build.brokerageId,
+      buildId: build._id,
       command: "requestActiveBuildSiteVisitReplacementLink",
       createdAt: requestedAt,
-      entityId: String(build._id),
-      entityType: "activeBuild",
+      entityId: String(visit._id),
+      entityType: "buildSiteVisit",
       eventType: "active_build.site_visit.replacement_link_requested",
+      resourceType: "siteVisit",
       newState: JSON.stringify({
         reference,
+        ...(visit.submilestoneId
+          ? { submilestoneId: visit.submilestoneId }
+          : {}),
         status: "pending",
         tokenState: request.tokenState,
       }),
@@ -22126,8 +22538,8 @@ export const requestActiveBuildSiteVisitReplacementLink = publicMutation
       eventType: "active_build.site_visit.replacement_link_requested",
       organizationId: build.organizationId,
       payloadPreview: `Replacement site-visit link requested (${reference}).`,
-      relatedEntityId: build._id,
-      relatedEntityType: "activeBuild",
+      relatedEntityId: visit._id,
+      relatedEntityType: "buildSiteVisit",
       status: "pending",
     });
     return { reference, requested: true as const };
@@ -22588,6 +23000,7 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     const completedAt = new Date(now).toISOString();
     const siteVisit = {
       ...(visit.note ? { note: visit.note } : {}),
+      ...(visit.submilestoneId ? { submilestoneId: visit.submilestoneId } : {}),
       completedAt,
       locationAttempt: submissionContext.locationAttempt,
       missingPrerequisites: submissionContext.missingPrerequisites,
@@ -22655,11 +23068,13 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       actorRoles: ["contractor"],
       actorWorkosUserId: "tokenized_site_visitor",
       brokerageId: build.brokerageId,
+      buildId: build._id,
       command: "submitActiveBuildTokenizedSiteVisitReport",
       createdAt: now,
-      entityId: String(build._id),
-      entityType: "activeBuild",
+      entityId: String(visit._id),
+      entityType: "buildSiteVisit",
       eventType: "active_build.site_visit.token_report_submitted",
+      resourceType: "siteVisit",
       newState: JSON.stringify(siteVisit),
       organizationId: build.organizationId,
       priorState: JSON.stringify(visit),
@@ -23557,7 +23972,7 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         operation,
       });
     }
-    await writeActiveBuildEvent(ctx, {
+    const assignmentEvent = {
       auth,
       build: auth.build,
       command: "assignActiveBuildContractorToMilestone",
@@ -23594,7 +24009,19 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
           ? JSON.stringify(priorAssignments)
           : undefined,
       reason: args.note,
-    });
+    };
+    if (targetSubmilestones.length === 0) {
+      await writeActiveBuildEvent(ctx, assignmentEvent);
+    } else {
+      for (const target of targetSubmilestones) {
+        await writeActiveBuildEvent(ctx, {
+          ...assignmentEvent,
+          entityId: String(target.id),
+          entityType: "buildSubmilestone",
+          resourceType: "contractor",
+        });
+      }
+    }
     await recordApprovedActiveBuildPlanningRevision(ctx, {
       actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
       build: auth.build,
@@ -23788,7 +24215,7 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
         });
       }
     }
-    await writeActiveBuildEvent(ctx, {
+    const removalEvent = {
       auth,
       build: auth.build,
       command: "removeActiveBuildContractorFromMilestone",
@@ -23816,7 +24243,17 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
         })),
       ),
       reason,
-    });
+    };
+    if (scopedSubmilestone) {
+      await writeActiveBuildEvent(ctx, {
+        ...removalEvent,
+        entityId: String(scopedSubmilestone.id),
+        entityType: "buildSubmilestone",
+        resourceType: "contractor",
+      });
+    } else {
+      await writeActiveBuildEvent(ctx, removalEvent);
+    }
     await recordApprovedActiveBuildPlanningRevision(ctx, {
       actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
       build: auth.build,
@@ -23887,11 +24324,27 @@ export const recordContractorQualityRating = authenticatedMutation
       submilestoneKey: args.submilestoneKey,
       workosOrganizationId: args.workosOrganizationId,
     });
+    const ratingSubmilestone = args.submilestoneKey
+      ? (
+          await activeBuildStartTarget(ctx, {
+            buildId: args.buildId,
+            milestoneKey: args.milestoneKey,
+            submilestoneKey: args.submilestoneKey,
+          })
+        ).submilestone
+      : undefined;
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
       command: "recordContractorQualityRating",
+      ...(ratingSubmilestone
+        ? {
+            entityId: String(ratingSubmilestone._id),
+            entityType: "buildSubmilestone",
+          }
+        : {}),
       eventType: "active_build.contractor.quality_rated",
+      resourceType: "contractor",
       newState: JSON.stringify({
         contractorId: args.contractorId,
         milestoneKey: args.milestoneKey,
@@ -25581,6 +26034,7 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       requestedDay: v.number(),
       requestedTime: v.optional(v.string()),
       siteVisitGuidance: productionSettingsSiteVisitGuidanceInput,
+      submilestoneId: v.optional(v.id("buildSubmilestones")),
       status: v.string(),
       submilestoneKeys: v.array(v.string()),
       tokenExpiresAt: v.number(),
@@ -25665,6 +26119,9 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       requestedDay,
       requestedTime,
       siteVisitGuidance: configuration.siteVisitGuidance,
+      ...(configuration.submilestoneId
+        ? { submilestoneId: configuration.submilestoneId }
+        : {}),
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
       tokenExpiresAt: now + 60 * 60 * 1000,
@@ -25694,6 +26151,9 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       scheduleIdempotencyKey: idempotencyKey,
       scheduleRequestFingerprint: assignRequestFingerprint,
       siteVisitGuidance: configuration.siteVisitGuidance,
+      ...(configuration.submilestoneId
+        ? { submilestoneId: configuration.submilestoneId }
+        : {}),
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
       tokenExpiresAt: siteVisit.tokenExpiresAt,
@@ -25724,6 +26184,8 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       auth,
       build: auth.build,
       command: "assignActiveBuildSiteVisit",
+      entityId: String(siteVisitId),
+      entityType: "buildSiteVisit",
       eventType: "active_build.site_visit.requested",
       newState: JSON.stringify(siteVisit),
       priorState: JSON.stringify(milestone.completionReview),
@@ -30414,6 +30876,7 @@ function activeBuildMilestoneSummary(input: {
           ...(submilestone.budgetCents === undefined
             ? {}
             : { budgetCents: submilestone.budgetCents }),
+          canonicalId: submilestone._id,
           ...(submilestone.durationDays === undefined
             ? {}
             : { durationDays: submilestone.durationDays }),
@@ -34426,7 +34889,10 @@ async function writeActiveBuildEvent(
     };
     build: Doc<"activeBuilds">;
     command: string;
+    entityId?: string;
+    entityType?: string;
     eventType: string;
+    resourceType?: ActiveBuildAuditResourceType;
     newState?: string;
     priorState?: string;
     reason?: string;
@@ -34434,18 +34900,28 @@ async function writeActiveBuildEvent(
   },
 ) {
   const now = Date.now();
+  const entityType = input.entityType ?? "activeBuild";
+  const resourceType =
+    input.resourceType ??
+    deriveActiveBuildAuditResourceType({
+      command: input.command,
+      entityType,
+      eventType: input.eventType,
+    });
   await ctx.db.insert("auditEvents", {
     actorRoles: input.auth.roles,
     actorWorkosUserId: input.auth.subject,
     brokerageId: input.auth.brokerage._id,
+    buildId: input.build._id,
     command: input.command,
     createdAt: now,
-    entityId: String(input.build._id),
-    entityType: "activeBuild",
+    entityId: input.entityId ?? String(input.build._id),
+    entityType,
     eventType: input.eventType,
     newState: input.newState,
     organizationId: input.build.organizationId,
     priorState: input.priorState,
+    resourceType,
     reason: input.reason,
     warnings: input.warnings ?? [],
   });
@@ -34459,8 +34935,8 @@ async function writeActiveBuildEvent(
       newState: input.newState,
       priorState: input.priorState,
     }),
-    relatedEntityId: input.build._id,
-    relatedEntityType: "activeBuild",
+    relatedEntityId: input.entityId ?? input.build._id,
+    relatedEntityType: entityType,
     status: "pending",
   });
 }
@@ -36095,6 +36571,28 @@ async function getActiveBuildEvidenceAssetOrThrow(
   return asset;
 }
 
+async function resolveEvidenceAssetSubmilestone(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  asset: Pick<Doc<"buildEvidenceAssets">, "milestoneKey" | "submilestoneKey">,
+) {
+  if (!asset.submilestoneKey) {
+    return undefined;
+  }
+  const milestone = await getActiveBuildMilestoneOrThrow(
+    ctx,
+    buildId,
+    asset.milestoneKey,
+  );
+  const rows = (await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (query) =>
+      query.eq("buildMilestoneId", milestone._id),
+    )
+    .take(500)) as Doc<"buildSubmilestones">[];
+  return findActiveBuildSubmilestoneByKey(rows, asset.submilestoneKey);
+}
+
 async function resolveActiveBuildSiteVisitConfiguration(
   ctx: QueryCtx | MutationCtx,
   milestone: Doc<"buildMilestones">,
@@ -36183,6 +36681,13 @@ async function resolveActiveBuildSiteVisitConfiguration(
   return {
     guidanceSections,
     siteVisitGuidance,
+    ...(requestedKeys.length === 1
+      ? {
+          submilestoneId: submilestones.find(
+            (submilestone) => submilestone.key === requestedKeys[0],
+          )?._id,
+        }
+      : {}),
     submilestoneKeys:
       requestedKeys.length > 0
         ? requestedKeys

@@ -13,6 +13,7 @@ import type * as active_build_document_lineage from "../active_build_document_li
 import type * as administrative_override_policy from "../administrative_override_policy.js";
 import type * as assistant from "../assistant.js";
 import type * as assistantProvider from "../assistantProvider.js";
+import type * as audit_event_migrations from "../audit_event_migrations.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as authzTest from "../authzTest.js";
@@ -191,6 +192,7 @@ declare const fullApi: ApiFromModules<{
   administrative_override_policy: typeof administrative_override_policy;
   assistant: typeof assistant;
   assistantProvider: typeof assistantProvider;
+  audit_event_migrations: typeof audit_event_migrations;
   auth: typeof auth;
   authz: typeof authz;
   authzTest: typeof authzTest;

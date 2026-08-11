@@ -31,12 +31,14 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { cn } from "#/lib/utils.ts";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 export type MaterialPlanningItemType = "equipment" | "material";
 export type MaterialPlanningBudgetTreatment = "add" | "logOnly" | "maintain";
 
 export interface MaterialPlanningSubmilestone {
   budgetCents?: number;
+  canonicalId?: Id<"buildSubmilestones">;
   key: string;
   milestoneKey?: string;
   name: string;
@@ -110,6 +112,7 @@ interface MaterialPlanningTabProps {
   items: MaterialPlanningItem[];
   lockBudgetTreatment?: boolean;
   milestones: MaterialPlanningMilestone[];
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   panelLayout?: "auto" | "stacked";
   readOnly?: boolean;
   scopeLabel: string;
@@ -152,6 +155,7 @@ export function MaterialPlanningTab({
   items,
   lockBudgetTreatment = false,
   panelLayout = "auto",
+  onOpenSubmilestone,
   milestones,
   readOnly = false,
   scopeLabel,
@@ -467,9 +471,24 @@ export function MaterialPlanningTab({
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(selectedMilestone.submilestones ?? []).length > 0 ? (
                     selectedMilestone.submilestones?.map((submilestone) => (
-                      <Badge key={submilestone.key} variant="outline">
-                        {submilestone.name}
-                      </Badge>
+                      submilestone.canonicalId && onOpenSubmilestone ? (
+                        <Button
+                          aria-label={`Open Sub-milestone ${submilestone.name}`}
+                          key={submilestone.key}
+                          onClick={() =>
+                            onOpenSubmilestone(submilestone.canonicalId!)
+                          }
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Badge variant="outline">{submilestone.name}</Badge>
+                        </Button>
+                      ) : (
+                        <Badge key={submilestone.key} variant="outline">
+                          {submilestone.name}
+                        </Badge>
+                      )
                     ))
                   ) : (
                     <p className="text-muted-foreground text-sm">

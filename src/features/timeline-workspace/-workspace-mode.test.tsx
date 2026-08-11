@@ -271,6 +271,7 @@ function timelineState({
                 submilestoneDetails: [
                   {
                     budgetCents: 37_000_00,
+                    canonicalId: "sub-dc-ed",
                     durationDays: 1,
                     key: "dc-ed",
                     name: "DC/ED",
@@ -278,6 +279,7 @@ function timelineState({
                   },
                   {
                     budgetCents: 91_000_00,
+                    canonicalId: "sub-permits",
                     durationDays: 2,
                     key: "permits",
                     name: "Permits",
@@ -303,6 +305,7 @@ function renderWorkspace({
   contractorPlanning,
   initialRole = "builder",
   initialState = timelineState(),
+  onOpenSubmilestone,
   persistence,
   shareUrlPath,
   status = "approved",
@@ -312,6 +315,7 @@ function renderWorkspace({
   contractorPlanning?: TimelineWorkspaceProps["contractorPlanning"];
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
+  onOpenSubmilestone?: TimelineWorkspaceProps["onOpenSubmilestone"];
   persistence?: TimelineWorkspaceProps["persistence"];
   shareUrlPath?: string;
   status?: string;
@@ -324,6 +328,7 @@ function renderWorkspace({
         contractorPlanning,
         initialRole,
         initialState,
+        onOpenSubmilestone,
         persistence,
         shareUrlPath,
         status,
@@ -338,6 +343,7 @@ function workspaceProps({
   contractorPlanning,
   initialRole = "builder",
   initialState = timelineState(),
+  onOpenSubmilestone,
   persistence,
   shareUrlPath,
   status = "approved",
@@ -347,6 +353,7 @@ function workspaceProps({
   contractorPlanning?: TimelineWorkspaceProps["contractorPlanning"];
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
+  onOpenSubmilestone?: TimelineWorkspaceProps["onOpenSubmilestone"];
   persistence?: TimelineWorkspaceProps["persistence"];
   shareUrlPath?: string;
   status?: string;
@@ -365,6 +372,7 @@ function workspaceProps({
     durablePlanId: "proposal_123",
     initialRole,
     initialState,
+    onOpenSubmilestone,
     persistence,
     shareUrlPath,
     timelineSettingsProjection: null,
@@ -811,6 +819,22 @@ describe("TimelineWorkspace mode split", () => {
         .getByTestId("timeline-selected-milestone-submilestone-budget-permits")
         .textContent?.includes("$91,000"),
     ).toBe(true);
+  });
+
+  test("forwards canonical child selection from the real timeline workspace", () => {
+    const onOpenSubmilestone = vi.fn();
+
+    renderWorkspace({
+      initialState: timelineState({ withSubmilestoneBudgets: true }),
+      onOpenSubmilestone,
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Sub-milestone DC/ED" }),
+    );
+
+    expect(onOpenSubmilestone).toHaveBeenCalledWith("sub-dc-ed");
   });
 
   test("rolls editable sub-milestone budget changes into the parent milestone", () => {

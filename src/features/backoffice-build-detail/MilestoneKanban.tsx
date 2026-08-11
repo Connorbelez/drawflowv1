@@ -20,6 +20,7 @@ import {
 } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { cn } from "#/lib/utils.ts";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { formatCents, formatDate } from "./format";
 
 export type KanbanColumn =
@@ -36,6 +37,7 @@ export interface KanbanSubmilestone {
   key: string;
   name: string;
   order: number;
+  submilestoneId?: Id<"buildSubmilestones">;
   status: "todo" | "in_progress" | "done";
 }
 
@@ -135,6 +137,10 @@ interface MilestoneKanbanProps {
   cards: KanbanCardData[];
   onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
+  onSubmilestoneClick?: (
+    card: KanbanCardData,
+    submilestone: KanbanSubmilestone,
+  ) => void;
   onStartWork?: (card: KanbanCardData) => void;
   onToggleShowCompleted?: () => void;
   showCompleted?: boolean;
@@ -145,6 +151,7 @@ export function MilestoneKanban({
   cards,
   onAssignContractor,
   onCardClick,
+  onSubmilestoneClick,
   onStartWork,
   showCompleted = false,
   onToggleShowCompleted,
@@ -234,6 +241,7 @@ export function MilestoneKanban({
                             : undefined
                         }
                         onClick={() => onCardClick(card)}
+                        onSubmilestoneClick={onSubmilestoneClick}
                         onStart={
                           onStartWork &&
                           ["blocked", "planned", "ready_to_start"].includes(
@@ -262,6 +270,7 @@ function MilestoneCard({
   onAssign,
   onClick,
   onStart,
+  onSubmilestoneClick,
   viewerRole,
 }: {
   card: KanbanCardData;
@@ -269,6 +278,10 @@ function MilestoneCard({
   onAssign?: () => void;
   onClick: () => void;
   onStart?: () => void;
+  onSubmilestoneClick?: (
+    card: KanbanCardData,
+    submilestone: KanbanSubmilestone,
+  ) => void;
   viewerRole: "builder" | "lender";
 }) {
   const tone = STATUS_TONE[card.status];
@@ -376,17 +389,40 @@ function MilestoneCard({
                   key={s.key}
                 >
                   <SubmilestoneIcon status={s.status} />
-                  <span
-                    className={
-                      s.status === "done"
-                        ? "truncate text-muted-foreground line-through"
-                        : s.status === "in_progress"
-                          ? "truncate font-medium text-foreground"
-                          : "truncate text-foreground/80"
-                    }
-                  >
-                    {s.name}
-                  </span>
+                  {onSubmilestoneClick && s.submilestoneId ? (
+                    <Button
+                      aria-label={`Open Sub-milestone ${s.name}`}
+                      className={cn(
+                        "relative z-10 h-auto min-w-0 justify-start truncate p-0 text-[10px]",
+                        s.status === "done"
+                          ? "text-muted-foreground line-through"
+                          : s.status === "in_progress"
+                            ? "font-medium text-foreground"
+                            : "text-foreground/80",
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSubmilestoneClick(card, s);
+                      }}
+                      size="xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      {s.name}
+                    </Button>
+                  ) : (
+                    <span
+                      className={
+                        s.status === "done"
+                          ? "truncate text-muted-foreground line-through"
+                          : s.status === "in_progress"
+                            ? "truncate font-medium text-foreground"
+                            : "truncate text-foreground/80"
+                      }
+                    >
+                      {s.name}
+                    </span>
+                  )}
                 </li>
               ))}
               {submilestoneTotal > previewSubmilestones.length ? (

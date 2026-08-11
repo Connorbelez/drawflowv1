@@ -62,6 +62,7 @@ import {
 } from "#/components/kibo-ui/gantt/index.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Card, CardContent } from "#/components/ui/card.tsx";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -107,6 +108,7 @@ import { ContractorQuickAddDrawer } from "#/features/contractors/ContractorQuick
 import { ProductionProposalDrawScheduleEditor } from "#/features/production-proposals/ProductionProposalDrawScheduleEditor.tsx";
 import { TimelineMilestoneContractorList } from "#/features/timeline-workspace/TimelineMilestoneContractorList.tsx";
 import { cn } from "#/lib/utils.ts";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { parseGanttMilestoneScopeId } from "./build-workspace-contractor-planning.ts";
 import { SortableMilestoneRailRow } from "./SortableMilestoneRailRow";
 import type {
@@ -297,6 +299,7 @@ const milestoneToFeature = (milestone: Milestone): GanttFeature => ({
 export function BuildWorkspaceDemo({
   canFinalizeMilestones = true,
   layout = "route",
+  onOpenSubmilestone,
   showPrimaryAction = true,
   showRoleSelector = true,
   viewer = "lender",
@@ -307,6 +310,7 @@ export function BuildWorkspaceDemo({
 }: {
   canFinalizeMilestones?: boolean;
   layout?: "embedded" | "route";
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   showPrimaryAction?: boolean;
   showRoleSelector?: boolean;
   viewer?: "builder" | "lender";
@@ -464,6 +468,7 @@ export function BuildWorkspaceDemo({
           canFinalizeMilestones={canFinalizeMilestones}
           draw={detailDraw}
           milestone={detailMilestone}
+          onOpenSubmilestone={onOpenSubmilestone}
           onOpenChange={setDetailOpen}
           open={detailOpen}
           viewer={viewer}
@@ -2513,6 +2518,7 @@ function MilestoneDetailSheet({
   milestone,
   draw,
   open,
+  onOpenSubmilestone,
   onOpenChange,
   viewer,
 }: {
@@ -2520,6 +2526,7 @@ function MilestoneDetailSheet({
   milestone: Milestone;
   draw: DrawGroup | undefined;
   open: boolean;
+  onOpenSubmilestone?: (submilestoneId: Id<"buildSubmilestones">) => void;
   onOpenChange: (open: boolean) => void;
   viewer: "builder" | "lender";
 }) {
@@ -2908,6 +2915,38 @@ function MilestoneDetailSheet({
               </Button>
             </div>
           </Panel>
+
+          {milestone.submilestones?.length ? (
+            <Panel title="Sub-milestones">
+              <div className="grid gap-2">
+                {milestone.submilestones.map((submilestone) =>
+                  submilestone.canonicalId && onOpenSubmilestone ? (
+                    <Button
+                      aria-label={`Open Sub-milestone ${submilestone.name}`}
+                      className="justify-start"
+                      key={submilestone.key}
+                      onClick={() =>
+                        onOpenSubmilestone(submilestone.canonicalId!)
+                      }
+                      type="button"
+                      variant="outline"
+                    >
+                      {submilestone.name}
+                    </Button>
+                  ) : (
+                    <Card
+                      className="rounded-md shadow-none"
+                      key={submilestone.key}
+                    >
+                      <CardContent className="px-3 py-2 text-sm">
+                        {submilestone.name}
+                      </CardContent>
+                    </Card>
+                  ),
+                )}
+              </div>
+            </Panel>
+          ) : null}
 
           {workspace.contractorPlanning || canAssignContractor ? (
             <Panel title="Contractors">

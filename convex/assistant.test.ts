@@ -1349,6 +1349,52 @@ describe("DrawFlow assistant HITL backend", () => {
     });
   });
 
+  test("scopes assistant active-build site-visit audits to the canonical Build", async () => {
+    const { seed, t } = await seeded(["admin"], "assistant_site_visit_admin");
+    const { buildId } = await createActiveBuild(t, seed);
+    const planId = await t.mutation((api as any).assistant.createActionPlan, {
+      actions: [
+        {
+          actionKey: "schedule_active_build_site_visit",
+          clientRequestId: "assistant_site_visit",
+          input: {
+            buildId,
+            milestoneKey: "foundation",
+            note: "Assistant scheduled a field inspection.",
+            requestedDay: 8,
+          },
+        },
+      ],
+      routeContext: { buildId },
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation((api as any).assistant.commitActionPlan, {
+      acceptedClientRequestIds: ["assistant_site_visit"],
+      editedInputs: {},
+      planId,
+      rejectedClientRequestIds: [],
+      workosOrganizationId: ORG,
+    });
+
+    const audits = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_buildId_and_resourceType_and_createdAt", (q: any) =>
+          q.eq("buildId", buildId).eq("resourceType", "siteVisit"),
+        )
+        .collect(),
+    );
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          buildId,
+          eventType: "assistant.active_build.site_visit.scheduled",
+        }),
+      ]),
+    );
+  });
+
   test("plans proposal collaboration and saves calendar integrations through HITL", async () => {
     const { seed, t } = await seeded(["admin"], "collab_admin");
     const proposalId = await createDraftProposal(t, seed);

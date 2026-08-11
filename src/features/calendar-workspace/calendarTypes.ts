@@ -1,4 +1,5 @@
 import type React from "react";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 export type CalendarSurface = "proposal" | "activeBuild";
 
@@ -87,6 +88,7 @@ export interface DrawFlowCalendarEvent {
     | { type: "proposal"; id: string }
     | { type: "activeBuild"; id: string }
     | { type: "milestone"; key: string; id?: string }
+    | { type: "submilestone"; id: Id<"buildSubmilestones"> }
     | { type: "draw"; key: string; id?: string }
     | { type: "siteVisit"; id: string }
     | { type: "evidencePackage"; id: string }
