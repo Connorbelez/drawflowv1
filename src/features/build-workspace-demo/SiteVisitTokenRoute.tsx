@@ -31,6 +31,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { toast } from "sonner";
 import type { DeviceCaptureKind } from "#/components/device-capture-dialog.tsx";
@@ -85,6 +86,23 @@ import {
   resolveSiteVisitUnavailableCopy,
   type SiteVisitLocationAttempt,
 } from "./site-visit-token-route-model";
+
+function subscribeToConnectivity(onStoreChange: () => void) {
+  window.addEventListener("online", onStoreChange);
+  window.addEventListener("offline", onStoreChange);
+  return () => {
+    window.removeEventListener("online", onStoreChange);
+    window.removeEventListener("offline", onStoreChange);
+  };
+}
+
+function readBrowserConnectivity() {
+  return navigator.onLine;
+}
+
+function readServerConnectivity() {
+  return true;
+}
 
 const tokenConvex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);
 const DeviceCaptureDialog = lazy(() =>
@@ -355,23 +373,15 @@ function SiteVisitTokenRouteContent({
   const [draftStatus, setDraftStatus] = useState<
     "loading" | "saved" | "saving" | "error"
   >("loading");
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator === "undefined" ? true : navigator.onLine
+  const isOnline = useSyncExternalStore(
+    subscribeToConnectivity,
+    readBrowserConnectivity,
+    readServerConnectivity
   );
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const updateConnectivity = () => setIsOnline(navigator.onLine);
-    window.addEventListener("online", updateConnectivity);
-    window.addEventListener("offline", updateConnectivity);
-    return () => {
-      window.removeEventListener("online", updateConnectivity);
-      window.removeEventListener("offline", updateConnectivity);
-    };
   }, []);
 
   useEffect(() => {

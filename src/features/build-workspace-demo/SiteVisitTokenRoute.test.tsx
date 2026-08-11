@@ -7,6 +7,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const mockConvex = vi.hoisted(() => {
@@ -129,6 +131,67 @@ describe("SiteVisitTokenRoute", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  test("hydrates connectivity status from a deterministic server snapshot", async () => {
+    const originalOnLine = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "onLine",
+    );
+    Object.defineProperty(window.navigator, "onLine", {
+      configurable: true,
+      value: undefined,
+    });
+    const markup = renderToString(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    document.body.append(container);
+
+    Object.defineProperty(window.navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+
+    try {
+      await act(async () => {
+        root = hydrateRoot(
+          container,
+          <SiteVisitTokenRoute
+            buildId="k57activebuild"
+            siteVisitToken="fresh-token"
+            source="production"
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(
+        consoleError.mock.calls.some(([message]) =>
+          String(message).includes("Hydration failed"),
+        ),
+      ).toBe(false);
+      expect(
+        screen.queryByText("Offline, draft saved on this device"),
+      ).toBeNull();
+    } finally {
+      await act(async () => root?.unmount());
+      consoleError.mockRestore();
+      if (originalOnLine) {
+        Object.defineProperty(window.navigator, "onLine", originalOnLine);
+      } else {
+        Reflect.deleteProperty(window.navigator, "onLine");
+      }
+    }
   });
 
   test("keeps the submitted confirmation visible after realtime marks the token consumed", async () => {
