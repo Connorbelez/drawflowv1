@@ -1266,4 +1266,169 @@ describe("Sub-milestone Scope contract", () => {
     });
     expect(auditNewState).not.toHaveProperty("newEffectiveRevisionId");
   });
+
+  test("builder published Scope reads enforce lineage and omit successor drafts", async () => {
+    const {
+      admin,
+      base,
+      builder,
+      builderStaff,
+      proposalSubmilestone,
+    } = await seedScopeFixture();
+    const args = {
+      proposalSubmilestoneId: proposalSubmilestone._id,
+      workosOrganizationId: ORG,
+    };
+
+    const v1 = await publishRevision(
+      admin,
+      proposalSubmilestone._id,
+      "Initial published Scope for builder history.",
+    );
+
+    const builderHistory = await builder.query(
+      scopeApi.getBuilderSubmilestoneScopeHistory,
+      args,
+    );
+    expect(builderHistory).toMatchObject({
+      effectiveRevisionId: v1,
+      revisions: [
+        expect.objectContaining({
+          _id: v1,
+          // WorkOS users are projected by the webhook sync.  This fixture
+          // deliberately leaves that projection empty and verifies the safe
+          // raw-ID fallback used for the builder-facing author label.
+          authoredByDisplayName: ADMIN_USER,
+          status: "published",
+          version: 1,
+          isEffective: true,
+        }),
+      ],
+    });
+    expect(builderHistory).not.toHaveProperty("activeDraftRevisionId");
+    expect(builderHistory).not.toHaveProperty("latestVersion");
+    expect(builderHistory).not.toHaveProperty("contractId");
+    expect(
+      builderHistory?.revisions.every(
+        (revision: Record<string, unknown>) =>
+          revision.status === "published" &&
+          !Object.prototype.hasOwnProperty.call(revision, "isActiveDraft"),
+      ),
+    ).toBe(true);
+
+    const v1Content = await builder.query(
+      scopeApi.getBuilderSubmilestoneScopeRevisionContent,
+      { revisionId: v1, workosOrganizationId: ORG },
+    );
+    expect(v1Content).toMatchObject({
+      _id: v1,
+      scopeOfWorkTiptapJson: tiptap(
+        "Initial published Scope for builder history.",
+      ),
+      status: "published",
+      version: 1,
+    });
+    expect(v1Content).not.toHaveProperty("activeDraftRevisionId");
+
+    // Builder staff follows the same active builder-account link lineage.
+    await expect(
+      builderStaff.query(scopeApi.getBuilderSubmilestoneScopeHistory, args),
+    ).resolves.toMatchObject({ effectiveRevisionId: v1 });
+
+    const v2Draft = await admin.mutation(
+      scopeApi.createSubmilestoneScopeDraft,
+      args,
+    );
+    const historyWithDraft = await builder.query(
+      scopeApi.getBuilderSubmilestoneScopeHistory,
+      args,
+    );
+    expect(historyWithDraft).toMatchObject({
+      effectiveRevisionId: v1,
+      revisions: [expect.objectContaining({ _id: v1, version: 1 })],
+    });
+    expect(historyWithDraft?.revisions).toHaveLength(1);
+    expect(historyWithDraft?.revisions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ _id: v2Draft })]),
+    );
+    expect(historyWithDraft).not.toHaveProperty("activeDraftRevisionId");
+    expect(historyWithDraft).not.toHaveProperty("latestVersion");
+    await expect(
+      builder.query(scopeApi.getBuilderSubmilestoneScopeRevisionContent, {
+        revisionId: v2Draft,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/published Scope unavailable/i);
+
+    const v2Content = tiptap("Published successor Scope for builder history.");
+    await admin.mutation(scopeApi.saveSubmilestoneScopeDraft, {
+      revisionId: v2Draft,
+      scopeOfWorkTiptapJson: v2Content,
+      workosOrganizationId: ORG,
+    });
+    await admin.mutation(scopeApi.publishSubmilestoneScopeRevision, {
+      changeReason: "Document the revised builder-visible Scope.",
+      revisionId: v2Draft,
+      workosOrganizationId: ORG,
+    });
+
+    const publishedHistory = await builder.query(
+      scopeApi.getBuilderSubmilestoneScopeHistory,
+      args,
+    );
+    expect(publishedHistory?.revisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ _id: v1, status: "published", version: 1 }),
+        expect.objectContaining({
+          _id: v2Draft,
+          changeReason: "Document the revised builder-visible Scope.",
+          status: "published",
+          version: 2,
+        }),
+      ]),
+    );
+    await expect(
+      builder.query(scopeApi.getBuilderSubmilestoneScopeRevisionContent, {
+        revisionId: v2Draft,
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({
+      _id: v2Draft,
+      scopeOfWorkTiptapJson: v2Content,
+      status: "published",
+      version: 2,
+    });
+
+    // `builderQuery` admits admin for shared capability wiring, but the
+    // lineage helper still requires a real builder owner/staff account link.
+    await expect(
+      admin.query(scopeApi.getBuilderSubmilestoneScopeHistory, args),
+    ).rejects.toThrow(/published Scope unavailable/i);
+
+    const crossOrganizationBuilder = withIdentity(
+      base,
+      OTHER_ORG,
+      ["builder"],
+      BUILDER_USER,
+    );
+    await expect(
+      crossOrganizationBuilder.query(
+        scopeApi.getBuilderSubmilestoneScopeHistory,
+        args,
+      ),
+    ).rejects.toThrow(/organization scope/i);
+
+    const assignedContractor = withIdentity(
+      base,
+      ORG,
+      ["contractor"],
+      "scope_assigned_contractor",
+    );
+    await expect(
+      assignedContractor.query(
+        scopeApi.getBuilderSubmilestoneScopeHistory,
+        args,
+      ),
+    ).rejects.toThrow(/Forbidden: builder/i);
+  });
 });

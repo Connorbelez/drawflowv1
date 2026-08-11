@@ -42,9 +42,11 @@ export interface ProductionProposalWorksheetDetail {
   proposal: {
     proposedStartDate?: string;
     status: string;
+    submittedAt?: number;
     totalBudgetCents: number;
   };
   submilestones?: Array<{
+    _id?: string;
     budgetCents?: number;
     durationDays?: number;
     fieldGuidance?: TimelineSubmilestoneFieldGuidance;
@@ -272,6 +274,9 @@ export function productionProposalDetailToWorksheetRows(
                 scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
               }),
           startDay: submilestone.startDay ?? milestone.dayStart,
+          ...(submilestone._id === undefined
+            ? {}
+            : { proposalSubmilestoneId: String(submilestone._id) }),
         };
       });
       const availableSubMilestoneIds = new Set(

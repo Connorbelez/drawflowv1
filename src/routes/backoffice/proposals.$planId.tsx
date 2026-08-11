@@ -630,6 +630,7 @@ function ProposalReviewRoute() {
             materialPlanningActions={materialPlanningActions}
             persistenceMode={proposalEditorPersistenceMode}
             proposalId={proposalId}
+            scopeRoute="backoffice-proposal"
             showHeading
             templateTitle={productionDetail.proposal.buildName}
             workosOrganizationId={workosOrganizationId}

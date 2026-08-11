@@ -324,4 +324,36 @@ describe("productionMilestoneWorksheetAdapter", () => {
     );
     expect(draft?.submilestones[0]).not.toHaveProperty("description");
   });
+
+  test("preserves the raw proposal Sub-milestone identity beside the business key", () => {
+    const [row] = productionProposalDetailToWorksheetRows({
+      milestones: [
+        {
+          budgetCents: 10_000,
+          dayEnd: 1,
+          dayStart: 0,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+        },
+      ],
+      proposal: { status: "submitted", totalBudgetCents: 10_000 },
+      submilestones: [
+        {
+          _id: "j97abc123",
+          key: "dc-ed",
+          milestoneKey: "foundation",
+          name: "DC/ED",
+          order: 1,
+        },
+      ],
+    });
+
+    expect(row?.subMilestoneDetails[0]).toEqual(
+      expect.objectContaining({
+        id: "dc-ed",
+        proposalSubmilestoneId: "j97abc123",
+      })
+    );
+  });
 });

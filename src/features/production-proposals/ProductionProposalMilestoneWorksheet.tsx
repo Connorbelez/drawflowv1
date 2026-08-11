@@ -8,6 +8,7 @@ import {
   type TimelineScheduleDisplayMode,
   type WorksheetContractorActions,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import type { ScopeRevisionSurfaceRoute } from "../submilestone-scope/SubmilestoneScopeRevisionSurface.tsx";
 
 import {
   contractorOptionsFromPlanning,
@@ -24,6 +25,8 @@ export function ProductionProposalMilestoneWorksheet({
   footerExtra,
   materialPlanningActions,
   onPersistRows,
+  scopeRoute,
+  scopeWorkosOrganizationId,
   showHeading = false,
   templateTitle,
 }: {
@@ -35,6 +38,8 @@ export function ProductionProposalMilestoneWorksheet({
   onPersistRows?: (
     rows: TimelineMilestoneWorksheetRow[]
   ) => void | Promise<void>;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  scopeWorkosOrganizationId?: string;
   showHeading?: boolean;
   templateTitle: string;
 }) {
@@ -130,9 +135,12 @@ export function ProductionProposalMilestoneWorksheet({
       onCascadeBudgetEditsChange={setCascadeBudgetEdits}
       onRowsChange={handleRowsChange}
       onScheduleDisplayModeChange={setScheduleDisplayMode}
+      proposalSubmittedAt={detail.proposal.submittedAt}
       proposedStartDate={proposedStartDate}
       rows={rows}
       scheduleDisplayMode={scheduleDisplayMode}
+      scopeRoute={scopeRoute}
+      scopeWorkosOrganizationId={scopeWorkosOrganizationId}
       showHeading={showHeading}
       templateTitle={templateTitle}
     />

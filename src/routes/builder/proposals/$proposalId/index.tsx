@@ -474,6 +474,7 @@ export function BuilderProductionProposalWorkspace({
           materialPlanningActions={materialPlanningActions}
           persistenceMode={proposalEditorPersistenceMode}
           proposalId={typedProposalId}
+          scopeRoute="builder-proposal"
           showHeading
           templateTitle={detail.proposal.buildName}
           workosOrganizationId={workosOrganizationId}

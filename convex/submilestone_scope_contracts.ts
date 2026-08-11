@@ -7,6 +7,7 @@ import {
   backofficeQuery,
   backofficeRoleSlugs,
   builderMutation,
+  builderQuery,
   destructiveWriteMutation,
 } from "./authz";
 import type { MutationCtx, QueryCtx } from "./types";
@@ -56,6 +57,56 @@ const scopeHistoryValidator = v.union(
   })
 );
 
+// Builder-facing Scope reads deliberately use a separate projection.  The
+// backoffice history projection may include the active draft pointer and draft
+// rows, but those fields are private authoring state and must never cross the
+// builder/borrower boundary.  Keep this validator explicit so a future field
+// added to the internal history result cannot leak by object spreading.
+const publishedScopeRevisionProjectionValidator = v.object({
+  _id: v.id("submilestoneScopeRevisions"),
+  version: v.number(),
+  status: v.literal("published"),
+  authoredByWorkosUserId: v.string(),
+  authoredByDisplayName: v.string(),
+  createdAt: v.number(),
+  savedAt: v.number(),
+  publishedByWorkosUserId: v.optional(v.string()),
+  publishedAt: v.optional(v.number()),
+  changeReason: v.optional(v.string()),
+  isEffective: v.boolean(),
+});
+
+interface PublishedScopeRevisionProjection {
+  _id: Id<"submilestoneScopeRevisions">;
+  authoredByDisplayName: string;
+  authoredByWorkosUserId: string;
+  changeReason?: string;
+  createdAt: number;
+  isEffective: boolean;
+  publishedAt?: number;
+  publishedByWorkosUserId?: string;
+  savedAt: number;
+  status: "published";
+  version: number;
+}
+
+const publishedScopeHistoryValidator = v.union(
+  v.null(),
+  v.object({
+    effectiveRevisionId: v.optional(v.id("submilestoneScopeRevisions")),
+    revisions: v.array(publishedScopeRevisionProjectionValidator),
+  })
+);
+
+const publishedScopeRevisionContentValidator = v.object({
+  _id: v.id("submilestoneScopeRevisions"),
+  version: v.number(),
+  status: v.literal("published"),
+  scopeOfWorkTiptapJson: v.string(),
+});
+
+const PUBLISHED_SCOPE_DENIAL = "Forbidden: published Scope unavailable.";
+
 type ScopeContext = QueryCtx | MutationCtx;
 
 function assertOrganizationScope(
@@ -103,6 +154,169 @@ async function authorizeContract(
     contract.proposalSubmilestoneId,
     workosOrganizationId
   );
+}
+
+function isBuilderScopeViewer(viewer: AuthorizedViewer) {
+  return (
+    viewer.roles.includes("builder") || viewer.roles.includes("builder-staff")
+  );
+}
+
+/**
+ * Authorize a builder-facing Scope read from the Proposal-to-Builder
+ * ownership lineage.  `builderQuery` intentionally admits `admin` for the
+ * shared capability middleware, so this helper must still require a concrete
+ * builder role and an active account link.  This prevents an unlinked admin
+ * or a builder from another organization from reading a Proposal's Scope.
+ */
+async function authorizeBuilderScopeRead(
+  ctx: QueryCtx,
+  viewer: AuthorizedViewer,
+  proposalSubmilestoneId: Id<"proposalSubmilestones">,
+  workosOrganizationId: string
+) {
+  if (!isBuilderScopeViewer(viewer)) {
+    throw new Error(PUBLISHED_SCOPE_DENIAL);
+  }
+
+  const { proposal, submilestone } = await authorizeProposalSubmilestone(
+    ctx,
+    viewer,
+    proposalSubmilestoneId,
+    workosOrganizationId
+  );
+  if (!proposal.builderProfileId) {
+    throw new Error(PUBLISHED_SCOPE_DENIAL);
+  }
+
+  const builderProfile = await ctx.db.get(proposal.builderProfileId);
+  if (
+    !builderProfile ||
+    builderProfile.status !== "active" ||
+    builderProfile.organizationId !== workosOrganizationId ||
+    builderProfile.brokerageId !== proposal.brokerageId
+  ) {
+    throw new Error(PUBLISHED_SCOPE_DENIAL);
+  }
+
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_builder_user", (query) =>
+      query
+        .eq("builderProfileId", builderProfile._id)
+        .eq("workosUserId", viewer.subject)
+    )
+    .take(21);
+  // A bounded read is fail-closed.  More than 20 links for one account is not
+  // an authoritative active-link result.
+  if (links.length > 20) {
+    throw new Error(PUBLISHED_SCOPE_DENIAL);
+  }
+  const hasActiveLink = links.some(
+    (link) =>
+      link.status === "active" &&
+      link.brokerageId === proposal.brokerageId &&
+      (link.role === "owner" || link.role === "staff")
+  );
+  if (!hasActiveLink) {
+    throw new Error(PUBLISHED_SCOPE_DENIAL);
+  }
+
+  return { proposal, submilestone };
+}
+
+function assertScopeContractLineage(
+  contract: Doc<"submilestoneScopeContracts">,
+  proposal: Doc<"buildProposals">,
+  submilestone: Doc<"proposalSubmilestones">
+) {
+  if (
+    contract.brokerageId !== proposal.brokerageId ||
+    contract.organizationId !== proposal.organizationId ||
+    contract.proposalId !== proposal._id ||
+    contract.proposalSubmilestoneId !== submilestone._id
+  ) {
+    throw new Error(PUBLISHED_SCOPE_DENIAL);
+  }
+}
+
+function assertPublishedScopeRevisionLineage(
+  revision: Doc<"submilestoneScopeRevisions">,
+  contract: Doc<"submilestoneScopeContracts">
+) {
+  if (
+    revision.brokerageId !== contract.brokerageId ||
+    revision.organizationId !== contract.organizationId ||
+    revision.proposalId !== contract.proposalId ||
+    revision.proposalSubmilestoneId !== contract.proposalSubmilestoneId ||
+    revision.contractId !== contract._id
+  ) {
+    throw new Error(PUBLISHED_SCOPE_DENIAL);
+  }
+}
+
+async function scopeAuthorDisplayName(ctx: QueryCtx, workosUserId: string) {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_workos_user_id", (query) =>
+      query.eq("workosUserId", workosUserId)
+    )
+    .first();
+  return user?.name?.trim() || workosUserId;
+}
+
+async function projectPublishedScopeHistory(
+  ctx: QueryCtx,
+  contract: Doc<"submilestoneScopeContracts">
+) {
+  const rows = await ctx.db
+    .query("submilestoneScopeRevisions")
+    .withIndex("by_contractId_and_version", (query) =>
+      query.eq("contractId", contract._id)
+    )
+    .order("asc")
+    .collect();
+
+  const revisions: PublishedScopeRevisionProjection[] = [];
+  for (const revision of rows) {
+    // Draft rows, including a successor draft, are intentionally omitted from
+    // this projection.  Do not expose `latestVersion`, active-draft pointers,
+    // or any other metadata that would let the recipient infer their presence.
+    if (revision.status !== "published") {
+      continue;
+    }
+    assertPublishedScopeRevisionLineage(revision, contract);
+    revisions.push({
+      _id: revision._id,
+      version: revision.version,
+      status: "published" as const,
+      authoredByWorkosUserId: revision.authoredByWorkosUserId,
+      authoredByDisplayName: await scopeAuthorDisplayName(
+        ctx,
+        revision.authoredByWorkosUserId
+      ),
+      createdAt: revision.createdAt,
+      savedAt: revision.savedAt,
+      ...(revision.publishedByWorkosUserId
+        ? { publishedByWorkosUserId: revision.publishedByWorkosUserId }
+        : {}),
+      ...(revision.publishedAt ? { publishedAt: revision.publishedAt } : {}),
+      ...(revision.changeReason ? { changeReason: revision.changeReason } : {}),
+      isEffective: contract.effectiveRevisionId === revision._id,
+    });
+  }
+
+  if (revisions.length === 0) {
+    return null;
+  }
+
+  const effectiveRevisionId = revisions.some((revision) => revision.isEffective)
+    ? contract.effectiveRevisionId
+    : undefined;
+  return {
+    ...(effectiveRevisionId ? { effectiveRevisionId } : {}),
+    revisions,
+  };
 }
 
 function parseScopeTiptapJson(value: string) {
@@ -538,6 +752,71 @@ export async function publishSavedV1ScopeDraftsForProposal(
   }
   return { publishedRevisionIds, skippedEmptyRevisionIds };
 }
+
+/**
+ * Builder-facing published history.  This is intentionally separate from the
+ * backoffice history query: only immutable published revisions cross the
+ * builder boundary, and the result contains no active-draft pointer, latest
+ * version counter, or draft row/content.
+ */
+export const getBuilderSubmilestoneScopeHistory = builderQuery
+  .input({
+    proposalSubmilestoneId: v.id("proposalSubmilestones"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(publishedScopeHistoryValidator)
+  .handler(async (ctx, args) => {
+    const { proposal, submilestone } = await authorizeBuilderScopeRead(
+      ctx,
+      ctx.viewer,
+      args.proposalSubmilestoneId,
+      args.workosOrganizationId
+    );
+    const contract = await findContract(ctx, submilestone._id);
+    if (!contract) {
+      return null;
+    }
+    assertScopeContractLineage(contract, proposal, submilestone);
+    return await projectPublishedScopeHistory(ctx, contract);
+  })
+  .public();
+
+/**
+ * Load one immutable published Scope body for a builder-facing surface.  A
+ * draft revision ID is rejected with the same generic denial as an unrelated
+ * revision so callers cannot use this seam to probe authoring state.
+ */
+export const getBuilderSubmilestoneScopeRevisionContent = builderQuery
+  .input({
+    revisionId: v.id("submilestoneScopeRevisions"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(publishedScopeRevisionContentValidator)
+  .handler(async (ctx, args) => {
+    const revision = await ctx.db.get(args.revisionId);
+    if (!revision || revision.status !== "published") {
+      throw new Error(PUBLISHED_SCOPE_DENIAL);
+    }
+    const { proposal, submilestone } = await authorizeBuilderScopeRead(
+      ctx,
+      ctx.viewer,
+      revision.proposalSubmilestoneId,
+      args.workosOrganizationId
+    );
+    const contract = await ctx.db.get(revision.contractId);
+    if (!contract) {
+      throw new Error(PUBLISHED_SCOPE_DENIAL);
+    }
+    assertScopeContractLineage(contract, proposal, submilestone);
+    assertPublishedScopeRevisionLineage(revision, contract);
+    return {
+      _id: revision._id,
+      version: revision.version,
+      status: "published" as const,
+      scopeOfWorkTiptapJson: revision.scopeOfWorkTiptapJson,
+    };
+  })
+  .public();
 
 export const getSubmilestoneScopeHistory = backofficeQuery
   .input({

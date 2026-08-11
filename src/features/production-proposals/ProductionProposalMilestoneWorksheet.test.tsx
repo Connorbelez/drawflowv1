@@ -10,6 +10,15 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+const scopeControllerPropsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("#/features/submilestone-scope/ProposalSubmilestoneScopeController.tsx", () => ({
+  ProposalSubmilestoneScopeController: (props: Record<string, unknown>) => {
+    scopeControllerPropsMock(props);
+    return <output data-testid="proposal-scope-revision-controller">revision</output>;
+  },
+}));
+
 import {
   PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS,
   ProductionProposalMilestoneWorksheet,
@@ -214,5 +223,62 @@ describe("ProductionProposalMilestoneWorksheet", () => {
 
     expect(toggle.textContent).toContain("Cascade: On");
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("uses the shared Scope revision controller after first submission", () => {
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={{
+          ...detail,
+          proposal: { ...detail.proposal, status: "submitted", submittedAt: 123 },
+          submilestones: detail.submilestones?.map((submilestone) => ({
+            ...submilestone,
+            _id: "proposal-submilestone-1",
+          })),
+        }}
+        scopeRoute="backoffice-proposal"
+        scopeWorkosOrganizationId="org-1"
+        templateTitle="4-plex Proposal"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-details-four-plex-draw-01")
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-four-plex-draw-01"
+    );
+    expect(
+      within(sheet).getByTestId("proposal-scope-revision-controller")
+    ).toBeTruthy();
+    expect(scopeControllerPropsMock.mock.calls.some(([props]) =>
+      props.proposalSubmilestoneId === "proposal-submilestone-1" &&
+      props.scopeRoute === "backoffice-proposal" &&
+      props.workosOrganizationId === "org-1"
+    )).toBe(true);
+  });
+
+  test("keeps the legacy v1 Scope editor before first submission", () => {
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={detail}
+        scopeRoute="backoffice-proposal"
+        scopeWorkosOrganizationId="org-1"
+        templateTitle="4-plex Proposal"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-details-four-plex-draw-01")
+    );
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-four-plex-draw-01"
+    );
+    expect(
+      within(sheet).getByTestId("timeline-setup-submilestone-description-dc-ed")
+    ).toBeTruthy();
+    expect(
+      within(sheet).queryByTestId("proposal-scope-revision-controller")
+    ).toBeNull();
   });
 });

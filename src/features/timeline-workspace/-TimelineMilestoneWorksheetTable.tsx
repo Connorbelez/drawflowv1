@@ -126,6 +126,8 @@ import {
   type IsometricIconKey,
 } from "./-timeline-share-snapshot.ts";
 import type { TimelineSubmilestoneFieldGuidance } from "./-timeline-milestone-submilestones.ts";
+import { ProposalSubmilestoneScopeController } from "../submilestone-scope/ProposalSubmilestoneScopeController.tsx";
+import type { ScopeRevisionSurfaceRoute } from "../submilestone-scope/SubmilestoneScopeRevisionSurface.tsx";
 import "./-timeline-setup-flow.css";
 import {
   ScheduleWindowPicker,
@@ -221,6 +223,7 @@ export interface TimelineMilestoneWorksheetSubMilestone {
   name: string;
   percentageBps?: number;
   percentageText?: string;
+  proposalSubmilestoneId?: string;
   scopeOfWorkTiptapJson?: string;
   startDay?: number;
 }
@@ -350,9 +353,12 @@ export function TimelineMilestoneWorksheetTable({
   onScheduleDisplayModeChange,
   planningFocusScopeKey,
   projectAddress,
+  proposalSubmittedAt,
   proposedStartDate,
   rows,
   scheduleDisplayMode = proposedStartDate ? "dates" : "tOffsets",
+  scopeRoute,
+  scopeWorkosOrganizationId,
   showHeading = false,
   targetBudgetCents,
   templateTitle,
@@ -379,9 +385,12 @@ export function TimelineMilestoneWorksheetTable({
   onScheduleDisplayModeChange?: (mode: TimelineScheduleDisplayMode) => void;
   planningFocusScopeKey?: string;
   projectAddress?: string;
+  proposalSubmittedAt?: number;
   proposedStartDate?: string;
   rows: TimelineMilestoneWorksheetRow[];
   scheduleDisplayMode?: TimelineScheduleDisplayMode;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  scopeWorkosOrganizationId?: string;
   showHeading?: boolean;
   targetBudgetCents?: number;
   templateTitle: string;
@@ -1282,10 +1291,13 @@ export function TimelineMilestoneWorksheetTable({
             updateSubMilestone(row.key, subMilestoneId, patch, meta)
           }
           placement={placement}
+          proposalSubmittedAt={proposalSubmittedAt}
           proposedStartDate={proposedStartDate}
           row={row}
           scheduleDisplayMode={scheduleDisplayMode}
           scopeEditorResetVersion={scopeEditorResetVersion}
+          scopeRoute={scopeRoute}
+          scopeWorkosOrganizationId={scopeWorkosOrganizationId}
         />
         {mode === "settings" && placement === "sheet" ? (
           <Button
@@ -1708,9 +1720,7 @@ export function TimelineMilestoneWorksheetTable({
                 onRemoveSubMilestone={(subMilestoneId) =>
                   removeSubMilestone(detailsSheetRow.key, subMilestoneId)
                 }
-                onSubMilestoneEditorDirtyChange={
-                  reportSubMilestoneEditorDirty
-                }
+                onSubMilestoneEditorDirtyChange={reportSubMilestoneEditorDirty}
                 onUpdateCostItem={(itemId, payload) =>
                   updateCostItem(detailsSheetRow.key, itemId, payload)
                 }
@@ -1722,6 +1732,7 @@ export function TimelineMilestoneWorksheetTable({
                     meta
                   )
                 }
+                proposalSubmittedAt={proposalSubmittedAt}
                 proposedStartDate={proposedStartDate}
                 row={detailsSheetRow}
                 scheduleDisplayMode={scheduleDisplayMode}
@@ -1730,6 +1741,8 @@ export function TimelineMilestoneWorksheetTable({
                     `${detailsSheetRow.key}:${detailsSheetSubMilestone.id}:scope`
                   ] ?? 0
                 }
+                scopeRoute={scopeRoute}
+                scopeWorkosOrganizationId={scopeWorkosOrganizationId}
                 subMilestone={detailsSheetSubMilestone}
               />
             ) : detailsSheetRow ? (
@@ -4013,9 +4026,12 @@ function SubMilestoneEditor({
   onRemoveSubMilestone,
   onSubMilestoneEditorDirtyChange,
   onUpdateSubMilestone,
+  proposalSubmittedAt,
   proposedStartDate,
   row,
   scheduleDisplayMode,
+  scopeRoute,
+  scopeWorkosOrganizationId,
   scopeEditorResetVersion = 0,
 }: {
   activeSubMilestoneId?: string;
@@ -4037,9 +4053,12 @@ function SubMilestoneEditor({
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void | Promise<void>;
   onCommitField: () => void;
+  proposalSubmittedAt?: number;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  scopeWorkosOrganizationId?: string;
   scopeEditorResetVersion?: number;
 }) {
   const subMilestones = row.subMilestoneDetails;
@@ -4204,9 +4223,12 @@ function SubMilestoneEditor({
           onDirtyChange={reportScopeDirty}
           onRemoveSubMilestone={onRemoveSubMilestone}
           onUpdateSubMilestone={onUpdateSubMilestone}
+          proposalSubmittedAt={proposalSubmittedAt}
           proposedStartDate={proposedStartDate}
           row={row}
           scheduleDisplayMode={scheduleDisplayMode}
+          scopeRoute={scopeRoute}
+          scopeWorkosOrganizationId={scopeWorkosOrganizationId}
         />
       </section>
     </div>
@@ -4221,9 +4243,12 @@ function SubMilestoneDetailEditor({
   onDirtyChange,
   onRemoveSubMilestone,
   onUpdateSubMilestone,
+  proposalSubmittedAt,
   proposedStartDate,
   row,
   scheduleDisplayMode,
+  scopeRoute,
+  scopeWorkosOrganizationId,
 }: {
   activeSubMilestone?: TimelineMilestoneWorksheetSubMilestone;
   mode: WorksheetMode;
@@ -4236,9 +4261,12 @@ function SubMilestoneDetailEditor({
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void | Promise<void>;
+  proposalSubmittedAt?: number;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  scopeWorkosOrganizationId?: string;
 }) {
   const valueLabel = mode === "settings" ? "PoC" : "Budget";
   const initialScopeValue = activeSubMilestone?.scopeOfWorkTiptapJson ?? "";
@@ -4366,37 +4394,46 @@ function SubMilestoneDetailEditor({
           value={activeSubMilestone.name}
         />
       </label>
-      <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
-        <div className="flex items-center justify-between gap-2">
-          <span>Scope</span>
-          <Button
-            data-testid={`timeline-setup-submilestone-scope-save-${activeSubMilestone.id}`}
-            disabled={!scopeDirty || scopeSaving}
-            onClick={saveScope}
-            size="sm"
-            type="button"
-          >
-            {scopeSaving ? "Saving…" : "Save scope"}
-          </Button>
-        </div>
-        <FieldRichTextEditor
-          ariaLabel={`${sanitizeSubMilestoneName(activeSubMilestone.name)} scope`}
-          editable={!scopeSaving}
-          editorMinHeightClass="[&_.ProseMirror]:min-h-44"
-          onChange={(html) => setScopeDraft(html)}
-          onDocumentChange={(document) =>
-            setScopeDraft(stringifyTiptapDocument(document))
-          }
-          placeholder="Describe the contractual work scope…"
-          testId={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
-          value={parseTiptapEditorValue(scopeDraft)}
+      {mode === "setup" && scopeRoute && proposalSubmittedAt !== undefined ? (
+        <ProposalSubmilestoneScopeController
+          onDirtyChange={onDirtyChange}
+          proposalSubmilestoneId={activeSubMilestone.proposalSubmilestoneId}
+          scopeRoute={scopeRoute}
+          workosOrganizationId={scopeWorkosOrganizationId}
         />
-        {scopeSaveError ? (
-          <p className="text-destructive text-xs" role="alert">
-            {scopeSaveError}
-          </p>
-        ) : null}
-      </div>
+      ) : (
+        <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
+          <div className="flex items-center justify-between gap-2">
+            <span>Scope</span>
+            <Button
+              data-testid={`timeline-setup-submilestone-scope-save-${activeSubMilestone.id}`}
+              disabled={!scopeDirty || scopeSaving}
+              onClick={saveScope}
+              size="sm"
+              type="button"
+            >
+              {scopeSaving ? "Saving…" : "Save scope"}
+            </Button>
+          </div>
+          <FieldRichTextEditor
+            ariaLabel={`${sanitizeSubMilestoneName(activeSubMilestone.name)} scope`}
+            editable={!scopeSaving}
+            editorMinHeightClass="[&_.ProseMirror]:min-h-44"
+            onChange={(html) => setScopeDraft(html)}
+            onDocumentChange={(document) =>
+              setScopeDraft(stringifyTiptapDocument(document))
+            }
+            placeholder="Describe the contractual work scope…"
+            testId={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
+            value={parseTiptapEditorValue(scopeDraft)}
+          />
+          {scopeSaveError ? (
+            <p className="text-destructive text-xs" role="alert">
+              {scopeSaveError}
+            </p>
+          ) : null}
+        </div>
+      )}
       <div className="timeline-submilestone-detail-grid">
         <div className="timeline-submilestone-detail-field">
           <span id={valueFieldLabelId}>{valueLabel}</span>
@@ -4626,11 +4663,14 @@ function SubMilestoneFocusedTabs({
   onSubMilestoneEditorDirtyChange,
   onUpdateCostItem,
   onUpdateSubMilestone,
+  proposalSubmittedAt,
   proposedStartDate,
   row,
   scheduleDisplayMode,
   subMilestone,
   scopeEditorResetVersion = 0,
+  scopeRoute,
+  scopeWorkosOrganizationId,
 }: {
   activeTab?: TimelineDetailTab;
   contractorActions?: WorksheetContractorActions;
@@ -4661,11 +4701,14 @@ function SubMilestoneFocusedTabs({
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void | Promise<void>;
+  proposalSubmittedAt?: number;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
   subMilestone: TimelineMilestoneWorksheetSubMilestone;
   scopeEditorResetVersion?: number;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  scopeWorkosOrganizationId?: string;
 }) {
   const subMilestoneName = sanitizeSubMilestoneName(subMilestone.name);
   const reportScopeDirty = useCallback(
@@ -4734,9 +4777,12 @@ function SubMilestoneFocusedTabs({
             onDirtyChange={reportScopeDirty}
             onRemoveSubMilestone={onRemoveSubMilestone}
             onUpdateSubMilestone={onUpdateSubMilestone}
+            proposalSubmittedAt={proposalSubmittedAt}
             proposedStartDate={proposedStartDate}
             row={row}
             scheduleDisplayMode={scheduleDisplayMode}
+            scopeRoute={scopeRoute}
+            scopeWorkosOrganizationId={scopeWorkosOrganizationId}
           />
         </section>
       </TabsPanel>
@@ -4989,9 +5035,12 @@ function MilestoneExpandedTabs({
   onUpdateSubMilestone,
   mode,
   placement = "expanded",
+  proposalSubmittedAt,
   proposedStartDate,
   row,
   scheduleDisplayMode,
+  scopeRoute,
+  scopeWorkosOrganizationId,
 }: {
   activeSubMilestoneId?: string;
   activeTab?: TimelineDetailTab;
@@ -5029,9 +5078,12 @@ function MilestoneExpandedTabs({
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void | Promise<void>;
   placement?: "expanded" | "sheet";
+  proposalSubmittedAt?: number;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
+  scopeRoute?: ScopeRevisionSurfaceRoute;
+  scopeWorkosOrganizationId?: string;
 }) {
   return (
     <Tabs
@@ -5080,10 +5132,13 @@ function MilestoneExpandedTabs({
           onRemoveSubMilestone={onRemoveSubMilestone}
           onSubMilestoneEditorDirtyChange={onSubMilestoneEditorDirtyChange}
           onUpdateSubMilestone={onUpdateSubMilestone}
+          proposalSubmittedAt={proposalSubmittedAt}
           proposedStartDate={proposedStartDate}
           row={row}
           scheduleDisplayMode={scheduleDisplayMode}
           scopeEditorResetVersion={scopeEditorResetVersion}
+          scopeRoute={scopeRoute}
+          scopeWorkosOrganizationId={scopeWorkosOrganizationId}
         />
       </TabsPanel>
       {mode === "setup" ? (
