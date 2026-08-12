@@ -773,6 +773,49 @@ describe("ProductionBuildDetailSurface", () => {
     );
   });
 
+  test.each(["builder", "lender"] as const)(
+    "passes canonical active overdue health to the detail sheet for %s viewers",
+    (viewerRole) => {
+      render(
+        <ProductionBuildDetailSurface
+          activeTab="details"
+          detail={{
+            ...detail,
+            milestones: [
+              {
+                ...detail.milestones[0],
+                status: "in_progress",
+              },
+            ],
+            submilestones: [
+              {
+                ...detail.submilestones[0],
+                durationDays: 4,
+                startDay: 0,
+                status: "in_progress",
+              },
+            ],
+          }}
+          milestoneKey="foundation"
+          onChangeRail={vi.fn()}
+          onChangeTab={vi.fn()}
+          rail="open"
+          timelineWorkspace={{
+            ...timelineWorkspace,
+            plan: { ...timelineWorkspace.plan, currentDay: 7 },
+          }}
+          viewerRole={viewerRole}
+        />,
+      );
+
+      const row = screen.getByTestId("milestone-scope-row-excavation");
+      expect(within(row).getByText("In progress")).toBeTruthy();
+      expect(
+        within(row).getByText("Behind schedule · 4 days overdue"),
+      ).toBeTruthy();
+    },
+  );
+
   test("renders Google Maps satellite imagery for the build site photos", () => {
     vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
 

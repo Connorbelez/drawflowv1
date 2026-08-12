@@ -162,6 +162,7 @@ import {
   type MilestoneStartDialogRequest,
   type MilestoneStartSource,
 } from "./MilestoneStartDialog.tsx";
+import { deriveScheduleHealth } from "./scheduleHealth";
 import { SitePhotoCarousel } from "./SitePhotoCarousel";
 import {
   type SiteVisitGuidance,
@@ -2612,7 +2613,12 @@ function CurrentMilestoneHorizonItem({
     viewerRole === "lender"
       ? "Review milestone completion"
       : "Complete Milestone";
-  const daysBehind = Math.max(0, currentDay - milestone.dayEnd);
+  const scheduleHealth = deriveScheduleHealth({
+    currentDay,
+    endDay: milestone.dayEnd,
+    lifecycleStatus: milestone.status,
+  });
+  const daysBehind = scheduleHealth.overdueDays;
   const itemTestId = isOperationallyActive
     ? `current-milestone-${milestone.key}`
     : `${lane}-milestone-${milestone.key}`;
@@ -6341,8 +6347,12 @@ function resolveProductionMilestoneKanbanState({
     projection,
   );
   const hasStarted = productionMilestoneHasStartedWorkflow(milestone, draw);
-  const isPastEnd = currentDay > milestone.dayEnd;
-  if (isPastEnd) {
+  const scheduleHealth = deriveScheduleHealth({
+    currentDay,
+    endDay: milestone.dayEnd,
+    lifecycleStatus: milestone.status,
+  });
+  if (scheduleHealth.health === "behind_schedule") {
     return {
       canStartWork: !hasStarted,
       column: "BehindSchedule",
@@ -6501,6 +6511,12 @@ function buildMilestoneSheetData(
         submilestone.startDay ??
         milestone.dayStart + Math.max(0, submilestone.order - 1);
       const durationDays = Math.max(1, submilestone.durationDays ?? 1);
+      const endDay = startDay + durationDays - 1;
+      const scheduleHealth = deriveScheduleHealth({
+        currentDay,
+        endDay,
+        lifecycleStatus: submilestone.status,
+      });
       const assignments = (detail.milestoneContractorAssignments ?? [])
         .filter(
           (assignment) =>
@@ -6581,7 +6597,7 @@ function buildMilestoneSheetData(
           `Complete and document the ${submilestone.name.toLowerCase()} scope against the approved construction roadmap.`,
         endDate: addDaysSafe(
           detail.build.startDate,
-          startDay + durationDays - 1,
+          endDay,
         ),
         evidence,
         fieldNote: submilestone.fieldNote,
@@ -6589,6 +6605,7 @@ function buildMilestoneSheetData(
         materials,
         name: submilestone.name,
         order: submilestone.order,
+        scheduleHealth,
         siteVisits,
         startDate: addDaysSafe(detail.build.startDate, startDay),
         status: submilestone.status,
@@ -6680,7 +6697,14 @@ function buildCurrentBuildOverview(
     (milestone) => !isMilestoneApprovedForDrawAvailability(milestone),
   );
   const behindSchedule = incompleteMilestones
-    .filter((milestone) => currentDay > milestone.dayEnd)
+    .filter(
+      (milestone) =>
+        deriveScheduleHealth({
+          currentDay,
+          endDay: milestone.dayEnd,
+          lifecycleStatus: milestone.status,
+        }).health === "behind_schedule",
+    )
     .sort(compareMilestonesMostOverdueFirst);
   const behindScheduleKeys = new Set(
     behindSchedule.map((milestone) => milestone.key),

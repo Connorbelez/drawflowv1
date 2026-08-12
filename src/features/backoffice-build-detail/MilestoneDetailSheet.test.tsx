@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
@@ -43,6 +50,7 @@ const sheetData: MilestoneSheetData = {
       order: 1,
       siteVisits: [],
       startDate: "2026-08-04",
+      scheduleHealth: { health: "on_track", overdueDays: 0 },
       status: "planned",
       workflowRevision: 7,
     },
@@ -62,6 +70,23 @@ const sheetData: MilestoneSheetData = {
       startDate: "2026-08-09",
       status: "complete",
       workflowRevision: 11,
+    },
+    {
+      assignments: [],
+      budgetCents: 10_000_000,
+      description: "Complete the drainage and electrical rough-in scope.",
+      endDate: "2026-08-03",
+      evidence: [],
+      key: "dc-ed",
+      materials: [],
+      name: "DC/ED",
+      order: 3,
+      scheduleHealth: { health: "behind_schedule", overdueDays: 4 },
+      siteVisits: [],
+      startDate: "2026-07-30",
+      status: "in_progress",
+      submilestoneId: "submilestone-dc-ed",
+      workflowRevision: 12,
     },
   ],
 };
@@ -88,6 +113,48 @@ describe("MilestoneDetailSheet", () => {
     expect(
       screen.getAllByRole("button", { name: "Open Sub-milestone" })[0],
     ).toHaveProperty("disabled", true);
+  });
+
+  test("retains In progress while showing accessible active overdue health", () => {
+    const row = () => screen.getByTestId("milestone-scope-row-dc-ed");
+    renderSheet();
+
+    expect(within(row()).getByText("In progress")).toBeTruthy();
+    expect(
+      within(row()).getByText("Behind schedule · 4 days overdue"),
+    ).toBeTruthy();
+    expect(
+      within(row()).getByLabelText(
+        "In progress, behind schedule, 4 days overdue; planned end 2026-08-03",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("does not give planned or complete rows the active overdue treatment", () => {
+    const firstChild = sheetData.submilestones?.[0];
+    const secondChild = sheetData.submilestones?.[1];
+    if (!firstChild || !secondChild) {
+      throw new Error("Expected child fixtures.");
+    }
+
+    renderSheet({
+      data: {
+        ...sheetData,
+        submilestones: [
+          {
+            ...firstChild,
+            scheduleHealth: { health: "behind_schedule", overdueDays: 4 },
+          },
+          {
+            ...secondChild,
+            scheduleHealth: { health: "behind_schedule", overdueDays: 4 },
+            status: "complete",
+          },
+        ],
+      },
+    });
+
+    expect(screen.queryByText("Behind schedule · 4 days overdue")).toBeNull();
   });
 
   test("routes the child ledger to the canonical Overview exactly once", () => {
