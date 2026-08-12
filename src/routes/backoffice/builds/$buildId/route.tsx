@@ -843,6 +843,7 @@ function RouteComponent() {
     };
     const drawCapabilities: DrawWorkflowCapabilities = {
       canApprove: Boolean(actions.approveDraw),
+      canOpenCanonical: true,
       canOpenReview:
         viewerCapacity !== "builder" && viewerCapacity !== "builder-staff",
       canReject: Boolean(actions.rejectDraw),

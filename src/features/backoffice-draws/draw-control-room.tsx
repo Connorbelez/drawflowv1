@@ -200,6 +200,7 @@ export function DrawControlRoom({
   const workflowCapabilities = {
     ...(drawCapabilities ?? {
       canApprove: Boolean(onApproveDraw),
+      canOpenCanonical: true,
       canOpenReview: true,
       canReject: Boolean(onRejectDraw),
       canRelease: false,

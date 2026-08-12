@@ -85,6 +85,7 @@ function RouteComponent() {
   ]);
   const drawCapabilities: DrawWorkflowCapabilities = {
     canApprove: canMakeFinalDecision && Boolean(onApproveDraw),
+    canOpenCanonical: true,
     canOpenReview: true,
     canReject: canMakeFinalDecision && Boolean(onRejectDraw),
     canRelease: false,

@@ -701,6 +701,7 @@ describe("BuildFundingWorkspace", () => {
       <BuildFundingWorkspace
         drawCapabilities={{
           canApprove: true,
+          canOpenCanonical: true,
           canOpenReview: true,
           canReject: true,
           canRelease: true,
@@ -773,6 +774,7 @@ describe("BuildFundingWorkspace", () => {
       <BuildFundingWorkspace
         drawCapabilities={{
           canApprove: false,
+          canOpenCanonical: true,
           canOpenReview: true,
           canReject: false,
           canRelease: false,

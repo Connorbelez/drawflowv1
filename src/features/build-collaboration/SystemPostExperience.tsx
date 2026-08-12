@@ -7,6 +7,7 @@
 
 import {
   AlertTriangle,
+  ArrowRight,
   Banknote,
   CalendarCheck,
   CheckCircle2,
@@ -47,6 +48,14 @@ import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
+import {
+  type DrawWorkflowActionMetadata,
+  type DrawWorkflowCapabilities,
+  type DrawWorkflowStatus,
+  drawWorkflowReadCapabilitiesForRoles,
+  drawWorkflowRouteContextForRoles,
+  resolveDrawWorkflow,
+} from "../draw-workflow/drawWorkflow.ts";
 import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
 import {
   type CollaborationActionItem,
@@ -130,6 +139,7 @@ export function SystemPostExperience({
   brief,
   buildId,
   coordinationVisible,
+  drawCapabilities,
   entry,
   mutationsAllowed,
   onCreateActionItem,
@@ -139,10 +149,13 @@ export function SystemPostExperience({
   planningDiffsLoadingMore,
   planningReconciliation,
   tagOptions,
+  viewerRole,
+  viewerRoles,
 }: {
   brief?: ReactNode;
   buildId: Id<"activeBuilds">;
   coordinationVisible: boolean;
+  drawCapabilities?: DrawWorkflowCapabilities;
   entry: CollaborationFeedPostEntry;
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
@@ -193,12 +206,15 @@ export function SystemPostExperience({
           coordination={systemPost.drawCoordination}
           coordinationItems={coordinationItems}
           coordinationVisible={coordinationVisible}
+          drawCapabilities={drawCapabilities}
           facts={systemPost.drawFacts}
           mutationsAllowed={mutationsAllowed}
           onCreateActionItem={onCreateActionItem}
           onOpenActionItem={onOpenActionItem}
           organizationId={organizationId}
           postId={entry.post._id}
+          viewerRole={viewerRole}
+          viewerRoles={viewerRoles}
         />
       ) : (
         <MilestoneBoardExperience
@@ -1264,23 +1280,29 @@ function DrawBoardlessExperience({
   coordination,
   coordinationItems,
   coordinationVisible,
+  drawCapabilities,
   facts,
   mutationsAllowed,
   onCreateActionItem,
   onOpenActionItem,
   organizationId,
   postId,
+  viewerRole,
+  viewerRoles,
 }: {
   buildId: Id<"activeBuilds">;
   coordination?: DrawCoordinationState;
   coordinationItems: CollaborationActionItem[];
   coordinationVisible: boolean;
+  drawCapabilities?: DrawWorkflowCapabilities;
   facts?: SystemDrawFacts;
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onOpenActionItem: (target: BuildDetailTarget) => void;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
+  viewerRole?: string;
+  viewerRoles?: string[];
 }) {
   if (!facts) {
     return (
@@ -1300,6 +1322,16 @@ function DrawBoardlessExperience({
 
   const step = drawLifecycleStep(facts);
   const amount = facts.request?.amountCents ?? facts.planned?.amountCents;
+  const roles = viewerRoles ?? (viewerRole ? [viewerRole] : []);
+  const workflow = resolveDrawWorkflow({
+    capabilities:
+      drawCapabilities ?? drawWorkflowReadCapabilitiesForRoles(roles),
+    drawId: facts.request?._id ?? facts.planned?._id,
+    routeContext: drawWorkflowRouteContextForRoles(roles),
+    status: drawWorkflowStatus(facts),
+    viewerRoles: roles,
+  });
+  const drawTarget = workflow.target;
 
   return (
     <div className="space-y-4" data-testid="system-post-draw-facts">
@@ -1323,6 +1355,16 @@ function DrawBoardlessExperience({
       <Frame>
         <FramePanel className="space-y-5 p-4 sm:p-5">
           <DrawLifecycleStepper active={step} />
+          {workflow.actions.open && drawTarget ? (
+            <DrawWorkflowEntrypoint
+              action={workflow.actions.open}
+              drawLabel={
+                facts.request?.displayId ?? facts.planned?.label ?? "Draw"
+              }
+              onOpenActionItem={onOpenActionItem}
+              target={drawTarget}
+            />
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-3">
             <FactCard
               icon={<Banknote />}
@@ -1380,6 +1422,45 @@ function DrawBoardlessExperience({
         </FramePanel>
       </Frame>
     </div>
+  );
+}
+
+function DrawWorkflowEntrypoint({
+  action,
+  drawLabel,
+  onOpenActionItem,
+  target,
+}: {
+  action: DrawWorkflowActionMetadata;
+  drawLabel: string;
+  onOpenActionItem: (target: BuildDetailTarget) => void;
+  target: BuildDetailTarget;
+}) {
+  return (
+    <Frame>
+      <FramePanel className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-medium text-sm">Canonical Draw workflow</p>
+          <p className="text-muted-foreground text-xs">
+            {action.context === "decision"
+              ? "Open the lender admin decision context for this Draw."
+              : action.context === "review"
+                ? "Open the canonical evidence and review context for this Draw."
+                : "Open the canonical Draw record and its read-only history when applicable."}
+          </p>
+        </div>
+        <Button
+          aria-label={`${action.label} ${drawLabel}`}
+          data-testid="system-post-draw-open"
+          onClick={() => onOpenActionItem(target)}
+          size="sm"
+          type="button"
+        >
+          <ArrowRight aria-hidden="true" className="size-4" />
+          {action.label}
+        </Button>
+      </FramePanel>
+    </Frame>
   );
 }
 
@@ -1992,6 +2073,32 @@ function drawLifecycleStep(facts: SystemDrawFacts): DrawLifecycleStep {
     return "requested";
   }
   return "scheduled";
+}
+
+function drawWorkflowStatus(facts: SystemDrawFacts): DrawWorkflowStatus {
+  const status = facts.request?.status ?? facts.planned?.status;
+  if (status) {
+    return status === "approved" ? "approved_for_release" : status;
+  }
+  if (facts.release.state === "released") {
+    return "released";
+  }
+  if (
+    facts.approval.state === "approved" ||
+    facts.release.state === "approved_for_release"
+  ) {
+    return "approved_for_release";
+  }
+  if (facts.review.state === "ready_for_admin") {
+    return "ready_for_admin";
+  }
+  if (facts.review.state === "in_review") {
+    return "in_review";
+  }
+  if (facts.request) {
+    return "requested";
+  }
+  return "planned";
 }
 
 function drawLifecycleLabel(state: DrawLifecycleStep) {

@@ -16,12 +16,14 @@ import {
   parseBuildDetailFocus,
 } from "../build-detail-targets/buildDetailTarget.ts";
 import { SubmilestoneDetailSheet } from "../build-submilestone-detail/SubmilestoneDetailSheet.tsx";
+import type { DrawWorkflowCapabilities } from "../draw-workflow/drawWorkflow.ts";
 import { BuildCollaborationFeed } from "./BuildCollaborationFeed.tsx";
 
 export function BuildCollaborationWorkspace({
   buildId,
   detailSheetHost,
   detailTab,
+  drawCapabilities,
   focusedReference,
   organizationId,
   onOpenReference,
@@ -31,6 +33,7 @@ export function BuildCollaborationWorkspace({
   buildId: string;
   detailSheetHost?: BuildDetailSheetHostState;
   detailTab?: BuildSubmilestoneDetailTab;
+  drawCapabilities?: DrawWorkflowCapabilities;
   focusedReference?: string;
   organizationId?: string;
   onOpenReference?: (reference: {
@@ -119,7 +122,7 @@ export function BuildCollaborationWorkspace({
               new URL(window.location.href).searchParams.get("detailTab") ??
               undefined,
           },
-          navigate: !onOpenReference,
+          navigate: reference.entityKind === "draw" || !onOpenReference,
         });
       }
       onOpenReference?.(reference);
@@ -142,6 +145,7 @@ export function BuildCollaborationWorkspace({
           detailCanGoBack={host.controller.canGoBack}
           detailCanGoForward={host.controller.canGoForward}
           detailResolutionState={host.resolutionState}
+          drawCapabilities={drawCapabilities}
           focusedReference={localFocusedReference}
           onCloseDetailTarget={closeDetailTarget}
           onDetailGoBack={host.controller.back}

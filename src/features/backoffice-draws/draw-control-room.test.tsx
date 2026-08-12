@@ -60,6 +60,7 @@ const inReviewData = {
 
 const adminCapabilities: DrawWorkflowCapabilities = {
   canApprove: false,
+  canOpenCanonical: true,
   canOpenReview: true,
   canReject: false,
   canRelease: false,

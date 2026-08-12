@@ -342,6 +342,7 @@ export function BuildFundingWorkspace({
   const lenderView = viewerRole === "lender";
   const workflowCapabilities = drawCapabilities ?? {
     canApprove: Boolean(onApproveDraw),
+    canOpenCanonical: lenderView,
     canOpenReview: lenderView,
     canReject: Boolean(onRejectDraw),
     canRelease: Boolean(onReleaseDraw),

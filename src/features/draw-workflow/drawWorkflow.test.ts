@@ -1,12 +1,17 @@
 import { describe, expect, test } from "vitest";
 
+import type { Id } from "../../../convex/_generated/dataModel";
 import {
+  drawWorkflowReadCapabilitiesForRoles,
+  drawWorkflowRouteContextForRoles,
   getDrawWorkflowActions,
+  resolveDrawWorkflow,
   type DrawWorkflowCapabilities,
 } from "./drawWorkflow.ts";
 
 const lenderCapabilities: DrawWorkflowCapabilities = {
   canApprove: true,
+  canOpenCanonical: true,
   canOpenReview: true,
   canReject: true,
   canRelease: true,
@@ -95,6 +100,7 @@ describe("getDrawWorkflowActions", () => {
       canonicalIdAvailable: true,
       capabilities: {
         canApprove: false,
+        canOpenCanonical: false,
         canOpenReview: false,
         canReject: false,
         canRelease: false,
@@ -108,4 +114,102 @@ describe("getDrawWorkflowActions", () => {
     expect(actions.primary).toBeUndefined();
     expect(actions.secondary).toBeUndefined();
   });
+
+  test("uses the lender admin decision context for ready Draws", () => {
+    const resolution = resolveDrawWorkflow({
+      capabilities: lenderCapabilities,
+      drawId: "draw-request-1" as Id<"activeBuildDrawRequests">,
+      routeContext: "lender_admin",
+      status: "ready_for_admin",
+      viewerRoles: ["admin"],
+    });
+
+    expect(resolution.target).toEqual({
+      drawId: "draw-request-1",
+      kind: "draw",
+    });
+    expect(resolution.actions.open).toMatchObject({
+      context: "decision",
+      kind: "navigation",
+      label: "Open review",
+    });
+    expect(resolution.actions.primary?.kind).toBe("mutation");
+  });
+
+  test("gives recognized builders read-only access to Draw history", () => {
+    const capabilities = drawWorkflowReadCapabilitiesForRoles(["builder"]);
+    const resolution = resolveDrawWorkflow({
+      capabilities,
+      drawId: "draw-request-1" as Id<"activeBuildDrawRequests">,
+      routeContext: drawWorkflowRouteContextForRoles(["builder"]),
+      status: "released",
+      viewerRoles: ["builder"],
+    });
+
+    expect(capabilities.canOpenCanonical).toBe(true);
+    expect(resolution.actions.open).toMatchObject({
+      context: "detail",
+      label: "Open draw",
+    });
+    expect(resolution.actions.primary).toBeUndefined();
+    expect(resolution.actions.secondary).toBeUndefined();
+  });
+
+  test("does not expose a Draw entrypoint to an unauthorized role", () => {
+    const roles = ["contractor"];
+    const resolution = resolveDrawWorkflow({
+      capabilities: drawWorkflowReadCapabilitiesForRoles(roles),
+      drawId: "draw-request-1" as Id<"activeBuildDrawRequests">,
+      routeContext: drawWorkflowRouteContextForRoles(roles),
+      status: "in_review",
+      viewerRoles: roles,
+    });
+
+    expect(resolution.actions.open).toBeUndefined();
+    expect(resolution.actions.primary).toBeUndefined();
+  });
+
+  test.each([
+    "planned",
+    "approved_for_release",
+    "rejected",
+    "withdrawn",
+    "cancelled",
+    "released",
+  ] as const)("keeps %s Draws available as read-only history", (status) => {
+    const actions = getDrawWorkflowActions({
+      canonicalIdAvailable: true,
+      capabilities: drawWorkflowReadCapabilitiesForRoles(["admin"]),
+      routeContext: "lender_admin",
+      status,
+    });
+
+    expect(actions.open).toMatchObject({
+      context: "detail",
+      label: "Open draw",
+    });
+    expect(actions.primary).toBeUndefined();
+    expect(actions.secondary).toBeUndefined();
+  });
+
+  test.each([
+    ["builder", "detail", "Open draw"],
+    ["broker", "review", "Open review"],
+    ["admin", "review", "Open review"],
+  ] as const)(
+    "resolves role-specific read context for %s viewers",
+    (role, context, label) => {
+      const roles = [role];
+      const actions = getDrawWorkflowActions({
+        canonicalIdAvailable: true,
+        capabilities: drawWorkflowReadCapabilitiesForRoles(roles),
+        routeContext: drawWorkflowRouteContextForRoles(roles),
+        status: "in_review",
+      });
+
+      expect(actions.open).toMatchObject({ context, label });
+      expect(actions.primary).toBeUndefined();
+      expect(actions.secondary).toBeUndefined();
+    },
+  );
 });

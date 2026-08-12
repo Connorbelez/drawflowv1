@@ -948,6 +948,7 @@ export function ProductionBuildDetailSurface({
     drawCapabilities ??
     ({
       canApprove: Boolean(actions?.approveDraw),
+      canOpenCanonical: true,
       canOpenReview:
         viewerRole === "lender" &&
         viewerCapacity !== "builder" &&
@@ -1517,6 +1518,7 @@ export function ProductionBuildDetailSurface({
             eager
             focusedReference={effectiveFocusedReference}
             organizationId={workosOrganizationId}
+            drawCapabilities={workflowCapabilities}
             viewerCapacity={viewerCapacity}
           />
         </div>
@@ -1971,6 +1973,7 @@ function ProductionDetailsTab({
             detailTab={detailTab}
             eager={Boolean(focusedReference)}
             focusedReference={focusedReference}
+            drawCapabilities={drawCapabilities}
             onOpenReference={(reference) => {
               const nextFocus = `${reference.entityKind}:${reference.entityId}`;
               onFocusReference(nextFocus);
@@ -4134,6 +4137,7 @@ export function ProductionDrawsTable({
   const workflowCapabilities = {
     ...(drawCapabilities ?? {
       canApprove: Boolean(actions?.approveDraw),
+      canOpenCanonical: Boolean(onOpenDraw),
       canOpenReview: Boolean(onOpenDraw) && viewerRole === "lender",
       canReject: Boolean(actions?.rejectDraw),
       canRelease: Boolean(actions?.releaseDraw),
