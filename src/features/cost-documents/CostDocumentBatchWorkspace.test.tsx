@@ -197,6 +197,7 @@ describe("CostDocumentBatchWorkspace", () => {
   const addDraft = vi.fn();
   const saveDraft = vi.fn();
   const bindDraftPageAsset = vi.fn();
+  const createVendorProfile = vi.fn();
   const grantDraftCollaborator = vi.fn();
   const revokeDraftCollaborator = vi.fn();
   const setDraftStep = vi.fn();
@@ -312,6 +313,15 @@ describe("CostDocumentBatchWorkspace", () => {
     createBatch.mockResolvedValue("batch-created");
     addDraft.mockResolvedValue("draft-created");
     saveDraft.mockResolvedValue(null);
+    createVendorProfile.mockResolvedValue({
+      created: true,
+      duplicateOptions: [],
+      option: {
+        name: "Northstar Supply",
+        partyType: "supplier",
+        profileId: "vendor-profile-new",
+      },
+    });
     setDraftStep.mockResolvedValue(null);
     submitBatch.mockResolvedValue({
       batchId: "batch-1",
@@ -381,6 +391,10 @@ describe("CostDocumentBatchWorkspace", () => {
     mutationByRef.set(
       getFunctionName(api.cost_documents.saveCostDocumentDraft),
       saveDraft
+    );
+    mutationByRef.set(
+      getFunctionName(api.cost_documents.createCostDocumentVendorProfile),
+      createVendorProfile
     );
     mutationByRef.set(
       getFunctionName(api.cost_documents.bindCostDocumentDraftPageAsset),
@@ -923,6 +937,61 @@ describe("CostDocumentBatchWorkspace", () => {
     await waitFor(() =>
       expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
         "Durable first document"
+      )
+    );
+  });
+
+  test("keeps capture facts when a newly created party is selected inline", async () => {
+    currentBatch = makeBatch({
+      drafts: [
+        makeDraft({
+          _id: "draft-one" as Id<"costDocumentDrafts">,
+          title: "Initial first document",
+          vendorName: "Unresolved supplier",
+          vendorProfileId: undefined,
+        }),
+        makeDraft({
+          _id: "draft-two" as Id<"costDocumentDrafts">,
+          order: 2,
+          title: "Second document",
+        }),
+      ],
+    });
+    renderWorkspace({ batchId: "batch-1" });
+
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Durable first document" },
+    });
+    fireEvent.change(screen.getByLabelText("Document date"), {
+      target: { value: "2026-08-02" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Add a vendor, supplier, or contractor/i,
+      })
+    );
+    fireEvent.change(screen.getByLabelText("Party type"), {
+      target: { value: "supplier" },
+    });
+    fireEvent.change(screen.getByLabelText("Party name"), {
+      target: { value: "Northstar Supply" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create party" }));
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Party name")).toBeNull()
+    );
+    fireEvent.click(screen.getByTestId("draft-draft-two"));
+
+    await waitFor(() =>
+      expect(saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          documentDate: "2026-08-02",
+          draftId: "draft-one",
+          title: "Durable first document",
+          vendorName: "Northstar Supply",
+          vendorProfileId: "vendor-profile-new",
+        })
       )
     );
   });

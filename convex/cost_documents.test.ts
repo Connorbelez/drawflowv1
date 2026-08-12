@@ -300,6 +300,107 @@ describe("Cost Document public contract", () => {
     )).toBe(true);
   });
 
+  test("creates an organization-scoped party and returns it for immediate selection", async () => {
+    const fixture = await seedFixture();
+    const result = await fixture.builder.mutation(
+      (api as any).cost_documents.createCostDocumentVendorProfile,
+      {
+        buildId: fixture.buildId,
+        city: "Toronto",
+        email: "accounts@northstar.example",
+        name: "Northstar Supply",
+        organizationId: ORGANIZATION_ID,
+        partyType: "supplier",
+      }
+    );
+
+    expect(result).toMatchObject({
+      created: true,
+      duplicateOptions: [],
+      option: {
+        city: "Toronto",
+        email: "accounts@northstar.example",
+        name: "Northstar Supply",
+        partyType: "supplier",
+      },
+    });
+    const option = result.option as { profileId: Id<"contractorProfiles"> };
+    expect(option.profileId).toBeDefined();
+
+    const options = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentVendorOptions,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        search: "Northstar",
+      }
+    );
+    expect(options).toEqual([
+      expect.objectContaining({
+        name: "Northstar Supply",
+        partyType: "supplier",
+        profileId: option.profileId,
+      }),
+    ]);
+
+    await fixture.base.run(async (ctx) => {
+      const profile = await ctx.db.get(option.profileId);
+      expect(profile).toMatchObject({
+        brokerageId: fixture.brokerageId,
+        costDocumentPartyType: "supplier",
+        organizationId: ORGANIZATION_ID,
+        quoteRecipientCapabilities: ["supplier"],
+        status: "active",
+      });
+    });
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.createCostDocumentVendorProfile,
+        {
+          buildId: fixture.buildId,
+          email: "accounts@northstar.example",
+          name: "Northstar Supply (duplicate email)",
+          organizationId: ORGANIZATION_ID,
+          partyType: "supplier",
+        }
+      )
+    ).resolves.toMatchObject({
+      created: false,
+      option: { profileId: option.profileId },
+    });
+  });
+
+  test("reports and enforces no inline party permission for a read-only Broker", async () => {
+    const fixture = await seedFixture();
+    const broker = withIdentity(fixture.base, {
+      roles: ["broker"],
+      subject: "read_only_broker",
+    });
+    await addActiveBuildParticipant(fixture, {
+      role: "broker",
+      subject: "read_only_broker",
+    });
+
+    await expect(
+      broker.query((api as any).cost_documents.getCostDocumentVendorCreateAccess, {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toEqual({ canCreate: false });
+    await expect(
+      broker.mutation(
+        (api as any).cost_documents.createCostDocumentVendorProfile,
+        {
+          buildId: fixture.buildId,
+          name: "Blocked Party",
+          organizationId: ORGANIZATION_ID,
+          partyType: "vendor",
+        }
+      )
+    ).rejects.toThrow(/permission to create a party/i);
+  });
+
   test("creates one immutable Receipt communication intent atomically and replays without duplicating it", async () => {
     const fixture = await seedFixture();
     const batchId = await createBatch(fixture, "receipt-email-atomic");
