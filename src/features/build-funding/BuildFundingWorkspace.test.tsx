@@ -856,6 +856,8 @@ describe("BuildFundingWorkspace", () => {
 
     expect(onOpenDraw).toHaveBeenCalledTimes(requests.length);
     expect(onOpenDraw).toHaveBeenNthCalledWith(1, requests[0]);
+    expect(onOpenDraw).toHaveBeenNthCalledWith(2, requests[1]);
+    expect(onOpenDraw).toHaveBeenNthCalledWith(3, requests[2]);
     expect(onOpenDraw).toHaveBeenNthCalledWith(4, requests[3]);
   });
 
