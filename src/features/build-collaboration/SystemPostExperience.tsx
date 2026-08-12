@@ -103,7 +103,8 @@ type DrawLifecycleStep =
   | "in_review"
   | "ready_for_admin"
   | "approved"
-  | "released";
+  | "released"
+  | "closed";
 
 const DRAW_LIFECYCLE_STEPS: DrawLifecycleStep[] = [
   "scheduled",
@@ -112,6 +113,7 @@ const DRAW_LIFECYCLE_STEPS: DrawLifecycleStep[] = [
   "ready_for_admin",
   "approved",
   "released",
+  "closed",
 ];
 
 export function systemPostTitle(
@@ -1475,7 +1477,7 @@ function DrawLifecycleStepper({ active }: { active: DrawLifecycleStep }) {
           itself
         </p>
       </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-6">
+      <div className="mt-4 grid gap-2 sm:grid-cols-7">
         {DRAW_LIFECYCLE_STEPS.map((state, index) => (
           <div
             className="flex items-center gap-2 sm:flex-col sm:items-start"
@@ -2054,6 +2056,14 @@ function columnTone(
 }
 
 function drawLifecycleStep(facts: SystemDrawFacts): DrawLifecycleStep {
+  const workflowStatus = drawWorkflowStatus(facts);
+  if (
+    workflowStatus === "rejected" ||
+    workflowStatus === "withdrawn" ||
+    workflowStatus === "cancelled"
+  ) {
+    return "closed";
+  }
   if (facts.release.state === "released") {
     return "released";
   }
@@ -2104,6 +2114,7 @@ function drawWorkflowStatus(facts: SystemDrawFacts): DrawWorkflowStatus {
 function drawLifecycleLabel(state: DrawLifecycleStep) {
   const labels: Record<DrawLifecycleStep, string> = {
     approved: "Approved",
+    closed: "Closed",
     in_review: "In review",
     ready_for_admin: "Ready for admin",
     released: "Released",

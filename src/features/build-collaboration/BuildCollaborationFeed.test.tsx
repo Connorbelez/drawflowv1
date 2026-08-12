@@ -1901,6 +1901,23 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
   });
 
+  test.each(["rejected", "withdrawn", "cancelled"] as const)(
+    "shows the closed lifecycle step for a terminal %s Draw request",
+    (requestStatus) => {
+      mocks.feedRows = [canonicalDrawSystemPostEntryFixture({ requestStatus })];
+
+      render(
+        <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+      );
+
+      expect(
+        within(screen.getByTestId("system-post-draw-facts")).getAllByText(
+          "Closed",
+        ).length,
+      ).toBeTruthy();
+    },
+  );
+
   test("opens the canonical Draw target from a System Post without mutating it", () => {
     mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
     const onOpenReference = vi.fn();
