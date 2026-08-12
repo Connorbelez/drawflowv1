@@ -769,6 +769,96 @@ describe("BuildFundingWorkspace", () => {
     expect(onOpenDraw).not.toHaveBeenCalled();
   });
 
+  test("opens lender Draw history cards through the canonical target", () => {
+    const onOpenDraw = vi.fn();
+    const requests = [
+      {
+        _id: "draw-approved-history-id",
+        amountCents: 1_200_000,
+        displayId: "DR-1045",
+        drawKey: "approved-history",
+        label: "Approved reimbursement",
+        reviewedAt: "2026-07-11T12:00:00.000Z",
+        status: "approved_for_release" as const,
+      },
+      {
+        _id: "draw-released-history-id",
+        amountCents: 1_000_000,
+        displayId: "DR-1046",
+        drawKey: "released-history",
+        label: "Released reimbursement",
+        releasedAt: "2026-07-10T12:00:00.000Z",
+        status: "released" as const,
+      },
+      {
+        _id: "draw-rejected-history-id",
+        amountCents: 800_000,
+        displayId: "DR-1047",
+        drawKey: "rejected-history",
+        label: "Rejected reimbursement",
+        reviewedAt: "2026-07-09T12:00:00.000Z",
+        status: "rejected" as const,
+      },
+      {
+        _id: "draw-withdrawn-history-id",
+        amountCents: 600_000,
+        displayId: "DR-1048",
+        drawKey: "withdrawn-history",
+        label: "Withdrawn reimbursement",
+        requestedAt: "2026-07-08T12:00:00.000Z",
+        status: "withdrawn" as const,
+      },
+    ];
+
+    render(
+      <BuildFundingWorkspace
+        drawCapabilities={{
+          canApprove: false,
+          canOpenCanonical: true,
+          canOpenReview: true,
+          canReject: false,
+          canRelease: false,
+          canStartReview: false,
+          canSubmitForAdmin: false,
+        }}
+        model={projectBuildFunding({
+          canRequest: false,
+          facilityCents: 20_000_000,
+          milestones,
+          requests,
+          startDate: "2026-06-20",
+        })}
+        onOpenDraw={onOpenDraw}
+        onOpenMilestone={vi.fn()}
+        viewerRole="lender"
+      />,
+    );
+
+    for (const request of requests.slice(0, 2)) {
+      const button = screen.getByTestId(
+        `draw-review-request-${request.drawKey}`,
+      );
+      expect(button.textContent).toContain("Open draw");
+      fireEvent.click(button);
+    }
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Withdrawn \/ rejected requests/ }),
+    );
+
+    for (const request of requests.slice(2)) {
+      const button = screen.getByTestId(
+        `draw-review-request-${request.drawKey}`,
+      );
+      expect(button.textContent).toContain("Open draw");
+      fireEvent.click(button);
+    }
+
+    expect(onOpenDraw).toHaveBeenCalledTimes(requests.length);
+    expect(onOpenDraw).toHaveBeenNthCalledWith(1, requests[0]);
+    expect(onOpenDraw).toHaveBeenNthCalledWith(4, requests[3]);
+  });
+
   test("keeps a read-only review entrypoint when final Draw decisions are unauthorized", () => {
     render(
       <BuildFundingWorkspace

@@ -4,7 +4,10 @@ import { useCallback } from "react";
 
 import { DrawControlRoom } from "#/features/backoffice-draws/draw-control-room.tsx";
 import type { BrokerageDrawsResult } from "#/features/backoffice-draws/draw-types.ts";
-import type { DrawWorkflowCapabilities } from "#/features/draw-workflow/drawWorkflow.ts";
+import {
+  drawWorkflowRouteContextForRoles,
+  type DrawWorkflowCapabilities,
+} from "#/features/draw-workflow/drawWorkflow.ts";
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -83,6 +86,7 @@ function RouteComponent() {
     context.role,
     ...(context.roles ?? []),
   ]);
+  const viewerRoles = [context.role, ...(context.roles ?? [])];
   const drawCapabilities: DrawWorkflowCapabilities = {
     canApprove: canMakeFinalDecision && Boolean(onApproveDraw),
     canOpenCanonical: true,
@@ -101,6 +105,7 @@ function RouteComponent() {
       onApproveDraw={canMakeFinalDecision ? onApproveDraw : undefined}
       onRejectDraw={canMakeFinalDecision ? onRejectDraw : undefined}
       pending={draws === undefined}
+      routeContext={drawWorkflowRouteContextForRoles(viewerRoles)}
     />
   );
 }

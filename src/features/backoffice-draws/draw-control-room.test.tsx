@@ -73,6 +73,12 @@ const operationsCapabilities: DrawWorkflowCapabilities = {
   canSubmitForAdmin: true,
 };
 
+const decisionCapabilities: DrawWorkflowCapabilities = {
+  ...adminCapabilities,
+  canApprove: true,
+  canReject: true,
+};
+
 describe("DrawControlRoom", () => {
   afterEach(() => {
     cleanup();
@@ -142,6 +148,29 @@ describe("DrawControlRoom", () => {
     expect(
       screen.getByRole("button", { name: "Send to admin" }),
     ).toBeTruthy();
+  });
+
+  test("opens ready-for-admin draws in the lender admin decision context", () => {
+    const readyForAdminData = {
+      ...inReviewData,
+      draws: [{ ...inReviewDraw, status: "ready_for_admin" }],
+    } as BrokerageDrawsResult;
+
+    render(
+      <DrawControlRoom
+        data={readyForAdminData}
+        drawCapabilities={decisionCapabilities}
+        pending={false}
+        routeContext="lender_admin"
+      />,
+    );
+
+    fireEvent.click(screen.getAllByText("Draw 01")[0]);
+
+    expect(
+      screen.getByRole("button", { name: "Approve for release" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
   });
 
   test("does not expose release without a control-room release handler", () => {

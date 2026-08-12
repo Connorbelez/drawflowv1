@@ -466,7 +466,11 @@ export function BuildFundingWorkspace({
                     label="Approved / released draws"
                     tone="outflow"
                   >
-                    <RequestCardGrid requests={completed} />
+                    <RequestCardGrid
+                      drawCapabilities={workflowCapabilities}
+                      onOpenDraw={lenderView ? onOpenDraw : undefined}
+                      requests={completed}
+                    />
                   </FundingGroup>
                   {closed.length > 0 ? (
                     <FundingGroup
@@ -476,7 +480,11 @@ export function BuildFundingWorkspace({
                       label="Withdrawn / rejected requests"
                       tone="neutral"
                     >
-                      <RequestCardGrid requests={closed} />
+                      <RequestCardGrid
+                        drawCapabilities={workflowCapabilities}
+                        onOpenDraw={lenderView ? onOpenDraw : undefined}
+                        requests={closed}
+                      />
                     </FundingGroup>
                   ) : null}
                 </Accordion>
