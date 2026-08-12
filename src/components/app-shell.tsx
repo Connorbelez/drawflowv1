@@ -12,6 +12,7 @@ import {
 import { AppHeader } from "#/components/app-header.tsx";
 import { AppSidebar, type AppSidebarProps } from "#/components/app-sidebar.tsx";
 import { DecorIcon } from "#/components/decor-icon.tsx";
+import { RouteBreadcrumbProjectionProvider } from "#/components/route-breadcrumbs.tsx";
 import {
   Command,
   CommandDialog,
@@ -210,52 +211,54 @@ export function AppShell({
   }, [router]);
 
   return (
-    <SidebarProvider>
-      <AppSidebar {...sidebar} />
-      <SidebarInset>
-        <AppHeader workosOrganizationId={organizationId} />
-        <div
-          className={cn(
-            "flex min-h-0 w-full flex-1 flex-col p-0",
-            contentClassName
-          )}
-        >
-          {children}
-        </div>
-        <div
-          aria-hidden="true"
-          className="pointer-events-none fixed inset-x-0 top-14 z-[54] hidden border-border border-t md:block"
-          data-testid="app-shell-junction-rule"
-        />
-        {/* Junction mark sits above the shared shell hairline so the seam never breaks. */}
-        <DecorIcon position="junction" />
-        <DrawFlowCommandPalette
-          onAssistantOpen={openAssistant}
-          onOpenChange={setCommandOpen}
-          open={commandOpen}
-        />
-        {assistantOpen ? (
-          <Suspense
-            fallback={
-              <DrawFlowAssistantLauncher disabled onOpen={() => undefined} />
-            }
+    <RouteBreadcrumbProjectionProvider>
+      <SidebarProvider>
+        <AppSidebar {...sidebar} />
+        <SidebarInset>
+          <AppHeader workosOrganizationId={organizationId} />
+          <div
+            className={cn(
+              "flex min-h-0 w-full flex-1 flex-col p-0",
+              contentClassName
+            )}
           >
-            <LazyDrawFlowAssistant
-              onOpenChange={setAssistantOpenPersisted}
-              open
-              routeContext={routeContext}
-            />
-          </Suspense>
-        ) : (
-          <DrawFlowAssistantLauncher
-            onOpen={openAssistant}
-            onPreload={() => {
-              loadDrawFlowAssistant().catch(() => undefined);
-            }}
+            {children}
+          </div>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none fixed inset-x-0 top-14 z-[54] hidden border-border border-t md:block"
+            data-testid="app-shell-junction-rule"
           />
-        )}
-      </SidebarInset>
-    </SidebarProvider>
+          {/* Junction mark sits above the shared shell hairline so the seam never breaks. */}
+          <DecorIcon position="junction" />
+          <DrawFlowCommandPalette
+            onAssistantOpen={openAssistant}
+            onOpenChange={setCommandOpen}
+            open={commandOpen}
+          />
+          {assistantOpen ? (
+            <Suspense
+              fallback={
+                <DrawFlowAssistantLauncher disabled onOpen={() => undefined} />
+              }
+            >
+              <LazyDrawFlowAssistant
+                onOpenChange={setAssistantOpenPersisted}
+                open
+                routeContext={routeContext}
+              />
+            </Suspense>
+          ) : (
+            <DrawFlowAssistantLauncher
+              onOpen={openAssistant}
+              onPreload={() => {
+                loadDrawFlowAssistant().catch(() => undefined);
+              }}
+            />
+          )}
+        </SidebarInset>
+      </SidebarProvider>
+    </RouteBreadcrumbProjectionProvider>
   );
 }
 

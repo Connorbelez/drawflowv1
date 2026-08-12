@@ -52,4 +52,26 @@ describe("resolveRouteBreadcrumb", () => {
       })
     ).toBeNull();
   });
+
+  test("resolves dynamic route params and search state for a destination", () => {
+    expect(
+      resolveRouteBreadcrumb({
+        params: { buildId: "active-build-01" },
+        search: { focus: "draw:draw-01", tab: "details" },
+        staticData: {
+          breadcrumb: {
+            label: "4-plex Proposal",
+            params: ({ params }) => ({ buildId: params.buildId }),
+            search: ({ search }) => search,
+            to: "/backoffice/builds/$buildId",
+          },
+        },
+      })
+    ).toEqual({
+      label: "4-plex Proposal",
+      params: { buildId: "active-build-01" },
+      search: { focus: "draw:draw-01", tab: "details" },
+      to: "/backoffice/builds/$buildId",
+    });
+  });
 });

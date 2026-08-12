@@ -4,6 +4,11 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type * as React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import {
+  resolveRouteBreadcrumb,
+  type RouteBreadcrumb,
+} from "#/components/route-breadcrumbs.tsx";
+
 const navigate = vi.fn();
 const hostRender = vi.fn();
 const hostProps = vi.fn();
@@ -194,5 +199,23 @@ describe("Backoffice Build route canonical detail host", () => {
         }),
       }),
     );
+  });
+
+  test("declares a canonical Build breadcrumb destination with route context", () => {
+    const route = Route as unknown as {
+      staticData: { breadcrumb: RouteBreadcrumb };
+    };
+    const breadcrumb = resolveRouteBreadcrumb({
+      params: { buildId: "active-build-01" },
+      search: { focus: "draw:draw-01", tab: "details" },
+      staticData: route.staticData,
+    });
+
+    expect(breadcrumb).toMatchObject({
+      label: "Loading build…",
+      params: { buildId: "active-build-01" },
+      search: { focus: "draw:draw-01", tab: "details" },
+      to: "/backoffice/builds/$buildId",
+    });
   });
 });

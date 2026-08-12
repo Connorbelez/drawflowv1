@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { useRouteBreadcrumbProjection } from "#/components/route-breadcrumbs.tsx";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import { DocumentOperationIntentRegistry } from "#/features/backoffice-build-detail/documentOperationIntent.ts";
 import {
@@ -31,12 +32,26 @@ import { isProductionVisualParityFixtureEnabled } from "#/features/production-pr
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import {
+  resolveBuildBreadcrumbLabel,
+  type BuildRouteAvailability,
+} from "./-route-breadcrumb.ts";
 import { validateBuildDetailSearch } from "./-route-search.ts";
 import { resolveBackofficeBuildViewerCapacity } from "./-route-capacity.ts";
 
 export { validateBuildDetailSearch } from "./-route-search.ts";
 
 export const Route = createFileRoute("/backoffice/builds/$buildId")({
+  staticData: {
+    breadcrumb: {
+      label: ({ params }) =>
+        params.buildId ? "Loading build…" : "Build unavailable",
+      params: ({ params }) =>
+        params.buildId ? { buildId: params.buildId } : undefined,
+      search: ({ search }) => search,
+      to: "/backoffice/builds/$buildId",
+    },
+  },
   validateSearch: validateBuildDetailSearch,
   component: RouteComponent,
 });
@@ -215,6 +230,22 @@ function RouteComponent() {
   const effectiveProductionBuild = visualFixtureEnabled
     ? visualParityDetail
     : productionBuildQuery;
+  const buildRouteAvailability = useQuery(
+    api.production_proposals.getActiveBuildRouteAvailabilityByString,
+    visualFixtureEnabled || productionBuildQuery !== null
+      ? "skip"
+      : {
+          buildId,
+          workosOrganizationId: context.organizationId as string,
+        },
+  ) as BuildRouteAvailability | undefined;
+  useRouteBreadcrumbProjection(
+    "/backoffice/builds/$buildId",
+    resolveBuildBreadcrumbLabel({
+      availability: buildRouteAvailability,
+      detail: effectiveProductionBuild,
+    }),
+  );
   const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
   const timelineWorkspaceQuery = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
