@@ -22,6 +22,10 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { BuildDetailTarget } from "#/features/build-detail-targets/buildDetailTarget.ts";
 import type { BuildDetailTargetContext } from "#/features/build-detail-targets/useBuildDetailTargetController.ts";
+import {
+  type DrawWorkflowCapabilities,
+  getDrawWorkflowActions,
+} from "#/features/draw-workflow/drawWorkflow.ts";
 import type { SiteVisitOrderRequest } from "./SiteVisitOrderDialog.tsx";
 
 export interface ActiveBuildTimelineWorkspaceProps {
@@ -38,7 +42,7 @@ export interface ActiveBuildTimelineWorkspaceProps {
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   onOpenCanonicalTarget?: (
     target: BuildDetailTarget,
-    context?: BuildDetailTargetContext,
+    context?: BuildDetailTargetContext
   ) => void;
   workosOrganizationId: string;
   workspace: ConvexTimelineWorkspace & {
@@ -186,6 +190,17 @@ export function ActiveBuildTimelineWorkspace({
   );
   const rejectForbidden = () =>
     Promise.reject(new Error("You do not have permission for this action."));
+  const drawWorkflowCapabilities = useMemo<DrawWorkflowCapabilities>(
+    () => ({
+      canApprove: canReviewDraws && canUpdateDraw,
+      canOpenReview: false,
+      canReject: canReviewDraws && canUpdateDraw,
+      canRelease: false,
+      canStartReview: canReviewDraws && canUpdateDraw,
+      canSubmitForAdmin: canReviewDraws && canUpdateDraw,
+    }),
+    [canReviewDraws, canUpdateDraw]
+  );
   const persistence = useMemo<TimelineWorkspacePersistence>(
     () => ({
       createCapitalEvent: (input) =>
@@ -307,6 +322,34 @@ export function ActiveBuildTimelineWorkspace({
         }
         const note =
           input.note?.trim() || "Evidence and source attribution reviewed.";
+        const requestedActions = getDrawWorkflowActions({
+          canonicalIdAvailable: true,
+          capabilities: drawWorkflowCapabilities,
+          status: "requested",
+        });
+        const inReviewActions = getDrawWorkflowActions({
+          canonicalIdAvailable: true,
+          capabilities: drawWorkflowCapabilities,
+          status: "in_review",
+        });
+        const decisionActions = getDrawWorkflowActions({
+          canonicalIdAvailable: true,
+          capabilities: drawWorkflowCapabilities,
+          status: "ready_for_admin",
+        });
+        const decision =
+          input.status === "rejected"
+            ? decisionActions.secondary
+            : decisionActions.primary;
+        if (
+          requestedActions.primary?.operation !== "start_review" ||
+          inReviewActions.primary?.operation !== "submit_for_admin" ||
+          (input.status === "rejected"
+            ? decision?.operation !== "reject"
+            : decision?.operation !== "approve")
+        ) {
+          return rejectForbidden();
+        }
         await startDrawReview({
           buildId,
           drawKey: input.drawKey,
@@ -442,6 +485,7 @@ export function ActiveBuildTimelineWorkspace({
       deleteDraw,
       deleteEvidenceAsset,
       deleteMilestone,
+      drawWorkflowCapabilities,
       generateEvidenceUploadUrl,
       hasTimelineEditPermission,
       recordMilestoneSiteVisit,
@@ -484,7 +528,7 @@ export function ActiveBuildTimelineWorkspace({
                   kind: "submilestone",
                   submilestoneId,
                 },
-                { selectedTab: "overview" },
+                { selectedTab: "overview" }
               )
           : undefined
       }

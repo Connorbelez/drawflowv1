@@ -57,6 +57,28 @@ describe("getDrawWorkflowActions", () => {
     expect(actions.secondary).toBeUndefined();
   });
 
+  test("keeps an admin in-review request as a canonical open-only entrypoint", () => {
+    const actions = getDrawWorkflowActions({
+      canonicalIdAvailable: true,
+      capabilities: {
+        ...lenderCapabilities,
+        canApprove: false,
+        canReject: false,
+        canRelease: false,
+        canSubmitForAdmin: false,
+      },
+      status: "in_review",
+    });
+
+    expect(actions.open).toMatchObject({
+      kind: "navigation",
+      label: "Open review",
+      operation: "open_review",
+    });
+    expect(actions.primary).toBeUndefined();
+    expect(actions.secondary).toBeUndefined();
+  });
+
   test("does not expose a navigation action without a canonical Draw id", () => {
     const actions = getDrawWorkflowActions({
       canonicalIdAvailable: false,

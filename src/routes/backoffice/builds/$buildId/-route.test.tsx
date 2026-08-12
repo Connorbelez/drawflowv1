@@ -187,7 +187,17 @@ describe("Backoffice Build route canonical detail host", () => {
       "yes",
     );
     expect(surfaceProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({ viewerCapacity: "admin" }),
+      expect.objectContaining({
+        drawCapabilities: {
+          canApprove: true,
+          canOpenReview: true,
+          canReject: true,
+          canRelease: true,
+          canStartReview: true,
+          canSubmitForAdmin: false,
+        },
+        viewerCapacity: "admin",
+      }),
     );
     fireEvent.click(screen.getByTestId("change-main-tab"));
     expect(navigate).toHaveBeenLastCalledWith(
