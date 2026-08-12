@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
@@ -39,6 +40,7 @@ import type { BuildSubmilestoneDetailTab } from "../build-detail-targets/buildDe
 import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
 import { formatDate, formatRelative } from "./format";
+import type { ScheduleHealthResult } from "./scheduleHealth";
 
 type WorkState = "planned" | "in_progress" | "complete";
 
@@ -88,6 +90,7 @@ export interface MilestoneSheetSubmilestone {
   }>;
   name: string;
   order: number;
+  scheduleHealth?: ScheduleHealthResult;
   siteVisits: Array<{
     completedAt?: string;
     note?: string;
@@ -462,6 +465,10 @@ function ParentScopeRow({
 }) {
   const hasCanonicalTarget =
     canOpenCanonicalTarget && Boolean(row.submilestoneId);
+  const isActiveOverdue =
+    row.status === "in_progress" &&
+    row.scheduleHealth?.health === "behind_schedule" &&
+    row.scheduleHealth.overdueDays > 0;
   const openButton = (label: string, tab: BuildSubmilestoneDetailTab) => (
     <Button
       disabled={!hasCanonicalTarget}
@@ -483,6 +490,19 @@ function ParentScopeRow({
           </CardDescription>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
             <StatusBadge status={row.status} />
+            {isActiveOverdue ? (
+              <Badge
+                aria-label={`In progress, behind schedule, ${formatOverdueDays(
+                  row.scheduleHealth.overdueDays
+                )}; planned end ${row.endDate}`}
+                size="sm"
+                variant="error"
+              >
+                <AlertTriangle aria-hidden="true" />
+                Behind schedule ·{" "}
+                {formatOverdueDays(row.scheduleHealth.overdueDays)}
+              </Badge>
+            ) : null}
             <span>
               {row.startDate} → {row.endDate}
             </span>
@@ -681,6 +701,10 @@ function StatusBadge({ status }: { status: WorkState }) {
           : "Planned"}
     </Badge>
   );
+}
+
+function formatOverdueDays(overdueDays: number) {
+  return `${overdueDays} day${overdueDays === 1 ? "" : "s"} overdue`;
 }
 
 function formatCents(value: number) {
