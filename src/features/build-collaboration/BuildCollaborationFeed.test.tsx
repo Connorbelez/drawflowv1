@@ -1587,6 +1587,31 @@ describe("BuildCollaborationFeed", () => {
     },
   );
 
+  test("keeps canonical Draw navigation on the current Build route", () => {
+    const target = {
+      drawId: "draw-request-9" as Id<"activeBuildDrawRequests">,
+      kind: "draw" as const,
+    };
+
+    expect(
+      buildDetailTargetSheetHref(
+        "https://drawflow.test/backoffice/builds/build-1?tab=details&filter=mine",
+        target,
+      ),
+    ).toBe(
+      "/backoffice/builds/build-1?tab=details&filter=mine&focus=draw%3Adraw-request-9",
+    );
+    expect(
+      buildDetailTargetQueueHref(
+        "https://drawflow.test/backoffice/builds/build-1?tab=details&filter=mine",
+        "build-2",
+        target,
+      ),
+    ).toBe(
+      "/backoffice/builds/build-2?tab=details&focus=draw%3Adraw-request-9",
+    );
+  });
+
   test("renders the server-derived viewer binding for production persona verification", () => {
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 

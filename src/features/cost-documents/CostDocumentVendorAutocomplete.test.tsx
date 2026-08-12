@@ -169,6 +169,7 @@ describe("CostDocumentVendorAutocomplete", () => {
     expect(createVendorProfile).toHaveBeenCalledWith(
       expect.objectContaining({ allowDuplicate: false })
     );
+    expect(createVendorProfile).toHaveBeenCalledTimes(1);
   });
 
   test("shows a clear no-permission state when party creation is denied", () => {
@@ -196,6 +197,67 @@ describe("CostDocumentVendorAutocomplete", () => {
         name: /Add a vendor, supplier, or contractor/i,
       })
     ).toBeNull();
+  });
+
+  test("does not show party creation while access is still loading", () => {
+    useQuery.mockImplementation((_reference, args: unknown) =>
+      args && typeof args === "object" && "search" in args ? [] : undefined
+    );
+
+    render(
+      <CostDocumentVendorAutocomplete
+        buildId={"build-1" as Id<"activeBuilds">}
+        onValueChange={vi.fn()}
+        organizationId="org-1"
+      />
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: /Add a vendor, supplier, or contractor/i,
+      })
+    ).toBeNull();
+  });
+
+  test("clears contact fields when the inline party form is reopened", () => {
+    useQuery.mockImplementation((_reference, args: unknown) =>
+      args && typeof args === "object" && "search" in args
+        ? []
+        : { canCreate: true }
+    );
+
+    render(
+      <CostDocumentVendorAutocomplete
+        buildId={"build-1" as Id<"activeBuilds">}
+        onValueChange={vi.fn()}
+        organizationId="org-1"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Add a vendor, supplier, or contractor/i,
+      })
+    );
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "contact@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Phone"), {
+      target: { value: "416-555-0100" },
+    });
+    fireEvent.change(screen.getByLabelText("City"), {
+      target: { value: "Toronto" },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Add a vendor, supplier, or contractor/i,
+      })
+    );
+
+    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("City") as HTMLInputElement).value).toBe("");
   });
 
   test("shows unresolved legacy text and links an existing organization party", async () => {

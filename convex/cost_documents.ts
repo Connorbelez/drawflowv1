@@ -696,14 +696,18 @@ export const createCostDocumentVendorProfile = authenticatedMutation
     }
     const city = optionalText(args.city, "City", 120);
     const phone = optionalText(args.phone, "Phone", 80);
-    const existingProfiles = await listCostDocumentVendorProfiles(
+    const duplicateCandidates = await listCostDocumentVendorDuplicateCandidates(
       ctx,
       authorization
     );
     const existingEmailProfile = normalizedEmail
-      ? existingProfiles.find(
+      ? (await findCostDocumentVendorProfileByNormalizedEmail(
+          ctx,
+          authorization,
+          normalizedEmail
+        )) ??
+        duplicateCandidates.find(
           (profile) =>
-            profile.normalizedEmail === normalizedEmail ||
             normalizeContractorEmail(profile.email) === normalizedEmail
         )
       : undefined;
@@ -714,7 +718,7 @@ export const createCostDocumentVendorProfile = authenticatedMutation
         option: costDocumentVendorOptionForProfile(existingEmailProfile),
       };
     }
-    const duplicateOptions = existingProfiles
+    const duplicateOptions = duplicateCandidates
       .filter((profile) =>
         isPotentialCostDocumentVendorDuplicate(profile.name, name)
       )
@@ -1016,6 +1020,46 @@ async function listCostDocumentVendorProfiles(
           .eq("status", "active")
     )
     .take(MAX_VENDOR_OPTIONS * 3);
+}
+
+async function listCostDocumentVendorDuplicateCandidates(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization
+) {
+  // Duplicate detection must inspect the complete active organization set;
+  // the capped list above is only a typeahead response optimization.
+  return await ctx.db
+    .query("contractorProfiles")
+    .withIndex(
+      "by_organizationId_and_brokerageId_and_status_and_name",
+      (query) =>
+        query
+          .eq("organizationId", authorization.organizationId)
+          .eq("brokerageId", authorization.brokerage._id)
+          .eq("status", "active")
+    )
+    .collect();
+}
+
+async function findCostDocumentVendorProfileByNormalizedEmail(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  normalizedEmail: string
+) {
+  return await ctx.db
+    .query("contractorProfiles")
+    .withIndex("by_brokerage_normalized_email", (query) =>
+      query
+        .eq("brokerageId", authorization.brokerage._id)
+        .eq("normalizedEmail", normalizedEmail)
+    )
+    .filter((query) =>
+      query.and(
+        query.eq(query.field("organizationId"), authorization.organizationId),
+        query.eq(query.field("status"), "active")
+      )
+    )
+    .first();
 }
 
 function costDocumentVendorOptionForProfile(

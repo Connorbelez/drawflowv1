@@ -186,6 +186,17 @@ type ProductionDrawStatus =
   | "cancelled"
   | "released";
 
+type ProductionDrawId =
+  | Id<"activeBuildDrawRequests">
+  | Id<"plannedDrawScheduleRows">;
+type ProductionViewerCapacity =
+  | "admin"
+  | "broker"
+  | "broker-staff"
+  | "builder"
+  | "builder-staff"
+  | "principle-broker";
+
 export interface ProductionBuildDetailActions {
   addDocument?: (input: {
     documentType: "permit" | "budget" | "plan" | "supporting";
@@ -913,13 +924,7 @@ export function ProductionBuildDetailSurface({
   staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   visibleTabs?: BuildDetailSubTab[];
-  viewerCapacity?:
-    | "admin"
-    | "broker"
-    | "broker-staff"
-    | "builder"
-    | "builder-staff"
-    | "principle-broker";
+  viewerCapacity?: ProductionViewerCapacity;
   viewerRole?: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -968,6 +973,7 @@ export function ProductionBuildDetailSurface({
     ? effectiveFocusedReference.slice("submilestone:".length)
     : undefined;
   const detailTargetReplacesParentSheet =
+    effectiveFocusedReference?.startsWith("draw:") ||
     effectiveFocusedReference?.startsWith("submilestone:") ||
     effectiveFocusedReference?.startsWith("actionItem:");
   const activeMilestoneKey = detailTargetReplacesParentSheet
@@ -1861,13 +1867,7 @@ function ProductionDetailsTab({
   ) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
-  viewerCapacity?:
-    | "admin"
-    | "broker"
-    | "broker-staff"
-    | "builder"
-    | "builder-staff"
-    | "principle-broker";
+  viewerCapacity?: ProductionViewerCapacity;
   viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -1897,9 +1897,12 @@ function ProductionDetailsTab({
           currentDay={currentDay}
           detail={detail}
           fundingWorkspaceEnabled={fundingWorkspaceEnabled}
+          onChangeTab={onChangeTab}
+          onOpenCanonicalTarget={onOpenCanonicalTarget}
           onOpenMilestone={onOpenMilestone}
           onSectionChange={setActiveOverviewSection}
           projection={projection}
+          viewerCapacity={viewerCapacity}
           viewerRole={viewerRole}
         />
         {showSitePhotos ? (
@@ -2047,9 +2050,12 @@ function ProductionBuildDetailsCard({
   currentDay,
   detail,
   fundingWorkspaceEnabled,
+  onChangeTab,
+  onOpenCanonicalTarget,
   onOpenMilestone,
   onSectionChange,
   projection,
+  viewerCapacity,
   viewerRole,
 }: {
   activeSection: BuildOverviewSection;
@@ -2057,9 +2063,15 @@ function ProductionBuildDetailsCard({
   currentDay: number;
   detail: ProductionBuildDetail;
   fundingWorkspaceEnabled: boolean;
+  onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
+  onOpenCanonicalTarget?: (
+    target: BuildDetailTarget,
+    context?: BuildDetailTargetContext,
+  ) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   onSectionChange: (section: BuildOverviewSection) => void;
   projection: ProductionBuildProjection;
+  viewerCapacity?: ProductionViewerCapacity;
   viewerRole: "builder" | "lender";
 }) {
   const currentOverview = useMemo(
@@ -2143,6 +2155,20 @@ function ProductionBuildDetailsCard({
                 (actions?.requestDrawAmount ||
                   detail.plannedDraws !== undefined)) ? (
                 <BuildFundingWorkspace
+                  drawCapabilities={{
+                    canApprove: Boolean(actions?.approveDraw),
+                    canOpenReview:
+                      viewerRole === "lender" &&
+                      viewerCapacity !== "builder" &&
+                      viewerCapacity !== "builder-staff",
+                    canReject: Boolean(actions?.rejectDraw),
+                    canRelease: Boolean(actions?.releaseDraw),
+                    canStartReview: Boolean(actions?.startDrawReview),
+                    canSubmitForAdmin:
+                      Boolean(actions?.submitDrawForAdmin) &&
+                      viewerCapacity !== "admin" &&
+                      viewerCapacity !== "principle-broker",
+                  }}
                   model={projectBuildFunding({
                     availability: detail.drawFunding,
                     canRequest: Boolean(actions?.requestDrawAmount),
@@ -2166,6 +2192,31 @@ function ProductionBuildDetailsCard({
                     actions?.approveDraw,
                   )}
                   onOpenMilestone={onOpenMilestone}
+                  onOpenDraw={(request) => {
+                    const draw =
+                      detail.draws.find(
+                        (candidate) =>
+                          candidate._id === request._id &&
+                          candidate.drawKey === request.drawKey,
+                      ) ??
+                      detail.plannedDraws?.find(
+                        (candidate) =>
+                          candidate._id === request._id &&
+                          candidate.drawKey === request.drawKey,
+                      );
+                    if (!draw?._id) {
+                      return;
+                    }
+                    const focus = `draw:${draw._id}`;
+                    if (onOpenCanonicalTarget) {
+                      onOpenCanonicalTarget({
+                        drawId: draw._id as ProductionDrawId,
+                        kind: "draw",
+                      });
+                      return;
+                    }
+                    onChangeTab("details", focus);
+                  }}
                   onRejectDraw={fundingRejectAction(
                     detail.draws,
                     actions?.rejectDraw,

@@ -369,6 +369,24 @@ describe("Cost Document public contract", () => {
       created: false,
       option: { profileId: option.profileId },
     });
+    const matchingProfiles = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("contractorProfiles")
+        .withIndex("by_brokerage_normalized_email", (query) =>
+          query
+            .eq("brokerageId", fixture.brokerageId)
+            .eq("normalizedEmail", "accounts@northstar.example")
+        )
+        .filter((query) =>
+          query.and(
+            query.eq(query.field("organizationId"), ORGANIZATION_ID),
+            query.eq(query.field("status"), "active")
+          )
+        )
+        .collect()
+    );
+    expect(matchingProfiles).toHaveLength(1);
+    expect(matchingProfiles[0]?._id).toBe(option.profileId);
   });
 
   test("reports and enforces no inline party permission for a read-only Broker", async () => {
@@ -399,6 +417,53 @@ describe("Cost Document public contract", () => {
         }
       )
     ).rejects.toThrow(/permission to create a party/i);
+  });
+
+  test("detects an exact-email duplicate outside the capped typeahead window", async () => {
+    const fixture = await seedFixture();
+    const lateProfileId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 301; index += 1) {
+        await ctx.db.insert("contractorProfiles", {
+          brokerageId: fixture.brokerageId,
+          createdAt: now + index,
+          name: `Party ${String(index).padStart(3, "0")}`,
+          organizationId: ORGANIZATION_ID,
+          quoteRecipientCapabilities: ["supplier"],
+          status: "active",
+          trades: [],
+          updatedAt: now + index,
+        });
+      }
+      return await ctx.db.insert("contractorProfiles", {
+        brokerageId: fixture.brokerageId,
+        createdAt: now + 302,
+        email: "late@example.com",
+        name: "Zebra Supply",
+        normalizedEmail: "late@example.com",
+        organizationId: ORGANIZATION_ID,
+        quoteRecipientCapabilities: ["supplier"],
+        status: "active",
+        trades: [],
+        updatedAt: now + 302,
+      });
+    });
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.createCostDocumentVendorProfile,
+        {
+          buildId: fixture.buildId,
+          email: "LATE@example.com",
+          name: "A different name",
+          organizationId: ORGANIZATION_ID,
+          partyType: "supplier",
+        }
+      )
+    ).resolves.toMatchObject({
+      created: false,
+      option: { profileId: lateProfileId },
+    });
   });
 
   test("creates one immutable Receipt communication intent atomically and replays without duplicating it", async () => {

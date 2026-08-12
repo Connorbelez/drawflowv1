@@ -182,6 +182,21 @@ async function seedBuildDetailTargets() {
       updatedAt: now,
       workflowRevision: 1,
     });
+    const drawId = await ctx.db.insert("activeBuildDrawRequests", {
+      amountCents: 4_000_000,
+      brokerageId: foundation.brokerageId,
+      buildId,
+      clientOperationId: "focus-draw-operation",
+      createdAt: now,
+      displayId: "DR-FOCUS-01",
+      label: "Foundation reimbursement",
+      organizationId: ORGANIZATION_ID,
+      requestKey: "focus-draw-request",
+      requestedAt: "2026-08-12T12:00:00.000Z",
+      requestedByWorkosUserId: "focus_builder",
+      status: "requested",
+      updatedAt: now,
+    });
     const postId = await ctx.db.insert("buildCollaborationPosts", {
       acknowledgementRequired: false,
       agentDrafted: false,
@@ -319,6 +334,7 @@ async function seedBuildDetailTargets() {
       milestoneId,
       otherBuildId,
       submilestoneId,
+      drawId,
     };
   });
   return {
@@ -346,6 +362,35 @@ async function resolveTarget(
 }
 
 describe("build detail target resolution", () => {
+  test("resolves an authorized Draw focus and revokes it after deletion", async () => {
+    const fixture = await seedBuildDetailTargets();
+
+    await expect(
+      resolveTarget(fixture.builder, {
+        buildId: fixture.buildId,
+        focus: `draw:${fixture.drawId}`,
+      }),
+    ).resolves.toEqual({
+      state: "visible",
+      target: {
+        drawId: fixture.drawId,
+        kind: "draw",
+        readOnly: false,
+      },
+    });
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.delete(fixture.drawId);
+    });
+
+    await expect(
+      resolveTarget(fixture.builder, {
+        buildId: fixture.buildId,
+        focus: `draw:${fixture.drawId}`,
+      }),
+    ).resolves.toEqual({ state: "revoked" });
+  });
+
   test("keeps manual Action Items generic and preserves the parent Milestone target", async () => {
     const fixture = await seedBuildDetailTargets();
 

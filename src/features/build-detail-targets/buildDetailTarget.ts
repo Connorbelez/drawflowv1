@@ -1,11 +1,15 @@
 import type { Id } from "../../../convex/_generated/dataModel";
 
 const BUILD_DETAIL_FOCUS_PREFIX_PATTERN =
-  /^(?:actionItem|milestone|submilestone):/;
+  /^(?:actionItem|draw|milestone|submilestone):/;
 
 import { parseBuildCollaborationFocus } from "../build-collaboration/referenceFocus.ts";
 
 export type BuildDetailTarget =
+  | {
+      drawId: Id<"activeBuildDrawRequests"> | Id<"plannedDrawScheduleRows">;
+      kind: "draw";
+    }
   | {
       kind: "milestone";
       milestoneId: Id<"buildMilestones">;
@@ -42,6 +46,14 @@ export function parseBuildDetailFocus(
       milestoneId: parsed.entityId as Id<"buildMilestones">,
     };
   }
+  if (parsed.entityKind === "draw") {
+    return {
+      drawId: parsed.entityId as
+        | Id<"activeBuildDrawRequests">
+        | Id<"plannedDrawScheduleRows">,
+      kind: "draw",
+    };
+  }
   if (parsed.entityKind === "submilestone") {
     return {
       kind: "submilestone",
@@ -57,6 +69,9 @@ export function parseBuildDetailFocus(
 }
 
 export function focusForBuildDetailTarget(target: BuildDetailTarget) {
+  if (target.kind === "draw") {
+    return `draw:${target.drawId}`;
+  }
   if (target.kind === "milestone") {
     return `milestone:${target.milestoneId}`;
   }
@@ -76,6 +91,9 @@ export function sameBuildDetailTarget(
   if (left.kind === "milestone" && right.kind === "milestone") {
     return left.milestoneId === right.milestoneId;
   }
+  if (left.kind === "draw" && right.kind === "draw") {
+    return left.drawId === right.drawId;
+  }
   if (left.kind === "submilestone" && right.kind === "submilestone") {
     return (
       left.submilestoneId === right.submilestoneId &&
@@ -92,10 +110,14 @@ export function sameBuildDetailTarget(
 export function detailTargetFromResolution(target: {
   actionItemId?: Id<"buildActionItems">;
   companionId?: Id<"buildActionItems">;
-  kind: "actionItem" | "milestone" | "submilestone";
+  drawId?: Id<"activeBuildDrawRequests"> | Id<"plannedDrawScheduleRows">;
+  kind: "actionItem" | "draw" | "milestone" | "submilestone";
   milestoneId?: Id<"buildMilestones">;
   submilestoneId?: Id<"buildSubmilestones">;
 }): BuildDetailTarget | undefined {
+  if (target.kind === "draw" && target.drawId) {
+    return { drawId: target.drawId, kind: "draw" };
+  }
   if (target.kind === "milestone" && target.milestoneId) {
     return { kind: "milestone", milestoneId: target.milestoneId };
   }

@@ -664,4 +664,163 @@ describe("BuildFundingWorkspace", () => {
       screen.queryByText("No draws have been released for this build.")
     ).toBeNull();
   });
+
+  test("opens every active lender Draw card through one canonical review target", () => {
+    const onOpenDraw = vi.fn();
+    const requests = [
+      {
+        _id: "draw-requested-id",
+        amountCents: 3_200_000,
+        displayId: "DR-1042",
+        drawKey: "requested",
+        label: "Requested reimbursement",
+        requestedAt: "2026-07-14T12:00:00.000Z",
+        status: "requested" as const,
+      },
+      {
+        _id: "draw-in-review-id",
+        amountCents: 2_100_000,
+        displayId: "DR-1043",
+        drawKey: "in-review",
+        label: "Operations review",
+        requestedAt: "2026-07-13T12:00:00.000Z",
+        status: "in_review" as const,
+      },
+      {
+        _id: "draw-ready-id",
+        amountCents: 1_800_000,
+        displayId: "DR-1044",
+        drawKey: "ready",
+        label: "Admin decision",
+        requestedAt: "2026-07-12T12:00:00.000Z",
+        status: "ready_for_admin" as const,
+      },
+    ];
+
+    render(
+      <BuildFundingWorkspace
+        drawCapabilities={{
+          canApprove: true,
+          canOpenReview: true,
+          canReject: true,
+          canRelease: true,
+          canStartReview: true,
+          canSubmitForAdmin: true,
+        }}
+        model={projectBuildFunding({
+          canRequest: false,
+          facilityCents: 20_000_000,
+          milestones,
+          requests,
+          startDate: "2026-06-20",
+        })}
+        onOpenDraw={onOpenDraw}
+        onOpenMilestone={vi.fn()}
+        viewerRole="lender"
+      />,
+    );
+
+    for (const request of requests) {
+      const button = screen.getByTestId(
+        `draw-review-request-${request.drawKey}`,
+      );
+      expect(button.textContent).toContain(
+        request.status === "requested" ? "Review request" : "Open review",
+      );
+      fireEvent.click(button);
+    }
+
+    expect(onOpenDraw).toHaveBeenCalledTimes(requests.length);
+    expect(onOpenDraw).toHaveBeenNthCalledWith(1, requests[0]);
+    expect(onOpenDraw).toHaveBeenNthCalledWith(2, requests[1]);
+    expect(onOpenDraw).toHaveBeenNthCalledWith(3, requests[2]);
+  });
+
+  test("does not leak the lender review entrypoint into Builder cards", () => {
+    const onOpenDraw = vi.fn();
+    render(
+      <BuildFundingWorkspace
+        model={projectBuildFunding({
+          canRequest: true,
+          facilityCents: 20_000_000,
+          milestones,
+          requests: [
+            {
+              _id: "builder-draw-id",
+              amountCents: 3_200_000,
+              displayId: "DR-1042",
+              drawKey: "builder-request",
+              label: "Builder reimbursement",
+              requestedAt: "2026-07-14T12:00:00.000Z",
+              status: "requested",
+            },
+          ],
+          startDate: "2026-06-20",
+        })}
+        onOpenDraw={onOpenDraw}
+        onOpenMilestone={vi.fn()}
+        viewerRole="builder"
+      />,
+    );
+
+    expect(screen.queryByTestId("draw-review-request-builder-request")).toBeNull();
+    expect(screen.queryByText("Review request")).toBeNull();
+    expect(onOpenDraw).not.toHaveBeenCalled();
+  });
+
+  test("keeps a read-only review entrypoint when final Draw decisions are unauthorized", () => {
+    render(
+      <BuildFundingWorkspace
+        drawCapabilities={{
+          canApprove: false,
+          canOpenReview: true,
+          canReject: false,
+          canRelease: false,
+          canStartReview: false,
+          canSubmitForAdmin: false,
+        }}
+        model={projectBuildFunding({
+          canRequest: false,
+          facilityCents: 20_000_000,
+          milestones,
+          requests: [
+            {
+              _id: "ready-draw-id",
+              amountCents: 1_800_000,
+              displayId: "DR-1044",
+              drawKey: "ready-only",
+              label: "Admin decision",
+              requestedAt: "2026-07-12T12:00:00.000Z",
+              status: "ready_for_admin",
+            },
+            {
+              _id: "approved-draw-id",
+              amountCents: 1_200_000,
+              displayId: "DR-1045",
+              drawKey: "approved-only",
+              label: "Approved release",
+              reviewedAt: "2026-07-11T12:00:00.000Z",
+              status: "approved_for_release",
+            },
+          ],
+          startDate: "2026-06-20",
+        })}
+        onApproveDraw={vi.fn()}
+        onOpenDraw={vi.fn()}
+        onOpenMilestone={vi.fn()}
+        onRejectDraw={vi.fn()}
+        onReleaseDraw={vi.fn()}
+        viewerRole="lender"
+      />,
+    );
+
+    expect(screen.getByTestId("draw-review-request-ready-only")).toBeTruthy();
+    expect(screen.queryByTestId("lender-review-approve-ready-only")).toBeNull();
+    expect(screen.queryByTestId("lender-review-reject-ready-only")).toBeNull();
+    expect(
+      (screen.getByTestId(
+        "lender-review-release-approved-only",
+      ) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
 });

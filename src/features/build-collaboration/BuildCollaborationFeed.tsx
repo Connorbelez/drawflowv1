@@ -335,6 +335,10 @@ export function buildDetailTargetQueueHref(
   if (target.kind === "submilestone") {
     url.searchParams.set("focus", `submilestone:${target.submilestoneId}`);
     url.searchParams.set("detailTab", "collaboration");
+  } else if (target.kind === "draw") {
+    url.searchParams.delete("detailTab");
+    url.searchParams.set("tab", "details");
+    url.searchParams.set("focus", `draw:${target.drawId}`);
   } else if (target.kind === "actionItem") {
     url.searchParams.delete("detailTab");
     url.searchParams.set("tab", "details");
@@ -372,6 +376,9 @@ export function buildDetailTargetSheetHref(
       "detailTab",
       context?.selectedTab ?? "collaboration",
     );
+  } else if (target.kind === "draw") {
+    url.searchParams.set("tab", "details");
+    url.searchParams.set("focus", `draw:${target.drawId}`);
   } else if (target.kind === "actionItem") {
     url.searchParams.set("tab", "details");
     url.searchParams.set("focus", `actionItem:${target.actionItemId}`);
@@ -1098,6 +1105,24 @@ function BuildCollaborationFeedContent({
       onOpenReference({
         entityId: target.submilestoneId,
         entityKind: "submilestone",
+        href,
+      });
+      return;
+    }
+    if (target.kind === "draw") {
+      setActionItemSheetTarget(null);
+      const href = buildDetailTargetSheetHref(
+        window.location.href,
+        target,
+        context,
+      );
+      if (!onOpenReference) {
+        window.history.replaceState(window.history.state, "", href);
+        return;
+      }
+      onOpenReference({
+        entityId: String(target.drawId),
+        entityKind: "draw",
         href,
       });
       return;

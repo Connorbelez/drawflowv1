@@ -32,6 +32,16 @@ import type { Id, QueryCtx } from "./types";
 
 export const buildDetailTargetValidator = v.union(
   v.object({
+    drawId: v.id("activeBuildDrawRequests"),
+    kind: v.literal("draw"),
+    readOnly: v.boolean(),
+  }),
+  v.object({
+    drawId: v.id("plannedDrawScheduleRows"),
+    kind: v.literal("draw"),
+    readOnly: v.boolean(),
+  }),
+  v.object({
     kind: v.literal("milestone"),
     milestoneId: v.id("buildMilestones"),
     readOnly: v.boolean(),
@@ -64,7 +74,7 @@ export const buildDetailTargetResolutionValidator = v.union(
 
 type ParsedBuildDetailFocus = {
   id: string;
-  kind: "actionItem" | "milestone" | "submilestone";
+  kind: "actionItem" | "draw" | "milestone" | "submilestone";
 };
 
 type VisibleSubmilestoneWorkspaceContext = Extract<
@@ -85,6 +95,7 @@ function parseBuildDetailFocus(value: string): ParsedBuildDetailFocus | null {
   const kind = normalized.slice(0, separator);
   if (
     kind !== "actionItem" &&
+    kind !== "draw" &&
     kind !== "milestone" &&
     kind !== "submilestone"
   ) {
@@ -218,6 +229,50 @@ export const resolveBuildDetailTarget = authenticatedQuery
           readOnly: milestone.planningState === "superseded",
         },
       };
+    }
+
+    if (focus.kind === "draw") {
+      const activeDrawId = ctx.db.normalizeId(
+        "activeBuildDrawRequests",
+        focus.id,
+      );
+      const plannedDrawId = ctx.db.normalizeId(
+        "plannedDrawScheduleRows",
+        focus.id,
+      );
+      const draw = activeDrawId
+        ? await ctx.db.get(activeDrawId)
+        : plannedDrawId
+          ? await ctx.db.get(plannedDrawId)
+          : null;
+      if (
+        !draw ||
+        draw.buildId !== authorization.build._id ||
+        draw.organizationId !== authorization.organizationId ||
+        draw.brokerageId !== authorization.brokerage._id ||
+        authorization.effectiveRole.role === "contractor" ||
+        authorization.effectiveRole.role === "homeowner"
+      ) {
+        return { state: "revoked" as const };
+      }
+      const readOnly =
+        draw.status === "cancelled" ||
+        draw.status === "rejected" ||
+        draw.status === "released" ||
+        draw.status === "withdrawn";
+      if (activeDrawId) {
+        return {
+          state: "visible" as const,
+          target: { drawId: activeDrawId, kind: "draw" as const, readOnly },
+        };
+      }
+      if (plannedDrawId) {
+        return {
+          state: "visible" as const,
+          target: { drawId: plannedDrawId, kind: "draw" as const, readOnly },
+        };
+      }
+      return { state: "revoked" as const };
     }
 
     const actionItemId = ctx.db.normalizeId("buildActionItems", focus.id);

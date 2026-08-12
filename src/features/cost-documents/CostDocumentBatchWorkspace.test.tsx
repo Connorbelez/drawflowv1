@@ -308,6 +308,12 @@ describe("CostDocumentBatchWorkspace", () => {
           },
         ];
       }
+      if (
+        functionName ===
+        getFunctionName(api.cost_documents.getCostDocumentVendorCreateAccess)
+      ) {
+        return { canCreate: true };
+      }
       return undefined;
     });
     createBatch.mockResolvedValue("batch-created");

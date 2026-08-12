@@ -1604,6 +1604,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("runs the B4 lender funding review workflow against production draw actions", async () => {
     const releaseDraw = vi.fn().mockResolvedValue(null);
     const startDrawReview = vi.fn().mockResolvedValue(null);
+    const onOpenCanonicalTarget = vi.fn();
     const requestedDraw = {
       ...detail.draws[0],
       _id: "draw-requested-b4",
@@ -1668,6 +1669,7 @@ describe("ProductionBuildDetailSurface", () => {
         fundingWorkspaceEnabled
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
         rail="closed"
         viewerRole="lender"
       />,
@@ -1681,6 +1683,14 @@ describe("ProductionBuildDetailSurface", () => {
     expect(
       screen.queryByRole("button", { name: /request a draw/i }),
     ).toBeNull();
+
+    fireEvent.click(
+      screen.getByTestId("draw-review-request-draw-requested-b4"),
+    );
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith({
+      drawId: "draw-requested-b4",
+      kind: "draw",
+    });
 
     fireEvent.click(
       screen.getByTestId("lender-review-start-draw-requested-b4"),
