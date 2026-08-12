@@ -1623,6 +1623,7 @@ describe("ProductionBuildDetailSurface", () => {
         }}
         drawCapabilities={{
           canApprove: false,
+          canOpenCanonical: true,
           canOpenReview: true,
           canReject: false,
           canRelease: false,
@@ -1685,6 +1686,7 @@ describe("ProductionBuildDetailSurface", () => {
         }}
         drawCapabilities={{
           canApprove: false,
+          canOpenCanonical: true,
           canOpenReview: true,
           canReject: false,
           canRelease: false,
@@ -1737,6 +1739,7 @@ describe("ProductionBuildDetailSurface", () => {
         }}
         drawCapabilities={{
           canApprove: false,
+          canOpenCanonical: true,
           canOpenReview: true,
           canReject: false,
           canRelease: false,
@@ -1783,6 +1786,7 @@ describe("ProductionBuildDetailSurface", () => {
         }}
         drawCapabilities={{
           canApprove: false,
+          canOpenCanonical: true,
           canOpenReview: true,
           canReject: false,
           canRelease: false,

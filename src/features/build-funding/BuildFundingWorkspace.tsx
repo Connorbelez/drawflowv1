@@ -342,6 +342,7 @@ export function BuildFundingWorkspace({
   const lenderView = viewerRole === "lender";
   const workflowCapabilities = drawCapabilities ?? {
     canApprove: Boolean(onApproveDraw),
+    canOpenCanonical: lenderView,
     canOpenReview: lenderView,
     canReject: Boolean(onRejectDraw),
     canRelease: Boolean(onReleaseDraw),
@@ -465,7 +466,11 @@ export function BuildFundingWorkspace({
                     label="Approved / released draws"
                     tone="outflow"
                   >
-                    <RequestCardGrid requests={completed} />
+                    <RequestCardGrid
+                      drawCapabilities={workflowCapabilities}
+                      onOpenDraw={lenderView ? onOpenDraw : undefined}
+                      requests={completed}
+                    />
                   </FundingGroup>
                   {closed.length > 0 ? (
                     <FundingGroup
@@ -475,7 +480,11 @@ export function BuildFundingWorkspace({
                       label="Withdrawn / rejected requests"
                       tone="neutral"
                     >
-                      <RequestCardGrid requests={closed} />
+                      <RequestCardGrid
+                        drawCapabilities={workflowCapabilities}
+                        onOpenDraw={lenderView ? onOpenDraw : undefined}
+                        requests={closed}
+                      />
                     </FundingGroup>
                   ) : null}
                 </Accordion>

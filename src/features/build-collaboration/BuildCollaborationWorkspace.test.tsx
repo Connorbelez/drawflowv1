@@ -109,6 +109,18 @@ vi.mock("./BuildCollaborationFeed.tsx", () => ({
       >
         Open search result
       </button>
+      <button
+        onClick={() =>
+          onOpenReference?.({
+            entityId: "draw-request-1",
+            entityKind: "draw",
+            href: `${window.location.pathname}?tab=details&focus=draw%3Adraw-request-1`,
+          })
+        }
+        type="button"
+      >
+        Open Draw result
+      </button>
     </div>
   ),
 }));
@@ -282,5 +294,30 @@ describe("BuildCollaborationWorkspace search hydration", () => {
     fireEvent.click(launcher);
     fireEvent.click(screen.getByRole("button", { name: "Close detail" }));
     expect(document.activeElement).toBe(launcher);
+  });
+
+  test("preserves the canonical Draw focus in browser history with an external route callback", () => {
+    window.history.replaceState({}, "", "/backoffice/builds/build-1");
+    const onOpenReference = vi.fn();
+
+    render(
+      <BuildCollaborationWorkspace
+        buildId="build-1"
+        onOpenReference={onOpenReference}
+        organizationId="org-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Draw result" }));
+
+    expect(window.location.search).toContain(
+      "focus=draw%3Adraw-request-1",
+    );
+    expect(onOpenReference).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityId: "draw-request-1",
+        entityKind: "draw",
+      }),
+    );
   });
 });

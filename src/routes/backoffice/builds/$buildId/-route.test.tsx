@@ -190,6 +190,7 @@ describe("Backoffice Build route canonical detail host", () => {
       expect.objectContaining({
         drawCapabilities: {
           canApprove: true,
+          canOpenCanonical: true,
           canOpenReview: true,
           canReject: true,
           canRelease: true,

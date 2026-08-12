@@ -193,6 +193,7 @@ export function ActiveBuildTimelineWorkspace({
   const drawWorkflowCapabilities = useMemo<DrawWorkflowCapabilities>(
     () => ({
       canApprove: canReviewDraws && canUpdateDraw,
+      canOpenCanonical: false,
       canOpenReview: false,
       canReject: canReviewDraws && canUpdateDraw,
       canRelease: false,

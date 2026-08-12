@@ -69,6 +69,7 @@ import {
   parseBuildDetailFocus,
 } from "../build-detail-targets/buildDetailTarget.ts";
 import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
+import type { DrawWorkflowCapabilities } from "../draw-workflow/drawWorkflow.ts";
 import {
   BuildActionItemDetailSheet,
   type BuildActionItemSheetTarget,
@@ -682,6 +683,7 @@ interface BuildCollaborationFeedProps {
     | "loading"
     | "revoked"
     | "visible";
+  drawCapabilities?: DrawWorkflowCapabilities;
   focusedReference?: string;
   onCloseDetailTarget?: () => void;
   onDetailGoBack?: () => void;
@@ -766,6 +768,7 @@ function BuildCollaborationFeedContent({
   detailCanGoBack,
   detailCanGoForward,
   detailResolutionState,
+  drawCapabilities,
   focusedReference: focusedEntityReference,
   isOnline,
   organizationId,
@@ -2591,6 +2594,7 @@ function BuildCollaborationFeedContent({
           ) : entry.kind === "post" ? (
             <CollaborationPostCard
               buildId={activeBuildId}
+              drawCapabilities={drawCapabilities}
               entry={entry}
               focusedAssetId={
                 focusedAssetContext?.state === "visible" &&
@@ -3254,6 +3258,7 @@ function ThreadOutcomeSummary({
 
 function CollaborationPostCard({
   buildId,
+  drawCapabilities,
   entry,
   focusedAssetId,
   focusedCommentId,
@@ -3273,6 +3278,7 @@ function CollaborationPostCard({
   viewerRoles,
 }: {
   buildId: Id<"activeBuilds">;
+  drawCapabilities?: DrawWorkflowCapabilities;
   entry: CollaborationFeedPostEntry;
   focusedAssetId?: Id<"buildCollaborationAssets">;
   focusedCommentId?: Id<"buildCollaborationComments">;
@@ -3549,6 +3555,7 @@ function CollaborationPostCard({
             }
             buildId={buildId}
             coordinationVisible={drawCoordinationVisible}
+            drawCapabilities={drawCapabilities}
             entry={entry}
             mutationsAllowed={mutationsAllowed}
             onCreateActionItem={onCreateActionItem}

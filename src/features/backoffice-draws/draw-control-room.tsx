@@ -52,6 +52,7 @@ import { Textarea } from "#/components/ui/textarea.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
 import {
   type DrawWorkflowCapabilities,
+  type DrawWorkflowRouteContext,
   getDrawWorkflowActions,
 } from "#/features/draw-workflow/drawWorkflow.ts";
 import { cn } from "#/lib/utils.ts";
@@ -136,6 +137,7 @@ export interface DrawControlRoomHandlers {
 interface DrawControlRoomProps extends DrawControlRoomHandlers {
   data: BrokerageDrawsResult | undefined;
   drawCapabilities?: DrawWorkflowCapabilities;
+  routeContext?: DrawWorkflowRouteContext;
   pending: boolean;
 }
 
@@ -190,6 +192,7 @@ export function DrawControlRoom({
   onApproveDraw,
   onRejectDraw,
   pending,
+  routeContext,
 }: DrawControlRoomProps): ReactElement {
   const [pulseFilter, setPulseFilter] = useState<DrawPulseFilter>("requested");
   const [viewMode, setViewMode] = useState<DrawViewMode>("table");
@@ -200,6 +203,7 @@ export function DrawControlRoom({
   const workflowCapabilities = {
     ...(drawCapabilities ?? {
       canApprove: Boolean(onApproveDraw),
+      canOpenCanonical: true,
       canOpenReview: true,
       canReject: Boolean(onRejectDraw),
       canRelease: false,
@@ -243,6 +247,7 @@ export function DrawControlRoom({
     ? getDrawWorkflowActions({
         canonicalIdAvailable: Boolean(selectedDraw.drawId),
         capabilities: workflowCapabilities,
+        routeContext,
         status: selectedDraw.status,
       })
     : undefined;

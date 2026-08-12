@@ -427,6 +427,14 @@ type DrawCoordinationFixtureState = {
 function canonicalDrawSystemPostEntryFixture(
   options: {
     coordination?: DrawCoordinationFixtureState;
+    requestStatus?:
+      | "cancelled"
+      | "in_review"
+      | "ready_for_admin"
+      | "rejected"
+      | "released"
+      | "requested"
+      | "withdrawn";
   } = {},
 ) {
   const now = Date.parse("2026-08-03T12:00:00.000Z");
@@ -494,7 +502,7 @@ function canonicalDrawSystemPostEntryFixture(
             note: "Foundation reimbursement requested.",
             requestedAt: "2026-08-03T12:00:00.000Z",
             requestKey: "dr-0001-1",
-            status: "requested",
+            status: options.requestStatus ?? "requested",
           },
           review: { state: "in_review" },
           siteVisit: { cancelled: 0, complete: 1, count: 1, requested: 0 },
@@ -1891,6 +1899,149 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: /Show Action Items as a board/ }),
     ).toBeNull();
+  });
+
+  test.each(["rejected", "withdrawn", "cancelled"] as const)(
+    "shows the closed lifecycle step for a terminal %s Draw request",
+    (requestStatus) => {
+      mocks.feedRows = [canonicalDrawSystemPostEntryFixture({ requestStatus })];
+
+      render(
+        <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+      );
+
+      expect(
+        within(screen.getByTestId("system-post-draw-facts")).getAllByText(
+          "Closed",
+        ).length,
+      ).toBeTruthy();
+    },
+  );
+
+  test("opens the canonical Draw target from a System Post without mutating it", () => {
+    mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
+    const onOpenReference = vi.fn();
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        onOpenReference={onOpenReference}
+        organizationId="org-1"
+      />,
+    );
+
+    mocks.mutate.mockClear();
+    fireEvent.click(screen.getByTestId("system-post-draw-open"));
+
+    expect(onOpenReference).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityId: "draw-request-1",
+        entityKind: "draw",
+        href: expect.stringContaining("focus=draw%3Adraw-request-1"),
+      }),
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  test("uses the builder detail entrypoint without exposing lender review", () => {
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "builder",
+      roles: ["builder"],
+      workosUserId: "user_builder",
+    };
+    mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    expect(
+      screen.getByRole("button", { name: "Open draw DR-0001" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Review request/ })).toBeNull();
+  });
+
+  test("uses lender operations review context for an in-review Draw", () => {
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "broker",
+      roles: ["broker"],
+      workosUserId: "user_broker",
+    };
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({ requestStatus: "in_review" }),
+    ];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    expect(
+      screen.getByRole("button", { name: "Open review DR-0001" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Open the canonical evidence and review context for this Draw.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("uses lender admin decision context for a ready Draw", () => {
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({
+        requestStatus: "ready_for_admin",
+      }),
+    ];
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        drawCapabilities={{
+          canApprove: true,
+          canOpenCanonical: true,
+          canOpenReview: true,
+          canReject: true,
+          canRelease: false,
+          canStartReview: false,
+          canSubmitForAdmin: false,
+        }}
+        organizationId="org-1"
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Open review DR-0001" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Open the lender admin decision context for this Draw.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("keeps a released Draw entrypoint read-only", () => {
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({ requestStatus: "released" }),
+    ];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    expect(screen.getByRole("button", { name: "Open draw DR-0001" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Release" })).toBeNull();
+  });
+
+  test("does not expose a Draw entrypoint to an unauthorized collaboration role", () => {
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "contractor",
+      roles: ["contractor"],
+      workosUserId: "user_contractor",
+    };
+    mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    expect(screen.queryByTestId("system-post-draw-open")).toBeNull();
   });
 
   test("surfaces a conservative lower bound when the Draw working audience is saturated", () => {
