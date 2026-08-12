@@ -60,6 +60,10 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { DrawRejectionDialog } from "#/features/build-funding/DrawRejectionDialog.tsx";
+import {
+  type DrawWorkflowCapabilities,
+  getDrawWorkflowActions,
+} from "#/features/draw-workflow/drawWorkflow.ts";
 import { cn } from "#/lib/utils.ts";
 
 const CAD_INPUT_CLEANUP_PATTERN = /[$,\s]/g;
@@ -107,6 +111,7 @@ export interface FundingSourceAllocation {
 }
 
 export interface FundingRequestRecord {
+  _id?: string;
   amountCents: number;
   displayId?: string;
   drawKey: string;
@@ -279,9 +284,11 @@ export function projectBuildFunding(input: {
 }
 
 export function BuildFundingWorkspace({
+  drawCapabilities,
   model,
   onApproveDraw,
   onOpenMilestone,
+  onOpenDraw,
   onRejectDraw,
   onReleaseDraw,
   onRequestDraw,
@@ -290,9 +297,11 @@ export function BuildFundingWorkspace({
   onWithdrawDraw,
   viewerRole = "builder",
 }: {
+  drawCapabilities?: DrawWorkflowCapabilities;
   model: BuildFundingModel;
   onApproveDraw?: FundingRequestAction;
   onOpenMilestone: (milestoneKey: string) => void;
+  onOpenDraw?: (request: FundingRequestRecord) => void;
   onRejectDraw?: FundingRejectAction;
   onReleaseDraw?: FundingRequestAction;
   onRequestDraw?: (input: {
@@ -331,6 +340,14 @@ export function BuildFundingWorkspace({
   const released = model.requests.filter((row) => row.status === "released");
   const requestSource = model.forecastDraws[0];
   const lenderView = viewerRole === "lender";
+  const workflowCapabilities = drawCapabilities ?? {
+    canApprove: Boolean(onApproveDraw),
+    canOpenReview: lenderView,
+    canReject: Boolean(onRejectDraw),
+    canRelease: Boolean(onReleaseDraw),
+    canStartReview: Boolean(onStartDrawReview),
+    canSubmitForAdmin: Boolean(onSubmitDrawForAdmin),
+  };
 
   return (
     <div className="min-w-0" data-testid="build-funding-workspace">
@@ -435,7 +452,11 @@ export function BuildFundingWorkspace({
                     label="Submitted draw requests"
                     tone="pending"
                   >
-                    <RequestCardGrid requests={submitted} />
+                    <RequestCardGrid
+                      drawCapabilities={workflowCapabilities}
+                      onOpenDraw={lenderView ? onOpenDraw : undefined}
+                      requests={submitted}
+                    />
                   </FundingGroup>
                   <FundingGroup
                     amountCents={sumCents(completed)}
@@ -476,10 +497,12 @@ export function BuildFundingWorkspace({
             approvedAwaitingRelease={approvedAwaitingRelease}
             buildLabel={model.buildLabel}
             density={density}
+            drawCapabilities={workflowCapabilities}
             forecastDraws={model.forecastDraws}
             historicalPlannedDraws={model.historicalPlannedDraws}
             milestonesPendingReview={milestonesPendingReview}
             onApproveDraw={onApproveDraw}
+            onOpenDraw={onOpenDraw}
             onOpenMilestone={onOpenMilestone}
             onRejectDraw={onRejectDraw}
             onReleaseDraw={onReleaseDraw}
@@ -635,11 +658,13 @@ function LenderReviewSidebar({
   approvedAwaitingRelease,
   buildLabel,
   density,
+  drawCapabilities,
   forecastDraws,
   historicalPlannedDraws,
   milestonesPendingReview,
   onApproveDraw,
   onOpenMilestone,
+  onOpenDraw,
   onRejectDraw,
   onReleaseDraw,
   onStartDrawReview,
@@ -651,11 +676,13 @@ function LenderReviewSidebar({
   approvedAwaitingRelease: FundingRequestRecord[];
   buildLabel: string;
   density: "guided" | "compact";
+  drawCapabilities: DrawWorkflowCapabilities;
   forecastDraws: FundingForecastRecord[];
   historicalPlannedDraws: FundingForecastRecord[];
   milestonesPendingReview: FundingMilestoneRecord[];
   onApproveDraw?: FundingRequestAction;
   onOpenMilestone: (milestoneKey: string) => void;
+  onOpenDraw?: (request: FundingRequestRecord) => void;
   onRejectDraw?: FundingRejectAction;
   onReleaseDraw?: FundingRequestAction;
   onStartDrawReview?: FundingRequestAction;
@@ -802,6 +829,11 @@ function LenderReviewSidebar({
             const rejectKey = `reject:${request.drawKey}`;
             const startKey = `start:${request.drawKey}`;
             const submitKey = `submit:${request.drawKey}`;
+            const workflow = getDrawWorkflowActions({
+              canonicalIdAvailable: Boolean(request._id),
+              capabilities: drawCapabilities,
+              status: request.status,
+            });
             return (
               <article className="py-3" key={request.drawKey}>
                 <div className="flex items-start justify-between gap-3">
@@ -831,11 +863,25 @@ function LenderReviewSidebar({
                   </p>
                 ) : null}
                 <DrawSourceAttribution request={request} />
-                {request.status === "requested" ? (
+                {workflow.open && onOpenDraw ? (
+                  <Button
+                    aria-label={`${workflow.open.label} ${request.displayId ?? request.drawKey}`}
+                    className="mt-3"
+                    data-testid={`lender-review-open-${request.drawKey}`}
+                    disabled={Boolean(pendingAction)}
+                    onClick={() => onOpenDraw(request)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {workflow.open.label}
+                  </Button>
+                ) : null}
+                {workflow.primary?.operation === "start_review" &&
+                onStartDrawReview ? (
                   <Button
                     className="mt-3"
                     data-testid={`lender-review-start-${request.drawKey}`}
-                    disabled={!onStartDrawReview || Boolean(pendingAction)}
+                    disabled={Boolean(pendingAction)}
                     loading={pendingAction === startKey}
                     onClick={() =>
                       runReviewAction("start", request, onStartDrawReview)
@@ -843,14 +889,15 @@ function LenderReviewSidebar({
                     size="sm"
                     variant="outline"
                   >
-                    Start review
+                    {workflow.primary.label}
                   </Button>
                 ) : null}
-                {request.status === "in_review" ? (
+                {workflow.primary?.operation === "submit_for_admin" &&
+                onSubmitDrawForAdmin ? (
                   <Button
                     className="mt-3"
                     data-testid={`lender-review-submit-${request.drawKey}`}
-                    disabled={!onSubmitDrawForAdmin || Boolean(pendingAction)}
+                    disabled={Boolean(pendingAction)}
                     loading={pendingAction === submitKey}
                     onClick={() =>
                       runReviewAction("submit", request, onSubmitDrawForAdmin)
@@ -858,33 +905,40 @@ function LenderReviewSidebar({
                     size="sm"
                     variant="outline"
                   >
-                    Send to admin
+                    {workflow.primary.label}
                   </Button>
                 ) : null}
-                {request.status === "ready_for_admin" ? (
+                {workflow.primary?.operation === "approve" ||
+                workflow.secondary?.operation === "reject" ? (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      data-testid={`lender-review-approve-${request.drawKey}`}
-                      disabled={!onApproveDraw || Boolean(pendingAction)}
-                      loading={pendingAction === approveKey}
-                      onClick={() =>
-                        runReviewAction("approve", request, onApproveDraw)
-                      }
-                      size="sm"
-                      variant="outline"
-                    >
-                      Approve for release
-                    </Button>
-                    <DrawRejectionDialog
-                      amountCents={request.amountCents}
-                      buildLabel={buildLabel}
-                      disabled={!onRejectDraw || Boolean(pendingAction)}
-                      loading={pendingAction === rejectKey}
-                      onReject={(reason) => runRejectAction(request, reason)}
-                      requestKey={request.drawKey}
-                      requestLabel={request.displayId ?? request.drawKey}
-                      triggerTestId={`lender-review-reject-${request.drawKey}`}
-                    />
+                    {workflow.primary?.operation === "approve" &&
+                    onApproveDraw ? (
+                      <Button
+                        data-testid={`lender-review-approve-${request.drawKey}`}
+                        disabled={Boolean(pendingAction)}
+                        loading={pendingAction === approveKey}
+                        onClick={() =>
+                          runReviewAction("approve", request, onApproveDraw)
+                        }
+                        size="sm"
+                        variant="outline"
+                      >
+                        {workflow.primary.label}
+                      </Button>
+                    ) : null}
+                    {workflow.secondary?.operation === "reject" &&
+                    onRejectDraw ? (
+                      <DrawRejectionDialog
+                        amountCents={request.amountCents}
+                        buildLabel={buildLabel}
+                        disabled={Boolean(pendingAction)}
+                        loading={pendingAction === rejectKey}
+                        onReject={(reason) => runRejectAction(request, reason)}
+                        requestKey={request.drawKey}
+                        requestLabel={request.displayId ?? request.drawKey}
+                        triggerTestId={`lender-review-reject-${request.drawKey}`}
+                      />
+                    ) : null}
                   </div>
                 ) : null}
               </article>
@@ -912,7 +966,11 @@ function LenderReviewSidebar({
               </div>
               <DrawSourceAttribution request={request} />
               <ReleaseDrawDialog
-                disabled={!onReleaseDraw || Boolean(pendingAction)}
+                disabled={
+                  !drawCapabilities.canRelease ||
+                  !onReleaseDraw ||
+                  Boolean(pendingAction)
+                }
                 loading={pendingAction === `release:${request.drawKey}`}
                 onRelease={() =>
                   runReviewAction("release", request, onReleaseDraw)
@@ -1204,14 +1262,28 @@ function FundingGroup({
   );
 }
 
-function RequestCardGrid({ requests }: { requests: FundingRequestRecord[] }) {
+function RequestCardGrid({
+  drawCapabilities,
+  onOpenDraw,
+  requests,
+}: {
+  drawCapabilities?: DrawWorkflowCapabilities;
+  onOpenDraw?: (request: FundingRequestRecord) => void;
+  requests: FundingRequestRecord[];
+}) {
   if (requests.length === 0) {
     return <EmptyState copy="No requests in this group." />;
   }
   return (
     <div className="grid gap-2 pb-1 sm:grid-cols-2">
       {requests.map((request) => (
-        <Card className="rounded-xl shadow-none" key={request.drawKey}>
+        <Card
+          className="rounded-xl shadow-none"
+          data-collaboration-focus={
+            request._id ? `draw:${request._id}` : undefined
+          }
+          key={request.drawKey}
+        >
           <CardHeader className="gap-1 p-3 pb-2">
             <CardTitle className="text-sm">
               {request.displayId ?? request.drawKey}
@@ -1235,6 +1307,11 @@ function RequestCardGrid({ requests }: { requests: FundingRequestRecord[] }) {
               </p>
             </div>
             <DrawSourceAttribution request={request} />
+            <DrawReviewButton
+              capabilities={drawCapabilities}
+              onOpenDraw={onOpenDraw}
+              request={request}
+            />
             {request.status === "rejected" && request.requestReviewNote ? (
               <div className="border-t pt-2 text-xs">
                 <p className="font-medium">Reason</p>
@@ -1251,6 +1328,39 @@ function RequestCardGrid({ requests }: { requests: FundingRequestRecord[] }) {
         </Card>
       ))}
     </div>
+  );
+}
+
+function DrawReviewButton({
+  capabilities,
+  onOpenDraw,
+  request,
+}: {
+  capabilities?: DrawWorkflowCapabilities;
+  onOpenDraw?: (request: FundingRequestRecord) => void;
+  request: FundingRequestRecord;
+}) {
+  if (!(capabilities && onOpenDraw)) {
+    return null;
+  }
+  const workflow = getDrawWorkflowActions({
+    canonicalIdAvailable: Boolean(request._id),
+    capabilities,
+    status: request.status,
+  });
+  if (!workflow.open) {
+    return null;
+  }
+  return (
+    <Button
+      aria-label={`${workflow.open.label} ${request.displayId ?? request.drawKey}`}
+      data-testid={`draw-review-request-${request.drawKey}`}
+      onClick={() => onOpenDraw(request)}
+      size="sm"
+      variant="outline"
+    >
+      {workflow.open.label}
+    </Button>
   );
 }
 

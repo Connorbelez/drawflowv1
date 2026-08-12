@@ -40,15 +40,6 @@ export interface CostDocumentVendorValue {
 }
 
 const COST_DOCUMENT_VENDOR_QUERY_TERMS = /\s+/;
-const COST_DOCUMENT_VENDOR_CREATE_CAPACITIES = new Set([
-  "admin",
-  "principle-broker",
-  "builder",
-  "builder-staff",
-  "homeowner",
-  "contractor",
-]);
-
 export function CostDocumentVendorAutocomplete({
   actorCapacity,
   buildId,
@@ -127,20 +118,23 @@ export function CostDocumentVendorAutocomplete({
     onValueChange({ displayName: option.name, profileId: option.profileId });
   };
 
-  const canCreateParty =
-    createAccess?.canCreate ??
-    (actorCapacity === undefined ||
-      COST_DOCUMENT_VENDOR_CREATE_CAPACITIES.has(actorCapacity));
+  const canCreateParty = createAccess?.canCreate === true;
 
   const openCreateForm = () => {
     setCreateFormOpen(true);
     setCreateName(query.trim());
+    setCreateEmail("");
+    setCreatePhone("");
+    setCreateCity("");
     setCreateError(undefined);
     setDuplicateOptions([]);
   };
 
   const closeCreateForm = () => {
     setCreateFormOpen(false);
+    setCreateEmail("");
+    setCreatePhone("");
+    setCreateCity("");
     setCreateError(undefined);
     setDuplicateOptions([]);
   };
@@ -158,7 +152,7 @@ export function CostDocumentVendorAutocomplete({
     setCreating(true);
     setCreateError(undefined);
     try {
-      const result = (await createVendorProfile({
+      const result = await createVendorProfile({
         ...(actorCapacity ? { actorCapacity } : {}),
         allowDuplicate,
         buildId,
@@ -168,11 +162,7 @@ export function CostDocumentVendorAutocomplete({
         organizationId,
         partyType: createPartyType,
         phone: createPhone.trim() || undefined,
-      } as never)) as {
-        created: boolean;
-        duplicateOptions?: CostDocumentVendorOption[];
-        option?: CostDocumentVendorOption;
-      };
+      });
       if (!result?.created && result?.duplicateOptions?.length) {
         setDuplicateOptions(result.duplicateOptions);
         return;

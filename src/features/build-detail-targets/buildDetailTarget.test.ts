@@ -18,6 +18,7 @@ describe("Build detail targets", () => {
     ["milestone:milestone-01", "milestone"],
     ["submilestone:submilestone-01", "submilestone"],
     ["actionItem:action-01", "actionItem"],
+    ["draw:draw-01", "draw"],
   ] as const)("parses %s", (focus, kind) => {
     expect(parseBuildDetailFocus(focus)).toMatchObject({ kind });
   });
@@ -35,6 +36,15 @@ describe("Build detail targets", () => {
         submilestoneId: "submilestone-01" as Id<"buildSubmilestones">,
       }),
     ).toBe("submilestone:submilestone-01");
+  });
+
+  test("normalizes canonical Draw links by Draw identity", () => {
+    expect(
+      focusForBuildDetailTarget({
+        drawId: "draw-01" as Id<"activeBuildDrawRequests">,
+        kind: "draw",
+      }),
+    ).toBe("draw:draw-01");
   });
 
   test("compares the canonical and retained companion identities", () => {

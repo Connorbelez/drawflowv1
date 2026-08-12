@@ -37,6 +37,14 @@ type TargetResolution =
         readOnly: boolean;
         submilestoneId?: Id<"buildSubmilestones">;
       };
+    }
+  | {
+      state: "visible";
+      target: {
+        drawId: Id<"activeBuildDrawRequests"> | Id<"plannedDrawScheduleRows">;
+        kind: "draw";
+        readOnly: boolean;
+      };
     };
 
 export interface BuildDetailSheetHostState {
@@ -87,14 +95,14 @@ export function BuildDetailSheetHost({
     api.build_collaboration_focus.resolveBuildDetailTarget,
     parsed && focus
       ? { buildId, focus, organizationId, viewerCapacity }
-      : "skip",
+      : "skip"
   ) as TargetResolution;
   const target = useMemo(
     () =>
       resolution?.state === "visible"
         ? detailTargetFromResolution(resolution.target)
         : undefined,
-    [resolution],
+    [resolution]
   );
   const resolutionState = !parsed
     ? isBuildDetailFocusCandidate(focus)
