@@ -50,6 +50,10 @@ import {
 } from "#/components/ui/table.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
+import {
+  type DrawWorkflowCapabilities,
+  getDrawWorkflowActions,
+} from "#/features/draw-workflow/drawWorkflow.ts";
 import { cn } from "#/lib/utils.ts";
 import {
   formatCompactCurrency,
@@ -131,6 +135,7 @@ export interface DrawControlRoomHandlers {
 
 interface DrawControlRoomProps extends DrawControlRoomHandlers {
   data: BrokerageDrawsResult | undefined;
+  drawCapabilities?: DrawWorkflowCapabilities;
   pending: boolean;
 }
 
@@ -180,6 +185,7 @@ function filterDraws(
 
 export function DrawControlRoom({
   data,
+  drawCapabilities,
   onAdvanceDraw,
   onApproveDraw,
   onRejectDraw,
@@ -191,6 +197,17 @@ export function DrawControlRoom({
   const [selectedDrawId, setSelectedDrawId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewPending, setReviewPending] = useState(false);
+  const workflowCapabilities = {
+    ...(drawCapabilities ?? {
+      canApprove: Boolean(onApproveDraw),
+      canOpenReview: true,
+      canReject: Boolean(onRejectDraw),
+      canRelease: false,
+      canStartReview: Boolean(onAdvanceDraw),
+      canSubmitForAdmin: Boolean(onAdvanceDraw),
+    }),
+    canRelease: false,
+  } satisfies DrawWorkflowCapabilities;
 
   const draws = data?.draws ?? [];
   const filteredDraws = useMemo(
@@ -222,6 +239,13 @@ export function DrawControlRoom({
     () => draws.find((draw) => String(draw.drawId) === selectedDrawId) ?? null,
     [draws, selectedDrawId]
   );
+  const selectedWorkflow = selectedDraw
+    ? getDrawWorkflowActions({
+        canonicalIdAvailable: Boolean(selectedDraw.drawId),
+        capabilities: workflowCapabilities,
+        status: selectedDraw.status,
+      })
+    : undefined;
 
   const summary = data?.summary;
   const pipelineChartData = useMemo(
@@ -251,14 +275,15 @@ export function DrawControlRoom({
     (summary?.exposureRequestedCents ?? 0);
 
   async function handleApprove() {
-    if (!selectedDraw || reviewNote.trim().length < 3) {
+    const primaryAction = selectedWorkflow?.primary;
+    if (!selectedDraw || !primaryAction || reviewNote.trim().length < 3) {
       return;
     }
     setReviewPending(true);
     try {
       if (
-        (selectedDraw.status === "requested" ||
-          selectedDraw.status === "in_review") &&
+        (primaryAction.operation === "start_review" ||
+          primaryAction.operation === "submit_for_admin") &&
         onAdvanceDraw
       ) {
         await onAdvanceDraw({
@@ -268,11 +293,11 @@ export function DrawControlRoom({
           status: selectedDraw.status,
         });
         toast.success(
-          selectedDraw.status === "requested"
+          primaryAction.operation === "start_review"
             ? "Draw review started"
             : "Draw sent to admin"
         );
-      } else if (selectedDraw.status === "ready_for_admin" && onApproveDraw) {
+      } else if (primaryAction.operation === "approve" && onApproveDraw) {
         await onApproveDraw({
           buildId: String(selectedDraw.buildId),
           drawKey: selectedDraw.drawKey,
@@ -292,7 +317,14 @@ export function DrawControlRoom({
   }
 
   async function handleReject() {
-    if (!(selectedDraw && onRejectDraw) || reviewNote.trim().length < 3) {
+    if (
+      !(
+        selectedDraw &&
+        selectedWorkflow?.secondary?.operation === "reject" &&
+        onRejectDraw
+      ) ||
+      reviewNote.trim().length < 3
+    ) {
       return;
     }
     setReviewPending(true);
@@ -505,13 +537,9 @@ export function DrawControlRoom({
       </Frame>
 
       <DrawDetailSheet
-        canReview={
-          ((selectedDraw?.status === "requested" ||
-            selectedDraw?.status === "in_review") &&
-            Boolean(onAdvanceDraw)) ||
-          (selectedDraw?.status === "ready_for_admin" &&
-            Boolean(onApproveDraw && onRejectDraw))
-        }
+        canReview={Boolean(
+          selectedWorkflow?.primary || selectedWorkflow?.secondary
+        )}
         draw={selectedDraw}
         onApprove={handleApprove}
         onClose={() => {
@@ -523,6 +551,7 @@ export function DrawControlRoom({
         open={selectedDraw !== null}
         reviewNote={reviewNote}
         reviewPending={reviewPending}
+        workflow={selectedWorkflow}
       />
     </div>
   );
@@ -878,6 +907,7 @@ function DrawDetailSheet({
   open,
   reviewNote,
   reviewPending,
+  workflow,
 }: {
   canReview: boolean;
   draw: BrokerageDrawRow | null;
@@ -888,6 +918,7 @@ function DrawDetailSheet({
   open: boolean;
   reviewNote: string;
   reviewPending: boolean;
+  workflow?: ReturnType<typeof getDrawWorkflowActions>;
 }) {
   return (
     <Sheet onOpenChange={(next) => !next && onClose()} open={open}>
@@ -978,7 +1009,7 @@ function DrawDetailSheet({
           </Button>
           {canReview ? (
             <div className="flex w-full gap-2">
-              {draw?.status === "ready_for_admin" ? (
+              {workflow?.secondary?.operation === "reject" ? (
                 <Button
                   className="flex-1"
                   disabled={reviewNote.trim().length < 3 || reviewPending}
@@ -988,17 +1019,19 @@ function DrawDetailSheet({
                   Reject
                 </Button>
               ) : null}
-              <Button
-                className="flex-1"
-                disabled={reviewNote.trim().length < 3 || reviewPending}
-                onClick={onApprove}
-              >
-                {reviewPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  drawPrimaryActionLabel(draw?.status)
-                )}
-              </Button>
+              {workflow?.primary ? (
+                <Button
+                  className="flex-1"
+                  disabled={reviewNote.trim().length < 3 || reviewPending}
+                  onClick={onApprove}
+                >
+                  {reviewPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    workflow.primary.label
+                  )}
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </SheetFooter>
@@ -1016,17 +1049,4 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   );
-}
-
-function drawPrimaryActionLabel(status?: BrokerageDrawRow["status"]) {
-  if (status === "requested") {
-    return "Start review";
-  }
-  if (status === "in_review") {
-    return "Send to admin";
-  }
-  if (status === "ready_for_admin") {
-    return "Approve for release";
-  }
-  return "Continue";
 }

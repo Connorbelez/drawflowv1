@@ -117,6 +117,10 @@ import {
 } from "#/lib/evidence-image-normalization.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
+import {
+  type DrawWorkflowCapabilities,
+  getDrawWorkflowActions,
+} from "#/features/draw-workflow/drawWorkflow.ts";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ActiveBuildTimelineWorkspaceProps } from "./ActiveBuildTimelineWorkspace";
 import {
@@ -874,6 +878,7 @@ export function ProductionBuildDetailSurface({
   detail,
   detailSheetHost,
   detailTab,
+  drawCapabilities,
   focusedReference,
   fundingWorkspaceEnabled = false,
   milestoneKey,
@@ -902,6 +907,7 @@ export function ProductionBuildDetailSurface({
   detail: ProductionBuildDetail;
   detailSheetHost?: BuildDetailSheetHostState;
   detailTab?: BuildSubmilestoneDetailTab;
+  drawCapabilities?: DrawWorkflowCapabilities;
   focusedReference?: string;
   fundingWorkspaceEnabled?: boolean;
   breadcrumbRootHref?: string;
@@ -938,6 +944,22 @@ export function ProductionBuildDetailSurface({
     (detail.auditEvents?.length ?? 0) + (detail.quickActionEvents?.length ?? 0);
   const activeTabLabel =
     BUILD_DETAIL_TABS.find((tab) => tab.value === activeTab)?.label ?? "Build";
+  const workflowCapabilities =
+    drawCapabilities ??
+    ({
+      canApprove: Boolean(actions?.approveDraw),
+      canOpenReview:
+        viewerRole === "lender" &&
+        viewerCapacity !== "builder" &&
+        viewerCapacity !== "builder-staff",
+      canReject: Boolean(actions?.rejectDraw),
+      canRelease: Boolean(actions?.releaseDraw),
+      canStartReview: Boolean(actions?.startDrawReview),
+      canSubmitForAdmin:
+        Boolean(actions?.submitDrawForAdmin) &&
+        viewerCapacity !== "admin" &&
+        viewerCapacity !== "principle-broker",
+    } satisfies DrawWorkflowCapabilities);
   const permit = firstPermitDocument(detail.documents);
   const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
     string | null
@@ -1355,6 +1377,7 @@ export function ProductionBuildDetailSurface({
               detail={detail}
               detailSheetHost={detailSheetHost}
               detailTab={detailTab}
+              drawCapabilities={workflowCapabilities}
               focusedReference={effectiveFocusedReference}
               fundingWorkspaceEnabled={fundingWorkspaceEnabled}
               onChangeTab={onChangeTab}
@@ -1841,6 +1864,7 @@ function ProductionDetailsTab({
   detail,
   detailSheetHost,
   detailTab,
+  drawCapabilities,
   focusedReference,
   fundingWorkspaceEnabled,
   onChangeTab,
@@ -1857,6 +1881,7 @@ function ProductionDetailsTab({
   detail: ProductionBuildDetail;
   detailSheetHost?: BuildDetailSheetHostState;
   detailTab?: BuildSubmilestoneDetailTab;
+  drawCapabilities: DrawWorkflowCapabilities;
   focusedReference?: string;
   fundingWorkspaceEnabled: boolean;
   onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
@@ -1896,13 +1921,13 @@ function ProductionDetailsTab({
           activeSection={activeOverviewSection}
           currentDay={currentDay}
           detail={detail}
+          drawCapabilities={drawCapabilities}
           fundingWorkspaceEnabled={fundingWorkspaceEnabled}
           onChangeTab={onChangeTab}
           onOpenCanonicalTarget={onOpenCanonicalTarget}
           onOpenMilestone={onOpenMilestone}
           onSectionChange={setActiveOverviewSection}
           projection={projection}
-          viewerCapacity={viewerCapacity}
           viewerRole={viewerRole}
         />
         {showSitePhotos ? (
@@ -2049,19 +2074,20 @@ function ProductionBuildDetailsCard({
   actions,
   currentDay,
   detail,
+  drawCapabilities,
   fundingWorkspaceEnabled,
   onChangeTab,
   onOpenCanonicalTarget,
   onOpenMilestone,
   onSectionChange,
   projection,
-  viewerCapacity,
   viewerRole,
 }: {
   activeSection: BuildOverviewSection;
   actions?: ProductionBuildDetailActions;
   currentDay: number;
   detail: ProductionBuildDetail;
+  drawCapabilities: DrawWorkflowCapabilities;
   fundingWorkspaceEnabled: boolean;
   onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
   onOpenCanonicalTarget?: (
@@ -2071,7 +2097,6 @@ function ProductionBuildDetailsCard({
   onOpenMilestone: (milestoneKey: string) => void;
   onSectionChange: (section: BuildOverviewSection) => void;
   projection: ProductionBuildProjection;
-  viewerCapacity?: ProductionViewerCapacity;
   viewerRole: "builder" | "lender";
 }) {
   const currentOverview = useMemo(
@@ -2086,6 +2111,22 @@ function ProductionBuildDetailsCard({
     (detail.sitePhotos?.filter((photo) => photo.locationVerified === false)
       .length ?? 0);
   const [editOpen, setEditOpen] = useState(false);
+  const openDraw = useCallback(
+    (draw: ProductionDraw) => {
+      if (!draw._id) {
+        return;
+      }
+      if (onOpenCanonicalTarget) {
+        onOpenCanonicalTarget({
+          drawId: draw._id as ProductionDrawId,
+          kind: "draw",
+        });
+        return;
+      }
+      onChangeTab("details", `draw:${draw._id}`);
+    },
+    [onChangeTab, onOpenCanonicalTarget],
+  );
   return (
     <>
       <section
@@ -2142,7 +2183,9 @@ function ProductionBuildDetailsCard({
               currentDay={currentDay}
               currentOverview={currentOverview}
               detail={detail}
+              drawCapabilities={drawCapabilities}
               onReviewMilestone={(milestone) => onOpenMilestone(milestone.key)}
+              onOpenDraw={openDraw}
               projection={projection}
               viewerRole={viewerRole}
             />
@@ -2155,20 +2198,7 @@ function ProductionBuildDetailsCard({
                 (actions?.requestDrawAmount ||
                   detail.plannedDraws !== undefined)) ? (
                 <BuildFundingWorkspace
-                  drawCapabilities={{
-                    canApprove: Boolean(actions?.approveDraw),
-                    canOpenReview:
-                      viewerRole === "lender" &&
-                      viewerCapacity !== "builder" &&
-                      viewerCapacity !== "builder-staff",
-                    canReject: Boolean(actions?.rejectDraw),
-                    canRelease: Boolean(actions?.releaseDraw),
-                    canStartReview: Boolean(actions?.startDrawReview),
-                    canSubmitForAdmin:
-                      Boolean(actions?.submitDrawForAdmin) &&
-                      viewerCapacity !== "admin" &&
-                      viewerCapacity !== "principle-broker",
-                  }}
+                  drawCapabilities={drawCapabilities}
                   model={projectBuildFunding({
                     availability: detail.drawFunding,
                     canRequest: Boolean(actions?.requestDrawAmount),
@@ -2207,15 +2237,7 @@ function ProductionBuildDetailsCard({
                     if (!draw?._id) {
                       return;
                     }
-                    const focus = `draw:${draw._id}`;
-                    if (onOpenCanonicalTarget) {
-                      onOpenCanonicalTarget({
-                        drawId: draw._id as ProductionDrawId,
-                        kind: "draw",
-                      });
-                      return;
-                    }
-                    onChangeTab("details", focus);
+                    openDraw(draw);
                   }}
                   onRejectDraw={fundingRejectAction(
                     detail.draws,
@@ -2247,7 +2269,9 @@ function ProductionBuildDetailsCard({
                   actions={actions}
                   currentOverview={currentOverview}
                   detail={detail}
+                  drawCapabilities={drawCapabilities}
                   projection={projection}
+                  onOpenDraw={openDraw}
                   viewerRole={viewerRole}
                 />
               )}
@@ -2312,7 +2336,9 @@ function CurrentBuildOverviewPanel({
   currentDay,
   currentOverview,
   detail,
+  drawCapabilities,
   onReviewMilestone,
+  onOpenDraw,
   projection,
   viewerRole,
 }: {
@@ -2320,7 +2346,9 @@ function CurrentBuildOverviewPanel({
   currentDay: number;
   currentOverview: CurrentBuildOverview;
   detail: ProductionBuildDetail;
+  drawCapabilities: DrawWorkflowCapabilities;
   onReviewMilestone: (milestone: ProductionMilestone) => void;
+  onOpenDraw?: (draw: ProductionDraw) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
 }) {
@@ -2373,6 +2401,8 @@ function CurrentBuildOverviewPanel({
         activeDrawRequests={activeDrawRequests}
         detail={detail}
         drawActionError={drawActionError}
+        drawCapabilities={drawCapabilities}
+        onOpenDraw={onOpenDraw}
         onRunAction={runDrawAction}
         pendingActionKey={pendingDrawAction}
         viewerRole={viewerRole}
@@ -2442,6 +2472,8 @@ function CurrentActiveDrawRequestsSection({
   activeDrawRequests,
   detail,
   drawActionError,
+  drawCapabilities,
+  onOpenDraw,
   onRunAction,
   pendingActionKey,
   viewerRole,
@@ -2450,6 +2482,8 @@ function CurrentActiveDrawRequestsSection({
   activeDrawRequests: ProductionDraw[];
   detail: ProductionBuildDetail;
   drawActionError: string;
+  drawCapabilities: DrawWorkflowCapabilities;
+  onOpenDraw: (draw: ProductionDraw) => void;
   onRunAction: (
     actionKey: string,
     draw: ProductionDraw,
@@ -2502,6 +2536,8 @@ function CurrentActiveDrawRequestsSection({
                 detail={detail}
                 draw={draw}
                 key={draw.drawKey}
+                drawCapabilities={drawCapabilities}
+                onOpenDraw={onOpenDraw}
                 onRunAction={onRunAction}
                 pendingActionKey={pendingActionKey}
                 viewerRole={viewerRole}
@@ -2870,12 +2906,16 @@ function DrawOverviewPanel({
   actions,
   currentOverview,
   detail,
+  drawCapabilities,
+  onOpenDraw,
   projection,
   viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
   currentOverview: CurrentBuildOverview;
   detail: ProductionBuildDetail;
+  drawCapabilities: DrawWorkflowCapabilities;
+  onOpenDraw: (draw: ProductionDraw) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
 }) {
@@ -3076,7 +3116,9 @@ function DrawOverviewPanel({
                   actions={actions}
                   detail={detail}
                   draw={draw}
+                  drawCapabilities={drawCapabilities}
                   key={draw.drawKey}
+                  onOpenDraw={onOpenDraw}
                   onRunAction={runDrawAction}
                   pendingActionKey={pendingDrawAction}
                   viewerRole={viewerRole}
@@ -3098,23 +3140,29 @@ function DrawOverviewPanel({
       ) : null}
 
       <DrawSummaryList
+        drawCapabilities={drawCapabilities}
         detail={detail}
         draws={inFlightDraws}
         emptyLabel="No draw requests are currently awaiting approval or release."
+        onOpenDraw={onOpenDraw}
         testId="draw-overview-in-flight-draws"
         title="In-flight draws"
       />
       <DrawSummaryList
+        drawCapabilities={drawCapabilities}
         detail={detail}
         draws={pastDraws}
         emptyLabel="No released draws yet."
+        onOpenDraw={onOpenDraw}
         testId="draw-overview-past-draws"
         title="Past draws"
       />
       <DrawSummaryList
+        drawCapabilities={drawCapabilities}
         detail={detail}
         draws={scheduledDraws}
         emptyLabel="No scheduled draws remain."
+        onOpenDraw={onOpenDraw}
         testId="draw-overview-scheduled-draws"
         title="Upcoming schedule"
       />
@@ -3126,7 +3174,9 @@ function DrawSummaryList({
   actions,
   detail,
   draws,
+  drawCapabilities,
   emptyLabel,
+  onOpenDraw,
   onRunAction,
   pendingActionKey,
   testId,
@@ -3136,7 +3186,9 @@ function DrawSummaryList({
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   draws: ProductionDraw[];
+  drawCapabilities: DrawWorkflowCapabilities;
   emptyLabel: string;
+  onOpenDraw: (draw: ProductionDraw) => void;
   onRunAction?: (
     actionKey: string,
     draw: ProductionDraw,
@@ -3165,7 +3217,9 @@ function DrawSummaryList({
               actions={actions}
               detail={detail}
               draw={draw}
+              drawCapabilities={drawCapabilities}
               key={draw.drawKey}
+              onOpenDraw={onOpenDraw}
               onRunAction={onRunAction}
               pendingActionKey={pendingActionKey}
               viewerRole={viewerRole}
@@ -3186,6 +3240,8 @@ function DrawSummaryItem({
   actionTestIdPrefix = "draw-overview",
   detail,
   draw,
+  drawCapabilities,
+  onOpenDraw,
   onRunAction,
   pendingActionKey,
   viewerRole,
@@ -3194,6 +3250,8 @@ function DrawSummaryItem({
   actionTestIdPrefix?: string;
   detail: ProductionBuildDetail;
   draw: ProductionDraw;
+  drawCapabilities: DrawWorkflowCapabilities;
+  onOpenDraw: (draw: ProductionDraw) => void;
   onRunAction?: (
     actionKey: string,
     draw: ProductionDraw,
@@ -3252,6 +3310,8 @@ function DrawSummaryItem({
             actionTestIdPrefix={actionTestIdPrefix}
             buildLabel={detail.build.buildName}
             draw={draw}
+            drawCapabilities={drawCapabilities}
+            onOpenDraw={onOpenDraw}
             onRunAction={onRunAction}
             pendingActionKey={pendingActionKey}
           />
@@ -3266,6 +3326,8 @@ function DrawActionGroup({
   actionTestIdPrefix = "draw-overview",
   buildLabel,
   draw,
+  drawCapabilities,
+  onOpenDraw,
   onRunAction,
   pendingActionKey,
 }: {
@@ -3273,6 +3335,8 @@ function DrawActionGroup({
   actionTestIdPrefix?: string;
   buildLabel: string;
   draw: ProductionDraw;
+  drawCapabilities: DrawWorkflowCapabilities;
+  onOpenDraw?: (draw: ProductionDraw) => void;
   onRunAction: (
     actionKey: string,
     draw: ProductionDraw,
@@ -3282,38 +3346,68 @@ function DrawActionGroup({
 }) {
   const isPending = (actionKey: string) =>
     pendingActionKey === `${actionKey}:${draw.drawKey}`;
+  const workflow = getDrawWorkflowActions({
+    canonicalIdAvailable: Boolean(draw._id),
+    capabilities: drawCapabilities,
+    status: draw.status,
+  });
+  const primaryAction = workflow.primary;
 
-  if (draw.status === "requested") {
-    return (
-      <DrawActionButton
-        disabled={!actions?.startDrawReview || Boolean(pendingActionKey)}
-        label={isPending("start") ? "Starting..." : "Start review"}
-        onClick={() => onRunAction("start", draw, actions?.startDrawReview)}
-        testId={`draw-overview-start-${draw.drawKey}`}
-      />
-    );
+  if (
+    !(
+      (workflow.open && onOpenDraw) ||
+      primaryAction ||
+      workflow.secondary?.operation === "reject"
+    )
+  ) {
+    return null;
   }
 
-  if (draw.status === "in_review") {
-    return (
-      <DrawActionButton
-        disabled={!actions?.submitDrawForAdmin || Boolean(pendingActionKey)}
-        label={isPending("submit") ? "Sending..." : "Send to admin"}
-        onClick={() => onRunAction("submit", draw, actions?.submitDrawForAdmin)}
-        testId={`draw-overview-submit-${draw.drawKey}`}
-      />
-    );
-  }
-
-  if (draw.status === "ready_for_admin") {
-    return (
-      <div className="flex flex-wrap gap-1 sm:justify-end">
+  return (
+    <div className="flex flex-wrap gap-1 sm:justify-end">
+      {workflow.open && onOpenDraw ? (
+        <DrawActionButton
+          disabled={Boolean(pendingActionKey)}
+          label={workflow.open.label}
+          onClick={() => onOpenDraw(draw)}
+          testId={`${actionTestIdPrefix}-open-${draw.drawKey}`}
+        />
+      ) : null}
+      {primaryAction?.operation === "start_review" ? (
+        <DrawActionButton
+          disabled={!actions?.startDrawReview || Boolean(pendingActionKey)}
+          label={isPending("start") ? "Starting..." : primaryAction.label}
+          onClick={() => onRunAction("start", draw, actions?.startDrawReview)}
+          testId={`${actionTestIdPrefix}-start-${draw.drawKey}`}
+        />
+      ) : null}
+      {primaryAction?.operation === "submit_for_admin" ? (
+        <DrawActionButton
+          disabled={!actions?.submitDrawForAdmin || Boolean(pendingActionKey)}
+          label={isPending("submit") ? "Sending..." : primaryAction.label}
+          onClick={() =>
+            onRunAction("submit", draw, actions?.submitDrawForAdmin)
+          }
+          testId={`${actionTestIdPrefix}-submit-${draw.drawKey}`}
+        />
+      ) : null}
+      {primaryAction?.operation === "approve" ? (
         <DrawActionButton
           disabled={!actions?.approveDraw || Boolean(pendingActionKey)}
-          label={isPending("approve") ? "Approving..." : "Approve for release"}
+          label={isPending("approve") ? "Approving..." : primaryAction.label}
           onClick={() => onRunAction("approve", draw, actions?.approveDraw)}
           testId={`${actionTestIdPrefix}-approve-${draw.drawKey}`}
         />
+      ) : null}
+      {primaryAction?.operation === "release" ? (
+        <DrawActionButton
+          disabled={!actions?.releaseDraw || Boolean(pendingActionKey)}
+          label={isPending("release") ? "Releasing..." : primaryAction.label}
+          onClick={() => onRunAction("release", draw, actions?.releaseDraw)}
+          testId={`${actionTestIdPrefix}-release-${draw.drawKey}`}
+        />
+      ) : null}
+      {workflow.secondary?.operation === "reject" ? (
         <DrawRejectionDialog
           amountCents={draw.amountCents}
           buildLabel={buildLabel}
@@ -3328,22 +3422,9 @@ function DrawActionGroup({
           requestLabel={draw.label}
           triggerTestId={`${actionTestIdPrefix}-reject-${draw.drawKey}`}
         />
-      </div>
-    );
-  }
-
-  if (draw.status === "approved_for_release") {
-    return (
-      <DrawActionButton
-        disabled={!actions?.releaseDraw || Boolean(pendingActionKey)}
-        label={isPending("release") ? "Releasing..." : "Release"}
-        onClick={() => onRunAction("release", draw, actions?.releaseDraw)}
-        testId={`${actionTestIdPrefix}-release-${draw.drawKey}`}
-      />
-    );
-  }
-
-  return null;
+      ) : null}
+    </div>
+  );
 }
 
 function BuildMetadataPanel({
@@ -4036,25 +4117,41 @@ function Label({ children }: { children: React.ReactNode }) {
 export function ProductionDrawsTable({
   actions,
   detail,
+  drawCapabilities,
+  onOpenDraw,
   projection,
   viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  drawCapabilities?: DrawWorkflowCapabilities;
+  onOpenDraw?: (draw: ProductionDraw) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
 }) {
   const [pendingDraw, setPendingDraw] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const workflowCapabilities = {
+    ...(drawCapabilities ?? {
+      canApprove: Boolean(actions?.approveDraw),
+      canOpenReview: Boolean(onOpenDraw) && viewerRole === "lender",
+      canReject: Boolean(actions?.rejectDraw),
+      canRelease: Boolean(actions?.releaseDraw),
+      canStartReview: Boolean(actions?.startDrawReview),
+      canSubmitForAdmin: Boolean(actions?.submitDrawForAdmin),
+    }),
+    canRelease: false,
+  } satisfies DrawWorkflowCapabilities;
 
   const run = async (
     draw: ProductionDraw,
     fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
+    actionKey = "request",
   ) => {
     if (!fn || pendingDraw) {
       return false;
     }
-    setPendingDraw(draw.drawKey);
+    setPendingDraw(`${actionKey}:${draw.drawKey}`);
     setError("");
     try {
       await fn(draw);
@@ -4091,7 +4188,7 @@ export function ProductionDrawsTable({
             </thead>
             <tbody>
               {projection.draws.map((draw) => {
-                const pending = pendingDraw === draw.drawKey;
+                const pending = pendingDraw?.endsWith(`:${draw.drawKey}`) ?? false;
                 return (
                   <tr
                     className="border-border border-t"
@@ -4131,67 +4228,24 @@ export function ProductionDrawsTable({
                           <DrawActionButton
                             disabled={!actions?.requestDraw || pending}
                             label={pending ? "Requesting..." : "Request"}
-                            onClick={() => run(draw, actions?.requestDraw)}
+                            onClick={() =>
+                              run(draw, actions?.requestDraw, "request")
+                            }
                             testId={`build-detail-draw-request-${draw.drawKey}`}
                           />
                         ) : null}
-                        {viewerRole === "lender" &&
-                        draw.status === "requested" ? (
-                          <DrawActionButton
-                            disabled={!actions?.startDrawReview || pending}
-                            label={pending ? "Starting..." : "Start review"}
-                            onClick={() => run(draw, actions?.startDrawReview)}
-                            testId={`build-detail-draw-start-${draw.drawKey}`}
-                          />
-                        ) : null}
-                        {viewerRole === "lender" &&
-                        draw.status === "in_review" ? (
-                          <DrawActionButton
-                            disabled={!actions?.submitDrawForAdmin || pending}
-                            label={pending ? "Sending..." : "Send to admin"}
-                            onClick={() =>
-                              run(draw, actions?.submitDrawForAdmin)
+                        {viewerRole === "lender" ? (
+                          <DrawActionGroup
+                            actions={actions}
+                            actionTestIdPrefix="build-detail-draw"
+                            buildLabel={detail.build.buildName}
+                            draw={draw}
+                            drawCapabilities={workflowCapabilities}
+                            onOpenDraw={onOpenDraw}
+                            onRunAction={(actionKey, targetDraw, fn) =>
+                              run(targetDraw, fn, actionKey)
                             }
-                            testId={`build-detail-draw-submit-${draw.drawKey}`}
-                          />
-                        ) : null}
-                        {viewerRole === "lender" &&
-                        draw.status === "ready_for_admin" ? (
-                          <>
-                            <DrawActionButton
-                              disabled={!actions?.approveDraw || pending}
-                              label={
-                                pending ? "Approving..." : "Approve for release"
-                              }
-                              onClick={() => run(draw, actions?.approveDraw)}
-                              testId={`build-detail-draw-approve-${draw.drawKey}`}
-                            />
-                            <DrawRejectionDialog
-                              amountCents={draw.amountCents}
-                              buildLabel={detail.build.buildName}
-                              disabled={!actions?.rejectDraw || pending}
-                              loading={pending}
-                              onReject={(reason) =>
-                                run(draw, (targetDraw) =>
-                                  actions?.rejectDraw?.({
-                                    draw: targetDraw,
-                                    reason,
-                                  }),
-                                )
-                              }
-                              requestKey={draw.drawKey}
-                              requestLabel={draw.label}
-                              triggerTestId={`build-detail-draw-reject-${draw.drawKey}`}
-                            />
-                          </>
-                        ) : null}
-                        {viewerRole === "lender" &&
-                        draw.status === "approved_for_release" ? (
-                          <DrawActionButton
-                            disabled={!actions?.releaseDraw || pending}
-                            label={pending ? "Releasing..." : "Release"}
-                            onClick={() => run(draw, actions?.releaseDraw)}
-                            testId={`build-detail-draw-release-${draw.drawKey}`}
+                            pendingActionKey={pendingDraw}
                           />
                         ) : null}
                         {draw.status === "released" ? (
@@ -6646,10 +6700,7 @@ function buildMilestoneSheetData(
         description:
           materials.find((item) => item.description)?.description ??
           `Complete and document the ${submilestone.name.toLowerCase()} scope against the approved construction roadmap.`,
-        endDate: addDaysSafe(
-          detail.build.startDate,
-          endDay,
-        ),
+        endDate: addDaysSafe(detail.build.startDate, endDay),
         evidence,
         fieldNote: submilestone.fieldNote,
         key: submilestone.key,
@@ -7366,8 +7417,8 @@ function canonicalSubmilestoneIdForEvidence(
 ) {
   const uniqueKeys = [
     ...new Set(
-      (submilestoneIds ?? []).filter(
-        (id): id is Id<"buildSubmilestones"> => Boolean(id),
+      (submilestoneIds ?? []).filter((id): id is Id<"buildSubmilestones"> =>
+        Boolean(id),
       ),
     ),
   ];

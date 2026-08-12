@@ -28,6 +28,7 @@ import {
 } from "#/features/builder-staff/app-permissions.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
+import type { DrawWorkflowCapabilities } from "#/features/draw-workflow/drawWorkflow.ts";
 import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
@@ -840,6 +841,19 @@ function RouteComponent() {
         }).then(() => toast.success("Build details updated.")),
       materialPlanning: materialPlanningActions,
     };
+    const drawCapabilities: DrawWorkflowCapabilities = {
+      canApprove: Boolean(actions.approveDraw),
+      canOpenReview:
+        viewerCapacity !== "builder" && viewerCapacity !== "builder-staff",
+      canReject: Boolean(actions.rejectDraw),
+      canRelease: Boolean(actions.releaseDraw),
+      canStartReview: Boolean(actions.startDrawReview),
+      canSubmitForAdmin:
+        Boolean(actions.submitDrawForAdmin) &&
+        !canMakeFinalDecision &&
+        viewerCapacity !== "admin" &&
+        viewerCapacity !== "principle-broker",
+    };
     const costDocumentSubmilestones = buildCostDocumentSubmilestoneOptions(
       detail.milestones ?? [],
       detail.submilestones ?? [],
@@ -860,12 +874,13 @@ function RouteComponent() {
         calendarTimeframe={search.timeframe}
         calendarWorkspace={calendarWorkspaceQuery as any}
         contractorDetailHrefFor={(contractorId) =>
-          `/backoffice/contractors/${contractorId}`
-        }
-        detailSheetHost={detailSheetHost}
-        onOpenCanonicalTarget={detailSheetHost.controller.openTarget}
-        costs={
-          <Suspense fallback={<BuildDetailTabFallback label="costs" />}>
+              `/backoffice/contractors/${contractorId}`
+            }
+            detailSheetHost={detailSheetHost}
+            drawCapabilities={drawCapabilities}
+            onOpenCanonicalTarget={detailSheetHost.controller.openTarget}
+            costs={
+              <Suspense fallback={<BuildDetailTabFallback label="costs" />}>
             {costDocumentActorCapacity ? (
               <LazyCostDocumentBatchWorkspace
                 actorCapacity={costDocumentActorCapacity}

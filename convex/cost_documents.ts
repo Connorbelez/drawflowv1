@@ -59,6 +59,7 @@ const MAX_BATCH_PAGES = 100;
 const MAX_BATCH_ALLOCATIONS = 200;
 const MAX_BATCH_FINANCIAL_COMPONENTS = 200;
 const MAX_VENDOR_OPTIONS = 100;
+const MAX_VENDOR_DUPLICATE_CANDIDATES = 500;
 const MAX_ROADMAP_RECONCILIATION_INTEGRITY_EXCEPTIONS = 50;
 const COST_DOCUMENT_INTEGRITY_KINDS = [
   "unavailable",
@@ -1026,8 +1027,9 @@ async function listCostDocumentVendorDuplicateCandidates(
   ctx: QueryCtx | MutationCtx,
   authorization: ActiveBuildAuthorization
 ) {
-  // Duplicate detection must inspect the complete active organization set;
-  // the capped list above is only a typeahead response optimization.
+  // Name matches are advisory; exact-email matches use the normalized-email
+  // index below. Keep this mutation read bounded so a large organization
+  // cannot turn inline party creation into an oversized transaction.
   return await ctx.db
     .query("contractorProfiles")
     .withIndex(
@@ -1038,7 +1040,7 @@ async function listCostDocumentVendorDuplicateCandidates(
           .eq("brokerageId", authorization.brokerage._id)
           .eq("status", "active")
     )
-    .collect();
+    .take(MAX_VENDOR_DUPLICATE_CANDIDATES);
 }
 
 async function findCostDocumentVendorProfileByNormalizedEmail(

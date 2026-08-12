@@ -1601,6 +1601,210 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBeNull();
   });
 
+  test("opens an in-review Draw for lender admins without sending it to admin", () => {
+    const submitDrawForAdmin = vi.fn().mockResolvedValue(null);
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ submitDrawForAdmin }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [
+            {
+              ...detail.draws[0],
+              _id: "draw-in-review-admin",
+              drawKey: "draw-in-review-admin",
+              label: "Foundation reimbursement under review",
+              status: "in_review",
+            },
+          ],
+        }}
+        drawCapabilities={{
+          canApprove: false,
+          canOpenReview: true,
+          canReject: false,
+          canRelease: false,
+          canStartReview: false,
+          canSubmitForAdmin: false,
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    const activeRequests = screen.getByTestId("current-active-draw-requests");
+    expect(
+      within(activeRequests).getByTestId(
+        "current-draw-open-draw-in-review-admin",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(activeRequests).queryByTestId(
+        "current-draw-submit-draw-in-review-admin",
+      ),
+    ).toBeNull();
+    expect(activeRequests.textContent).not.toContain("Send to admin");
+
+    fireEvent.click(
+      within(activeRequests).getByTestId(
+        "current-draw-open-draw-in-review-admin",
+      ),
+    );
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith({
+      drawId: "draw-in-review-admin",
+      kind: "draw",
+    });
+    expect(submitDrawForAdmin).not.toHaveBeenCalled();
+  });
+
+  test("keeps the in-review recommendation action for lender operations", async () => {
+    const submitDrawForAdmin = vi.fn().mockResolvedValue(null);
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ submitDrawForAdmin }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [
+            {
+              ...detail.draws[0],
+              _id: "draw-in-review-ops",
+              drawKey: "draw-in-review-ops",
+              label: "Framing reimbursement under review",
+              status: "in_review",
+            },
+          ],
+        }}
+        drawCapabilities={{
+          canApprove: false,
+          canOpenReview: true,
+          canReject: false,
+          canRelease: false,
+          canStartReview: false,
+          canSubmitForAdmin: true,
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    const activeRequests = screen.getByTestId("current-active-draw-requests");
+    fireEvent.click(
+      within(activeRequests).getByTestId("current-draw-open-draw-in-review-ops"),
+    );
+    expect(onOpenCanonicalTarget).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      within(activeRequests).getByTestId(
+        "current-draw-submit-draw-in-review-ops",
+      ),
+    );
+    await waitFor(() => expect(submitDrawForAdmin).toHaveBeenCalledTimes(1));
+    expect(submitDrawForAdmin).toHaveBeenCalledWith(
+      expect.objectContaining({ drawKey: "draw-in-review-ops" }),
+    );
+  });
+
+  test("keeps ready-for-admin decisions read-only for lender operations", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ approveDraw: vi.fn(), rejectDraw: vi.fn() }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [
+            {
+              ...detail.draws[0],
+              _id: "draw-ready-ops",
+              drawKey: "draw-ready-ops",
+              label: "Permit reimbursement awaiting admin",
+              status: "ready_for_admin",
+            },
+          ],
+        }}
+        drawCapabilities={{
+          canApprove: false,
+          canOpenReview: true,
+          canReject: false,
+          canRelease: false,
+          canStartReview: false,
+          canSubmitForAdmin: false,
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    const activeRequests = screen.getByTestId("current-active-draw-requests");
+    expect(
+      within(activeRequests).getByTestId("current-draw-open-draw-ready-ops"),
+    ).toBeTruthy();
+    expect(
+      within(activeRequests).queryByTestId("current-draw-approve-draw-ready-ops"),
+    ).toBeNull();
+    expect(
+      within(activeRequests).queryByTestId("current-draw-reject-draw-ready-ops"),
+    ).toBeNull();
+  });
+
+  test("does not open a Draw target after its canonical id is unavailable", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [
+            {
+              ...detail.draws[0],
+              _id: "",
+              drawKey: "draw-removed",
+              label: "Removed draw request",
+              status: "in_review",
+            },
+          ],
+        }}
+        drawCapabilities={{
+          canApprove: false,
+          canOpenReview: true,
+          canReject: false,
+          canRelease: false,
+          canStartReview: false,
+          canSubmitForAdmin: false,
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    expect(
+      within(screen.getByTestId("current-active-draw-requests")).queryByTestId(
+        "current-draw-open-draw-removed",
+      ),
+    ).toBeNull();
+    expect(onOpenCanonicalTarget).not.toHaveBeenCalled();
+  });
+
   test("runs the B4 lender funding review workflow against production draw actions", async () => {
     const releaseDraw = vi.fn().mockResolvedValue(null);
     const startDrawReview = vi.fn().mockResolvedValue(null);
