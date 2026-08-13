@@ -1,3 +1,32 @@
+import type { JSONContent } from "@tiptap/react";
+
+/**
+ * TipTap accepts either HTML or a JSON document. Persisted Scope revisions use
+ * both representations, so parse only valid TipTap documents and leave HTML
+ * and ordinary text untouched.
+ */
+export function tiptapContent(
+  value: string | JSONContent
+): string | JSONContent {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim();
+  if (!(normalized.startsWith("{") && normalized.endsWith("}"))) {
+    return value;
+  }
+
+  try {
+    const parsed = JSON.parse(normalized) as JSONContent;
+    return parsed?.type === "doc" && Array.isArray(parsed.content)
+      ? parsed
+      : value;
+  } catch {
+    return value;
+  }
+}
+
 /**
  * Compare serialized TipTap documents by their content rather than by the
  * incidental order of object keys emitted by an editor instance.

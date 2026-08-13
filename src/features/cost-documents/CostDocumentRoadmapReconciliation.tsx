@@ -62,10 +62,7 @@ import {
   formatCad,
 } from "./SingleCostDocumentCapture.tsx";
 
-const SUPPORTING_CONTEXT_DISCLOSURE =
-  "This Cost Document does not prove payment, completion, reimbursement eligibility, Draw inclusion, or approval.";
-
-interface CostDocumentSummary {
+export interface CostDocumentSummary {
   _id: Id<"costDocuments">;
   allocations: Array<{
     amountCents: number;
@@ -82,6 +79,13 @@ interface CostDocumentSummary {
   integrity?: { healthy: boolean; openExceptionKinds: string[] };
   kind: "invoice" | "receipt";
   lifecycle: { state: "current" | "superseded" | "voided" };
+  pages: Array<{
+    assetId: Id<"buildCollaborationAssets">;
+    contentHashSha256: string;
+    fileName: string;
+    mimeType: string;
+    order: number;
+  }>;
   reviewAttention?:
     | "needs_correction"
     | "partially_reviewed"
@@ -399,28 +403,6 @@ function CostDocumentRoadmapReconciliationContent({
       data-testid="cost-document-roadmap-reconciliation"
     >
       <Frame>
-        <FrameHeader className="gap-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <FrameTitle>Roadmap reconciliation</FrameTitle>
-              <FrameDescription>
-                Submitted Invoice and Receipt context, organized against the
-                Construction Roadmap by Milestone.
-              </FrameDescription>
-            </div>
-            <Badge variant="outline">Cost Documents</Badge>
-          </div>
-        </FrameHeader>
-        <FramePanel>
-          <Alert>
-            <ShieldCheck />
-            <AlertTitle>Supporting cost context only</AlertTitle>
-            <AlertDescription>{SUPPORTING_CONTEXT_DISCLOSURE}</AlertDescription>
-          </Alert>
-        </FramePanel>
-      </Frame>
-
-      <Frame>
         <FramePanel className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
           <div className="grid grid-cols-2 gap-1">
             <Button
@@ -625,7 +607,9 @@ function CostDocumentRoadmapReconciliationContent({
               }
               options={[
                 ["all", "All Sub-milestones"],
-                ...submilestones.map((item) => [String(item.id), item.label]),
+                ...submilestones.map(
+                  (item): [string, string] => [String(item.id), item.label]
+                ),
               ]}
               value={filters.submilestone}
             />
@@ -1034,7 +1018,6 @@ function SubmilestoneReconciliationSection({
       </FrameHeader>
       <FramePanel className="grid min-w-0 gap-3 p-2 xl:grid-cols-2">
         <SubmilestoneCategoryLane
-          budgetCents={group.budgetCents}
           category="materials"
           entries={group.materials}
           focusBuildSubmilestoneId={group.id}
@@ -1042,10 +1025,8 @@ function SubmilestoneReconciliationSection({
           onOpenCostDocument={onOpenCostDocument}
           showInternalSignals={showInternalSignals}
           submilestones={submilestones}
-          usesActualCost={group.usesActualCost}
         />
         <SubmilestoneCategoryLane
-          budgetCents={group.budgetCents}
           category="labour"
           entries={group.labour}
           focusBuildSubmilestoneId={group.id}
@@ -1053,7 +1034,6 @@ function SubmilestoneReconciliationSection({
           onOpenCostDocument={onOpenCostDocument}
           showInternalSignals={showInternalSignals}
           submilestones={submilestones}
-          usesActualCost={group.usesActualCost}
         />
       </FramePanel>
     </Frame>
@@ -1061,7 +1041,6 @@ function SubmilestoneReconciliationSection({
 }
 
 function SubmilestoneCategoryLane({
-  budgetCents,
   category,
   entries,
   focusBuildSubmilestoneId,
@@ -1069,9 +1048,7 @@ function SubmilestoneCategoryLane({
   onOpenCostDocument,
   showInternalSignals,
   submilestones,
-  usesActualCost,
 }: {
-  budgetCents: number;
   category: "labour" | "materials";
   entries: SubmilestoneDocumentEntry[];
   focusBuildSubmilestoneId: Id<"buildSubmilestones">;
@@ -1079,17 +1056,14 @@ function SubmilestoneCategoryLane({
   onOpenCostDocument: (costDocumentId: string) => void;
   showInternalSignals: boolean;
   submilestones: CostDocumentSubmilestoneOption[];
-  usesActualCost: boolean;
 }) {
   const title = category === "materials" ? "Materials" : "Labour";
-  const coverage = documentationCoveragePercent(invoicedCents, budgetCents);
-  const targetLabel = usesActualCost ? "actual cost" : "planned budget";
   return (
     <Frame
       aria-label={`${title} for this Sub-milestone`}
       className={category === "materials" ? "bg-sky-500/8" : "bg-amber-500/10"}
     >
-      <FrameHeader className="flex-row items-start justify-between gap-3">
+      <FrameHeader>
         <div>
           <FrameTitle className="flex items-center gap-2 text-sm">
             {category === "materials" ? (
@@ -1103,24 +1077,6 @@ function SubmilestoneCategoryLane({
             {entries.length} record{entries.length === 1 ? "" : "s"} ·{" "}
             {formatCad(invoicedCents)} invoiced
           </FrameDescription>
-        </div>
-        <div className="max-w-[11rem] text-right">
-          <p className="text-muted-foreground text-xs uppercase tracking-wide">
-            Documentation coverage
-          </p>
-          <p className="font-semibold text-sm tabular-nums">
-            {budgetCents ? formatCoverage(coverage) : "—"}
-          </p>
-          {budgetCents ? (
-            <p className="mt-1 text-muted-foreground text-xs tabular-nums">
-              {formatCad(invoicedCents)} of {formatCad(budgetCents)}{" "}
-              {targetLabel}
-            </p>
-          ) : (
-            <p className="mt-1 text-muted-foreground text-xs">
-              Budget not supplied
-            </p>
-          )}
         </div>
       </FrameHeader>
       <FramePanel className="space-y-2 p-2">
@@ -1581,15 +1537,16 @@ export function CostDocumentDetail({
         );
       }
       objectUrl = URL.createObjectURL(await response.blob());
+      const revocationUrl = objectUrl;
       if (mode === "download") {
         const anchor = window.document.createElement("a");
         anchor.download = page.fileName;
         anchor.href = objectUrl;
         anchor.click();
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+        window.setTimeout(() => URL.revokeObjectURL(revocationUrl), 0);
       } else {
         preview?.location.replace(objectUrl);
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        window.setTimeout(() => URL.revokeObjectURL(revocationUrl), 60_000);
       }
     } catch (cause) {
       if (objectUrl) {

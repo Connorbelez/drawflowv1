@@ -25,6 +25,8 @@ import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/in
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
 import { Route as QuoteInvitationMagicTokenRouteImport } from './routes/quote-invitation.$magicToken'
 import { Route as PrototypeSystemPostsRouteImport } from './routes/prototype/system-posts'
+import { Route as PrototypeContractorWorkRouteImport } from './routes/prototype/contractor-work'
+import { Route as PrototypeContractorQuotesRouteImport } from './routes/prototype/contractor-quotes'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
@@ -167,6 +169,17 @@ const PrototypeSystemPostsRoute = PrototypeSystemPostsRouteImport.update({
   path: '/prototype/system-posts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrototypeContractorWorkRoute = PrototypeContractorWorkRouteImport.update({
+  id: '/prototype/contractor-work',
+  path: '/prototype/contractor-work',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrototypeContractorQuotesRoute =
+  PrototypeContractorQuotesRouteImport.update({
+    id: '/prototype/contractor-quotes',
+    path: '/prototype/contractor-quotes',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const PrototypeBuildCollaborationRoute =
   PrototypeBuildCollaborationRouteImport.update({
     id: '/prototype/build-collaboration',
@@ -535,6 +548,8 @@ export interface FileRoutesByFullPath {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/contractor-quotes': typeof PrototypeContractorQuotesRoute
+  '/prototype/contractor-work': typeof PrototypeContractorWorkRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
@@ -600,6 +615,8 @@ export interface FileRoutesByTo {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/contractor-quotes': typeof PrototypeContractorQuotesRoute
+  '/prototype/contractor-work': typeof PrototypeContractorWorkRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
@@ -676,6 +693,8 @@ export interface FileRoutesById {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/contractor-quotes': typeof PrototypeContractorQuotesRoute
+  '/prototype/contractor-work': typeof PrototypeContractorWorkRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
@@ -756,6 +775,8 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/contractor-quotes'
+    | '/prototype/contractor-work'
     | '/prototype/system-posts'
     | '/quote-invitation/$magicToken'
     | '/backoffice/'
@@ -821,6 +842,8 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/contractor-quotes'
+    | '/prototype/contractor-work'
     | '/prototype/system-posts'
     | '/quote-invitation/$magicToken'
     | '/backoffice'
@@ -896,6 +919,8 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/contractor-quotes'
+    | '/prototype/contractor-work'
     | '/prototype/system-posts'
     | '/quote-invitation/$magicToken'
     | '/backoffice/'
@@ -954,6 +979,8 @@ export interface RootRouteChildren {
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
+  PrototypeContractorQuotesRoute: typeof PrototypeContractorQuotesRoute
+  PrototypeContractorWorkRoute: typeof PrototypeContractorWorkRoute
   PrototypeSystemPostsRoute: typeof PrototypeSystemPostsRoute
   QuoteInvitationMagicTokenRoute: typeof QuoteInvitationMagicTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
@@ -1073,6 +1100,20 @@ declare module '@tanstack/react-router' {
       path: '/prototype/system-posts'
       fullPath: '/prototype/system-posts'
       preLoaderRoute: typeof PrototypeSystemPostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/contractor-work': {
+      id: '/prototype/contractor-work'
+      path: '/prototype/contractor-work'
+      fullPath: '/prototype/contractor-work'
+      preLoaderRoute: typeof PrototypeContractorWorkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/contractor-quotes': {
+      id: '/prototype/contractor-quotes'
+      path: '/prototype/contractor-quotes'
+      fullPath: '/prototype/contractor-quotes'
+      preLoaderRoute: typeof PrototypeContractorQuotesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/prototype/build-collaboration': {
@@ -1814,6 +1855,8 @@ const rootRouteChildren: RootRouteChildren = {
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
+  PrototypeContractorQuotesRoute: PrototypeContractorQuotesRoute,
+  PrototypeContractorWorkRoute: PrototypeContractorWorkRoute,
   PrototypeSystemPostsRoute: PrototypeSystemPostsRoute,
   QuoteInvitationMagicTokenRoute: QuoteInvitationMagicTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,

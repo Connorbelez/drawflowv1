@@ -5027,6 +5027,11 @@ describe("Cost Document public contract", () => {
         duplicateWarning: false,
         integrity: { healthy: false, openExceptionKinds: ["missing"] },
         lifecycle: { state: "current" },
+        pages: [
+          expect.objectContaining({
+            fileName: "roadmap-reconciliation-source.pdf",
+          }),
+        ],
         reviewAttention: "unreviewed",
         uploaderScope: "self",
       }),

@@ -76,7 +76,6 @@ import type * as build_collaboration_migrations from "../build_collaboration_mig
 import type * as build_collaboration_model from "../build_collaboration_model.js";
 import type * as build_collaboration_moderation from "../build_collaboration_moderation.js";
 import type * as build_collaboration_notifications from "../build_collaboration_notifications.js";
-import type * as build_collaboration_operational_events from "../build_collaboration_operational_events.js";
 import type * as build_collaboration_pin_migration from "../build_collaboration_pin_migration.js";
 import type * as build_collaboration_planning_reconciliation from "../build_collaboration_planning_reconciliation.js";
 import type * as build_collaboration_projection from "../build_collaboration_projection.js";
@@ -104,6 +103,7 @@ import type * as build_collaboration_shared_effects from "../build_collaboration
 import type * as build_collaboration_system_event_access from "../build_collaboration_system_event_access.js";
 import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
 import type * as build_collaboration_system_post_backfill from "../build_collaboration_system_post_backfill.js";
+import type * as build_collaboration_system_post_boundary_migrations from "../build_collaboration_system_post_boundary_migrations.js";
 import type * as build_collaboration_system_posts from "../build_collaboration_system_posts.js";
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validation from "../build_collaboration_validation.js";
@@ -255,7 +255,6 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_model: typeof build_collaboration_model;
   build_collaboration_moderation: typeof build_collaboration_moderation;
   build_collaboration_notifications: typeof build_collaboration_notifications;
-  build_collaboration_operational_events: typeof build_collaboration_operational_events;
   build_collaboration_pin_migration: typeof build_collaboration_pin_migration;
   build_collaboration_planning_reconciliation: typeof build_collaboration_planning_reconciliation;
   build_collaboration_projection: typeof build_collaboration_projection;
@@ -283,6 +282,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_system_event_access: typeof build_collaboration_system_event_access;
   build_collaboration_system_events: typeof build_collaboration_system_events;
   build_collaboration_system_post_backfill: typeof build_collaboration_system_post_backfill;
+  build_collaboration_system_post_boundary_migrations: typeof build_collaboration_system_post_boundary_migrations;
   build_collaboration_system_posts: typeof build_collaboration_system_posts;
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validation: typeof build_collaboration_validation;

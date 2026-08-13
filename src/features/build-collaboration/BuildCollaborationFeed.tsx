@@ -8,6 +8,7 @@ import {
   useQuery,
 } from "convex/react";
 import {
+  Banknote,
   CalendarClock,
   ChevronDown,
   Flag,
@@ -21,6 +22,7 @@ import {
   Send,
   ShieldAlert,
   SquareKanban,
+  UserRound,
   Users,
   WifiOff,
 } from "lucide-react";
@@ -134,7 +136,6 @@ import {
   type CollaborationDraftSummary,
   type CollaborationFeedEntry,
   type CollaborationFeedPostEntry,
-  type CollaborationPlanningReconciliation,
   classifyCollaborationActionItem,
   composerActionItems,
   emptyDocument,
@@ -143,6 +144,7 @@ import {
   type FocusedReference,
   formatTimestamp,
   initials,
+  isCanonicalMilestoneItem,
   type PostType,
   parseDocument,
   parseDraftBundle,
@@ -157,7 +159,10 @@ import {
   toEditorReferenceKind,
 } from "./model.ts";
 import { parseBuildCollaborationFocus } from "./referenceFocus.ts";
-import { SystemPostExperience } from "./SystemPostExperience.tsx";
+import {
+  SystemPostExperience,
+  systemPostTitle,
+} from "./SystemPostExperience.tsx";
 
 const BUILD_WORKSPACE_PATH_PATTERN =
   /(\/(?:backoffice|builder-staff|builder|contractor|homeowner)\/builds\/)[^/]+/;
@@ -203,94 +208,6 @@ function buildCollaborationScopeArgs(
   organizationId?: string
 ) {
   return organizationId ? { buildId, organizationId } : ("skip" as const);
-}
-
-function useBuildPlanningReconciliation({
-  buildId,
-  enabled,
-  organizationId,
-}: {
-  buildId: Id<"activeBuilds">;
-  enabled: boolean;
-  organizationId?: string;
-}) {
-  const planningQueryArgs =
-    enabled && organizationId ? { buildId, organizationId } : ("skip" as const);
-  const planningMetadata = useQuery(
-    api.build_collaboration_planning_reconciliation
-      .getActiveBuildPlanningReconciliation,
-    planningQueryArgs
-  );
-  const currentPlanningSnapshot = usePaginatedQuery(
-    api.build_collaboration_planning_reconciliation
-      .getActiveBuildPlanningReconciliationSnapshot,
-    planningQueryArgs,
-    { initialNumItems: 100 }
-  );
-  const activationPlanningSnapshot = usePaginatedQuery(
-    api.build_collaboration_planning_reconciliation
-      .getActiveBuildPlanningActivationSnapshot,
-    planningQueryArgs,
-    { initialNumItems: 100 }
-  );
-  const planningDiffs = usePaginatedQuery(
-    api.build_collaboration_planning_reconciliation
-      .listActiveBuildPlanningReconciliationDiffs,
-    planningQueryArgs,
-    { initialNumItems: 100 }
-  );
-  const planningReconciliation = useMemo(() => {
-    if (!planningMetadata) {
-      return;
-    }
-    const pageStillLoading = [
-      currentPlanningSnapshot.status,
-      activationPlanningSnapshot.status,
-      planningDiffs.status,
-    ].some((status) => status === "LoadingFirstPage");
-    if (pageStillLoading) {
-      return;
-    }
-    const buildIdString = String(buildId);
-    return {
-      activation: planningMetadata.activation
-        ? {
-            ...planningMetadata.activation,
-            snapshot: planningSnapshotFromEntities(
-              buildIdString,
-              activationPlanningSnapshot.results
-            ),
-          }
-        : null,
-      current: {
-        revision: planningMetadata.current.revision,
-        snapshot: planningSnapshotFromEntities(
-          buildIdString,
-          currentPlanningSnapshot.results
-        ),
-      },
-      diffs: planningDiffs.results,
-      diffPagesPending: planningDiffs.status === "CanLoadMore",
-      diffsTruncated: planningMetadata.diffsTruncated,
-      materializationPending: planningMetadata.materializationPending,
-      revisionsTruncated: planningMetadata.revisionsTruncated,
-      revisions: planningMetadata.revisions,
-    } satisfies CollaborationPlanningReconciliation;
-  }, [
-    activationPlanningSnapshot.results,
-    activationPlanningSnapshot.status,
-    buildId,
-    currentPlanningSnapshot.results,
-    currentPlanningSnapshot.status,
-    planningDiffs.results,
-    planningDiffs.status,
-    planningMetadata,
-  ]);
-  return {
-    diffsLoadingMore: planningDiffs.status === "LoadingMore",
-    loadMoreDiffPages: () => planningDiffs.loadMore(100),
-    planningReconciliation,
-  };
 }
 
 function actionItemQueueState(query: {
@@ -368,15 +285,12 @@ export function buildActionItemSheetHref(
 export function buildDetailTargetSheetHref(
   currentHref: string,
   target: BuildDetailTarget,
-  context?: Pick<BuildDetailTargetContext, "selectedTab">,
+  context?: Pick<BuildDetailTargetContext, "selectedTab">
 ) {
   const url = new URL(currentHref, "http://localhost");
   if (target.kind === "submilestone") {
     url.searchParams.set("focus", `submilestone:${target.submilestoneId}`);
-    url.searchParams.set(
-      "detailTab",
-      context?.selectedTab ?? "collaboration",
-    );
+    url.searchParams.set("detailTab", context?.selectedTab ?? "collaboration");
   } else if (target.kind === "draw") {
     url.searchParams.set("tab", "details");
     url.searchParams.set("focus", `draw:${target.drawId}`);
@@ -1092,14 +1006,14 @@ function BuildCollaborationFeedContent({
   ]);
   const openDetailTarget = (
     target: BuildDetailTarget,
-    context?: BuildDetailTargetContext,
+    context?: BuildDetailTargetContext
   ) => {
     if (target.kind === "submilestone") {
       setActionItemSheetTarget(null);
       const href = buildDetailTargetSheetHref(
         window.location.href,
         target,
-        context,
+        context
       );
       if (!onOpenReference) {
         window.history.replaceState(window.history.state, "", href);
@@ -1117,7 +1031,7 @@ function BuildCollaborationFeedContent({
       const href = buildDetailTargetSheetHref(
         window.location.href,
         target,
-        context,
+        context
       );
       if (!onOpenReference) {
         window.history.replaceState(window.history.state, "", href);
@@ -1138,7 +1052,7 @@ function BuildCollaborationFeedContent({
     const href = buildDetailTargetSheetHref(
       window.location.href,
       target,
-      context,
+      context
     );
     onOpenReference?.({
       entityId: actionItemId,
@@ -1255,14 +1169,6 @@ function BuildCollaborationFeedContent({
       ),
     [feed.results, focusedPostContext]
   );
-  const planningFeed = useBuildPlanningReconciliation({
-    buildId: activeBuildId,
-    enabled: feedEntries.some(
-      (entry) =>
-        entry.kind === "post" && entry.post.systemPost?.kind === "milestone"
-    ),
-    organizationId,
-  });
   useEffect(() => {
     const focusedPostId =
       focusedAssetPostId ??
@@ -2616,11 +2522,8 @@ function BuildCollaborationFeedContent({
                 setActionItemSheetTarget({ kind: "create", postId })
               }
               onFocusReference={focusReference}
-              onLoadMorePlanningDiffs={planningFeed.loadMoreDiffPages}
               onOpenActionItem={openDetailTarget}
               organizationId={organizationId}
-              planningDiffsLoadingMore={planningFeed.diffsLoadingMore}
-              planningReconciliation={planningFeed.planningReconciliation}
               referenceByKey={referenceByKey}
               tagOptions={tagOptions}
               viewerRole={viewerRole}
@@ -2889,9 +2792,17 @@ function ComposerAttachmentInput({
   );
 }
 
+interface ResolvedSystemPostCollapseControl {
+  contentId: string;
+  expanded: boolean;
+  label: string;
+  onToggle: () => void;
+}
+
 function CollaborationPostHeader({
   buildId,
   canEdit,
+  collapseControl,
   coordinationVisible,
   entry,
   mutationsAllowed,
@@ -2902,6 +2813,7 @@ function CollaborationPostHeader({
 }: {
   buildId: Id<"activeBuilds">;
   canEdit: boolean;
+  collapseControl?: ResolvedSystemPostCollapseControl;
   coordinationVisible: boolean;
   entry: CollaborationFeedPostEntry;
   mutationsAllowed: boolean;
@@ -2949,41 +2861,122 @@ function CollaborationPostHeader({
   const canViewHistory =
     entry.post.viewerIsAuthor ||
     (entry.post.contentState === "active" && entry.post.revision > 1);
+  const presentation = collaborationPostHeaderPresentation(entry);
+  const HeaderIcon = presentation.icon;
 
   return (
-    <CardHeader className="gap-3 p-4">
+    <CardHeader
+      className={cn("gap-3 border-b p-4", presentation.headerClassName)}
+      data-post-origin={entry.post.systemPost ? "system" : "user"}
+    >
       <div className="flex min-w-0 items-start gap-3">
-        <Avatar className="size-9">
-          <AvatarFallback>
-            {initials(entry.post.authorDisplayNameSnapshot)}
-          </AvatarFallback>
-        </Avatar>
+        <span
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-lg",
+            presentation.iconClassName
+          )}
+        >
+          <HeaderIcon aria-hidden="true" className="size-5" />
+        </span>
         <div className="min-w-0 flex-1">
-          <CardTitle className="truncate text-sm">
-            {entry.post.authorDisplayNameSnapshot}
+          <CardTitle
+            className={cn(
+              "truncate font-semibold text-base tracking-tight sm:text-lg",
+              presentation.titleClassName
+            )}
+            render={<h3 />}
+          >
+            {presentation.label}
           </CardTitle>
+          {presentation.entityTitle ? (
+            <p className="mt-1 line-clamp-2 font-medium text-foreground text-sm leading-snug">
+              {presentation.entityTitle}
+            </p>
+          ) : null}
           <CardDescription className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-            <span>{roleLabel(entry.post.authorRole)}</span>
+            <span className="font-medium text-foreground/90">
+              {entry.post.authorDisplayNameSnapshot}
+            </span>
+            {entry.post.systemPost ? null : (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{roleLabel(entry.post.authorRole)}</span>
+              </>
+            )}
             <span aria-hidden="true">·</span>
             <time>{formatTimestamp(entry.post.createdAt)}</time>
             <PostStatusBadges entry={entry} />
           </CardDescription>
         </div>
-        <CollaborationPostActions
-          canEdit={canEdit}
-          canViewHistory={canViewHistory}
-          coordinationVisible={coordinationVisible}
-          entry={entry}
-          followPost={followPost}
-          mutationsAllowed={mutationsAllowed}
-          onEdit={onEdit}
-          onManageThread={onManageThread}
-          onModerate={onModerate}
-          savePost={savePost}
-        />
+        <div className="flex shrink-0 items-center gap-1">
+          {collapseControl ? (
+            <Button
+              aria-controls={collapseControl.contentId}
+              aria-expanded={collapseControl.expanded}
+              aria-label={`${collapseControl.expanded ? "Collapse" : "Expand"} resolved system post: ${collapseControl.label}`}
+              onClick={collapseControl.onToggle}
+              size="icon-xl"
+              type="button"
+              variant="ghost"
+            >
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "size-4 transition-transform duration-200",
+                  collapseControl.expanded && "rotate-180"
+                )}
+              />
+            </Button>
+          ) : null}
+          <CollaborationPostActions
+            canEdit={canEdit}
+            canViewHistory={canViewHistory}
+            coordinationVisible={coordinationVisible}
+            entry={entry}
+            followPost={followPost}
+            mutationsAllowed={mutationsAllowed}
+            onEdit={onEdit}
+            onManageThread={onManageThread}
+            onModerate={onModerate}
+            savePost={savePost}
+          />
+        </div>
       </div>
     </CardHeader>
   );
+}
+
+function collaborationPostHeaderPresentation(
+  entry: CollaborationFeedPostEntry
+) {
+  if (entry.post.systemPost?.kind === "draw") {
+    return {
+      entityTitle: systemPostTitle(entry),
+      headerClassName: "bg-info/5",
+      icon: Banknote,
+      iconClassName: "bg-info/12 text-info-foreground",
+      label: "Draw system post",
+      titleClassName: "text-info-foreground",
+    };
+  }
+  if (entry.post.systemPost?.kind === "milestone") {
+    return {
+      entityTitle: systemPostTitle(entry),
+      headerClassName: "bg-success/5",
+      icon: Flag,
+      iconClassName: "bg-success/12 text-success-foreground",
+      label: "Milestone system post",
+      titleClassName: "text-success-foreground",
+    };
+  }
+  return {
+    entityTitle: null,
+    headerClassName: "bg-muted/25",
+    icon: UserRound,
+    iconClassName: "bg-secondary text-secondary-foreground",
+    label: "User post",
+    titleClassName: "text-foreground",
+  };
 }
 
 function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
@@ -3006,10 +2999,6 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
       <Badge variant="outline">{postTypeLabel(entry.post.postType)}</Badge>
       {entry.post.systemPost ? (
         <>
-          <Badge variant="info">System post</Badge>
-          <Badge variant="outline">
-            {entry.post.systemPost.kind === "draw" ? "Draw" : "Milestone"}
-          </Badge>
           {systemLifecycle === "reopened" ? (
             <Badge variant="info">Reopened</Badge>
           ) : systemLifecycle === "resolved" ? (
@@ -3267,11 +3256,8 @@ function CollaborationPostCard({
   mutationsAllowed,
   onCreateActionItem,
   onFocusReference,
-  onLoadMorePlanningDiffs,
   onOpenActionItem,
   organizationId,
-  planningDiffsLoadingMore,
-  planningReconciliation,
   referenceByKey,
   tagOptions,
   viewerRole,
@@ -3287,11 +3273,8 @@ function CollaborationPostCard({
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onFocusReference: (reference: FocusedReference) => void;
-  onLoadMorePlanningDiffs: () => void;
   onOpenActionItem: (target: BuildDetailTarget) => void;
   organizationId: string;
-  planningDiffsLoadingMore: boolean;
-  planningReconciliation?: CollaborationPlanningReconciliation;
   referenceByKey: Map<string, ReferenceOption>;
   tagOptions: ReferenceOption[];
   viewerRole?: string;
@@ -3312,9 +3295,20 @@ function CollaborationPostCard({
   const [moderationTarget, setModerationTarget] =
     useState<BuildCollaborationModerationEntity | null>(null);
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  const [resolvedSystemPostExpanded, setResolvedSystemPostExpanded] =
+    useState(false);
+  const systemEntityTitle = systemPostTitle(entry);
+  const isResolvedSystemPost = entry.post.systemPost?.lifecycle === "resolved";
+  const resolvedSystemPostContentId = `resolved-system-post-content-${entry.post._id}`;
+  const resolvedSystemPostCollapsed =
+    isResolvedSystemPost && !resolvedSystemPostExpanded;
   const drawCoordinationVisible =
     entry.post.systemPost?.kind !== "draw" ||
     entry.post.systemPost.drawCoordination?.eligible === true;
+  const isDrawSystemPost = entry.post.systemPost?.kind === "draw";
+  const visibleActionItems = isDrawSystemPost
+    ? entry.actionItems.filter((item) => !isCanonicalMilestoneItem(item))
+    : entry.actionItems;
   const canEdit = Boolean(
     mutationsAllowed &&
       drawCoordinationVisible &&
@@ -3359,6 +3353,20 @@ function CollaborationPostCard({
       setTab("discussion");
     }
   }, [focusedReference]);
+
+  useEffect(() => {
+    if (
+      isResolvedSystemPost &&
+      (focusedAssetId || focusedCommentId || focusedReference)
+    ) {
+      setResolvedSystemPostExpanded(true);
+    }
+  }, [
+    focusedAssetId,
+    focusedCommentId,
+    focusedReference,
+    isResolvedSystemPost,
+  ]);
 
   useEffect(() => {
     try {
@@ -3527,6 +3535,17 @@ function CollaborationPostCard({
       <CollaborationPostHeader
         buildId={buildId}
         canEdit={canEdit}
+        collapseControl={
+          isResolvedSystemPost
+            ? {
+                contentId: resolvedSystemPostContentId,
+                expanded: resolvedSystemPostExpanded,
+                label: systemEntityTitle ?? "System post",
+                onToggle: () =>
+                  setResolvedSystemPostExpanded((expanded) => !expanded),
+              }
+            : undefined
+        }
         coordinationVisible={drawCoordinationVisible}
         entry={entry}
         mutationsAllowed={mutationsAllowed}
@@ -3541,217 +3560,208 @@ function CollaborationPostCard({
         }
         organizationId={organizationId}
       />
-      <CardPanel className="space-y-3 px-4 pb-4">
-        {entry.post.systemPost ? (
-          <SystemPostExperience
-            brief={
+      {resolvedSystemPostCollapsed ? null : (
+        <>
+          <CardPanel
+            className="space-y-3 px-4 pb-4"
+            id={isResolvedSystemPost ? resolvedSystemPostContentId : undefined}
+          >
+            {entry.post.systemPost ? (
+              <SystemPostExperience
+                drawCapabilities={drawCapabilities}
+                entry={entry}
+                onOpenActionItem={onOpenActionItem}
+                viewerRole={viewerRole}
+                viewerRoles={viewerRoles}
+              />
+            ) : (
               <CollaborationRichTextPreview
-                ariaLabel="System Post operations brief"
-                className="border-0 bg-transparent text-muted-foreground [&_.ProseMirror]:px-0"
+                ariaLabel="Published Build update"
+                className="border-0 bg-transparent [&_.ProseMirror]:px-0"
                 onReferenceOpen={openReference}
                 tagOptions={tagOptions}
                 value={parseDocument(entry.revision.tiptapJson)}
               />
-            }
-            buildId={buildId}
-            coordinationVisible={drawCoordinationVisible}
-            drawCapabilities={drawCapabilities}
-            entry={entry}
-            mutationsAllowed={mutationsAllowed}
-            onCreateActionItem={onCreateActionItem}
-            onLoadMorePlanningDiffs={onLoadMorePlanningDiffs}
-            onOpenActionItem={onOpenActionItem}
-            organizationId={organizationId}
-            planningDiffsLoadingMore={planningDiffsLoadingMore}
-            planningReconciliation={planningReconciliation}
-            tagOptions={tagOptions}
-            viewerRole={viewerRole}
-            viewerRoles={viewerRoles}
-          />
-        ) : (
-          <CollaborationRichTextPreview
-            ariaLabel="Published Build update"
-            className="border-0 bg-transparent [&_.ProseMirror]:px-0"
-            onReferenceOpen={openReference}
-            tagOptions={tagOptions}
-            value={parseDocument(entry.revision.tiptapJson)}
-          />
-        )}
-        {entry.references.length > 0 ? (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {entry.references.map((reference) => {
-              const kind = toEditorReferenceKind(reference.entityKind);
-              const option = referenceByKey.get(
-                `${kind}:${reference.entityId}`
-              );
-              return (
-                <BuildCollaborationReferenceChip
-                  key={reference._id}
-                  onOpen={() => option && onFocusReference(option)}
-                  reference={{
-                    eyebrow: option?.eyebrow ?? roleLabel(reference.entityKind),
-                    label: option?.label ?? reference.labelSnapshot,
-                    summary:
-                      option?.summary ??
-                      reference.summarySnapshot ??
-                      "Referenced on this Build",
-                  }}
-                />
-              );
-            })}
-          </div>
-        ) : null}
-        <BuildCollaborationAssetList
-          assets={entry.attachments}
-          buildId={buildId}
-          focusedAssetId={focusedAssetId}
-          onReplace={
-            mutationsAllowed
-              ? (asset, file) => replaceAsset(asset, file)
-              : undefined
-          }
-          organizationId={organizationId}
-        />
-        <ThreadOutcomeSummary entry={entry} />
-      </CardPanel>
-      {entry.post.contentState === "active" ? (
-        <>
-          {drawCoordinationVisible ? (
-            <div
-              className={cn(
-                "grid border-y",
-                entry.post.systemPost?.kind === "draw"
-                  ? "grid-cols-1"
-                  : "grid-cols-2"
-              )}
-            >
-              <button
-                aria-expanded={tab === "discussion"}
-                className={cn(
-                  "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
-                  tab === "discussion" && "bg-primary/10 text-foreground"
-                )}
-                onClick={() =>
-                  setTab((current) =>
-                    current === "discussion" ? null : "discussion"
-                  )
-                }
-                type="button"
-              >
-                <MessageCircle aria-hidden="true" className="size-4" />
-                Discussion {entry.post.commentCount}
-              </button>
-              {entry.post.systemPost?.kind === "draw" ? null : (
-                <button
-                  aria-expanded={tab === "actions"}
-                  className={cn(
-                    "flex min-h-11 items-center justify-center gap-2 text-sm",
-                    tab === "actions" && "bg-primary/10 text-foreground"
-                  )}
-                  onClick={() =>
-                    setTab((current) =>
-                      current === "actions" ? null : "actions"
-                    )
-                  }
-                  type="button"
-                >
-                  <Flag aria-hidden="true" className="size-4" />
-                  Action Items {entry.actionItems.length}
-                </button>
-              )}
-            </div>
-          ) : null}
-          {drawCoordinationVisible && tab === "discussion" ? (
-            <CollaborationDiscussion
-              acceptedCommentId={entry.post.acceptedCommentId}
+            )}
+            {entry.references.length > 0 ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {entry.references.map((reference) => {
+                  const kind = toEditorReferenceKind(reference.entityKind);
+                  const option = referenceByKey.get(
+                    `${kind}:${reference.entityId}`
+                  );
+                  return (
+                    <BuildCollaborationReferenceChip
+                      key={reference._id}
+                      onOpen={() => option && onFocusReference(option)}
+                      reference={{
+                        eyebrow:
+                          option?.eyebrow ?? roleLabel(reference.entityKind),
+                        label: option?.label ?? reference.labelSnapshot,
+                        summary:
+                          option?.summary ??
+                          reference.summarySnapshot ??
+                          "Referenced on this Build",
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ) : null}
+            <BuildCollaborationAssetList
+              assets={entry.attachments}
               buildId={buildId}
               focusedAssetId={focusedAssetId}
-              focusedCommentId={focusedCommentId}
-              mutationsAllowed={mutationsAllowed}
-              onEditComment={setEditTarget}
-              onFocusReference={onFocusReference}
-              onModerateComment={setModerationTarget}
-              onReplaceAsset={replaceAsset}
+              onReplace={
+                mutationsAllowed
+                  ? (asset, file) => replaceAsset(asset, file)
+                  : undefined
+              }
               organizationId={organizationId}
-              postId={entry.post._id}
-              referenceByKey={referenceByKey}
-              tagOptions={tagOptions}
             />
-          ) : tab === "actions" && entry.post.systemPost?.kind !== "draw" ? (
-            <CardPanel className="min-w-0 space-y-3 overflow-x-hidden p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-muted-foreground text-xs">
-                  Work stays anchored to this post.
-                </p>
-                <div className="flex gap-1">
-                  <Button
-                    aria-label="Show Action Items as a list"
-                    aria-pressed={actionView === "list"}
-                    onClick={() => setActionView("list")}
-                    size="icon-xl"
+            {entry.post.systemPost ? null : (
+              <ThreadOutcomeSummary entry={entry} />
+            )}
+          </CardPanel>
+          {entry.post.contentState === "active" ? (
+            <>
+              {drawCoordinationVisible ? (
+                <div className="grid grid-cols-2 border-y">
+                  <button
+                    aria-expanded={tab === "discussion"}
+                    className={cn(
+                      "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
+                      tab === "discussion" && "bg-primary/10 text-foreground"
+                    )}
+                    onClick={() =>
+                      setTab((current) =>
+                        current === "discussion" ? null : "discussion"
+                      )
+                    }
                     type="button"
-                    variant={actionView === "list" ? "secondary" : "ghost"}
                   >
-                    <List aria-hidden="true" className="size-4" />
-                  </Button>
-                  <Button
-                    aria-label="Show Action Items as a board"
-                    aria-pressed={actionView === "board"}
-                    onClick={() => setActionView("board")}
-                    size="icon-xl"
+                    <MessageCircle aria-hidden="true" className="size-4" />
+                    Discussion {entry.post.commentCount}
+                  </button>
+                  <button
+                    aria-expanded={tab === "actions"}
+                    className={cn(
+                      "flex min-h-11 items-center justify-center gap-2 text-sm",
+                      tab === "actions" && "bg-primary/10 text-foreground"
+                    )}
+                    onClick={() =>
+                      setTab((current) =>
+                        current === "actions" ? null : "actions"
+                      )
+                    }
                     type="button"
-                    variant={actionView === "board" ? "secondary" : "ghost"}
                   >
-                    <SquareKanban aria-hidden="true" className="size-4" />
-                  </Button>
+                    <Flag aria-hidden="true" className="size-4" />
+                    Action Items {visibleActionItems.length}
+                  </button>
                 </div>
-              </div>
-              <BuildCollaborationActionItems
-                actionView={actionView}
-                items={entry.actionItems}
-                mutationsAllowed={mutationsAllowed}
-                onCreate={() => onCreateActionItem(entry.post._id)}
-                onMove={async (
-                  actionItemId,
-                  status,
-                  reason,
-                  expectedRevision
-                ) => {
-                  try {
-                    await transitionAction({
+              ) : null}
+              {drawCoordinationVisible && tab === "discussion" ? (
+                <CollaborationDiscussion
+                  acceptedCommentId={entry.post.acceptedCommentId}
+                  buildId={buildId}
+                  focusedAssetId={focusedAssetId}
+                  focusedCommentId={focusedCommentId}
+                  mutationsAllowed={mutationsAllowed}
+                  onEditComment={setEditTarget}
+                  onFocusReference={onFocusReference}
+                  onModerateComment={setModerationTarget}
+                  onReplaceAsset={replaceAsset}
+                  organizationId={organizationId}
+                  postId={entry.post._id}
+                  referenceByKey={referenceByKey}
+                  tagOptions={tagOptions}
+                />
+              ) : tab === "actions" ? (
+                <CardPanel className="min-w-0 space-y-3 overflow-x-hidden p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-muted-foreground text-xs">
+                      {isDrawSystemPost
+                        ? "User-defined Action Items stay anchored to this Draw post."
+                        : "Work stays anchored to this post."}
+                    </p>
+                    {isDrawSystemPost ? null : (
+                      <div className="flex gap-1">
+                        <Button
+                          aria-label="Show Action Items as a list"
+                          aria-pressed={actionView === "list"}
+                          onClick={() => setActionView("list")}
+                          size="icon-xl"
+                          type="button"
+                          variant={
+                            actionView === "list" ? "secondary" : "ghost"
+                          }
+                        >
+                          <List aria-hidden="true" className="size-4" />
+                        </Button>
+                        <Button
+                          aria-label="Show Action Items as a board"
+                          aria-pressed={actionView === "board"}
+                          onClick={() => setActionView("board")}
+                          size="icon-xl"
+                          type="button"
+                          variant={
+                            actionView === "board" ? "secondary" : "ghost"
+                          }
+                        >
+                          <SquareKanban aria-hidden="true" className="size-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <BuildCollaborationActionItems
+                    actionView={isDrawSystemPost ? "list" : actionView}
+                    items={visibleActionItems}
+                    mutationsAllowed={mutationsAllowed}
+                    onCreate={() => onCreateActionItem(entry.post._id)}
+                    onMove={async (
                       actionItemId,
-                      buildId,
-                      expectedRevision,
-                      nextStatus: status,
-                      organizationId,
+                      status,
                       reason,
-                    });
-                  } catch (error) {
-                    toast.error(
-                      error instanceof Error
-                        ? error.message
-                        : "Unable to move Action Item."
-                    );
-                  }
-                }}
-                onOpen={onOpenActionItem}
-                participants={participants}
+                      expectedRevision
+                    ) => {
+                      try {
+                        await transitionAction({
+                          actionItemId,
+                          buildId,
+                          expectedRevision,
+                          nextStatus: status,
+                          organizationId,
+                          reason,
+                        });
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : "Unable to move Action Item."
+                        );
+                      }
+                    }}
+                    onOpen={onOpenActionItem}
+                    participants={participants}
+                  />
+                </CardPanel>
+              ) : null}
+              <CollaborationPostFooter
+                buildId={buildId}
+                entry={entry}
+                mutationsAllowed={mutationsAllowed}
+                organizationId={organizationId}
               />
-            </CardPanel>
-          ) : null}
-          <CollaborationPostFooter
-            buildId={buildId}
-            entry={entry}
-            mutationsAllowed={mutationsAllowed}
-            organizationId={organizationId}
-          />
+            </>
+          ) : (
+            <CardFooter className="border-t px-4 py-3 text-muted-foreground text-xs">
+              {entry.post.contentState === "tombstoned"
+                ? "The visible content was replaced with an auditable tombstone."
+                : "The visible content is unavailable while the moderation case is active."}
+            </CardFooter>
+          )}
         </>
-      ) : (
-        <CardFooter className="border-t px-4 py-3 text-muted-foreground text-xs">
-          {entry.post.contentState === "tombstoned"
-            ? "The visible content was replaced with an auditable tombstone."
-            : "The visible content is unavailable while the moderation case is active."}
-        </CardFooter>
       )}
       <BuildCollaborationEditSheet
         buildId={buildId}
@@ -3790,43 +3800,6 @@ function CollaborationPostCard({
       />
     </Card>
   );
-}
-
-function planningSnapshotFromEntities(
-  buildId: string,
-  entities: Array<{
-    canonicalId?: string;
-    entityKey: string;
-    entityType: string;
-    planningState: "active" | "superseded";
-    snapshot: unknown;
-  }>
-) {
-  const snapshot = {
-    allocations: [] as typeof entities,
-    budgets: [] as typeof entities,
-    buildId,
-    draws: [] as typeof entities,
-    evidenceRequirements: [] as typeof entities,
-    milestones: [] as typeof entities,
-    submilestones: [] as typeof entities,
-  };
-  for (const entity of entities) {
-    if (entity.entityType === "milestone") {
-      snapshot.milestones.push(entity);
-    } else if (entity.entityType === "submilestone") {
-      snapshot.submilestones.push(entity);
-    } else if (entity.entityType === "draw") {
-      snapshot.draws.push(entity);
-    } else if (entity.entityType === "budget") {
-      snapshot.budgets.push(entity);
-    } else if (entity.entityType === "allocation") {
-      snapshot.allocations.push(entity);
-    } else if (entity.entityType === "evidenceRequirement") {
-      snapshot.evidenceRequirements.push(entity);
-    }
-  }
-  return snapshot;
 }
 
 function CollaborationComment({

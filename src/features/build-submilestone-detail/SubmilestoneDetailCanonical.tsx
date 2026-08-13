@@ -1,13 +1,14 @@
 "use client";
 
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ClipboardCheck,
   FileImage,
+  MapPinCheck,
   MapPinOff,
-  Paperclip,
   Play,
   RotateCcw,
   Save,
@@ -16,10 +17,8 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-
-import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
-import { Button, buttonVariants } from "#/components/ui/button.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import {
   Card,
   CardDescription,
@@ -27,6 +26,15 @@ import {
   CardPanel,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "#/components/ui/empty.tsx";
+import { FileUploader } from "#/components/ui/file-uploader.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
@@ -37,32 +45,36 @@ import {
 import { Progress } from "#/components/ui/progress.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
-import { cn } from "#/lib/utils.ts";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api as apiRef } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
-  MilestoneStartDialog,
   type MilestoneStartConfirmation,
+  MilestoneStartDialog,
   type MilestoneStartDialogRequest,
   type MilestoneStartSource,
 } from "../backoffice-build-detail/MilestoneStartDialog.tsx";
 import {
-  ContractorQuickAddDrawer,
+  type SiteVisitOrderConfirmation,
+  SiteVisitOrderDialog,
+} from "../backoffice-build-detail/SiteVisitOrderDialog.tsx";
+import {
   type ContractorAssignmentCostDraft,
   type ContractorDrawerAvailableContractor,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "../contractors/ContractorQuickAddDrawer.tsx";
 import {
-  MaterialPlanningTab,
   type MaterialPlanningActions,
   type MaterialPlanningItem,
   type MaterialPlanningMilestone,
   type MaterialPlanningPayload,
+  MaterialPlanningTab,
 } from "../material-planning/MaterialPlanningTab.tsx";
 import { ActiveBuildSubmilestoneGuidanceController } from "../submilestone-guidance/ActiveBuildSubmilestoneGuidanceController.tsx";
 import { ProposalSubmilestoneScopeController } from "../submilestone-scope/ProposalSubmilestoneScopeController.tsx";
+import { SubmilestoneSiteVisitWorkspace } from "./SubmilestoneSiteVisitWorkspace.tsx";
 
 /**
  * The workspace query is intentionally consumed through this small adapter.
@@ -86,9 +98,9 @@ interface NavigationProps {
 interface CanonicalTabPanelProps extends NavigationProps {
   bootstrap: CanonicalWorkspaceBootstrap;
   collection?: CanonicalWorkspaceCollection | undefined;
-  requirementsCollection?: CanonicalWorkspaceCollection | undefined;
   historyCollection?: CanonicalWorkspaceCollection | undefined;
   onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
+  requirementsCollection?: CanonicalWorkspaceCollection | undefined;
   tab: "evidence" | "materials" | "overview" | "people";
 }
 
@@ -98,7 +110,7 @@ type RetryAction = () => Promise<unknown>;
 
 interface PreparedEvidenceUpload {
   fileName: string;
-  locationAttempt: Record<string, unknown>;
+  locationAttempt?: Record<string, unknown>;
   mimeType: string;
   sizeBytes: number;
   storageId: string;
@@ -108,6 +120,12 @@ const CANONICAL_SOURCE_VALUES = new Set([
   "active_build_submilestone_evidence_upload",
   "canonical_upload",
   "canonical_upload_promotion",
+]);
+const BACKOFFICE_EVIDENCE_CAPACITIES = new Set<BuildCollaborationRole>([
+  "admin",
+  "principle-broker",
+  "broker",
+  "broker-staff",
 ]);
 const EVIDENCE_UPLOAD_MIN_TIMEOUT_MS = 30_000;
 const EVIDENCE_UPLOAD_MAX_TIMEOUT_MS = 5 * 60_000;
@@ -171,28 +189,28 @@ const CANONICAL_REVIEW_STALE_CONFLICT_CODES = new Set([
 function structuredConvexErrorCode(
   value: unknown,
   depth = 0,
-  acceptedCodes: ReadonlySet<string> = CANONICAL_STALE_CONFLICT_CODES,
+  acceptedCodes: ReadonlySet<string> = CANONICAL_STALE_CONFLICT_CODES
 ): string | undefined {
   if (depth > 4 || value === null || value === undefined) {
-    return undefined;
+    return;
   }
   if (typeof value === "string") {
     const normalized = value.trim();
-    if (!normalized.startsWith("{") || !normalized.endsWith("}")) {
-      return undefined;
+    if (!(normalized.startsWith("{") && normalized.endsWith("}"))) {
+      return;
     }
     try {
       return structuredConvexErrorCode(
         JSON.parse(normalized),
         depth + 1,
-        acceptedCodes,
+        acceptedCodes
       );
     } catch {
-      return undefined;
+      return;
     }
   }
   if (typeof value !== "object") {
-    return undefined;
+    return;
   }
 
   const record = value as Record<string, unknown>;
@@ -205,7 +223,7 @@ function structuredConvexErrorCode(
     const nestedCode = structuredConvexErrorCode(
       record[key],
       depth + 1,
-      acceptedCodes,
+      acceptedCodes
     );
     if (nestedCode) {
       return nestedCode;
@@ -224,8 +242,11 @@ function isStaleConflict(error: unknown) {
 
 function isReviewStaleConflict(error: unknown) {
   return (
-    structuredConvexErrorCode(error, 0, CANONICAL_REVIEW_STALE_CONFLICT_CODES) !==
-    undefined
+    structuredConvexErrorCode(
+      error,
+      0,
+      CANONICAL_REVIEW_STALE_CONFLICT_CODES
+    ) !== undefined
   );
 }
 
@@ -248,22 +269,22 @@ function evidenceUploadTimeoutMs(sizeBytes: number) {
   const payloadDurationMs =
     Number.isFinite(sizeBytes) && sizeBytes > 0
       ? Math.ceil(
-          (sizeBytes / EVIDENCE_UPLOAD_THROUGHPUT_BYTES_PER_SECOND) * 1000,
+          (sizeBytes / EVIDENCE_UPLOAD_THROUGHPUT_BYTES_PER_SECOND) * 1000
         )
       : 0;
   return Math.min(
     EVIDENCE_UPLOAD_MAX_TIMEOUT_MS,
     Math.max(
       EVIDENCE_UPLOAD_MIN_TIMEOUT_MS,
-      EVIDENCE_UPLOAD_MIN_TIMEOUT_MS + payloadDurationMs,
-    ),
+      EVIDENCE_UPLOAD_MIN_TIMEOUT_MS + payloadDurationMs
+    )
   );
 }
 
 function stableCommandKey(
   store: Map<string, string>,
   prefix: string,
-  fingerprint: string,
+  fingerprint: string
 ) {
   const existing = store.get(fingerprint);
   if (existing) {
@@ -276,7 +297,7 @@ function stableCommandKey(
 
 function capability(
   bootstrap: CanonicalWorkspaceBootstrap,
-  key: string,
+  key: string
 ): { allowed: boolean; reason?: string } {
   const capabilities = object(bootstrap.capabilities);
   const canonical = object(capabilities.canonical);
@@ -288,7 +309,7 @@ function capability(
 }
 
 export function isCanonicalSubmilestoneSuperseded(
-  bootstrap: CanonicalWorkspaceBootstrap,
+  bootstrap: CanonicalWorkspaceBootstrap
 ) {
   const submilestone = object(bootstrap.submilestone);
   const companion = object(bootstrap.companion);
@@ -304,11 +325,11 @@ export function isCanonicalSubmilestoneSuperseded(
 function canMutate(
   bootstrap: CanonicalWorkspaceBootstrap,
   readOnly: boolean,
-  key: string,
+  key: string
 ) {
   return (
     !(readOnly || isCanonicalSubmilestoneSuperseded(bootstrap)) &&
-      capability(bootstrap, key).allowed
+    capability(bootstrap, key).allowed
   );
 }
 
@@ -317,7 +338,7 @@ function revisionFor(bootstrap: CanonicalWorkspaceBootstrap) {
   return optionalNumber(
     revisions.canonicalWorkflowRevision ??
       revisions.workflowRevision ??
-      bootstrap.workflowRevision,
+      bootstrap.workflowRevision
   );
 }
 
@@ -349,42 +370,42 @@ function overviewFor(bootstrap: CanonicalWorkspaceBootstrap) {
   const schedule = object(bootstrap.schedule);
   return {
     actualCostCents: optionalNumber(
-      overview.actualCostCents ?? execution.actualCostCents,
+      overview.actualCostCents ?? execution.actualCostCents
     ),
     actualStartedAt: optionalNumber(
-      overview.actualStartedAt ?? execution.actualStartedAt,
+      overview.actualStartedAt ?? execution.actualStartedAt
     ),
     budgetCents: numberValue(
       overview.budgetCents ?? submilestone.budgetCents,
-      numberValue(bootstrap.budgetCents, 0),
+      numberValue(bootstrap.budgetCents, 0)
     ),
     completionForecastDate: stringValue(
       overview.forecastDate ??
         overview.completionForecastDate ??
-        execution.completionForecastDate,
+        execution.completionForecastDate
     ),
     fieldNote: stringValue(overview.fieldNote ?? execution.fieldNote),
     plannedDurationDays: optionalNumber(
-      overview.plannedDurationDays ?? schedule.durationDays,
+      overview.plannedDurationDays ?? schedule.durationDays
     ),
     plannedStartDay: optionalNumber(
-      overview.plannedStartDay ?? schedule.startDay,
+      overview.plannedStartDay ?? schedule.startDay
     ),
     progressPercent: numberValue(
       overview.progressPercent ?? execution.progressPercent,
-      0,
+      0
     ),
     status: stringValue(overview.status ?? submilestone.status, "planned"),
   };
 }
 
 function proposalSubmilestoneIdFor(
-  bootstrap: CanonicalWorkspaceBootstrap,
+  bootstrap: CanonicalWorkspaceBootstrap
 ): string | undefined {
   const submilestone = object(bootstrap.submilestone);
   return (
     stringValue(
-      submilestone.proposalSubmilestoneId ?? bootstrap.proposalSubmilestoneId,
+      submilestone.proposalSubmilestoneId ?? bootstrap.proposalSubmilestoneId
     ) || undefined
   );
 }
@@ -406,7 +427,7 @@ function currencyInputValue(cents: number | undefined) {
 function parseCadAmount(value: string): number | null | undefined {
   const normalized = value.trim();
   if (!normalized) {
-    return undefined;
+    return;
   }
   if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
     return null;
@@ -459,14 +480,14 @@ function plannedDate(bootstrap: CanonicalWorkspaceBootstrap) {
   const build = object(bootstrap.build);
   const schedule = object(bootstrap.schedule);
   const direct = stringValue(
-    object(bootstrap.overview).plannedStartDate ?? schedule.plannedStartDate,
+    object(bootstrap.overview).plannedStartDate ?? schedule.plannedStartDate
   );
   if (direct) {
     return direct;
   }
   const startDate = stringValue(build.startDate);
   const day = optionalNumber(
-    object(bootstrap.overview).plannedStartDay ?? schedule.startDay,
+    object(bootstrap.overview).plannedStartDay ?? schedule.startDay
   );
   if (!startDate || day === undefined) {
     return "Not scheduled";
@@ -570,11 +591,11 @@ export function CanonicalSubmilestoneTabPanel({
         buildId={buildId}
         buildSubmilestoneId={buildSubmilestoneId}
         collection={collection}
-        requirementsCollection={requirementsCollection}
         companionActionItemId={companionActionItemId}
         onRetry={onRetry}
         organizationId={organizationId}
         readOnly={readOnly}
+        requirementsCollection={requirementsCollection}
         viewerCapacity={viewerCapacity}
       />
     );
@@ -586,8 +607,8 @@ export function CanonicalSubmilestoneTabPanel({
         buildId={buildId}
         buildSubmilestoneId={buildSubmilestoneId}
         collection={collection}
-        historyCollection={historyCollection}
         companionActionItemId={companionActionItemId}
+        historyCollection={historyCollection}
         onRetry={onRetry}
         organizationId={organizationId}
         readOnly={readOnly}
@@ -625,25 +646,25 @@ function CanonicalOverviewPanel({
   onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
 }) {
   const updateProgress = useMutation(
-    apiRef.production_proposals.updateActiveBuildSubmilestoneProgress,
+    apiRef.production_proposals.updateActiveBuildSubmilestoneProgress
   );
   const updateExecution = useMutation(
-    apiRef.production_proposals.updateActiveBuildSubmilestoneExecution,
+    apiRef.production_proposals.updateActiveBuildSubmilestoneExecution
   );
   const startWork = useMutation(
-    apiRef.production_proposals.startActiveBuildMilestone,
+    apiRef.production_proposals.startActiveBuildMilestone
   );
   const correctStart = useMutation(
-    apiRef.production_proposals.correctActiveBuildMilestoneStart,
+    apiRef.production_proposals.correctActiveBuildMilestoneStart
   );
   const retractStart = useMutation(
-    apiRef.production_proposals.retractActiveBuildMilestoneStart,
+    apiRef.production_proposals.retractActiveBuildMilestoneStart
   );
   const details = overviewFor(bootstrap);
   const proposalSubmilestoneId = proposalSubmilestoneIdFor(bootstrap);
   const [progress, setProgress] = useState(String(details.progressPercent));
   const [actualCost, setActualCost] = useState(
-    currencyInputValue(details.actualCostCents),
+    currencyInputValue(details.actualCostCents)
   );
   const [forecast, setForecast] = useState(details.completionForecastDate);
   const [fieldNote, setFieldNote] = useState(details.fieldNote);
@@ -731,7 +752,7 @@ function CanonicalOverviewPanel({
         capability(bootstrap, "updateExecution").allowed
       ) {
         setError(
-          "The canonical workflow revision is unavailable. Refresh before saving this draft.",
+          "The canonical workflow revision is unavailable. Refresh before saving this draft."
         );
       }
       return;
@@ -750,11 +771,9 @@ function CanonicalOverviewPanel({
       setError("Progress must be a whole number between 0 and 100.");
       return;
     }
-    if (
-      actualCostValue === null
-    ) {
+    if (actualCostValue === null) {
       setError(
-        "Actual cost must be a non-negative CAD amount with no more than two decimal places.",
+        "Actual cost must be a non-negative CAD amount with no more than two decimal places."
       );
       return;
     }
@@ -775,14 +794,14 @@ function CanonicalOverviewPanel({
     };
     void runCommand(
       action,
-      "Progress draft saved. Refreshing canonical facts…",
+      "Progress draft saved. Refreshing canonical facts…"
     );
   };
 
   const startRequest = (action: "correct" | "retract" | "start") => {
     if (workflowRevision === undefined) {
       setError(
-        "The canonical workflow revision is unavailable. Refresh before recording this start.",
+        "The canonical workflow revision is unavailable. Refresh before recording this start."
       );
       return;
     }
@@ -811,14 +830,14 @@ function CanonicalOverviewPanel({
         capability(bootstrap, "complete").allowed
       ) {
         setError(
-          "The canonical workflow revision is unavailable. Refresh before completing this Sub-milestone.",
+          "The canonical workflow revision is unavailable. Refresh before completing this Sub-milestone."
         );
       }
       return;
     }
     if (workflowRevision === undefined) {
       setError(
-        "The canonical workflow revision is unavailable. Refresh before completing this Sub-milestone.",
+        "The canonical workflow revision is unavailable. Refresh before completing this Sub-milestone."
       );
       return;
     }
@@ -863,7 +882,7 @@ function CanonicalOverviewPanel({
         capability(bootstrap, "reopen").allowed
       ) {
         setError(
-          "The canonical workflow revision is unavailable. Refresh before reopening this Sub-milestone.",
+          "The canonical workflow revision is unavailable. Refresh before reopening this Sub-milestone."
         );
       }
       return;
@@ -883,7 +902,7 @@ function CanonicalOverviewPanel({
     };
     void runCommand(
       action,
-      "Sub-milestone reopened. Refreshing canonical facts…",
+      "Sub-milestone reopened. Refreshing canonical facts…"
     );
   };
 
@@ -942,7 +961,7 @@ function CanonicalOverviewPanel({
         const nextRevision = resultRevision(started);
         if (nextRevision === undefined) {
           throw new Error(
-            "The canonical start did not return a workflow revision. Refresh before completing this Sub-milestone.",
+            "The canonical start did not return a workflow revision. Refresh before completing this Sub-milestone."
           );
         }
         await updateExecution({
@@ -959,7 +978,7 @@ function CanonicalOverviewPanel({
       } catch (caught) {
         setStartDialog(null);
         throw new Error(
-          `Start was recorded, but completion failed. Refresh and retry completion. ${errorMessage(caught)}`,
+          `Start was recorded, but completion failed. Refresh and retry completion. ${errorMessage(caught)}`
         );
       } finally {
         setCompleteAfterStart(false);
@@ -968,7 +987,7 @@ function CanonicalOverviewPanel({
   };
 
   const ownership = object(
-    object(bootstrap.overview).executionOwnership ?? bootstrap.ownership,
+    object(bootstrap.overview).executionOwnership ?? bootstrap.ownership
   );
   const parent = object(bootstrap.milestone);
   return (
@@ -1065,7 +1084,7 @@ function CanonicalOverviewPanel({
           <p className="text-muted-foreground text-sm">
             {stringValue(
               ownership.contractorName ?? ownership.reason,
-              "No active Work Allocation is recorded.",
+              "No active Work Allocation is recorded."
             )}
           </p>
           {details.fieldNote ? (
@@ -1156,7 +1175,7 @@ function CanonicalOverviewPanel({
         </div>
       ) : null}
 
-      {!isCanonicalSubmilestoneSuperseded(bootstrap) ? (
+      {isCanonicalSubmilestoneSuperseded(bootstrap) ? null : (
         <Frame>
           <FramePanel className="space-y-3">
             <div className="flex items-center gap-2 font-medium text-sm">
@@ -1225,17 +1244,17 @@ function CanonicalOverviewPanel({
                   Reopen work
                 </Button>
               ) : null}
-              {!startAllowed &&
-              !correctAllowed &&
-              !retractAllowed &&
-              !completeAllowed &&
-              !reopenAllowed &&
-              !updateAllowed ? (
+              {startAllowed ||
+              correctAllowed ||
+              retractAllowed ||
+              completeAllowed ||
+              reopenAllowed ||
+              updateAllowed ? null : (
                 <p className="text-muted-foreground text-sm">
                   You can view this Sub-milestone, but you cannot change its
                   field execution.
                 </p>
-              ) : null}
+              )}
             </fieldset>
             {actualStartedAt === undefined && completeAllowed ? (
               <p className="text-muted-foreground text-xs">
@@ -1246,10 +1265,10 @@ function CanonicalOverviewPanel({
             ) : null}
           </FramePanel>
         </Frame>
-      ) : null}
-      {!isCanonicalSubmilestoneSuperseded(bootstrap) &&
-      !readOnly &&
-      !hasRevision ? (
+      )}
+      {isCanonicalSubmilestoneSuperseded(bootstrap) ||
+      readOnly ||
+      hasRevision ? null : (
         <Frame aria-live="polite">
           <FramePanel
             className="border-warning/35 bg-warning/8 p-3 text-sm"
@@ -1263,7 +1282,7 @@ function CanonicalOverviewPanel({
             </p>
           </FramePanel>
         </Frame>
-      ) : null}
+      )}
 
       {startDialog ? (
         <MilestoneStartDialog
@@ -1294,14 +1313,14 @@ function CanonicalOverviewPanel({
 function dependencyBlockers(bootstrap: CanonicalWorkspaceBootstrap) {
   return arrayValue(
     object(bootstrap.overview).dependencyBlockers ??
-      bootstrap.dependencyBlockers,
+      bootstrap.dependencyBlockers
   ).map((value) => {
     const blocker = object(value);
     return {
       milestoneKey: stringValue(blocker.milestoneKey ?? blocker.key),
       milestoneName: stringValue(
         blocker.milestoneName ?? blocker.name,
-        "Predecessor milestone",
+        "Predecessor milestone"
       ),
       status:
         stringValue(blocker.status, "planned") === "in_progress"
@@ -1331,7 +1350,7 @@ function CanonicalEvidencePanel({
   onRetry,
   organizationId,
   readOnly,
-  viewerCapacity: _viewerCapacity,
+  viewerCapacity,
 }: NavigationProps & {
   bootstrap: CanonicalWorkspaceBootstrap;
   collection: CanonicalWorkspaceCollection | undefined;
@@ -1339,12 +1358,40 @@ function CanonicalEvidencePanel({
   historyCollection?: CanonicalWorkspaceCollection | undefined;
 }) {
   const generateUploadUrl = useMutation(
-    apiRef.production_proposals.generateActiveBuildEvidenceUploadUrl,
+    apiRef.production_proposals.generateActiveBuildEvidenceUploadUrl
   );
   const addEvidence = useMutation(
-    apiRef.production_proposals.addActiveBuildSubmilestoneEvidence,
+    apiRef.production_proposals.addActiveBuildSubmilestoneEvidence
+  );
+  const scheduleSiteVisit = useMutation(
+    apiRef.production_proposals.scheduleActiveBuildSiteVisit
   );
   const details = overviewFor(bootstrap);
+  const proposalSubmilestoneId = proposalSubmilestoneIdFor(bootstrap);
+  const canReadSiteVisits = Boolean(
+    viewerCapacity && BACKOFFICE_EVIDENCE_CAPACITIES.has(viewerCapacity)
+  );
+  const fieldGuidance = useQuery(
+    apiRef.submilestone_field_guidance.getSubmilestoneFieldGuidance,
+    proposalSubmilestoneId
+      ? {
+          proposalSubmilestoneId:
+            proposalSubmilestoneId as Id<"proposalSubmilestones">,
+          workosOrganizationId: organizationId,
+        }
+      : "skip"
+  );
+  const siteVisits = useQuery(
+    apiRef.production_proposals.listBrokerageSiteVisits,
+    canReadSiteVisits
+      ? {
+          buildId,
+          milestoneKey: milestoneKeyFor(bootstrap),
+          submilestoneId: buildSubmilestoneId,
+          workosOrganizationId: organizationId,
+        }
+      : "skip"
+  );
   const evidence = object(bootstrap.evidence);
   const requirements = [
     ...arrayValue(evidence.requirements).map(object),
@@ -1352,19 +1399,26 @@ function CanonicalEvidencePanel({
   ]
     .filter((requirement) => evidenceRequirementKey(requirement).length > 0)
     .filter(
-    (requirement, index, all) =>
-      all.findIndex(
-        (candidate) =>
-          stringValue(
-            candidate.requirementKey ?? candidate.key ?? candidate.id,
-          ) ===
-          stringValue(requirement.requirementKey ?? requirement.key ?? requirement.id),
-      ) === index,
+      (requirement, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            stringValue(
+              candidate.requirementKey ?? candidate.key ?? candidate.id
+            ) ===
+            stringValue(
+              requirement.requirementKey ?? requirement.key ?? requirement.id
+            )
+        ) === index
     );
   const assets = arrayValue(evidence.assets).map(object);
   const rows = collectionRows(collection);
   const canonicalAssets = [...assets, ...rows]
     .filter((asset) => isCanonicalEvidenceAsset(asset))
+    .filter(
+      (asset) =>
+        stringValue(asset.sourceKind ?? asset.source).toLowerCase() !==
+        "site_visit"
+    )
     .filter((asset, index, all) => {
       const id = evidenceAssetIdentity(asset);
       if (!id) {
@@ -1372,30 +1426,35 @@ function CanonicalEvidencePanel({
       }
       return (
         all.findIndex(
-          (candidate) => evidenceAssetIdentity(candidate) === id,
+          (candidate) => evidenceAssetIdentity(candidate) === id
         ) === index
       );
     });
   const [requirementKey, setRequirementKey] = useState(
-    evidenceRequirementKey(requirements[0]),
+    evidenceRequirementKey(requirements[0])
   );
-  const requirementCount = optionalNumber(evidence.requirementCount) ?? requirements.length;
+  const requirementCount =
+    optionalNumber(evidence.requirementCount) ?? requirements.length;
   const requirementsAvailable = requirements.length > 0;
   const requirementsReady =
     requirementsAvailable &&
     (requirementCount <= 1 || requirements.length >= requirementCount);
   const selectedRequirementKey = requirementKey.trim();
   const availableRequirementKeys = new Set(
-    requirements.map((requirement) => evidenceRequirementKey(requirement)),
+    requirements.map((requirement) => evidenceRequirementKey(requirement))
   );
   const requirementSelectionRequired = requirementCount > 1;
   const requirementSelectionMissing =
     requirementSelectionRequired &&
-    (!selectedRequirementKey ||
-      !availableRequirementKeys.has(selectedRequirementKey));
+    !(
+      selectedRequirementKey &&
+      availableRequirementKeys.has(selectedRequirementKey)
+    );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [siteVisitBusy, setSiteVisitBusy] = useState(false);
+  const [siteVisitOpen, setSiteVisitOpen] = useState(false);
   const retryRef = useRef<RetryAction | null>(null);
   const uploadKeyRef = useRef<string | null>(null);
   const uploadFileRef = useRef<File | null>(null);
@@ -1405,6 +1464,8 @@ function CanonicalEvidencePanel({
     setBusy(false);
     setError("");
     setPendingFile(null);
+    setSiteVisitBusy(false);
+    setSiteVisitOpen(false);
     retryRef.current = null;
     uploadKeyRef.current = null;
     uploadFileRef.current = null;
@@ -1413,19 +1474,57 @@ function CanonicalEvidencePanel({
   const workflowRevision = revisionFor(bootstrap);
   const hasRevision = workflowRevision !== undefined;
   const uploadCapability = capability(bootstrap, "uploadEvidence");
-  const uploadAllowed =
+  const siteVisitOrderCapability = object(
+    object(object(bootstrap.capabilities).siteVisit).order
+  );
+  const backofficeUpload = Boolean(
+    viewerCapacity && BACKOFFICE_EVIDENCE_CAPACITIES.has(viewerCapacity)
+  );
+  const builderUploadAllowed =
     hasRevision &&
     details.actualStartedAt !== undefined &&
     canMutate(bootstrap, readOnly, "uploadEvidence") &&
     requirementsReady &&
     !requirementSelectionMissing;
+  const backofficeUploadAllowed =
+    hasRevision &&
+    !readOnly &&
+    backofficeUpload &&
+    uploadCapability.allowed &&
+    (requirementCount === 0 || requirementsReady) &&
+    !requirementSelectionMissing;
+  const uploadAllowed = builderUploadAllowed || backofficeUploadAllowed;
   const milestoneKey = milestoneKeyFor(bootstrap);
   const submilestoneKey = submilestoneKeyFor(bootstrap);
   const packageStatus = stringValue(
     evidence.packageState ?? evidence.evidencePackageStatus,
-    "draft",
+    "draft"
   );
   const locationAttempt = () => captureLocationAttempt();
+  const uploadUnavailableReason =
+    readOnly || !uploadCapability.allowed
+      ? (uploadCapability.reason ?? "Evidence is read-only for this viewer.")
+      : hasRevision
+        ? details.actualStartedAt === undefined && !backofficeUpload
+          ? "Start this Sub-milestone before adding evidence to the canonical package."
+          : requirementsAvailable
+            ? requirementsReady
+              ? "Select an evidence requirement before adding evidence."
+              : "Evidence requirements are still loading; refresh before adding evidence."
+            : backofficeUpload
+              ? "Evidence upload is unavailable for this Sub-milestone."
+              : "No keyed evidence requirement is available. Refresh or ask the Builder to configure the Evidence Package."
+        : "Refresh this Sub-milestone before adding evidence to the package; its current version is unavailable.";
+  const canOrderSiteVisit =
+    !readOnly && booleanValue(siteVisitOrderCapability.allowed);
+  const visibleSiteVisits = siteVisits
+    ? {
+        ...siteVisits,
+        visits: siteVisits.visits.filter(
+          (visit) => visit.operationalStatus !== "cancelled"
+        ),
+      }
+    : undefined;
 
   useEffect(() => {
     if (!requirementKey && requirements.length > 0) {
@@ -1434,19 +1533,22 @@ function CanonicalEvidencePanel({
   }, [requirementKey, requirements]);
 
   const upload = async (file: File) => {
-    if (!hasRevision || !canMutate(bootstrap, readOnly, "uploadEvidence")) {
+    if (!uploadAllowed) {
       if (!readOnly && uploadCapability.allowed && !hasRevision) {
         setError(
-          "The canonical workflow revision is unavailable. Refresh before adding evidence.",
+          "The canonical workflow revision is unavailable. Refresh before adding evidence."
         );
       }
       return;
     }
-    if (!requirementsReady || requirementSelectionMissing) {
+    if (
+      requirementSelectionMissing ||
+      !(backofficeUploadAllowed || requirementsReady)
+    ) {
       setError(
         requirementSelectionRequired
           ? "Select an evidence requirement before adding this asset."
-          : "Evidence requirements are still loading. Refresh before retrying.",
+          : "Evidence requirements are still loading. Refresh before retrying."
       );
       return;
     }
@@ -1465,7 +1567,9 @@ function CanonicalEvidencePanel({
       let preparedUpload = preparedUploadRef.current;
       if (!preparedUpload) {
         const normalized = await normalizeEvidenceFileForUpload(file);
-        const location = await locationAttempt();
+        const location = backofficeUploadAllowed
+          ? undefined
+          : await locationAttempt();
         const uploadUrl = await generateUploadUrl({
           buildId,
           workosOrganizationId: organizationId,
@@ -1480,7 +1584,7 @@ function CanonicalEvidencePanel({
         });
         if (!response.ok) {
           throw new Error(
-            "Evidence upload failed. The file remains available to retry.",
+            "Evidence upload failed. The file remains available to retry."
           );
         }
         const result = object(await response.json());
@@ -1512,6 +1616,7 @@ function CanonicalEvidencePanel({
         idempotencyKey,
         milestoneKey,
         submilestoneKey,
+        uploadedOnBehalfOfBuilder: backofficeUploadAllowed || undefined,
         workosOrganizationId: organizationId,
       });
     };
@@ -1532,7 +1637,7 @@ function CanonicalEvidencePanel({
           // a refresh callback, do not expose a retry that would submit it
           // again; require a fresh canonical read first.
           setError(
-            `${message} Refresh this Sub-milestone before retrying this evidence upload.`,
+            `${message} Refresh this Sub-milestone before retrying this evidence upload.`
           );
           retryRef.current = null;
           uploadKeyRef.current = null;
@@ -1554,8 +1659,40 @@ function CanonicalEvidencePanel({
     await retryAction();
   };
 
+  const orderSiteVisit = async (input: SiteVisitOrderConfirmation) => {
+    setSiteVisitBusy(true);
+    setError("");
+    try {
+      await scheduleSiteVisit({
+        buildId,
+        idempotencyKey: commandKey("site-visit-order"),
+        milestoneKey: input.milestoneKey,
+        ...(input.note ? { note: input.note } : {}),
+        requestedDay: input.requestedDay ?? 0,
+        ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
+        siteVisitGuidance: input.siteVisitGuidance,
+        submilestoneGuidanceSections: input.submilestoneGuidanceSections.map(
+          (section) => ({
+            ...section,
+            buildSubmilestoneId:
+              section.buildSubmilestoneId as Id<"buildSubmilestones">,
+            proposalSubmilestoneId:
+              section.proposalSubmilestoneId as Id<"proposalSubmilestones">,
+          })
+        ),
+        submilestoneKeys: input.submilestoneKeys,
+        workosOrganizationId: organizationId,
+      });
+      setSiteVisitOpen(false);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setSiteVisitBusy(false);
+    }
+  };
+
   return (
-    <div className="space-y-4" data-testid="submilestone-evidence-collection">
+    <div className="space-y-5" data-testid="submilestone-evidence-collection">
       <Frame>
         <FramePanel className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1579,17 +1716,14 @@ function CanonicalEvidencePanel({
               label="Package revision"
               value={String(
                 optionalNumber(evidence.evidencePackageRevision) ??
-                  "Not created",
+                  "Not created"
               )}
             />
-            <Metric
-              label="Requirements"
-              value={String(requirementCount)}
-            />
+            <Metric label="Requirements" value={String(requirementCount)} />
             <Metric
               label="Assets"
               value={String(
-                numberValue(evidence.assetCount, canonicalAssets.length),
+                numberValue(evidence.assetCount, canonicalAssets.length)
               )}
             />
           </div>
@@ -1608,69 +1742,66 @@ function CanonicalEvidencePanel({
                   }
                   return (
                     <NativeSelectOption key={key} value={key}>
-                      {stringValue(
-                        requirement.label ?? requirement.title,
-                        key,
-                      )}
+                      {stringValue(requirement.label ?? requirement.title, key)}
                     </NativeSelectOption>
                   );
                 })}
               </NativeSelect>
             </Label>
           ) : null}
-          {uploadAllowed ? (
-            <label
-              className={cn(
-                buttonVariants({ size: "sm", variant: "outline" }),
-                "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1 focus-within:ring-offset-background",
-              )}
-              htmlFor="canonical-submilestone-evidence-upload"
+        </FramePanel>
+      </Frame>
+      <section aria-labelledby="builder-evidence-heading" className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3
+              className="flex items-center gap-2 font-semibold text-sm"
+              id="builder-evidence-heading"
             >
-              <Paperclip aria-hidden="true" />
-              {busy ? "Uploading…" : "Add evidence to package"}
-              <input
-                className="sr-only"
-                data-testid="canonical-evidence-input"
-                disabled={busy}
-                id="canonical-submilestone-evidence-upload"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  if (file) {
-                    void upload(file);
-                  }
-                }}
-                type="file"
-              />
-            </label>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              {readOnly || !uploadCapability.allowed
-                ? "Evidence is read-only for this viewer."
-                : !hasRevision
-                  ? "Refresh this Sub-milestone before adding evidence to the package; its current version is unavailable."
-                  : details.actualStartedAt === undefined
-                    ? "Start this Sub-milestone before adding evidence to the canonical package."
-                  : !requirementsAvailable
-                    ? "No keyed evidence requirement is available. Refresh or ask the Builder to configure the Evidence Package."
-                  : !requirementsReady
-                    ? "Evidence requirements are still loading; refresh before adding evidence."
-                    : "Select an evidence requirement before adding evidence."}
+              <ClipboardCheck aria-hidden="true" className="size-4" />
+              Builder Evidence
+            </h3>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Photos and documents submitted for this Sub-milestone.
             </p>
-          )}
-          {pendingFile && error ? (
-            <p className="text-muted-foreground text-xs">
-              Draft file retained: {pendingFile.name}
-            </p>
-          ) : null}
-          {error ? (
-            <CommandError error={error} retry={retryRef.current} />
-          ) : null}
-          {canonicalAssets.length === 0 ? (
-            <p className="flex min-h-28 items-center justify-center text-center text-muted-foreground text-sm">
-              No evidence has been added to this package.
-            </p>
-          ) : (
+          </div>
+          <Badge variant="outline">
+            {canonicalAssets.length} asset
+            {canonicalAssets.length === 1 ? "" : "s"}
+          </Badge>
+        </div>
+        {canonicalAssets.length === 0 ? (
+          <Empty className="rounded-xl border border-dashed py-10 md:py-12">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <FileImage aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyTitle>No Builder evidence yet</EmptyTitle>
+              <EmptyDescription>
+                Builder photos and supporting documents tagged to this
+                Sub-milestone will appear here for review.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent className="w-full max-w-lg">
+              {uploadAllowed ? (
+                <CanonicalEvidenceUploader
+                  backofficeUpload={backofficeUploadAllowed}
+                  busy={busy}
+                  onUpload={upload}
+                  submilestoneName={stringValue(
+                    object(bootstrap.submilestone).name,
+                    submilestoneKey
+                  )}
+                />
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  {uploadUnavailableReason}
+                </p>
+              )}
+            </EmptyContent>
+          </Empty>
+        ) : (
+          <>
             <div className="grid gap-3 sm:grid-cols-2">
               {canonicalAssets.map((asset, index) => (
                 <EvidenceAssetCard
@@ -1679,19 +1810,149 @@ function CanonicalEvidencePanel({
                 />
               ))}
             </div>
-          )}
-        </FramePanel>
-      </Frame>
-      {details.actualStartedAt === undefined ? (
-        <p className="text-muted-foreground text-xs">
-          Evidence can be added after this Sub-milestone has an actual start.
-        </p>
-      ) : null}
+            {uploadAllowed ? (
+              <CanonicalEvidenceUploader
+                backofficeUpload={backofficeUploadAllowed}
+                busy={busy}
+                compact
+                onUpload={upload}
+                submilestoneName={stringValue(
+                  object(bootstrap.submilestone).name,
+                  submilestoneKey
+                )}
+              />
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                {uploadUnavailableReason}
+              </p>
+            )}
+          </>
+        )}
+        {pendingFile && error ? (
+          <p className="text-muted-foreground text-xs">
+            Draft file retained: {pendingFile.name}
+          </p>
+        ) : null}
+        {error ? <CommandError error={error} retry={retryRef.current} /> : null}
+      </section>
+      <Separator />
+      <section
+        aria-labelledby="evidence-site-visits-heading"
+        className="space-y-3"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3
+              className="flex items-center gap-2 font-semibold text-sm"
+              id="evidence-site-visits-heading"
+            >
+              <MapPinCheck aria-hidden="true" className="size-4" />
+              Site Visits
+            </h3>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Field requests, reports, and canonical Visit history for this
+              Sub-milestone.
+            </p>
+          </div>
+          {visibleSiteVisits ? (
+            <Badge variant="outline">
+              {visibleSiteVisits.visits.length} Visit
+              {visibleSiteVisits.visits.length === 1 ? "" : "s"}
+            </Badge>
+          ) : null}
+        </div>
+        {canReadSiteVisits ? (
+          <SubmilestoneSiteVisitWorkspace
+            canCancel={false}
+            canOrder={canOrderSiteVisit}
+            guidanceReady={fieldGuidance !== undefined}
+            onCancelVisit={() => Promise.resolve()}
+            onOrder={() => setSiteVisitOpen(true)}
+            pending={siteVisitBusy}
+            siteVisits={visibleSiteVisits}
+          />
+        ) : (
+          <p className="py-6 text-center text-muted-foreground text-sm">
+            Site Visit history is available to the authorized lender team.
+          </p>
+        )}
+      </section>
+      <SiteVisitOrderDialog
+        build={{
+          location: stringValue(object(bootstrap.build).location),
+          name: stringValue(object(bootstrap.build).buildName, "Build"),
+        }}
+        milestone={{ key: milestoneKey, name: milestoneNameFor(bootstrap) }}
+        onConfirm={orderSiteVisit}
+        onOpenChange={setSiteVisitOpen}
+        open={siteVisitOpen}
+        request={siteVisitOpen ? { milestoneKey } : null}
+        submilestones={
+          proposalSubmilestoneId
+            ? [
+                {
+                  _id: String(buildSubmilestoneId),
+                  fieldGuidance: fieldGuidance?.guidance ?? null,
+                  key: submilestoneKey,
+                  name: submilestoneNameFor(bootstrap),
+                  proposalSubmilestoneId,
+                },
+              ]
+            : []
+        }
+      />
     </div>
   );
 }
 
-function isCanonicalEvidenceAsset(asset: Record<string, unknown>) {
+function CanonicalEvidenceUploader({
+  backofficeUpload,
+  busy,
+  compact = false,
+  onUpload,
+  submilestoneName,
+}: {
+  backofficeUpload: boolean;
+  busy: boolean;
+  compact?: boolean;
+  onUpload: (file: File) => Promise<void>;
+  submilestoneName: string;
+}) {
+  return (
+    <FileUploader
+      actionLabel="Upload to Evidence Package"
+      className="w-full"
+      description={
+        backofficeUpload
+          ? `Add a photo or document to ${submilestoneName} on the Builder's behalf.`
+          : `Add a photo or document to ${submilestoneName}.`
+      }
+      disabled={busy}
+      helperText={
+        backofficeUpload
+          ? "The audit trail records you as the uploader and keeps the evidence location unverified."
+          : "The file remains tagged to this canonical Sub-milestone."
+      }
+      inputLabel="Choose evidence file"
+      inputTestId="canonical-evidence-input"
+      multiple={false}
+      onUpload={async (files) => {
+        const file = files[0];
+        if (file) {
+          await onUpload(file);
+        }
+      }}
+      title={
+        backofficeUpload
+          ? "Upload evidence for the Builder"
+          : "Add evidence to the package"
+      }
+      variant={compact ? "compact" : "default"}
+    />
+  );
+}
+
+export function isCanonicalEvidenceAsset(asset: Record<string, unknown>) {
   const source = stringValue(asset.sourceKind ?? asset.source).toLowerCase();
   if (!source) {
     return true;
@@ -1699,18 +1960,20 @@ function isCanonicalEvidenceAsset(asset: Record<string, unknown>) {
   if (CANONICAL_SOURCE_VALUES.has(source)) {
     return true;
   }
-  return (
-    !source.includes("collaboration") &&
-    !source.includes("comment") &&
-    !source.includes("attachment")
+  return !(
+    source.includes("collaboration") ||
+    source.includes("comment") ||
+    source.includes("attachment")
   );
 }
 
-function evidenceRequirementKey(requirement: Record<string, unknown> | undefined) {
+function evidenceRequirementKey(
+  requirement: Record<string, unknown> | undefined
+) {
   return stringValue(requirement?.requirementKey ?? requirement?.key);
 }
 
-function evidenceAssetIdentity(asset: Record<string, unknown>) {
+export function evidenceAssetIdentity(asset: Record<string, unknown>) {
   return (
     stringValue(asset.id) ||
     stringValue(asset._id) ||
@@ -1718,10 +1981,14 @@ function evidenceAssetIdentity(asset: Record<string, unknown>) {
   );
 }
 
-function EvidenceAssetCard({ asset }: { asset: Record<string, unknown> }) {
+export function EvidenceAssetCard({
+  asset,
+}: {
+  asset: Record<string, unknown>;
+}) {
   const locationVerified = booleanValue(
     asset.locationVerified ?? asset.verified,
-    false,
+    false
   );
   return (
     <Card className="overflow-hidden shadow-none">
@@ -1731,13 +1998,13 @@ function EvidenceAssetCard({ asset }: { asset: Record<string, unknown> }) {
             <CardTitle className="break-words text-sm">
               {stringValue(
                 asset.title ?? asset.label ?? asset.fileName,
-                "Evidence asset",
+                "Evidence asset"
               )}
             </CardTitle>
             <CardDescription className="break-words">
               {stringValue(
                 asset.fileName ?? asset.detail,
-                "Canonical package asset",
+                "Canonical package asset"
               )}
             </CardDescription>
           </div>
@@ -1783,13 +2050,13 @@ function CanonicalPeoplePanel({
   historyCollection?: CanonicalWorkspaceCollection;
 }) {
   const assignContractor = useMutation(
-    apiRef.production_proposals.assignActiveBuildContractorToMilestone,
+    apiRef.production_proposals.assignActiveBuildContractorToMilestone
   );
   const createAndAttach = useMutation(
-    apiRef.production_proposals.createAndAttachActiveBuildContractor,
+    apiRef.production_proposals.createAndAttachActiveBuildContractor
   );
   const removeContractor = useMutation(
-    apiRef.production_proposals.removeActiveBuildContractorFromMilestone,
+    apiRef.production_proposals.removeActiveBuildContractorFromMilestone
   );
   const people = object(bootstrap.people);
   const rows = collectionRows(collection);
@@ -1799,7 +2066,7 @@ function CanonicalPeoplePanel({
   const assigned =
     normalizeAssignedPerson(assignedProjection) ??
     normalizeAssignedPerson(
-      rows.find((row) => stringValue(row.status).toLowerCase() !== "removed"),
+      rows.find((row) => stringValue(row.status).toLowerCase() !== "removed")
     ) ??
     (assignedCount > 0
       ? {
@@ -1820,13 +2087,13 @@ function CanonicalPeoplePanel({
       : rows.filter(
           (row) =>
             !assigned ||
-            stringValue(row.contractorId ?? row.id) !== assigned.contractorId,
+            stringValue(row.contractorId ?? row.id) !== assigned.contractorId
         );
   const participants = projectedPeopleParticipants(
     people.participants ??
       people.authorizedParticipants ??
       people.buildParticipants ??
-      bootstrap.participants,
+      bootstrap.participants
   );
   const participantsPartial = booleanValue(people.participantsPartial, false);
   const available = projectedContractorCandidates(
@@ -1834,7 +2101,7 @@ function CanonicalPeoplePanel({
     people.authorizedContractorCandidates,
     people.availableContractors,
     people.contractors,
-    bootstrap.contractorCandidates,
+    bootstrap.contractorCandidates
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
@@ -1904,7 +2171,7 @@ function CanonicalPeoplePanel({
   }) => {
     if (workflowRevision === undefined) {
       throw new Error(
-        "Refresh this Sub-milestone before changing its Work Allocation; its current version is unavailable.",
+        "Refresh this Sub-milestone before changing its Work Allocation; its current version is unavailable."
       );
     }
     const fingerprint = JSON.stringify({
@@ -1916,7 +2183,7 @@ function CanonicalPeoplePanel({
     const idempotencyKey = stableCommandKey(
       commandKeysRef.current,
       "submilestone-assignment",
-      fingerprint,
+      fingerprint
     );
     await assignContractor({
       ...(assignmentCost ?? {}),
@@ -1936,12 +2203,12 @@ function CanonicalPeoplePanel({
   const removeAssignment = async () => {
     if (assigned?.redacted || assigned?.contractorId === "redacted") {
       throw new Error(
-        "The assigned Contractor is redacted and cannot be removed.",
+        "The assigned Contractor is redacted and cannot be removed."
       );
     }
     if (!(assigned && workflowRevision !== undefined)) {
       throw new Error(
-        "Refresh this Sub-milestone before changing its Work Allocation; its current version is unavailable.",
+        "Refresh this Sub-milestone before changing its Work Allocation; its current version is unavailable."
       );
     }
     const fingerprint = JSON.stringify({
@@ -1952,7 +2219,7 @@ function CanonicalPeoplePanel({
     const idempotencyKey = stableCommandKey(
       commandKeysRef.current,
       "submilestone-assignment-removal",
-      fingerprint,
+      fingerprint
     );
     await removeContractor({
       buildId,
@@ -1994,12 +2261,12 @@ function CanonicalPeoplePanel({
             contractor,
             role: resolvedRole,
             workosOrganizationId: organizationId,
-          }),
-        ).contractorId,
+          })
+        ).contractorId
       );
     if (!contractorId) {
       throw new Error(
-        "The contractor profile was created without an id; the assignment was not changed.",
+        "The contractor profile was created without an id; the assignment was not changed."
       );
     }
     if (!retainedContractorId) {
@@ -2039,13 +2306,13 @@ function CanonicalPeoplePanel({
             <Metric
               label="Participants"
               value={String(
-                numberValue(people.participantCount, assigned ? 1 : 0),
+                numberValue(people.participantCount, assigned ? 1 : 0)
               )}
             />
             <Metric
               label="Allocation history"
               value={String(
-                numberValue(people.historyCount, historyRows.length),
+                numberValue(people.historyCount, historyRows.length)
               )}
             />
             <Metric
@@ -2143,8 +2410,8 @@ function CanonicalPeoplePanel({
           {participants.length > 0 ? (
             <section
               aria-labelledby="build-participants-heading"
-              data-testid="submilestone-build-participants"
               className="space-y-2"
+              data-testid="submilestone-build-participants"
             >
               <h3
                 className="font-medium text-sm"
@@ -2152,7 +2419,7 @@ function CanonicalPeoplePanel({
               >
                 Build participants
               </h3>
-          {participantsPartial ? (
+              {participantsPartial ? (
                 <p className="text-muted-foreground text-xs">
                   Showing the first page of authorized build participants.
                 </p>
@@ -2179,9 +2446,7 @@ function CanonicalPeoplePanel({
                     </div>
                     <Badge
                       variant={
-                        participant.status === "removed"
-                          ? "warning"
-                          : "outline"
+                        participant.status === "removed" ? "warning" : "outline"
                       }
                     >
                       {statusLabel(participant.status)}
@@ -2191,8 +2456,7 @@ function CanonicalPeoplePanel({
               </div>
             </section>
           ) : null}
-          {!readOnly &&
-          !hasRevision &&
+          {!(readOnly || hasRevision) &&
           (assignmentCapability.allowed || removeCapability.allowed) ? (
             <p className="text-muted-foreground text-sm" role="status">
               Refresh this Sub-milestone before changing its Work Allocation;
@@ -2218,7 +2482,7 @@ function CanonicalPeoplePanel({
                       className="flex flex-col items-start gap-1 border-b pb-2 text-sm last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                       key={stringValue(
                         row.id ?? row.assignmentId,
-                        `history-${index}`,
+                        `history-${index}`
                       )}
                     >
                       <span className="break-words">
@@ -2228,7 +2492,7 @@ function CanonicalPeoplePanel({
                       </span>
                       <span className="text-muted-foreground text-xs">
                         {statusLabel(
-                          row.historyType ?? row.status ?? "updated",
+                          row.historyType ?? row.status ?? "updated"
                         )}
                       </span>
                     </div>
@@ -2247,7 +2511,7 @@ function CanonicalPeoplePanel({
           description="Attach an existing contractor or create a contractor profile, then assign it only to this Sub-milestone."
           onAttachExisting={async ({ assignmentCost, contractorId, role }) => {
             await run(() =>
-              assignmentInput({ assignmentCost, contractorId, role }),
+              assignmentInput({ assignmentCost, contractorId, role })
             );
           }}
           onCreate={async ({ assignmentCost, contractor, role }) => {
@@ -2298,7 +2562,7 @@ function normalizeBuildParticipant(value: Record<string, unknown>) {
   const role = stringValue(value.role ?? value.participantRole, "Participant");
   const redacted = booleanValue(value.redacted, false) || !displayName;
   const id = stringValue(
-    value.id ?? value.participantId ?? value.workosUserId ?? value.userId,
+    value.id ?? value.participantId ?? value.workosUserId ?? value.userId
   );
   return {
     displayName: redacted ? "Participant redacted" : displayName,
@@ -2332,12 +2596,12 @@ function projectedContractorCandidates(...values: unknown[]) {
 }
 
 function toAvailableContractor(
-  value: Record<string, unknown>,
+  value: Record<string, unknown>
 ): ContractorDrawerAvailableContractor {
   const redacted = booleanValue(value.redacted, false);
   return {
     _id: stringValue(
-      value._id ?? value.id ?? value.contractorId ?? value.profileId,
+      value._id ?? value.id ?? value.contractorId ?? value.profileId
     ),
     city: redacted ? undefined : stringValue(value.city) || undefined,
     defaultPayRateCents: redacted
@@ -2361,7 +2625,7 @@ function toAvailableContractor(
     trades: redacted
       ? []
       : arrayValue(value.trades ?? value.specialties).filter(
-          (trade): trade is string => typeof trade === "string",
+          (trade): trade is string => typeof trade === "string"
         ),
   };
 }
@@ -2381,13 +2645,13 @@ function CanonicalMaterialsPanel({
   collection: CanonicalWorkspaceCollection | undefined;
 }) {
   const createItem = useMutation(
-    apiRef.production_proposals.createActiveBuildCostItem,
+    apiRef.production_proposals.createActiveBuildCostItem
   );
   const updateItem = useMutation(
-    apiRef.production_proposals.updateActiveBuildCostItem,
+    apiRef.production_proposals.updateActiveBuildCostItem
   );
   const deleteItem = useMutation(
-    apiRef.production_proposals.deleteActiveBuildCostItem,
+    apiRef.production_proposals.deleteActiveBuildCostItem
   );
   const materials = object(bootstrap.materials);
   const rows = collectionRows(collection);
@@ -2399,23 +2663,23 @@ function CanonicalMaterialsPanel({
   const commandKeysRef = useRef(new Map<string, string>());
   const budgetCents = numberValue(
     object(bootstrap.overview).budgetCents ?? materials.totalBudgetCents,
-    0,
+    0
   );
   const items = [
     ...projectedMaterials.map((value, index) =>
-      toMaterialItem(object(value), milestoneKey, submilestoneKey, index),
+      toMaterialItem(object(value), milestoneKey, submilestoneKey, index)
     ),
     ...rows.map((value, index) =>
       toMaterialItem(
         value,
         milestoneKey,
         submilestoneKey,
-        projectedMaterials.length + index,
-      ),
+        projectedMaterials.length + index
+      )
     ),
   ].filter(
     (item, index, all) =>
-      all.findIndex((candidate) => candidate._id === item._id) === index,
+      all.findIndex((candidate) => candidate._id === item._id) === index
   );
   const materialRead = capability(bootstrap, "readMaterials").allowed;
   const materialCapability = capability(bootstrap, "updateMaterials");
@@ -2443,7 +2707,7 @@ function CanonicalMaterialsPanel({
             buildId,
             relevantSubmilestoneKeys: scopedRelevantSubmilestoneKeys(
               payload,
-              submilestoneKey,
+              submilestoneKey
             ),
             submilestoneKey,
             workosOrganizationId: organizationId,
@@ -2452,7 +2716,7 @@ function CanonicalMaterialsPanel({
           const idempotencyKey = stableCommandKey(
             commandKeysRef.current,
             "submilestone-material-create",
-            fingerprint,
+            fingerprint
           );
           const result = await createItem({
             ...scopedPayload,
@@ -2477,7 +2741,7 @@ function CanonicalMaterialsPanel({
           const idempotencyKey = stableCommandKey(
             commandKeysRef.current,
             "submilestone-material-delete",
-            fingerprint,
+            fingerprint
           );
           const result = await deleteItem({
             ...scopedPayload,
@@ -2502,7 +2766,7 @@ function CanonicalMaterialsPanel({
             itemId: item._id,
             relevantSubmilestoneKeys: scopedRelevantSubmilestoneKeys(
               payload,
-              submilestoneKey,
+              submilestoneKey
             ),
             submilestoneKey,
             workosOrganizationId: organizationId,
@@ -2511,7 +2775,7 @@ function CanonicalMaterialsPanel({
           const idempotencyKey = stableCommandKey(
             commandKeysRef.current,
             "submilestone-material-update",
-            fingerprint,
+            fingerprint
           );
           const result = await updateItem({
             ...scopedPayload,
@@ -2537,9 +2801,12 @@ function CanonicalMaterialsPanel({
   }
   return (
     <div data-testid="submilestone-materials-collection">
-      {!readOnly && !hasRevision && materialCapability.allowed ? (
+      {!(readOnly || hasRevision) && materialCapability.allowed ? (
         <Frame className="mb-3">
-          <FramePanel className="p-3 text-muted-foreground text-sm" role="status">
+          <FramePanel
+            className="p-3 text-muted-foreground text-sm"
+            role="status"
+          >
             Refresh this Sub-milestone before changing Materials; its current
             version is unavailable.
           </FramePanel>
@@ -2567,7 +2834,7 @@ function CanonicalMaterialsPanel({
 function assertCanonicalMaterialId(itemId: string) {
   if (itemId.startsWith("legacy-material:")) {
     throw new Error(
-      "This Material record has no canonical identity. Refresh the Sub-milestone before editing or deleting it.",
+      "This Material record has no canonical identity. Refresh the Sub-milestone before editing or deleting it."
     );
   }
 }
@@ -2583,19 +2850,18 @@ function withoutActiveBuildBudgetTarget(payload: MaterialPlanningPayload) {
 
 function scopedRelevantSubmilestoneKeys(
   payload: MaterialPlanningPayload,
-  submilestoneKey: string,
+  submilestoneKey: string
 ) {
-  return [
-    submilestoneKey,
-    ...payload.relevantSubmilestoneKeys,
-  ].filter((key, index, keys) => key && keys.indexOf(key) === index);
+  return [submilestoneKey, ...payload.relevantSubmilestoneKeys].filter(
+    (key, index, keys) => key && keys.indexOf(key) === index
+  );
 }
 
 function toMaterialItem(
   value: Record<string, unknown>,
   defaultMilestoneKey = "",
   _defaultSubmilestoneKey = "",
-  rowIndex = 0,
+  rowIndex = 0
 ): MaterialPlanningItem {
   const itemType =
     stringValue(value.itemType ?? value.kind, "material") === "equipment"
@@ -2605,8 +2871,8 @@ function toMaterialItem(
     value._id ?? value.id ?? value.itemId,
     `legacy-material:${defaultMilestoneKey}:${stringValue(
       value.itemKey ?? value.title ?? value.name,
-      itemType,
-    )}:${stringValue(value.createdAt ?? value.updatedAt, "unknown")}:${rowIndex}`,
+      itemType
+    )}:${stringValue(value.createdAt ?? value.updatedAt, "unknown")}:${rowIndex}`
   );
   const budgetTarget = object(value.budgetTarget);
   const submilestoneKey = stringValue(
@@ -2614,7 +2880,7 @@ function toMaterialItem(
       value.submilestoneKey ??
       value.budgetTargetKey ??
       budgetTarget.submilestoneKey ??
-      budgetTarget.key,
+      budgetTarget.key
   );
   const projectedBudgetTreatment = value.budgetTreatment;
   return {
@@ -2627,7 +2893,7 @@ function toMaterialItem(
         : "add",
     costCents: numberValue(
       value.costCents ?? value.amountCents ?? value.totalCents,
-      0,
+      0
     ),
     description: stringValue(value.description ?? value.detail) || undefined,
     itemKey: stringValue(value.itemKey) || undefined,
@@ -2635,12 +2901,12 @@ function toMaterialItem(
     milestoneKey: stringValue(value.milestoneKey, defaultMilestoneKey),
     quantity: numberValue(value.quantity, 1),
     relevantSubmilestoneKeys: arrayValue(value.relevantSubmilestoneKeys).filter(
-      (key): key is string => typeof key === "string",
+      (key): key is string => typeof key === "string"
     ),
     supplier: stringValue(value.supplier) || undefined,
     title: stringValue(
       value.title,
-      itemType === "equipment" ? "Equipment" : "Material",
+      itemType === "equipment" ? "Equipment" : "Material"
     ),
     totalCents: optionalNumber(value.totalCents),
     updatedAt: optionalNumber(value.updatedAt),
@@ -2691,7 +2957,7 @@ function captureLocationAttempt() {
           permissionOutcome: error.code === 1 ? "denied" : "unavailable",
           verified: false,
         }),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
     );
   });
 }

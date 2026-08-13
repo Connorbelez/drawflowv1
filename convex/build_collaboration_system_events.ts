@@ -1,5 +1,3 @@
-import { v } from "convex/values";
-
 import {
   type ActiveBuildAuthorization,
   type ActiveBuildParticipantProjection,
@@ -144,6 +142,11 @@ export interface BuildCollaborationSystemEventInput {
   systemPostKind?: "milestone" | "draw";
 }
 
+type CanonicalBuildCollaborationSystemPostInput =
+  BuildCollaborationSystemEventInput & {
+    systemPostKind: "milestone" | "draw";
+  };
+
 export const publishBuildCollaborationSystemEvent = internalMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -161,9 +164,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     silentBackfill: v.optional(systemPostBackfillValidator),
     silentPreactivation: v.optional(v.boolean()),
     suppressNotifications: v.optional(v.boolean()),
-    systemPostKind: v.optional(
-      v.union(v.literal("milestone"), v.literal("draw")),
-    ),
+    systemPostKind: v.union(v.literal("milestone"), v.literal("draw")),
     systemLabel: v.string(),
   })
   .returns(v.id("buildCollaborationPosts"))
@@ -181,13 +182,22 @@ export const publishBuildCollaborationSystemEvent = internalMutation
 
 export async function publishCanonicalBuildCollaborationSystemEvent(
   ctx: MutationCtx,
-  input: BuildCollaborationSystemEventInput,
+  input: CanonicalBuildCollaborationSystemPostInput,
 ): Promise<Id<"buildCollaborationPosts"> | null> {
   const idempotencyKey = requiredBoundedText(
     input.idempotencyKey,
     "System event idempotency key",
     500,
   );
+  const canonicalPrefix =
+    input.systemPostKind === "milestone"
+      ? "milestone-system:"
+      : "draw-system:";
+  if (!idempotencyKey.startsWith(canonicalPrefix)) {
+    throw new Error(
+      "Automated collaboration posts are limited to canonical Milestone and Draw occurrences.",
+    );
+  }
   const scope = await resolveSystemEventScope(ctx, input, idempotencyKey);
   if (scope.status === "existing") {
     return scope.postId;
@@ -206,8 +216,17 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   const primaryReferenceId = submittedReferences.find(
     (reference) => reference.primary,
   )?.entityId;
+  let canonicalBuildMilestoneId: Id<"buildMilestones"> | undefined;
   if (input.systemPostKind === "draw" && primaryReferenceKind !== "draw") {
     throw new Error("Draw System Posts must use a Draw primary reference.");
+  }
+  if (
+    input.systemPostKind === "draw" &&
+    !idempotencyKey.startsWith(
+      `draw-system:${String(build._id)}:${String(build.proposalId)}:`,
+    )
+  ) {
+    throw new Error("The Draw System Post occurrence key is not canonical.");
   }
   if (input.systemPostKind === "milestone") {
     if (primaryReferenceKind !== "milestone" || !primaryReferenceId) {
@@ -228,6 +247,11 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     ) {
       throw new Error("The referenced Milestone is unavailable.");
     }
+    const expectedOccurrenceKey = `milestone-system:${String(build._id)}:${String(milestone._id)}`;
+    if (idempotencyKey !== expectedOccurrenceKey) {
+      throw new Error("The Milestone System Post occurrence key is not canonical.");
+    }
+    canonicalBuildMilestoneId = milestone._id;
   }
   const readerParticipants = await systemEventReaders(ctx, {
     buildId: build._id,
@@ -288,8 +312,12 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     readRevision: 1,
     revision: 1,
     source: "system",
+    canonicalBuildDrawOccurrenceKey:
+      input.systemPostKind === "draw" ? idempotencyKey : undefined,
+    canonicalBuildMilestoneId,
     systemPostKind: input.systemPostKind,
     systemEventKey: idempotencyKey,
+    systemOccurrenceKey: idempotencyKey,
     ...(input.silentPreactivation ? { systemLifecycle: "latent" as const } : {}),
     threadState: "open",
     threadRevision: 0,
@@ -1262,3 +1290,4 @@ function requiredBoundedText(value: string, label: string, maxLength: number) {
   }
   return normalized;
 }
+import { v } from "convex/values";

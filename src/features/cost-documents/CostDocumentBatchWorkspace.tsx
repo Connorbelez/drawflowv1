@@ -1906,22 +1906,6 @@ export function CostDocumentBatchWorkspace({
                       ],
                     })
                   }
-                  onAddFinancialComponent={() =>
-                    updateEditor({
-                      financialComponents: [
-                        ...editor.financialComponents,
-                        {
-                          amount: "",
-                          id: nextLocalRowId("financial-component"),
-                          kind:
-                            editor.financialComponents.length === 0
-                              ? "subtotal"
-                              : "tax",
-                          label: "",
-                        },
-                      ],
-                    })
-                  }
                   onAuthorizePage={authorizeDraftPage}
                   onBack={goBack}
                   onComplete={completeDraft}
@@ -1935,13 +1919,6 @@ export function CostDocumentBatchWorkspace({
                     updateEditor({
                       allocations: editor.allocations.filter(
                         (row) => row.id !== rowId
-                      ),
-                    })
-                  }
-                  onRemoveFinancialComponent={(rowId) =>
-                    updateEditor({
-                      financialComponents: editor.financialComponents.filter(
-                        (component) => component.id !== rowId
                       ),
                     })
                   }
@@ -2409,7 +2386,10 @@ function RegisterFact({
 function RegisterDraftProgress({
   draft,
   ...props
-}: { draft: BatchDraft } & React.ComponentProps<typeof Progress>) {
+}: { draft: BatchDraft } & Omit<
+  React.ComponentProps<typeof Progress>,
+  "value"
+>) {
   const currentStepIndex = stepIndex(draft.activeStep);
   const complete = draft.lifecycle === "complete";
   const progress = complete
@@ -2833,7 +2813,6 @@ interface CostDocumentDraftEditorProps {
   editor: DraftEditor;
   error?: string;
   onAddAllocation: () => void;
-  onAddFinancialComponent: () => void;
   onAuthorizePage: (assetId: Id<"buildCollaborationAssets">) => Promise<string>;
   onBack: () => void;
   onComplete: () => void;
@@ -2847,7 +2826,6 @@ interface CostDocumentDraftEditorProps {
   onMoveToPriorStep: (step: DraftStep) => void;
   onPendingFilesChange: (files: File[]) => void;
   onRemoveAllocation: (rowId: string) => void;
-  onRemoveFinancialComponent: (rowId: string) => void;
   onRemoveSavedPage: (assetId: string) => void | Promise<void>;
   onReopen: () => void;
   onReplaceSavedPage: (assetId: string, file: File) => void | Promise<void>;
@@ -2873,7 +2851,6 @@ function CostDocumentDraftEditor({
   editor,
   error,
   onAddAllocation,
-  onAddFinancialComponent,
   onAuthorizePage,
   onBack,
   onComplete,
@@ -2884,7 +2861,6 @@ function CostDocumentDraftEditor({
   onGrantCollaborator,
   onPendingFilesChange,
   onRemoveAllocation,
-  onRemoveFinancialComponent,
   onRemoveSavedPage,
   onReopen,
   onRevokeCollaborator,
@@ -2970,11 +2946,9 @@ function CostDocumentDraftEditor({
       editor={editor}
       isComplete={isComplete}
       onAddAllocation={onAddAllocation}
-      onAddFinancialComponent={onAddFinancialComponent}
       onEditorChange={onEditorChange}
       onGrantCollaborator={onGrantCollaborator}
       onRemoveAllocation={onRemoveAllocation}
-      onRemoveFinancialComponent={onRemoveFinancialComponent}
       onRevokeCollaborator={onRevokeCollaborator}
       organizationId={organizationId}
       submilestones={submilestones}
@@ -3149,11 +3123,9 @@ function DraftStepBody({
   editor,
   isComplete,
   onAddAllocation,
-  onAddFinancialComponent,
   onEditorChange,
   onGrantCollaborator,
   onRemoveAllocation,
-  onRemoveFinancialComponent,
   onRevokeCollaborator,
   organizationId,
   submilestones,
@@ -3167,14 +3139,12 @@ function DraftStepBody({
   editor: DraftEditor;
   isComplete: boolean;
   onAddAllocation: () => void;
-  onAddFinancialComponent: () => void;
   onEditorChange: (patch: Partial<DraftEditor>) => void;
   onGrantCollaborator: (input: {
     expectedRevision: number;
     granteeWorkosUserId: string;
   }) => Promise<void>;
   onRemoveAllocation: (rowId: string) => void;
-  onRemoveFinancialComponent: (rowId: string) => void;
   onRevokeCollaborator: (input: {
     collaboratorWorkosUserId: string;
     expectedRevision: number;
@@ -3199,10 +3169,8 @@ function DraftStepBody({
         balance={balance}
         editor={editor}
         onAddAllocation={onAddAllocation}
-        onAddFinancialComponent={onAddFinancialComponent}
         onEditorChange={onEditorChange}
         onRemoveAllocation={onRemoveAllocation}
-        onRemoveFinancialComponent={onRemoveFinancialComponent}
         submilestones={submilestones}
       />
     );
@@ -3409,21 +3377,23 @@ function BalanceAllocateStep({
   balance,
   editor,
   onAddAllocation,
-  onAddFinancialComponent,
   onEditorChange,
   onRemoveAllocation,
-  onRemoveFinancialComponent,
   submilestones,
 }: {
   balance: ReturnType<typeof balancePreview>;
   editor: DraftEditor;
   onAddAllocation: () => void;
-  onAddFinancialComponent: () => void;
   onEditorChange: (patch: Partial<DraftEditor>) => void;
   onRemoveAllocation: (rowId: string) => void;
-  onRemoveFinancialComponent: (rowId: string) => void;
   submilestones: CostDocumentSubmilestoneOption[];
 }) {
+  const subtotal = financialInputValue(editor, "subtotal");
+  const tax = financialInputValue(editor, "tax");
+  const updateFinancialInput = (
+    kind: "subtotal" | "tax",
+    value: string
+  ) => onEditorChange(financialInputPatch(editor, kind, value));
   return (
     <div className="space-y-6">
       <section
@@ -3439,33 +3409,50 @@ function BalanceAllocateStep({
               Full reconciliation
             </h3>
             <p className="text-muted-foreground text-sm">
-              The Gross Document Total and every Cost Allocation reconcile in
-              exact integer cents before this document can move forward.
+              Subtotal, optional tax, and every Cost Allocation must reconcile
+              in exact integer cents before this document can move forward.
             </p>
           </div>
           <Badge variant="outline">CAD</Badge>
         </div>
-        <Field className="max-w-md">
-          <FieldLabel htmlFor="cost-document-batch-total">
-            Gross Document Total (CAD)
-          </FieldLabel>
-          <Input
-            className="h-14 font-semibold text-xl tabular-nums"
-            id="cost-document-batch-total"
-            inputMode="decimal"
-            onChange={(event) =>
-              onEditorChange({ grossTotal: event.currentTarget.value })
-            }
-            placeholder="0.00"
-            value={editor.grossTotal}
-          />
-          <FieldDescription>
-            Tax-inclusive and stored in integer cents.
-          </FieldDescription>
-        </Field>
+        <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor="cost-document-batch-subtotal">
+              Subtotal (CAD)
+            </FieldLabel>
+            <Input
+              className="h-14 font-semibold text-xl tabular-nums"
+              id="cost-document-batch-subtotal"
+              inputMode="decimal"
+              onChange={(event) =>
+                updateFinancialInput("subtotal", event.currentTarget.value)
+              }
+              placeholder="0.00"
+              required
+              value={subtotal}
+            />
+            <FieldDescription>Required before allocation.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="cost-document-batch-tax">
+              Tax (CAD)
+            </FieldLabel>
+            <Input
+              className="h-14 font-semibold text-xl tabular-nums"
+              id="cost-document-batch-tax"
+              inputMode="decimal"
+              onChange={(event) =>
+                updateFinancialInput("tax", event.currentTarget.value)
+              }
+              placeholder="0.00"
+              value={tax}
+            />
+            <FieldDescription>Leave blank when no tax applies.</FieldDescription>
+          </Field>
+        </div>
         <dl className="grid gap-3 sm:grid-cols-3">
           <div>
-            <dt className="text-muted-foreground text-xs">Gross total</dt>
+            <dt className="text-muted-foreground text-xs">Document total</dt>
             <dd className="font-semibold tabular-nums">{balance.grossLabel}</dd>
           </div>
           <div>
@@ -3578,129 +3565,6 @@ function BalanceAllocateStep({
         </div>
       </section>
 
-      <section
-        aria-labelledby="cost-document-components-heading"
-        className="space-y-3"
-      >
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h3 className="font-semibold" id="cost-document-components-heading">
-              Financial components{" "}
-              <span className="font-normal text-muted-foreground">
-                (optional)
-              </span>
-            </h3>
-            <p className="text-muted-foreground text-sm">
-              If supplied, one subtotal plus tax, fees, and discounts must also
-              reconcile exactly to the Gross Document Total.
-            </p>
-          </div>
-          <Button onClick={onAddFinancialComponent} size="sm" variant="outline">
-            <Plus /> Add financial component
-          </Button>
-        </div>
-        {editor.financialComponents.length > 0 ? (
-          <div className="grid gap-3">
-            {editor.financialComponents.map((component, index) => (
-              <Frame key={component.id}>
-                <FramePanel className="grid gap-3 p-3 sm:grid-cols-[10rem_minmax(0,1fr)_10rem_auto] sm:items-end">
-                  <Field>
-                    <FieldLabel htmlFor={`cost-component-kind-${component.id}`}>
-                      Component {index + 1} kind
-                    </FieldLabel>
-                    <select
-                      className="min-h-11 rounded-lg border border-input bg-background px-3 text-sm"
-                      id={`cost-component-kind-${component.id}`}
-                      onChange={(event) =>
-                        onEditorChange({
-                          financialComponents: editor.financialComponents.map(
-                            (row) =>
-                              row.id === component.id
-                                ? {
-                                    ...row,
-                                    kind: event.currentTarget
-                                      .value as FinancialComponentKind,
-                                  }
-                                : row
-                          ),
-                        })
-                      }
-                      value={component.kind}
-                    >
-                      <option value="subtotal">Subtotal</option>
-                      <option value="tax">Tax</option>
-                      <option value="fee">Fee</option>
-                      <option value="discount">Discount</option>
-                    </select>
-                  </Field>
-                  <Field>
-                    <FieldLabel
-                      htmlFor={`cost-component-label-${component.id}`}
-                    >
-                      Component {index + 1} label
-                    </FieldLabel>
-                    <Input
-                      id={`cost-component-label-${component.id}`}
-                      onChange={(event) =>
-                        onEditorChange({
-                          financialComponents: editor.financialComponents.map(
-                            (row) =>
-                              row.id === component.id
-                                ? { ...row, label: event.currentTarget.value }
-                                : row
-                          ),
-                        })
-                      }
-                      placeholder={
-                        component.kind === "subtotal"
-                          ? "Subtotal"
-                          : "Optional label"
-                      }
-                      value={component.label}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel
-                      htmlFor={`cost-component-amount-${component.id}`}
-                    >
-                      Component {index + 1} amount (CAD)
-                    </FieldLabel>
-                    <Input
-                      id={`cost-component-amount-${component.id}`}
-                      inputMode="decimal"
-                      onChange={(event) =>
-                        onEditorChange({
-                          financialComponents: editor.financialComponents.map(
-                            (row) =>
-                              row.id === component.id
-                                ? { ...row, amount: event.currentTarget.value }
-                                : row
-                          ),
-                        })
-                      }
-                      placeholder="0.00"
-                      value={component.amount}
-                    />
-                  </Field>
-                  <Button
-                    aria-label={`Remove financial component ${index + 1}`}
-                    onClick={() => onRemoveFinancialComponent(component.id)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Remove
-                  </Button>
-                </FramePanel>
-              </Frame>
-            ))}
-          </div>
-        ) : null}
-        {editor.financialComponents.length > 0 ? (
-          <p className="text-muted-foreground text-sm tabular-nums">
-            Component reconciliation: {balance.financialRemainderLabel}
-          </p>
-        ) : null}
-      </section>
     </div>
   );
 }
@@ -4236,6 +4100,57 @@ function exactBalanceFromEditor(editor: DraftEditor) {
   return { allocations, financialComponents, grossTotalCents };
 }
 
+function financialInputValue(
+  editor: DraftEditor,
+  kind: "subtotal" | "tax"
+) {
+  const component = editor.financialComponents.find(
+    (candidate) => candidate.kind === kind
+  );
+  if (component) {
+    return component.amount;
+  }
+  return kind === "subtotal" && editor.financialComponents.length === 0
+    ? editor.grossTotal
+    : "";
+}
+
+function financialInputPatch(
+  editor: DraftEditor,
+  kind: "subtotal" | "tax",
+  value: string
+): Pick<DraftEditor, "financialComponents" | "grossTotal"> {
+  const subtotal =
+    kind === "subtotal" ? value : financialInputValue(editor, "subtotal");
+  const tax = kind === "tax" ? value : financialInputValue(editor, "tax");
+  const financialComponents: FinancialComponentEditorRow[] = [];
+  if (subtotal.trim()) {
+    financialComponents.push({
+      amount: subtotal,
+      id: `${editor.draftId}-financial-subtotal`,
+      kind: "subtotal",
+      label: "",
+    });
+  }
+  if (tax.trim()) {
+    financialComponents.push({
+      amount: tax,
+      id: `${editor.draftId}-financial-tax`,
+      kind: "tax",
+      label: "",
+    });
+  }
+  const subtotalCents = tryParseCadCents(subtotal);
+  const taxCents = tax.trim() ? tryParseCadCents(tax) : 0;
+  return {
+    financialComponents,
+    grossTotal:
+      subtotalCents === null || taxCents === null
+        ? ""
+        : centsToInput(subtotalCents + taxCents),
+  };
+}
+
 function balancePreview(editor: DraftEditor) {
   const grossTotalCents = tryParseCadCents(editor.grossTotal);
   const allocatedCents = sumCents(
@@ -4245,26 +4160,15 @@ function balancePreview(editor: DraftEditor) {
   );
   const remainingCents =
     grossTotalCents === null ? 0 : grossTotalCents - allocatedCents;
-  const financialNetCents = editor.financialComponents.reduce(
-    (total, component) => {
-      const amount = tryParseCadCents(component.amount) ?? 0;
-      return component.kind === "discount" ? total - amount : total + amount;
-    },
-    0
-  );
   return {
     allocatedCents,
-    financialRemainderLabel:
-      grossTotalCents === null
-        ? "Gross total required"
-        : `${formatCad(grossTotalCents - financialNetCents)} remaining`,
     grossLabel:
       grossTotalCents === null
-        ? "Gross total required"
+        ? "Subtotal required"
         : formatCad(grossTotalCents),
     remainingLabel:
       grossTotalCents === null
-        ? "Gross total required"
+        ? "Subtotal required"
         : `${formatCad(remainingCents)} remaining`,
   };
 }

@@ -41,16 +41,6 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import {
-  publishEvidenceLocationUnverifiedCollaborationEvent,
-  publishEvidenceReviewCollaborationEvent,
-  publishEvidenceSubmittedCollaborationEvents,
-  publishSiteVisitCompletionCollaborationEvents,
-  publishSiteVisitRescheduledCollaborationEvent,
-  publishSiteVisitScheduledCollaborationEvent,
-} from "./build_collaboration_operational_events";
-import { publishCanonicalBuildCollaborationSystemEvent } from "./build_collaboration_system_events";
-import {
-  publishDocumentCollaborationEvent,
   publishDrawCollaborationEvent,
   publishMilestoneCollaborationEvent,
 } from "./build_collaboration_workflow_events";
@@ -11056,14 +11046,6 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: args.note,
     });
-    const persistedVisit = await ctx.db.get(siteVisitId);
-    if (!persistedVisit) {
-      throw new Error("Scheduled Site Visit became unavailable.");
-    }
-    await publishSiteVisitScheduledCollaborationEvent(ctx, {
-      revision: 1,
-      visit: persistedVisit,
-    });
     return siteVisit;
   })
   .public();
@@ -11128,17 +11110,6 @@ export const rescheduleActiveBuildSiteVisit = authenticatedMutation
       priorState,
       reason: args.reason,
     });
-    if (scheduleChanged) {
-      const persistedVisit = await ctx.db.get(visit._id);
-      if (!persistedVisit) {
-        throw new Error("Rescheduled Site Visit became unavailable.");
-      }
-      await publishSiteVisitRescheduledCollaborationEvent(ctx, {
-        reason: args.reason,
-        revision: collaborationEventRevision ?? 1,
-        visit: persistedVisit,
-      });
-    }
     return null;
   })
   .public();
@@ -11186,16 +11157,6 @@ export const cancelActiveBuildSiteVisit = authenticatedMutation
       priorState: JSON.stringify(visit),
       reason: args.reason,
     });
-    if (statusChanged) {
-      const persistedVisit = await ctx.db.get(visit._id);
-      if (!persistedVisit) {
-        throw new Error("Cancelled Site Visit became unavailable.");
-      }
-      await publishSiteVisitCompletionCollaborationEvents(ctx, {
-        revision: collaborationEventRevision ?? 1,
-        visit: persistedVisit,
-      });
-    }
     return null;
   })
   .public();
@@ -12603,7 +12564,12 @@ const siteVisitOperationalStatusValidator = v.union(
 );
 
 export const listBrokerageSiteVisits = authenticatedQuery
-  .input({ workosOrganizationId: v.string() })
+  .input({
+    buildId: v.optional(v.id("activeBuilds")),
+    milestoneKey: v.optional(v.string()),
+    submilestoneId: v.optional(v.id("buildSubmilestones")),
+    workosOrganizationId: v.string(),
+  })
   .returns(
     v.object({
       builds: v.array(
@@ -12725,12 +12691,62 @@ export const listBrokerageSiteVisits = authenticatedQuery
     }
     const brokerageId = scope.brokerage._id;
     const now = Date.now();
-    const visitRows = await ctx.db
-      .query("buildSiteVisits")
-      .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerageId))
-      .collect();
+    if ((args.milestoneKey || args.submilestoneId) && !args.buildId) {
+      throw new Error("A Build is required when scoping Site Visits.");
+    }
+    const scopedBuild = args.buildId ? await ctx.db.get(args.buildId) : null;
+    if (
+      args.buildId &&
+      (!scopedBuild ||
+        scopedBuild.organizationId !== args.workosOrganizationId ||
+        scopedBuild.brokerageId !== brokerageId)
+    ) {
+      throw new Error("Forbidden: active Build Site Visits");
+    }
+    const scopedSubmilestone = args.submilestoneId
+      ? await ctx.db.get(args.submilestoneId)
+      : null;
+    if (
+      args.submilestoneId &&
+      (!scopedSubmilestone ||
+        scopedSubmilestone.organizationId !== args.workosOrganizationId ||
+        scopedSubmilestone.brokerageId !== brokerageId ||
+        scopedSubmilestone.buildId !== args.buildId ||
+        (args.milestoneKey &&
+          scopedSubmilestone.milestoneKey !== args.milestoneKey))
+    ) {
+      throw new Error("Forbidden: Sub-milestone Site Visits");
+    }
+    const resolvedMilestoneKey =
+      args.milestoneKey ?? scopedSubmilestone?.milestoneKey;
+    const visitRows = args.buildId
+      ? resolvedMilestoneKey
+        ? await ctx.db
+            .query("buildSiteVisits")
+            .withIndex("by_build_milestone", (q) =>
+              q
+                .eq("buildId", args.buildId as Id<"activeBuilds">)
+                .eq("milestoneKey", resolvedMilestoneKey),
+            )
+            .take(500)
+        : await ctx.db
+            .query("buildSiteVisits")
+            .withIndex("by_build", (q) =>
+              q.eq("buildId", args.buildId as Id<"activeBuilds">),
+            )
+            .take(500)
+      : await ctx.db
+          .query("buildSiteVisits")
+          .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerageId))
+          .take(500);
     const scopedVisits = visitRows.filter(
-      (visit) => visit.organizationId === args.workosOrganizationId,
+      (visit) =>
+        visit.organizationId === args.workosOrganizationId &&
+        (!scopedSubmilestone ||
+          (visit.submilestoneId
+            ? visit.submilestoneId === scopedSubmilestone._id
+            : !visit.submilestoneKeys?.length ||
+              visit.submilestoneKeys.includes(scopedSubmilestone.key))),
     );
     scopedVisits.sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -12756,7 +12772,7 @@ export const listBrokerageSiteVisits = authenticatedQuery
         const evidenceAssets = await ctx.db
           .query("buildEvidenceAssets")
           .withIndex("by_build", (q) => q.eq("buildId", buildId))
-          .collect();
+          .take(500);
         for (const asset of evidenceAssets) {
           if (asset.locationVerified) {
             continue;
@@ -19608,19 +19624,6 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
         submilestone: scopedSubmilestone,
       });
     }
-    try {
-      await publishEvidenceSubmittedCollaborationEvents(ctx, {
-        asset: persistedAsset,
-        revision: collaborationEventRevision,
-      });
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        error.message !== "A system event requires at least one authorized reader."
-      ) {
-        throw error;
-      }
-    }
     return null;
   })
   .public();
@@ -20346,8 +20349,6 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
   if (!persistedAsset) {
     throw new Error("Promoted Evidence became unavailable.");
   }
-  const collaborationEventRevision =
-    persistedAsset.collaborationEventRevision ?? 1;
   const packageMembership =
     await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
       actorRoles,
@@ -20441,10 +20442,6 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     organizationId: auth.build.organizationId,
     result,
     submilestoneId: submilestone._id,
-  });
-  await publishEvidenceSubmittedCollaborationEvents(ctx, {
-    asset: persistedAsset,
-    revision: collaborationEventRevision,
   });
   return result;
 }
@@ -21449,11 +21446,22 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     submilestoneKey: v.string(),
+    uploadedOnBehalfOfBuilder: v.optional(v.boolean()),
     workosOrganizationId: v.string(),
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    const auth = await authorizeCanonicalSubmilestoneOperator(ctx, args);
+    const auth = args.uploadedOnBehalfOfBuilder
+      ? await authorizeActiveBuildOrThrow(
+          ctx,
+          args.buildId,
+          args.workosOrganizationId,
+        )
+      : await authorizeCanonicalSubmilestoneOperator(ctx, args);
+    if (args.uploadedOnBehalfOfBuilder) {
+      requireBackofficeActiveBuildWrite(auth);
+      await requireActiveBuildAppPermission(ctx, auth, "evidence", "create");
+    }
     const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
       buildId: args.buildId,
       milestoneKey: args.milestoneKey,
@@ -21473,7 +21481,10 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
         replayed: true,
       };
     }
-    if (submilestone.status !== "in_progress") {
+    if (
+      submilestone.status !== "in_progress" &&
+      !args.uploadedOnBehalfOfBuilder
+    ) {
       throw new ConvexError({
         code: "SUBMILESTONE_NOT_ACTIVE",
         message: "Evidence can be added only while work is active.",
@@ -21501,23 +21512,26 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     const requirement =
       requirements.find((row) => row.requirementKey === requestedRequirementKey) ??
       (!requestedRequirementKey ? requirements[0] : undefined);
-    if (!requirement) {
+    if (!requirement && !args.uploadedOnBehalfOfBuilder) {
       throw new ConvexError({
         code: "EVIDENCE_REQUIREMENT_NOT_FOUND",
         message: "Evidence must target a current Sub-milestone requirement.",
         requirementKey: requestedRequirementKey || undefined,
       });
     }
-    const requirementKey = requirement.requirementKey;
-    assertActiveSubmilestoneEvidenceRequirementKind({
-      asset: {
-        fileName: args.evidence.fileName,
-        mimeType: args.evidence.mimeType,
-        tag: args.evidence.tag ?? milestone.name,
-      },
-      requirement,
-      sourceKind: "canonical_upload",
-    });
+    const requirementKey =
+      requirement?.requirementKey ?? "builder-submitted-evidence";
+    if (requirement) {
+      assertActiveSubmilestoneEvidenceRequirementKind({
+        asset: {
+          fileName: args.evidence.fileName,
+          mimeType: args.evidence.mimeType,
+          tag: args.evidence.tag ?? milestone.name,
+        },
+        requirement,
+        sourceKind: "canonical_upload",
+      });
+    }
     const now = Date.now();
     const locationAttempt = args.evidence.locationAttempt
       ? resolveSiteVisitGeofenceAttempt({
@@ -21576,7 +21590,9 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
       organizationId: auth.build.organizationId,
       proposalId: auth.proposal._id,
       sizeBytes: Math.max(0, Math.round(args.evidence.sizeBytes)),
-      source: "active_build_submilestone_evidence_upload",
+      source: args.uploadedOnBehalfOfBuilder
+        ? "backoffice_builder_evidence_upload"
+        : "active_build_submilestone_evidence_upload",
       storageId: args.evidence.storageId,
       submilestoneKey: submilestone.key,
       tag: args.evidence.tag?.trim() || milestone.name,
@@ -21618,12 +21634,24 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
         locationVerified: locationAttempt?.verified ?? false,
         requirementKey,
         submilestoneKey: submilestone.key,
+        uploadedOnBehalfOfBuilder:
+          args.uploadedOnBehalfOfBuilder === true,
+        uploadedByWorkosUserId: auth.subject,
       }),
       priorState: JSON.stringify({ workflowRevision: submilestone.workflowRevision ?? 0 }),
-      warnings:
-        locationAttempt && !locationAttempt.verified
+      warnings: [
+        ...(args.uploadedOnBehalfOfBuilder
+          ? [
+              "uploaded_on_behalf_of_builder",
+              "evidence_location_unverified",
+            ]
+          : []),
+        ...(!args.uploadedOnBehalfOfBuilder &&
+        locationAttempt &&
+        !locationAttempt.verified
           ? ["evidence_location_unverified"]
-          : [],
+          : []),
+      ],
     });
     await insertSubmilestoneCommandReceipt(ctx, {
       buildId: args.buildId,
@@ -21644,12 +21672,6 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     if (!persistedAsset) {
       throw new Error("Canonical Evidence Asset became unavailable.");
     }
-    const collaborationEventRevision =
-      persistedAsset.collaborationEventRevision ?? 1;
-    await publishEvidenceSubmittedCollaborationEvents(ctx, {
-      asset: persistedAsset,
-      revision: collaborationEventRevision,
-    });
     return {
       evidenceAssetId: persistedAssetId,
       evidencePackageRevisionId: packageRevision._id,
@@ -22371,9 +22393,9 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       priorState: JSON.stringify(milestone.completionClaim),
     });
     await publishMilestoneCollaborationEvent(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
       milestone,
       note: args.note,
-      revision: collaborationEventRevision,
       transition: "submitted",
     });
     if (
@@ -22484,16 +22506,6 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       priorState: JSON.stringify(visit),
       reason: note,
     });
-    if (statusChanged) {
-      const persistedVisit = await ctx.db.get(visit._id);
-      if (!persistedVisit) {
-        throw new Error("Recorded Site Visit became unavailable.");
-      }
-      await publishSiteVisitCompletionCollaborationEvents(ctx, {
-        revision: collaborationEventRevision ?? 1,
-        visit: persistedVisit,
-      });
-    }
     return null;
   })
   .public();
@@ -22816,8 +22828,6 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     if (!persistedAsset) {
       throw new Error("Submitted Site Visit Evidence became unavailable.");
     }
-    const collaborationEventRevision =
-      persistedAsset.collaborationEventRevision ?? 1;
     if (targetSubmilestone && activeTargetMilestone) {
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
         actorRoles: ["contractor"],
@@ -22829,10 +22839,6 @@ export const registerActiveBuildSiteVisitFile = publicMutation
         submilestone: targetSubmilestone,
       });
     }
-    await publishEvidenceSubmittedCollaborationEvents(ctx, {
-      asset: persistedAsset,
-      revision: collaborationEventRevision,
-    });
     if (evidenceTargetUnassigned) {
       const targetLabel = [
         targetMilestoneKey ?? visit.milestoneKey,
@@ -22840,50 +22846,11 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       ]
         .filter(Boolean)
         .join(" / ");
-      let unassignedEvidencePostId: Id<"buildCollaborationPosts"> | null =
-        null;
-      try {
-        unassignedEvidencePostId =
-          await publishCanonicalBuildCollaborationSystemEvent(ctx, {
-            buildId,
-            idempotencyKey: `operational:evidence:${persistedAsset._id}:r${collaborationEventRevision}:target-unassigned`,
-            notificationKind: "blocker",
-            notificationTitle: "Site Visit Evidence needs assignment",
-            organizationId: build.organizationId,
-            plainText: `${persistedAsset.label} was preserved, but target ${targetLabel} is no longer active or could not be found. Lender review is required.`,
-            postType: "issue",
-            references: [
-              {
-                entityId: persistedAsset._id,
-                entityKind: "evidenceAsset",
-                primary: true,
-              },
-            ],
-            remediation: {
-              description:
-                "Review the preserved Site Visit Evidence and assign it to the correct active Milestone or Sub-milestone without deleting the uploaded file.",
-              obligationKey: `evidence-asset:${persistedAsset._id}`,
-              policyKey: "evidence-target-unassigned",
-              title: `Assign preserved Site Visit Evidence for ${targetLabel}`,
-              workKind: "evidence",
-            },
-            systemLabel: "DrawFlow Operations",
-          });
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          error.message !== "A system event requires at least one authorized reader."
-        ) {
-          throw error;
-        }
-      }
-      if (!unassignedEvidencePostId) {
-        await upsertBackofficeUnassignedEvidenceDeliveries(ctx, {
-          asset: persistedAsset,
-          build,
-          targetLabel,
-        });
-      }
+      await upsertBackofficeUnassignedEvidenceDeliveries(ctx, {
+        asset: persistedAsset,
+        build,
+        targetLabel,
+      });
     }
     return { assetId, status: "registered" as const };
   })
@@ -23149,20 +23116,6 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       reportNotes: reportNotesText,
       visit: { ...visit, ...siteVisit },
     });
-    for (const unverified of unverifiedEvidence) {
-      await publishEvidenceLocationUnverifiedCollaborationEvent(ctx, {
-        asset: unverified.asset,
-        revision: unverified.revision,
-      });
-    }
-    const persistedVisit = await ctx.db.get(visit._id);
-    if (!persistedVisit) {
-      throw new Error("Submitted Site Visit became unavailable.");
-    }
-    await publishSiteVisitCompletionCollaborationEvents(ctx, {
-      revision: collaborationEventRevision,
-      visit: persistedVisit,
-    });
     return null;
   })
   .public();
@@ -23247,18 +23200,6 @@ export const reviewActiveBuildEvidence = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: note,
     });
-    if (reviewChanged) {
-      const persistedMilestone = await ctx.db.get(milestone._id);
-      if (!persistedMilestone) {
-        throw new Error("Reviewed Evidence milestone became unavailable.");
-      }
-      await publishEvidenceReviewCollaborationEvent(ctx, {
-        accepted: args.accepted,
-        milestone: persistedMilestone,
-        note,
-        revision: collaborationEvidenceEventRevision ?? 1,
-      });
-    }
     return null;
   })
   .public();
@@ -23474,16 +23415,6 @@ export const addActiveBuildDocument = authenticatedMutation
         ? JSON.stringify(supersededDocument)
         : undefined,
     });
-    if (args.documentType !== "supporting") {
-      const persistedDocument = await ctx.db.get(documentId);
-      if (!persistedDocument) {
-        throw new Error("The governing Document could not be reloaded.");
-      }
-      await publishDocumentCollaborationEvent(ctx, {
-        document: persistedDocument,
-        supersededDocument,
-      });
-    }
     return null;
   })
   .public();
@@ -24997,9 +24928,9 @@ export const approveActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.drawKey,
     );
-    if (draw.status !== "ready_for_admin") {
+    if (draw.status !== "in_review" && draw.status !== "ready_for_admin") {
       throw new Error(
-        "Only draw requests prepared for admin can be approved for release.",
+        "Only draw requests under review or prepared for admin can be approved for release.",
       );
     }
     const note = args.note.trim();
@@ -25063,8 +24994,10 @@ export const rejectActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.drawKey,
     );
-    if (draw.status !== "ready_for_admin") {
-      throw new Error("Only draw requests prepared for admin can be rejected.");
+    if (draw.status !== "in_review" && draw.status !== "ready_for_admin") {
+      throw new Error(
+        "Only draw requests under review or prepared for admin can be rejected.",
+      );
     }
     const note = args.note.trim();
     if (note.length < 3 || note.length > 500) {
@@ -26049,9 +25982,9 @@ export const requestActiveBuildMilestoneInfo = authenticatedMutation
     });
     if (materialTransition && collaborationEventRevision !== undefined) {
       await publishMilestoneCollaborationEvent(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
         milestone,
         note,
-        revision: collaborationEventRevision,
         transition: "blocked",
       });
     }
@@ -26359,9 +26292,9 @@ export const approveActiveBuildMilestone = authenticatedMutation
     });
     if (materialTransition && collaborationEventRevision !== undefined) {
       await publishMilestoneCollaborationEvent(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
         milestone,
         note: args.note,
-        revision: collaborationEventRevision,
         transition: "approved",
       });
     }
@@ -26428,9 +26361,9 @@ export const rejectActiveBuildMilestone = authenticatedMutation
     });
     if (materialTransition && collaborationEventRevision !== undefined) {
       await publishMilestoneCollaborationEvent(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
         milestone,
         note: args.note,
-        revision: collaborationEventRevision,
         transition: "rejected",
       });
     }

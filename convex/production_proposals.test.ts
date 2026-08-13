@@ -3074,15 +3074,6 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    await broker.mutation(
-      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
-      {
-        buildId: closing.buildId,
-        drawKey: receipt.requestKey,
-        note: "Operations recommendation recorded.",
-        workosOrganizationId: ORG,
-      },
-    );
     await admin.mutation(
       (api as any).production_proposals.rejectActiveBuildDraw,
       {
@@ -6897,6 +6888,73 @@ describe("production proposal foundation", () => {
         (group: { buildId: string }) => group.buildId === closing.buildId,
       ),
     ).toBe(true);
+    const scopedVisitFixtures = await t.run(async (ctx: any) => {
+      const child = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .filter((q: any) => q.eq(q.field("key"), "excavation"))
+        .unique();
+      const canonical = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (q: any) => q.eq("visitId", siteVisit.visitId))
+        .unique();
+      const { _creationTime, _id, ...canonicalFields } = canonical;
+      await ctx.db.insert("buildSiteVisits", {
+        ...canonicalFields,
+        scheduleIdempotencyKey: "scoped-cancelled-history",
+        status: "cancelled",
+        submilestoneId: child._id,
+        submilestoneKeys: ["legacy-key-does-not-match"],
+        visitId: "scoped-cancelled-history",
+      });
+      const {
+        submilestoneId: _submilestoneId,
+        submilestoneKeys: _submilestoneKeys,
+        ...legacyFields
+      } = canonicalFields;
+      await ctx.db.insert("buildSiteVisits", {
+        ...legacyFields,
+        scheduleIdempotencyKey: "legacy-milestone-wide-history",
+        status: "cancelled",
+        visitId: "legacy-milestone-wide-history",
+      });
+      await ctx.db.insert("buildSiteVisits", {
+        ...legacyFields,
+        scheduleIdempotencyKey: "other-child-history",
+        status: "cancelled",
+        submilestoneKeys: ["other-child"],
+        visitId: "other-child-history",
+      });
+      return { childId: child._id };
+    });
+    const childScopedRoster = await t.query(
+      (api as any).production_proposals.listBrokerageSiteVisits,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneId: scopedVisitFixtures.childId,
+        workosOrganizationId: ORG,
+      },
+    );
+    const childScopedVisitIds = childScopedRoster.visits.map(
+      (visit: { visitId: string }) => visit.visitId,
+    );
+    expect(childScopedVisitIds).toEqual(
+      expect.arrayContaining([
+        siteVisit.visitId,
+        "scoped-cancelled-history",
+        "legacy-milestone-wide-history",
+      ]),
+    );
+    expect(childScopedVisitIds).not.toContain("other-child-history");
+    await expect(
+      t.query((api as any).production_proposals.listBrokerageSiteVisits, {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneId: scopedVisitFixtures.childId,
+        workosOrganizationId: "org_site_visit_scope_other",
+      }),
+    ).rejects.toThrow();
     await seedTokenizedSiteVisitEvidence(t, {
       buildId: String(closing.buildId),
       locationFailureReason: "Previously outside the site geofence.",
@@ -7402,6 +7460,98 @@ describe("production proposal foundation", () => {
             String(evidenceAllowedDetail.submilestones[0]._id),
       ),
     ).toBe(true);
+  });
+
+  test("lets Backoffice upload canonical evidence on behalf of the Builder before work starts", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Backoffice evidence upload build",
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const storageId = await admin.run(async (ctx: any) =>
+      ctx.storage.store(
+        new Blob(["builder evidence"], { type: "application/pdf" }),
+      ),
+    );
+    const args = {
+      buildId: closing.buildId,
+      evidence: {
+        fileName: "builder-invoice.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 256,
+        storageId,
+      },
+      expectedRevision: 0,
+      idempotencyKey: "backoffice-builder-evidence-001",
+      milestoneKey: "foundation",
+      submilestoneKey: "forms",
+      uploadedOnBehalfOfBuilder: true,
+      workosOrganizationId: ORG,
+    };
+
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+        args,
+      ),
+    ).rejects.toThrow(/backoffice|forbidden|required role/i);
+
+    const first = await admin.mutation(
+      (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+      args,
+    );
+    const replay = await admin.mutation(
+      (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+      args,
+    );
+
+    expect(replay).toMatchObject({
+      evidenceAssetId: first.evidenceAssetId,
+      replayed: true,
+    });
+    const persisted = await admin.run(async (ctx: any) => {
+      const asset = await ctx.db.get(first.evidenceAssetId);
+      const item = await ctx.db
+        .query("buildSubmilestoneEvidencePackageItems")
+        .withIndex("by_package_revision", (query: any) =>
+          query.eq("packageRevisionId", first.evidencePackageRevisionId),
+        )
+        .unique();
+      if (!item) {
+        throw new Error("Canonical Evidence Package item is unavailable.");
+      }
+      const audit = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query: any) =>
+          query
+            .eq("entityType", "buildSubmilestone")
+            .eq("entityId", String(item.buildSubmilestoneId)),
+        )
+        .collect();
+      const evidenceAudit = audit.find(
+        (event: any) =>
+          event.command === "addActiveBuildSubmilestoneEvidence",
+      );
+      return { asset, audit: evidenceAudit, item };
+    });
+    expect(persisted.asset).toMatchObject({
+      locationVerified: false,
+      source: "backoffice_builder_evidence_upload",
+    });
+    expect(persisted.item).toMatchObject({
+      requirementKey: "completion-evidence",
+      sourceKind: "canonical_upload",
+      sourceUploaderWorkosUserId: "user_admin",
+    });
+    expect(JSON.parse(persisted.audit?.newState ?? "{}")).toMatchObject({
+      uploadedByWorkosUserId: "user_admin",
+      uploadedOnBehalfOfBuilder: true,
+    });
+    expect(persisted.audit?.warnings).toEqual([
+      "uploaded_on_behalf_of_builder",
+      "evidence_location_unverified",
+    ]);
   });
 
   test("projects active-build submilestones as canonical calendar child entities", async () => {
@@ -9401,7 +9551,7 @@ describe("production proposal foundation", () => {
     });
   });
 
-  test("preserves site-visit uploads when their milestone target is superseded or missing and routes review", async () => {
+  test("preserves unassigned site-visit uploads and routes review without automating a collaboration post", async () => {
     const { seed, t: admin } = await seeded(["admin"], "user_admin");
     const {
       evidence,
@@ -9443,14 +9593,13 @@ describe("production proposal foundation", () => {
         )
         .every((asset: any) => asset.submilestoneKey === undefined),
     ).toBe(true);
-    expect(evidence.targetReviewPost).toBeDefined();
-    expect(evidence.targetReviewPost).toMatchObject({
-      postType: "issue",
-      systemEventKey: expect.stringContaining(":target-unassigned"),
+    expect(evidence.targetReviewPost).toBeUndefined();
+    expect(evidence.revision).toBeNull();
+    expect(evidence.reviewDelivery).toMatchObject({
+      actionRequired: true,
+      sourceLabel: "Site Visit Staff",
+      title: "Site Visit Evidence needs assignment",
     });
-    expect(evidence.revision?.plainText).toContain(
-      "Lender review is required.",
-    );
   });
 
   test("falls back to backoffice delivery when the Build Collaboration reader scope is disabled", async () => {
@@ -12531,7 +12680,7 @@ describe("production proposal foundation", () => {
     });
   });
 
-  test("active build draw approval allows approved availability after lower actual cost", async () => {
+  test("lender admins approve an in-review draw without an operations handoff", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(t, seed);
     const initialWorkspace = await t.query(
@@ -12580,15 +12729,6 @@ describe("production proposal foundation", () => {
       {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
-        workosOrganizationId: ORG,
-      },
-    );
-    await t.mutation(
-      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
-      {
-        buildId: closing.buildId,
-        drawKey: receipt.requestKey,
-        note: "Evidence and policy review complete.",
         workosOrganizationId: ORG,
       },
     );

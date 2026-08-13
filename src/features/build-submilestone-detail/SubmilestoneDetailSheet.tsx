@@ -17,36 +17,40 @@ import {
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { Separator } from "#/components/ui/separator.tsx";
 import {
   Sheet,
   SheetDescription,
   SheetFooter,
+  SheetHeader,
   SheetPanel,
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { Skeleton } from "#/components/ui/skeleton.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
-import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
-import {
-  CanonicalSubmilestoneTabPanel,
-  type CanonicalDirtySection,
-  isCanonicalSubmilestoneSuperseded,
-  type CanonicalWorkspaceBootstrap,
-  type CanonicalWorkspaceCollection,
-} from "./SubmilestoneDetailCanonical.tsx";
-import { SubmilestoneCollaborationPanel } from "./SubmilestoneCollaborationPanel.tsx";
-import { SubmilestoneReviewTab } from "./SubmilestoneReviewTab.tsx";
+import { BuildDetailTargetHeader } from "../build-detail-targets/BuildDetailTargetHeader.tsx";
 import {
   BUILD_SUBMILESTONE_DETAIL_TABS,
   type BuildSubmilestoneDetailTab,
   normalizeBuildSubmilestoneDetailTab,
 } from "../build-detail-targets/buildDetailTab.ts";
-import { BuildDetailTargetHeader } from "../build-detail-targets/BuildDetailTargetHeader.tsx";
+import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
+import type { CostDocumentSummary } from "../cost-documents/CostDocumentRoadmapReconciliation.tsx";
+import { ActiveBuildSubmilestoneGuidanceController } from "../submilestone-guidance/ActiveBuildSubmilestoneGuidanceController.tsx";
+import { ProposalSubmilestoneScopeController } from "../submilestone-scope/ProposalSubmilestoneScopeController.tsx";
+import { SubmilestoneCollaborationPanel } from "./SubmilestoneCollaborationPanel.tsx";
+import {
+  type CanonicalDirtySection,
+  CanonicalSubmilestoneTabPanel,
+  type CanonicalWorkspaceBootstrap,
+  type CanonicalWorkspaceCollection,
+  isCanonicalSubmilestoneSuperseded,
+} from "./SubmilestoneDetailCanonical.tsx";
+import { SubmilestoneReviewTab } from "./SubmilestoneReviewTab.tsx";
 
 type WorkspaceBootstrap = FunctionReturnType<
   typeof api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceBootstrap
@@ -109,6 +113,7 @@ const COLLECTION_FOR_TAB: Partial<
   evidence: "evidence_assets",
   materials: "materials",
   people: "people_assignments",
+  review: "evidence_assets",
 };
 
 const ACTIVE_REVIEW_STATES = new Set([
@@ -130,14 +135,16 @@ export interface SubmilestoneDetailSheetProps {
   canGoBack?: boolean;
   canGoForward?: boolean;
   companionActionItemId?: Id<"buildActionItems">;
+  costDocuments?: CostDocumentSummary[];
   finalFocus?: SheetFocusTarget;
   initialFocus?: SheetFocusTarget;
   onGoBack?: () => void;
   onGoForward?: () => void;
   onOpenChange: (open: boolean) => void;
+  onOpenCostDocument?: (costDocumentId: string) => void;
   onOpenTarget?: (
     target: BuildDetailTarget,
-    context?: { selectedTab?: string },
+    context?: { selectedTab?: string }
   ) => void;
   onReferenceOpen?: (reference: {
     entityId: string;
@@ -165,11 +172,13 @@ export function SubmilestoneDetailSheet({
   canGoBack = false,
   canGoForward = false,
   companionActionItemId,
+  costDocuments = [],
   finalFocus,
   initialFocus,
   onGoBack = () => undefined,
   onGoForward = () => undefined,
   onOpenChange,
+  onOpenCostDocument,
   onOpenTarget,
   onReferenceOpen,
   onRetry,
@@ -197,14 +206,15 @@ export function SubmilestoneDetailSheet({
   });
   const [pendingNavigation, setPendingNavigation] =
     useState<PendingCanonicalNavigation | null>(null);
+  const [scopeGuidanceOpen, setScopeGuidanceOpen] = useState(false);
   const hasUnsavedCanonicalChanges =
     dirtySections.scope || dirtySections.guidance;
   const onCanonicalDirtyChange = (
     section: CanonicalDirtySection,
-    dirty: boolean,
+    dirty: boolean
   ) => {
     setDirtySections((current) =>
-      current[section] === dirty ? current : { ...current, [section]: dirty },
+      current[section] === dirty ? current : { ...current, [section]: dirty }
     );
   };
   const requestNavigation = (action: () => void, label: string) => {
@@ -221,14 +231,20 @@ export function SubmilestoneDetailSheet({
     action?.();
   };
   const handleClose = () =>
-    requestNavigation(
-      () => onOpenChange(false),
-      "close this Sub-milestone detail",
-    );
+    requestNavigation(() => {
+      setScopeGuidanceOpen(false);
+      onOpenChange(false);
+    }, "close this Sub-milestone detail");
   const handleGoBack = () =>
-    requestNavigation(onGoBack, "open the previous Sub-milestone");
+    requestNavigation(() => {
+      setScopeGuidanceOpen(false);
+      onGoBack();
+    }, "open the previous Sub-milestone");
   const handleGoForward = () =>
-    requestNavigation(onGoForward, "open the next Sub-milestone");
+    requestNavigation(() => {
+      setScopeGuidanceOpen(false);
+      onGoForward();
+    }, "open the next Sub-milestone");
   const paginationByCollection =
     paginationStore.targetKey === paginationTargetKey
       ? paginationStore.byCollection
@@ -241,6 +257,7 @@ export function SubmilestoneDetailSheet({
       });
       setDirtySections({ guidance: false, scope: false });
       setPendingNavigation(null);
+      setScopeGuidanceOpen(false);
     }
   }, [open, paginationTargetKey]);
   const bootstrap = useQuery(
@@ -253,7 +270,7 @@ export function SubmilestoneDetailSheet({
           organizationId,
           viewerCapacity,
         }
-      : "skip",
+      : "skip"
   ) as WorkspaceBootstrap | undefined;
 
   const normalizedSelectedTab =
@@ -271,10 +288,11 @@ export function SubmilestoneDetailSheet({
     workspaceReady && bootstrap.collaboration?.state === "available"
       ? (companionActionItemId ?? bootstrap.companion?.actionItemId)
       : undefined;
-  const collectionCompanionForQuery =
-    selectedCollection?.startsWith("collaboration_")
-      ? companionForQuery
-      : undefined;
+  const collectionCompanionForQuery = selectedCollection?.startsWith(
+    "collaboration_"
+  )
+    ? companionForQuery
+    : undefined;
   const pagination = selectedCollection
     ? paginationByCollection[selectedCollection]
     : undefined;
@@ -291,7 +309,7 @@ export function SubmilestoneDetailSheet({
           organizationId,
           viewerCapacity,
         }
-      : "skip",
+      : "skip"
   ) as WorkspaceCollectionResult | undefined;
   const evidenceRequirementsCollection = useQuery(
     api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceCollection,
@@ -305,7 +323,7 @@ export function SubmilestoneDetailSheet({
           organizationId,
           viewerCapacity,
         }
-      : "skip",
+      : "skip"
   ) as WorkspaceCollectionResult | undefined;
   const peopleHistoryCollection = useQuery(
     api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceCollection,
@@ -319,7 +337,7 @@ export function SubmilestoneDetailSheet({
           organizationId,
           viewerCapacity,
         }
-      : "skip",
+      : "skip"
   ) as WorkspaceCollectionResult | undefined;
   const visibleCollection = isVisibleWorkspaceCollection(collection)
     ? collection
@@ -329,7 +347,7 @@ export function SubmilestoneDetailSheet({
         ...visibleCollection,
         page: mergeCollectionRows(
           pagination?.accumulatedRows ?? [],
-          visibleCollection.page,
+          visibleCollection.page
         ),
       }
     : collection === undefined && pagination?.previousPage
@@ -359,7 +377,7 @@ export function SubmilestoneDetailSheet({
           [selectedCollection]: {
             accumulatedRows: mergeCollectionRows(
               current[selectedCollection]?.accumulatedRows ?? [],
-              visibleCollection.page,
+              visibleCollection.page
             ),
             cursor: nextCursor,
             previousPage: visibleCollection,
@@ -374,15 +392,12 @@ export function SubmilestoneDetailSheet({
     if (nextTab === activeTab) {
       return;
     }
-    requestNavigation(
-      () => {
-        if (!isControlled) {
-          setUncontrolledTab(nextTab);
-        }
-        onSelectedTabChange?.(nextTab);
-      },
-      "leave the Overview draft",
-    );
+    requestNavigation(() => {
+      if (!isControlled) {
+        setUncontrolledTab(nextTab);
+      }
+      onSelectedTabChange?.(nextTab);
+    }, "leave the Overview draft");
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -395,87 +410,105 @@ export function SubmilestoneDetailSheet({
 
   return (
     <>
-      <Sheet modal onOpenChange={handleOpenChange} open={open}>
+      <Sheet
+        disablePointerDismissal={scopeGuidanceOpen}
+        modal={!scopeGuidanceOpen}
+        onOpenChange={handleOpenChange}
+        open={open}
+      >
         <SheetPopup
-          aria-modal="true"
+          aria-modal={!scopeGuidanceOpen}
           className="min-w-0 overflow-x-hidden motion-reduce:transform-none motion-reduce:transition-none max-sm:h-svh max-sm:max-h-svh max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:pb-[env(safe-area-inset-bottom)] sm:h-[calc(100svh-2rem)] sm:max-h-[calc(100svh-2rem)] sm:w-[min(52rem,calc(100vw-2rem))] sm:max-w-[52rem]"
           finalFocus={finalFocus}
           initialFocus={initialFocus}
           onKeyDown={(event) => {
-          const historyShortcut =
-            event.altKey &&
-            !(event.ctrlKey || event.metaKey || event.shiftKey) &&
-            (event.key === "ArrowLeft" || event.key === "ArrowRight");
-          if (!historyShortcut) {
-            return;
-          }
-          event.preventDefault();
-          if (event.key === "ArrowLeft" && canGoBack) {
-            handleGoBack();
-          }
-          if (event.key === "ArrowRight" && canGoForward) {
-            handleGoForward();
-          }
+            const historyShortcut =
+              event.altKey &&
+              !(event.ctrlKey || event.metaKey || event.shiftKey) &&
+              (event.key === "ArrowLeft" || event.key === "ArrowRight");
+            if (!historyShortcut) {
+              return;
+            }
+            event.preventDefault();
+            if (event.key === "ArrowLeft" && canGoBack) {
+              handleGoBack();
+            }
+            if (event.key === "ArrowRight" && canGoForward) {
+              handleGoForward();
+            }
           }}
           showCloseButton={false}
           side="right"
           variant="inset"
         >
-        {bootstrap === undefined ? (
-          <LoadingState
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            onClose={handleClose}
-            onGoBack={handleGoBack}
-            onGoForward={handleGoForward}
-          />
-        ) : bootstrap.state === "revoked" ? (
-          <UnavailableState
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            onClose={handleClose}
-            onGoBack={handleGoBack}
-            onGoForward={handleGoForward}
-          />
-        ) : bootstrap.state === "integrity_error" ? (
-          <IntegrityState
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            error={bootstrap}
-            onClose={handleClose}
-            onGoBack={handleGoBack}
-            onGoForward={handleGoForward}
-            onRetry={onRetry}
-          />
-        ) : (
-          <VisibleState
-            activeTab={activeTab}
-            bootstrap={bootstrap}
-            buildId={buildId}
-            buildSubmilestoneId={buildSubmilestoneId}
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            collection={displayedCollection}
-            companionActionItemId={companionActionItemId}
-            requirementsCollection={evidenceRequirementsCollection}
-            historyCollection={peopleHistoryCollection}
-            loadingMore={loadingMore}
-            onClose={handleClose}
-            onDirtyChange={onCanonicalDirtyChange}
-            onGoBack={handleGoBack}
-            onGoForward={handleGoForward}
-            onLoadMore={loadMore}
-            onOpenTarget={onOpenTarget}
-            onRetry={onRetry}
-            onReferenceOpen={onReferenceOpen}
-            onTabChange={handleTabChange}
-            organizationId={organizationId}
-            readOnly={readOnly}
-            viewerCapacity={viewerCapacity}
-          />
-        )}
+          {bootstrap === undefined ? (
+            <LoadingState
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onClose={handleClose}
+              onGoBack={handleGoBack}
+              onGoForward={handleGoForward}
+            />
+          ) : bootstrap.state === "revoked" ? (
+            <UnavailableState
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onClose={handleClose}
+              onGoBack={handleGoBack}
+              onGoForward={handleGoForward}
+            />
+          ) : bootstrap.state === "integrity_error" ? (
+            <IntegrityState
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              error={bootstrap}
+              onClose={handleClose}
+              onGoBack={handleGoBack}
+              onGoForward={handleGoForward}
+              onRetry={onRetry}
+            />
+          ) : (
+            <VisibleState
+              activeTab={activeTab}
+              bootstrap={bootstrap}
+              buildId={buildId}
+              buildSubmilestoneId={buildSubmilestoneId}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              collection={displayedCollection}
+              companionActionItemId={companionActionItemId}
+              costDocuments={costDocuments}
+              historyCollection={peopleHistoryCollection}
+              loadingMore={loadingMore}
+              onClose={handleClose}
+              onDirtyChange={onCanonicalDirtyChange}
+              onGoBack={handleGoBack}
+              onGoForward={handleGoForward}
+              onLoadMore={loadMore}
+              onOpenCostDocument={onOpenCostDocument}
+              onOpenScopeAndGuidance={() => setScopeGuidanceOpen(true)}
+              onOpenTarget={onOpenTarget}
+              onReferenceOpen={onReferenceOpen}
+              onRetry={onRetry}
+              onTabChange={handleTabChange}
+              organizationId={organizationId}
+              readOnly={readOnly}
+              requirementsCollection={evidenceRequirementsCollection}
+              viewerCapacity={viewerCapacity}
+            />
+          )}
         </SheetPopup>
       </Sheet>
+      {isVisibleWorkspaceBootstrap(bootstrap) ? (
+        <ScopeFieldGuidanceCompanion
+          bootstrap={bootstrap}
+          buildSubmilestoneId={buildSubmilestoneId}
+          onOpenChange={setScopeGuidanceOpen}
+          open={open && scopeGuidanceOpen}
+          organizationId={organizationId}
+          viewerCapacity={viewerCapacity}
+        />
+      ) : null}
       <AlertDialog
         onOpenChange={(dialogOpen) => {
           if (!dialogOpen) {
@@ -509,6 +542,72 @@ export function SubmilestoneDetailSheet({
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function ScopeFieldGuidanceCompanion({
+  bootstrap,
+  buildSubmilestoneId,
+  onOpenChange,
+  open,
+  organizationId,
+  viewerCapacity,
+}: {
+  bootstrap: VisibleWorkspaceBootstrap;
+  buildSubmilestoneId: Id<"buildSubmilestones">;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  organizationId: string;
+  viewerCapacity?: BuildCollaborationRole;
+}) {
+  return (
+    <Sheet
+      disablePointerDismissal
+      modal={false}
+      onOpenChange={onOpenChange}
+      open={open}
+    >
+      <SheetPopup
+        aria-modal="false"
+        className="pointer-events-auto min-w-0 overflow-x-hidden motion-reduce:transform-none motion-reduce:transition-none max-sm:h-svh max-sm:max-h-svh max-sm:w-full max-sm:max-w-none max-sm:rounded-none sm:h-[calc(100svh-2rem)] sm:max-h-[calc(100svh-2rem)] sm:w-[min(34rem,calc(100vw-2rem))] sm:max-w-[34rem]"
+        data-testid="scope-field-guidance-companion"
+        showBackdrop={false}
+        side="left"
+        variant="inset"
+        viewportClassName="pointer-events-none z-[60]"
+      >
+        <SheetHeader className="border-b pr-14">
+          <SheetTitle>Scope &amp; Field Guidance</SheetTitle>
+          <SheetDescription>
+            Canonical instructions for {bootstrap.submilestone.name}. Keep this
+            panel open while completing the Review.
+          </SheetDescription>
+        </SheetHeader>
+        <SheetPanel className="space-y-5 pb-[env(safe-area-inset-bottom)]">
+          <ProposalSubmilestoneScopeController
+            proposalSubmilestoneId={
+              bootstrap.submilestone.proposalSubmilestoneId
+            }
+            readOnly
+            scopeRoute="active-build"
+            viewerCapacity={viewerCapacity}
+            workosOrganizationId={organizationId}
+          />
+          <Separator />
+          <ActiveBuildSubmilestoneGuidanceController
+            buildSubmilestoneId={String(buildSubmilestoneId)}
+            proposalSubmilestoneId={
+              bootstrap.submilestone.proposalSubmilestoneId
+            }
+            readOnly
+            rowName={bootstrap.milestone.name}
+            subMilestoneName={bootstrap.submilestone.name}
+            viewerCapacity={viewerCapacity}
+            workosOrganizationId={organizationId}
+          />
+        </SheetPanel>
+      </SheetPopup>
+    </Sheet>
   );
 }
 
@@ -669,6 +768,7 @@ function VisibleState({
   canGoForward,
   collection,
   companionActionItemId,
+  costDocuments,
   requirementsCollection,
   historyCollection,
   loadingMore,
@@ -678,6 +778,8 @@ function VisibleState({
   onLoadMore,
   onRetry,
   onReferenceOpen,
+  onOpenCostDocument,
+  onOpenScopeAndGuidance,
   onOpenTarget,
   onDirtyChange,
   onTabChange,
@@ -691,12 +793,15 @@ function VisibleState({
   buildSubmilestoneId: Id<"buildSubmilestones">;
   collection: WorkspaceCollectionResult | undefined;
   companionActionItemId?: Id<"buildActionItems">;
+  costDocuments: CostDocumentSummary[];
   requirementsCollection: WorkspaceCollectionResult | undefined;
   historyCollection: WorkspaceCollectionResult | undefined;
   loadingMore: boolean;
   onLoadMore: () => void;
   onRetry?: () => void;
   onReferenceOpen?: SubmilestoneDetailSheetProps["onReferenceOpen"];
+  onOpenCostDocument?: SubmilestoneDetailSheetProps["onOpenCostDocument"];
+  onOpenScopeAndGuidance: () => void;
   onOpenTarget?: SubmilestoneDetailSheetProps["onOpenTarget"];
   onDirtyChange?: (section: CanonicalDirtySection, dirty: boolean) => void;
   onTabChange: (tab: BuildSubmilestoneDetailTab) => void;
@@ -818,13 +923,13 @@ function VisibleState({
                     buildSubmilestoneId={buildSubmilestoneId}
                     collection={collection}
                     companionActionItemId={companionActionItemId}
-                    requirementsCollection={requirementsCollection}
                     historyCollection={historyCollection}
                     loadingMore={loadingMore}
                     onLoadMore={onLoadMore}
                     onRetry={onRetry}
                     organizationId={organizationId}
                     readOnly={readOnly}
+                    requirementsCollection={requirementsCollection}
                     tab={tab}
                     viewerCapacity={viewerCapacity}
                   />
@@ -846,7 +951,6 @@ function VisibleState({
                     companionActionItemId={
                       companionActionItemId ?? bootstrap.companion?.actionItemId
                     }
-                    onOpenCanonicalTarget={onOpenTarget}
                     evidencePackageRevision={
                       bootstrap.evidence.evidencePackageRevision
                     }
@@ -854,12 +958,13 @@ function VisibleState({
                       (requirement) => ({
                         label: requirement.label,
                         requirementKey: requirement.requirementKey,
-                      }),
+                      })
                     )}
                     expectedReviewRound={bootstrap.review.reviewRound}
                     milestoneKey={bootstrap.milestone.key}
-                    organizationId={organizationId}
+                    onOpenCanonicalTarget={onOpenTarget}
                     onReferenceOpen={onReferenceOpen}
+                    organizationId={organizationId}
                     promoteEvidenceAllowed={
                       bootstrap.capabilities.canonical.promoteEvidence.allowed
                     }
@@ -869,7 +974,8 @@ function VisibleState({
                         bootstrap.capabilities.collaboration.addChecklist
                           .allowed,
                       createChild:
-                        bootstrap.capabilities.collaboration.createChild.allowed,
+                        bootstrap.capabilities.collaboration.createChild
+                          .allowed,
                       linkRelation:
                         bootstrap.capabilities.collaboration.linkRelation
                           .allowed,
@@ -890,8 +996,13 @@ function VisibleState({
                   <SubmilestoneReviewTab
                     bootstrap={bootstrap}
                     buildId={buildId}
+                    collection={collection as CanonicalWorkspaceCollection}
+                    costDocuments={costDocuments}
+                    loadingMore={loadingMore}
+                    onLoadMore={onLoadMore}
+                    onOpenCostDocument={onOpenCostDocument}
+                    onOpenScopeAndGuidance={onOpenScopeAndGuidance}
                     onOpenTarget={onOpenTarget}
-                    onReferenceOpen={onReferenceOpen}
                     onRetry={onRetry}
                     organizationId={organizationId}
                     readOnly={readOnly || superseded}
@@ -980,20 +1091,20 @@ function CanonicalCollectionSurface({
         buildId={buildId}
         buildSubmilestoneId={buildSubmilestoneId}
         collection={collection as unknown as CanonicalWorkspaceCollection}
-        requirementsCollection={
-          isVisibleWorkspaceCollection(requirementsCollection)
-            ? (requirementsCollection as unknown as CanonicalWorkspaceCollection)
-            : undefined
-        }
+        companionActionItemId={companionActionItemId}
         historyCollection={
           isVisibleWorkspaceCollection(historyCollection)
             ? (historyCollection as unknown as CanonicalWorkspaceCollection)
             : undefined
         }
-        companionActionItemId={companionActionItemId}
         onRetry={onRetry}
         organizationId={organizationId}
         readOnly={readOnly}
+        requirementsCollection={
+          isVisibleWorkspaceCollection(requirementsCollection)
+            ? (requirementsCollection as unknown as CanonicalWorkspaceCollection)
+            : undefined
+        }
         tab={tab}
         viewerCapacity={viewerCapacity}
       />
@@ -1161,14 +1272,14 @@ function EmptyPanel({ label }: { label: string }) {
 }
 
 function isVisibleWorkspaceCollection(
-  collection: WorkspaceCollectionResult | undefined,
+  collection: WorkspaceCollectionResult | undefined
 ): collection is VisibleWorkspaceCollection {
   return Boolean(collection && "page" in collection);
 }
 
 function mergeCollectionRows(
   accumulated: WorkspaceCollectionRow[],
-  page: WorkspaceCollectionRow[],
+  page: WorkspaceCollectionRow[]
 ) {
   const rowsById = new Map(accumulated.map((row) => [row.id, row] as const));
   for (const row of page) {
@@ -1186,14 +1297,14 @@ interface NavigationProps {
 }
 
 function isVisibleWorkspaceBootstrap(
-  value: WorkspaceBootstrap | undefined,
+  value: WorkspaceBootstrap | undefined
 ): value is VisibleWorkspaceBootstrap {
   return Boolean(value && "submilestone" in value);
 }
 
 function defaultTabForWorkspace(
   value: WorkspaceBootstrap | undefined,
-  viewerCapacity: BuildCollaborationRole | undefined,
+  viewerCapacity: BuildCollaborationRole | undefined
 ): BuildSubmilestoneDetailTab {
   if (!isVisibleWorkspaceBootstrap(value)) {
     return "overview";
@@ -1214,7 +1325,7 @@ function statusLabel(value: string) {
 }
 
 function statusBadgeVariant(
-  value: string,
+  value: string
 ): ComponentProps<typeof Badge>["variant"] {
   const normalized = value.toLowerCase();
   if (normalized === "complete" || normalized === "approved") {

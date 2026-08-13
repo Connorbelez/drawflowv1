@@ -18,6 +18,7 @@ import {
   EditorProvider,
   type EditorProviderProps,
 } from "#/components/kibo-ui/editor/index.tsx";
+import { tiptapContent } from "#/components/rich-text/tiptap-json.ts";
 import { cn } from "#/lib/utils.ts";
 
 const EDITOR_IMAGE_CLASSES =
@@ -73,7 +74,7 @@ export function FieldRichTextEditor({
         imageMaxHeightClass,
         className
       )}
-      content={value || "<p></p>"}
+      content={tiptapContent(value || "<p></p>")}
       editable={editable}
       editorContainerProps={{
         "aria-label": ariaLabel,
@@ -118,7 +119,9 @@ function FieldRichTextValueSync({ value }: { value: string | JSONContent }) {
     if (!editor) {
       return;
     }
-    const nextValue = typeof value === "string" ? value || "<p></p>" : value;
+    const nextValue = tiptapContent(
+      typeof value === "string" ? value || "<p></p>" : value
+    );
     const matches =
       typeof nextValue === "string"
         ? editor.getHTML() === nextValue
@@ -158,7 +161,7 @@ export function FieldRichTextPreview({
         imageMaxHeightClass,
         className
       )}
-      content={value}
+      content={tiptapContent(value)}
       editable={false}
       editorContainerProps={{
         "aria-label": ariaLabel,

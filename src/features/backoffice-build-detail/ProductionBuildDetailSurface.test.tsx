@@ -963,7 +963,10 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(
       screen.getAllByRole("button", { name: /Open milestone/i })[0],
     );
-    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      "milestone:milestone-01",
+    );
   });
 
   test("routes evidence that identifies one canonical sub-milestone to the shared target", () => {
@@ -1895,25 +1898,32 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(
       screen.getByTestId("draw-review-request-draw-requested-b4"),
     );
-    expect(onOpenCanonicalTarget).toHaveBeenCalledWith({
-      drawId: "draw-requested-b4",
-      kind: "draw",
-    });
+    expect(
+      screen.getByRole("heading", {
+        name: /Draw approval and release$/,
+      }),
+    ).toBeTruthy();
+    expect(onOpenCanonicalTarget).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByTestId("lender-review-start-draw-requested-b4"),
+      screen.getByTestId("draw-approval-start-draw-requested-b4"),
     );
     await waitFor(() =>
       expect(startDrawReview).toHaveBeenCalledWith(requestedDraw),
     );
+    fireEvent.click(screen.getByText("Close"));
 
     fireEvent.click(
-      screen.getByTestId("lender-review-release-draw-approved-b4"),
+      screen.getByTestId("draw-review-request-draw-approved-b4"),
+    );
+    fireEvent.click(
+      screen.getByTestId("draw-approval-release-draw-approved-b4"),
     );
     fireEvent.click(
       await screen.findByRole("button", { name: "Confirm release" }),
     );
     await waitFor(() => expect(releaseDraw).toHaveBeenCalledWith(approvedDraw));
+    fireEvent.click(screen.getByText("Close"));
 
     fireEvent.click(
       within(screen.getByTestId("lender-funding-review")).getByRole("button", {
@@ -1923,6 +1933,38 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("Milestone execution")).toBeTruthy();
     expect(screen.getByText("Sub-milestone scope")).toBeTruthy();
     expect(screen.queryByTestId("milestone-completion-review-summary")).toBeNull();
+  });
+
+  test("opens the parent Milestone Detail Sheet from a funding schedule review while a Draw is focused", () => {
+    const onChangeMilestone = vi.fn();
+    const onChangeTab = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        focusedReference="draw:draw-request-1"
+        fundingWorkspaceEnabled
+        milestoneKey="foundation"
+        onChangeMilestone={onChangeMilestone}
+        onChangeRail={vi.fn()}
+        onChangeTab={onChangeTab}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review Foundation milestone" }),
+    );
+
+    expect(screen.getByTestId("milestone-detail-sheet")).toBeTruthy();
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      `milestone:${detail.milestones[0]._id}`,
+    );
+    expect(onChangeTab).not.toHaveBeenCalled();
   });
 
   test("does not expose lender request buttons for planned draw rows", () => {
@@ -2295,7 +2337,10 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("kanban-card-foundation"));
-    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      "milestone:milestone-01",
+    );
   });
 
   test("captures assignment cost data from the milestone contractor drawer", async () => {
@@ -2837,7 +2882,7 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("milestone-detail-sheet-close"));
-    expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
+    expect(onChangeMilestone).toHaveBeenCalledWith(undefined, undefined);
   });
 
   test("does not stack a parent Milestone sheet behind a typed detail target", () => {
@@ -2873,7 +2918,10 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("kanban-card-foundation"));
-    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      "milestone:milestone-01",
+    );
   });
 
   test("renders the approved production Details composition without duplicated tab content", () => {

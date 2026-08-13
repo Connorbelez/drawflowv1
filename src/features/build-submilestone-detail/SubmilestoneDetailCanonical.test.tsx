@@ -16,6 +16,7 @@ const mutationState = vi.hoisted(() => ({
 }));
 
 vi.mock("convex/react", () => ({
+  useQuery: () => undefined,
   useMutation: (reference: unknown) => {
     mutationState.calls.push(reference);
     const existing = mutationState.byReference.get(reference);
@@ -480,6 +481,9 @@ describe("CanonicalSubmilestoneTabPanel", () => {
     fireEvent.change(screen.getByTestId("canonical-evidence-input"), {
       target: { files: [file] },
     });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Upload to Evidence Package" }),
+    );
 
     await waitFor(() =>
       expect(screen.getByText(/Draft file retained: footing.jpg/)).toBeTruthy(),
@@ -551,8 +555,8 @@ describe("CanonicalSubmilestoneTabPanel", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Evidence requirement" }), {
       target: { value: "inspection-report" },
     });
-    const generateUploadMutation = mutationState.functions.at(-2);
-    const addEvidenceMutation = mutationState.functions.at(-1);
+    const generateUploadMutation = mutationState.functions.at(-3);
+    const addEvidenceMutation = mutationState.functions.at(-2);
     generateUploadMutation?.mockResolvedValue("https://upload.test");
     addEvidenceMutation?.mockRejectedValueOnce(
       new Error("evidence package write failed"),
@@ -565,6 +569,9 @@ describe("CanonicalSubmilestoneTabPanel", () => {
     fireEvent.change(screen.getByTestId("canonical-evidence-input"), {
       target: { files: [file] },
     });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Upload to Evidence Package" }),
+    );
 
     await waitFor(() =>
       expect(screen.getByText(/Draft file retained: inspection.jpg/)).toBeTruthy(),
@@ -590,6 +597,64 @@ describe("CanonicalSubmilestoneTabPanel", () => {
     ).toBe(firstIdempotencyKey);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     view.unmount();
+  });
+
+  test("shows the registry empty state and uploads on behalf of the Builder", async () => {
+    const base = makeBootstrap();
+    const bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          ...base.capabilities.canonical,
+          uploadEvidence: { allowed: true },
+        },
+      },
+      overview: {
+        ...(base.overview as Record<string, unknown>),
+        actualStartedAt: undefined,
+        status: "planned",
+      },
+      submilestone: {
+        ...(base.submilestone as Record<string, unknown>),
+        status: "planned",
+      },
+    });
+    vi.mocked(fetch).mockResolvedValue({
+      json: async () => ({ storageId: "storage-backoffice-01" }),
+      ok: true,
+    } as Response);
+    render(
+      <CanonicalSubmilestoneTabPanel
+        {...panelProps(bootstrap, "evidence")}
+        collection={{ hasMore: false, page: [], partial: false, state: "visible" }}
+        viewerCapacity="admin"
+      />,
+    );
+    const generateUploadMutation = mutationState.functions.at(-3);
+    const addEvidenceMutation = mutationState.functions.at(-2);
+    generateUploadMutation?.mockResolvedValue("https://upload.test");
+
+    expect(screen.getByText("No Builder evidence yet")).toBeTruthy();
+    expect(screen.getByText("Upload evidence for the Builder")).toBeTruthy();
+    const file = new File(["invoice"], "builder-invoice.pdf", {
+      type: "application/pdf",
+    });
+    fireEvent.change(screen.getByTestId("canonical-evidence-input"), {
+      target: { files: [file] },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Upload to Evidence Package" }),
+    );
+
+    await waitFor(() => expect(addEvidenceMutation).toHaveBeenCalledTimes(1));
+    expect(addEvidenceMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        evidence: expect.objectContaining({
+          fileName: "builder-invoice.pdf",
+          storageId: "storage-backoffice-01",
+        }),
+        uploadedOnBehalfOfBuilder: true,
+      }),
+    );
   });
 
   test("does not show mutation controls for superseded history", () => {

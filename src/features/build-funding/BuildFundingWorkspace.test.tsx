@@ -496,6 +496,7 @@ describe("BuildFundingWorkspace", () => {
       status: "requested" as const,
     };
     const approvedRequest = {
+      _id: "draw-approved-id",
       amountCents: 1_800_000,
       displayId: "DR-1021",
       drawKey: "approved",
@@ -578,9 +579,17 @@ describe("BuildFundingWorkspace", () => {
       expect(onStartDrawReview).toHaveBeenCalledWith(submittedRequest),
     );
 
-    fireEvent.click(screen.getByTestId("lender-review-release-approved"));
+    fireEvent.click(screen.getByTestId("draw-review-request-approved"));
     expect(
-      await screen.findByRole("heading", { name: "Release $18,000.00?" })
+      screen.getByRole("heading", {
+        name: "DR-1021 Draw approval and release",
+      }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId("draw-approval-release-approved"));
+    expect(
+      await screen.findByRole("heading", {
+        name: "Record release of $18,000.00?",
+      })
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Confirm release" }));
     await waitFor(() => expect(onReleaseDraw).toHaveBeenCalledWith(approvedRequest));
@@ -665,8 +674,8 @@ describe("BuildFundingWorkspace", () => {
     ).toBeNull();
   });
 
-  test("opens every active lender Draw card through one canonical review target", () => {
-    const onOpenDraw = vi.fn();
+  test("opens every active lender Draw card in the in-place approval flow", async () => {
+    const onApproveDraw = vi.fn();
     const requests = [
       {
         _id: "draw-requested-id",
@@ -715,30 +724,29 @@ describe("BuildFundingWorkspace", () => {
           requests,
           startDate: "2026-06-20",
         })}
-        onOpenDraw={onOpenDraw}
+        onApproveDraw={onApproveDraw}
         onOpenMilestone={vi.fn()}
         viewerRole="lender"
       />,
     );
 
-    for (const request of requests) {
-      const button = screen.getByTestId(
-        `draw-review-request-${request.drawKey}`,
-      );
-      expect(button.textContent).toContain(
-        request.status === "requested" ? "Review request" : "Open review",
-      );
-      fireEvent.click(button);
-    }
+    fireEvent.click(screen.getByTestId("draw-review-request-in-review"));
 
-    expect(onOpenDraw).toHaveBeenCalledTimes(requests.length);
-    expect(onOpenDraw).toHaveBeenNthCalledWith(1, requests[0]);
-    expect(onOpenDraw).toHaveBeenNthCalledWith(2, requests[1]);
-    expect(onOpenDraw).toHaveBeenNthCalledWith(3, requests[2]);
+    expect(
+      screen.getByRole("heading", {
+        name: "DR-1043 Draw approval and release",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("Operations review")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Approve for release" }),
+    );
+    await waitFor(() =>
+      expect(onApproveDraw).toHaveBeenCalledWith(requests[1]),
+    );
   });
 
   test("does not leak the lender review entrypoint into Builder cards", () => {
-    const onOpenDraw = vi.fn();
     render(
       <BuildFundingWorkspace
         model={projectBuildFunding({
@@ -758,7 +766,6 @@ describe("BuildFundingWorkspace", () => {
           ],
           startDate: "2026-06-20",
         })}
-        onOpenDraw={onOpenDraw}
         onOpenMilestone={vi.fn()}
         viewerRole="builder"
       />,
@@ -766,11 +773,9 @@ describe("BuildFundingWorkspace", () => {
 
     expect(screen.queryByTestId("draw-review-request-builder-request")).toBeNull();
     expect(screen.queryByText("Review request")).toBeNull();
-    expect(onOpenDraw).not.toHaveBeenCalled();
   });
 
-  test("opens lender Draw history cards through the canonical target", () => {
-    const onOpenDraw = vi.fn();
+  test("opens lender Draw history cards in the approval flow", () => {
     const requests = [
       {
         _id: "draw-approved-history-id",
@@ -828,7 +833,6 @@ describe("BuildFundingWorkspace", () => {
           requests,
           startDate: "2026-06-20",
         })}
-        onOpenDraw={onOpenDraw}
         onOpenMilestone={vi.fn()}
         viewerRole="lender"
       />,
@@ -840,6 +844,12 @@ describe("BuildFundingWorkspace", () => {
       );
       expect(button.textContent).toContain("Open draw");
       fireEvent.click(button);
+      expect(
+        screen.getByRole("heading", {
+          name: `${request.displayId} Draw approval and release`,
+        }),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByText("Close"));
     }
 
     fireEvent.click(
@@ -852,13 +862,13 @@ describe("BuildFundingWorkspace", () => {
       );
       expect(button.textContent).toContain("Open draw");
       fireEvent.click(button);
+      expect(
+        screen.getByRole("heading", {
+          name: `${request.displayId} Draw approval and release`,
+        }),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByText("Close"));
     }
-
-    expect(onOpenDraw).toHaveBeenCalledTimes(requests.length);
-    expect(onOpenDraw).toHaveBeenNthCalledWith(1, requests[0]);
-    expect(onOpenDraw).toHaveBeenNthCalledWith(2, requests[1]);
-    expect(onOpenDraw).toHaveBeenNthCalledWith(3, requests[2]);
-    expect(onOpenDraw).toHaveBeenNthCalledWith(4, requests[3]);
   });
 
   test("keeps a read-only review entrypoint when final Draw decisions are unauthorized", () => {
@@ -900,7 +910,6 @@ describe("BuildFundingWorkspace", () => {
           startDate: "2026-06-20",
         })}
         onApproveDraw={vi.fn()}
-        onOpenDraw={vi.fn()}
         onOpenMilestone={vi.fn()}
         onRejectDraw={vi.fn()}
         onReleaseDraw={vi.fn()}
@@ -916,5 +925,11 @@ describe("BuildFundingWorkspace", () => {
         "lender-review-release-approved-only",
       ) as HTMLButtonElement).disabled,
     ).toBe(true);
+    fireEvent.click(screen.getByTestId("draw-review-request-ready-only"));
+    expect(
+      screen.getByText(
+        "Your current role can view this Draw, but it cannot perform the next workflow action.",
+      ),
+    ).toBeTruthy();
   });
 });

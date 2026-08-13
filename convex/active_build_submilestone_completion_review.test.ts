@@ -260,6 +260,53 @@ async function submitReviewPackage(
 }
 
 describe("canonical Sub-milestone completion review", () => {
+  test("returns a canonically scoped current Site Visit through the Review query", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    const state = await submilestoneState(fixture);
+    const siteVisitId = await fixture.base.run(async (ctx: any) => {
+      const build = await ctx.db.get(fixture.closing.buildId);
+      if (!build) {
+        throw new Error("Review Site Visit Build is unavailable.");
+      }
+      const now = Date.now();
+      return await ctx.db.insert("buildSiteVisits", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildMilestoneId: state.milestone._id,
+        createdAt: now,
+        milestoneKey: state.milestone.key,
+        organizationId: ORG,
+        requestedAt: new Date(now).toISOString(),
+        requestedDay: 0,
+        scopeBoundAt: now,
+        status: "requested",
+        submilestoneId: state.submilestone._id,
+        submilestoneKeys: [state.submilestone.key],
+        tokenExpiresAt: now + 3_600_000,
+        updatedAt: now,
+        url: "/newsitevisit/review-validator-fixture",
+        visitId: "review-validator-fixture",
+      });
+    });
+
+    const review = await fixture.lender.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    expect(review.siteVisit.currentVisit).toMatchObject({
+      _id: siteVisitId,
+      scopeBoundAt: expect.any(Number),
+      submilestoneId: state.submilestone._id,
+    });
+  });
+
   test("deduplicates Evidence Package items by asset and requirement pair", async () => {
     const fixture = await seedFixture();
     await startForms(fixture);

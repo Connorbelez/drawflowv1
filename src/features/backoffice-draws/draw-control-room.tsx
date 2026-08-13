@@ -30,16 +30,6 @@ import {
 } from "#/components/ui/empty.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
-import { Label } from "#/components/ui/label.tsx";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetPanel,
-  SheetTitle,
-} from "#/components/ui/sheet.tsx";
 import {
   Table,
   TableBody,
@@ -48,8 +38,8 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
-import { Textarea } from "#/components/ui/textarea.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
+import { DrawApprovalFlowSheet } from "#/features/draw-workflow/DrawApprovalFlowSheet.tsx";
 import {
   type DrawWorkflowCapabilities,
   type DrawWorkflowRouteContext,
@@ -137,8 +127,8 @@ export interface DrawControlRoomHandlers {
 interface DrawControlRoomProps extends DrawControlRoomHandlers {
   data: BrokerageDrawsResult | undefined;
   drawCapabilities?: DrawWorkflowCapabilities;
-  routeContext?: DrawWorkflowRouteContext;
   pending: boolean;
+  routeContext?: DrawWorkflowRouteContext;
 }
 
 function matchesPulseFilter(draw: BrokerageDrawRow, filter: DrawPulseFilter) {
@@ -281,7 +271,7 @@ export function DrawControlRoom({
 
   async function handleApprove() {
     const primaryAction = selectedWorkflow?.primary;
-    if (!selectedDraw || !primaryAction || reviewNote.trim().length < 3) {
+    if (!(selectedDraw && primaryAction) || reviewNote.trim().length < 3) {
       return;
     }
     setReviewPending(true);
@@ -926,132 +916,127 @@ function DrawDetailSheet({
   workflow?: ReturnType<typeof getDrawWorkflowActions>;
 }) {
   return (
-    <Sheet onOpenChange={(next) => !next && onClose()} open={open}>
-      <SheetContent className="w-full sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>{draw?.label ?? "Draw"}</SheetTitle>
-          <SheetDescription>
-            {draw
-              ? `${draw.buildName} · ${formatCurrency(draw.amountCents)}`
-              : "Draw details"}
-          </SheetDescription>
-        </SheetHeader>
-        {draw ? (
-          <SheetPanel className="flex flex-col gap-4">
-            <div className="flex flex-wrap gap-2">
-              <Badge variant={drawBadgeVariant(draw.status)}>
-                {drawStatusLabel(draw.status)}
-              </Badge>
-              <Badge variant="outline">{draw.buildDisplayId}</Badge>
-            </div>
-            <dl className="grid gap-2 text-sm">
-              <DetailRow label="Builder" value={draw.builderName} />
-              <DetailRow label="Location" value={draw.location} />
-              <DetailRow label="Scheduled" value={draw.scheduledDateLabel} />
-              {draw.milestoneName ? (
-                <DetailRow label="Milestone" value={draw.milestoneName} />
-              ) : null}
-              {draw.requestNote ? (
-                <DetailRow label="Request note" value={draw.requestNote} />
-              ) : null}
-              {draw.requestReviewNote ? (
-                <DetailRow label="Review note" value={draw.requestReviewNote} />
-              ) : null}
-              {draw.workOrderKey ? (
-                <DetailRow label="Work order" value={draw.workOrderKey} />
-              ) : null}
-            </dl>
-            {draw.sourceAllocations?.length ? (
-              <div className="border-t pt-3 text-sm">
-                <p className="font-medium">Attributed reimbursement sources</p>
-                <ul className="mt-2 grid gap-1 text-muted-foreground text-xs">
-                  {draw.sourceAllocations.map((allocation) => (
-                    <li
-                      className="flex items-start justify-between gap-3"
-                      key={`${allocation.drawGroupKey}:${allocation.milestoneKey}`}
-                    >
-                      <span>
-                        {allocation.milestoneName} · {allocation.drawGroupKey}
-                      </span>
-                      <span className="shrink-0 tabular-nums">
-                        {formatCurrency(allocation.amountCents)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {canReview ? (
-              <div className="grid gap-2">
-                <Label htmlFor="draw-review-note">Review note</Label>
-                <Textarea
-                  id="draw-review-note"
-                  onChange={(event) => onReviewNoteChange(event.target.value)}
-                  placeholder="Document evidence and policy checks..."
-                  rows={3}
-                  value={reviewNote}
-                />
-              </div>
-            ) : null}
-          </SheetPanel>
-        ) : null}
-        <SheetFooter className="flex-col gap-2 sm:flex-col">
-          <Button
-            render={
-              draw ? (
-                <Link
-                  params={{ buildId: String(draw.buildId) }}
-                  search={{ tab: "details" }}
-                  to="/backoffice/builds/$buildId"
-                />
-              ) : (
-                <span />
-              )
+    <DrawApprovalFlowSheet
+      actions={drawControlRoomSheetActions({
+        canReview,
+        draw,
+        onApprove,
+        onReject,
+        reviewNote,
+        reviewPending,
+        workflow,
+      })}
+      amountCents={draw?.amountCents ?? 0}
+      contextBadge={
+        draw ? (
+          <Badge variant="outline">{draw.buildDisplayId}</Badge>
+        ) : undefined
+      }
+      details={drawDetailRows(draw)}
+      displayId={draw?.label ?? "Draw"}
+      drawLabel={draw?.buildName ?? "Draw details"}
+      onClose={onClose}
+      open={open}
+      reviewNote={
+        canReview
+          ? {
+              disabled: reviewPending,
+              onChange: onReviewNoteChange,
+              value: reviewNote,
             }
-            variant="outline"
-          >
-            Open build workspace
-          </Button>
-          {canReview ? (
-            <div className="flex w-full gap-2">
-              {workflow?.secondary?.operation === "reject" ? (
-                <Button
-                  className="flex-1"
-                  disabled={reviewNote.trim().length < 3 || reviewPending}
-                  onClick={onReject}
-                  variant="outline"
-                >
-                  Reject
-                </Button>
-              ) : null}
-              {workflow?.primary ? (
-                <Button
-                  className="flex-1"
-                  disabled={reviewNote.trim().length < 3 || reviewPending}
-                  onClick={onApprove}
-                >
-                  {reviewPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    workflow.primary.label
-                  )}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+          : undefined
+      }
+      sourceAllocations={draw?.sourceAllocations}
+      status={draw?.status ?? "planned"}
+    />
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function drawControlRoomSheetActions({
+  canReview,
+  draw,
+  onApprove,
+  onReject,
+  reviewNote,
+  reviewPending,
+  workflow,
+}: {
+  canReview: boolean;
+  draw: BrokerageDrawRow | null;
+  onApprove: () => void;
+  onReject: () => void;
+  reviewNote: string;
+  reviewPending: boolean;
+  workflow?: ReturnType<typeof getDrawWorkflowActions>;
+}) {
+  if (!draw) {
+    return;
+  }
   return (
-    <div className="grid gap-0.5">
-      <dt className="text-[11px] text-muted-foreground uppercase tracking-wide">
-        {label}
-      </dt>
-      <dd>{value}</dd>
-    </div>
+    <>
+      <Button
+        render={
+          <Link
+            params={{ buildId: String(draw.buildId) }}
+            search={{ tab: "details" }}
+            to="/backoffice/builds/$buildId"
+          />
+        }
+        variant="outline"
+      >
+        Open build workspace
+      </Button>
+      {canReview ? (
+        <div className="flex w-full gap-2">
+          {workflow?.secondary?.operation === "reject" ? (
+            <Button
+              className="flex-1"
+              disabled={reviewNote.trim().length < 3 || reviewPending}
+              onClick={onReject}
+              variant="outline"
+            >
+              Reject
+            </Button>
+          ) : null}
+          {workflow?.primary ? (
+            <Button
+              className="flex-1"
+              disabled={reviewNote.trim().length < 3 || reviewPending}
+              onClick={onApprove}
+            >
+              {reviewPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                workflow.primary.label
+              )}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </>
   );
+}
+
+function drawDetailRows(draw: BrokerageDrawRow | null) {
+  if (!draw) {
+    return [];
+  }
+  const details = [
+    { label: "Builder", value: draw.builderName },
+    { label: "Location", value: draw.location },
+    { label: "Scheduled", value: draw.scheduledDateLabel },
+  ];
+  if (draw.milestoneName) {
+    details.push({ label: "Milestone", value: draw.milestoneName });
+  }
+  if (draw.requestNote) {
+    details.push({ label: "Request note", value: draw.requestNote });
+  }
+  if (draw.requestReviewNote) {
+    details.push({ label: "Review note", value: draw.requestReviewNote });
+  }
+  if (draw.workOrderKey) {
+    details.push({ label: "Work order", value: draw.workOrderKey });
+  }
+  return details;
 }

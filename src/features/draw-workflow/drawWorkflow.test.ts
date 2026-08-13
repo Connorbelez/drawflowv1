@@ -22,7 +22,7 @@ const lenderCapabilities: DrawWorkflowCapabilities = {
 describe("getDrawWorkflowActions", () => {
   test.each([
     ["requested", "Review request", "Start review"],
-    ["in_review", "Open review", "Send to admin"],
+    ["in_review", "Open review", "Approve for release"],
     ["ready_for_admin", "Open review", "Approve for release"],
     ["approved_for_release", "Open draw", "Release"],
   ] as const)(
@@ -60,6 +60,24 @@ describe("getDrawWorkflowActions", () => {
     expect(actions.open?.label).toBe("Open review");
     expect(actions.primary).toBeUndefined();
     expect(actions.secondary).toBeUndefined();
+  });
+
+  test("keeps the operations handoff for non-admin reviewers", () => {
+    const actions = getDrawWorkflowActions({
+      canonicalIdAvailable: true,
+      capabilities: {
+        ...lenderCapabilities,
+        canApprove: false,
+        canReject: false,
+        canRelease: false,
+      },
+      status: "in_review",
+    });
+
+    expect(actions.primary).toMatchObject({
+      label: "Send to admin",
+      operation: "submit_for_admin",
+    });
   });
 
   test("keeps an admin in-review request as a canonical open-only entrypoint", () => {

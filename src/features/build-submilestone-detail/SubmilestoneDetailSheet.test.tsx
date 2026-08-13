@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getFunctionName } from "convex/server";
@@ -72,10 +73,19 @@ const collectionRef =
   api.build_submilestone_workspace.getBuildSubmilestoneWorkspaceCollection;
 const reviewRef =
   api.build_submilestone_review.getActiveBuildSubmilestoneReview;
+const siteVisitsRef = api.production_proposals.listBrokerageSiteVisits;
 
 function makeBootstrap(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
+  const capabilityOverrides =
+    (overrides.capabilities as
+      | {
+          canonical?: Record<string, unknown>;
+          review?: Record<string, unknown>;
+          siteVisit?: Record<string, unknown>;
+        }
+      | undefined) ?? {};
   return {
     build: {
       buildId,
@@ -83,17 +93,6 @@ function makeBootstrap(
       location: "Toronto, ON",
       startDate: "2026-08-01",
       status: "active",
-    },
-    capabilities: {
-      canonical: {
-        approveChild: { allowed: false, reason: "Not permitted." },
-        retractChildApproval: { allowed: false, reason: "Not permitted." },
-        waiveSiteVisit: { allowed: false, reason: "Not permitted." },
-      },
-      review: {
-        recommend: { allowed: false, reason: "Not permitted." },
-        requestChanges: { allowed: false, reason: "Not permitted." },
-      },
     },
     companion: {
       actionItemId: companionActionItemId,
@@ -114,6 +113,7 @@ function makeBootstrap(
     },
     milestone: {
       buildMilestoneId: "milestone-01",
+      drawAvailabilityCents: 20_000,
       key: "foundation",
       name: "Foundation",
       planningState: "active",
@@ -122,6 +122,20 @@ function makeBootstrap(
     ownership: {
       reason: "Assigned to Northstar Concrete",
       state: "assigned",
+    },
+    overview: {
+      actualCompletedAt: Date.parse("2026-08-08T16:00:00Z"),
+      actualCostCents: 12_500,
+      actualStartedAt: Date.parse("2026-08-03T09:00:00Z"),
+      budgetCents: 25_000,
+      executionOwnership: {
+        reason: "Assigned to Northstar Concrete",
+        state: "assigned",
+      },
+      plannedDurationDays: 4,
+      plannedStartDay: 2,
+      progressPercent: 40,
+      status: "in_progress",
     },
     parentReadiness: {
       approvedChildCount: 0,
@@ -158,6 +172,24 @@ function makeBootstrap(
       status: "in_progress",
     },
     ...overrides,
+    capabilities: {
+      canonical: {
+        approveChild: { allowed: false, reason: "Not permitted." },
+        retractChildApproval: { allowed: false, reason: "Not permitted." },
+        waiveSiteVisit: { allowed: false, reason: "Not permitted." },
+        ...capabilityOverrides.canonical,
+      },
+      review: {
+        recommend: { allowed: false, reason: "Not permitted." },
+        requestChanges: { allowed: false, reason: "Not permitted." },
+        ...capabilityOverrides.review,
+      },
+      siteVisit: {
+        cancel: { allowed: false, reason: "Not permitted." },
+        order: { allowed: false, reason: "Not permitted." },
+        ...capabilityOverrides.siteVisit,
+      },
+    },
   };
 }
 
@@ -186,7 +218,9 @@ let recommendMutation: ReturnType<typeof vi.fn>;
 let requestChangesMutation: ReturnType<typeof vi.fn>;
 let retractChildMutation: ReturnType<typeof vi.fn>;
 let scheduleSiteVisitMutation: ReturnType<typeof vi.fn>;
+let cancelSiteVisitMutation: ReturnType<typeof vi.fn>;
 let waiveSiteVisitMutation: ReturnType<typeof vi.fn>;
+let siteVisitRoster: unknown;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -196,6 +230,7 @@ beforeEach(() => {
   requestChangesMutation = vi.fn().mockResolvedValue({ status: "changes_requested" });
   retractChildMutation = vi.fn().mockResolvedValue({ status: "reopened" });
   scheduleSiteVisitMutation = vi.fn().mockResolvedValue({ status: "requested" });
+  cancelSiteVisitMutation = vi.fn().mockResolvedValue({ status: "cancelled" });
   waiveSiteVisitMutation = vi.fn().mockResolvedValue({ status: "waived" });
   mutationByName.set(
     "build_submilestone_review:approveActiveBuildSubmilestone",
@@ -221,10 +256,28 @@ beforeEach(() => {
     "production_proposals:scheduleActiveBuildSiteVisit",
     scheduleSiteVisitMutation,
   );
+  mutationByName.set(
+    "production_proposals:cancelActiveBuildSiteVisit",
+    cancelSiteVisitMutation,
+  );
   useMutation.mockImplementation((reference: never) =>
     mutationByName.get(getFunctionName(reference)) ?? vi.fn().mockResolvedValue({}),
   );
   bootstrap = makeBootstrap();
+  siteVisitRoster = {
+    builds: [],
+    summary: {
+      cancelled: 0,
+      complete: 0,
+      expired: 0,
+      expiringWithin15Min: 0,
+      geofenceFlagged: 0,
+      inField: 0,
+      open: 0,
+      total: 0,
+    },
+    visits: [],
+  };
   review = {
     child: {
       evidenceReviewState: "in_review",
@@ -325,6 +378,13 @@ beforeEach(() => {
       return collectionByName[(args as { collection: string }).collection];
     }
     if (
+      reference === siteVisitsRef ||
+      getFunctionName(reference as Parameters<typeof getFunctionName>[0]) ===
+        "production_proposals:listBrokerageSiteVisits"
+    ) {
+      return siteVisitRoster;
+    }
+    if (
       reference === reviewRef ||
       (typeof args === "object" && args !== null && "milestoneKey" in args)
     ) {
@@ -393,6 +453,75 @@ describe("SubmilestoneDetailSheet", () => {
     expect(BUILD_SUBMILESTONE_DETAIL_TABS).toHaveLength(6);
   });
 
+  test("separates Builder evidence from Site Visits and opens the existing Site Visit flow", () => {
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: false, reason: "Not permitted." },
+          retractChildApproval: { allowed: false, reason: "Not permitted." },
+          uploadEvidence: { allowed: true },
+          waiveSiteVisit: { allowed: false, reason: "Not permitted." },
+        },
+        review: {
+          recommend: { allowed: false, reason: "Not permitted." },
+          requestChanges: { allowed: false, reason: "Not permitted." },
+        },
+        siteVisit: {
+          cancel: { allowed: false, reason: "Not permitted." },
+          order: { allowed: true },
+        },
+      },
+      evidence: {
+        evidenceReviewState: "not_ready",
+        itemCount: 1,
+        partial: false,
+        requirementCount: 0,
+        requirements: [],
+      },
+      persona: "admin",
+    });
+    collectionByName.evidence_assets = makeCollection("evidence_assets", {
+      page: [
+        {
+          detail: "forms.jpg",
+          id: "evidence-01",
+          kind: "photo",
+          sourceKind: "active_build_submilestone_evidence_upload",
+          title: "Footing forms",
+        },
+        {
+          detail: "visit.jpg",
+          id: "evidence-visit-01",
+          kind: "photo",
+          sourceKind: "site_visit",
+          title: "Site Visit close-up",
+        },
+      ],
+    });
+
+    renderSheet({
+      selectedTab: "evidence",
+      viewerCapacity: "admin",
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Builder Evidence" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Site Visits" }),
+    ).toBeTruthy();
+    expect(screen.getAllByText("Footing forms").length).toBeGreaterThan(1);
+    expect(screen.queryByText("Site Visit close-up")).toBeNull();
+    expect(screen.getByText("No Site Visits yet")).toBeTruthy();
+    expect(
+      document.querySelector('[data-variant="compact"]'),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Order Site Visit" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Configure site visit")).toBeTruthy();
+  });
+
   test.each([
     "admin",
     "broker",
@@ -441,6 +570,7 @@ describe("SubmilestoneDetailSheet", () => {
 
   test("renders canonical child review and opens the parent through typed history without inline parent approval", () => {
     const onOpenTarget = vi.fn();
+    const onOpenCostDocument = vi.fn();
     bootstrap = makeBootstrap({
       capabilities: {
         canonical: {
@@ -455,6 +585,10 @@ describe("SubmilestoneDetailSheet", () => {
           recommend: { allowed: true },
           requestChanges: { allowed: true },
         },
+        siteVisit: {
+          cancel: { allowed: true },
+          order: { allowed: true },
+        },
       },
       evidence: {
         evidencePackageRevision: 4,
@@ -467,11 +601,80 @@ describe("SubmilestoneDetailSheet", () => {
       },
       persona: "admin",
     });
+    collectionByName.evidence_assets = makeCollection("evidence_assets", {
+      page: [
+        {
+          detail: "footing-depth.jpg",
+          id: "evidence-01",
+          kind: "photo",
+          locationVerified: true,
+          sourceKind: "active_build_submilestone_evidence_upload",
+          title: "Footing depth measurement",
+        },
+      ],
+    });
 
-    renderSheet({ onOpenTarget, selectedTab: "review", viewerCapacity: "admin" });
+    renderSheet({
+      costDocuments: [
+        {
+          _id: "cost-document-01",
+          allocations: [
+            {
+              amountCents: 12_500,
+              buildSubmilestoneId: submilestoneId,
+              order: 0,
+              submilestoneKey: "footings",
+              submilestoneName: "Footing forms",
+            },
+          ],
+          category: "materials",
+          currency: "CAD",
+          documentDate: "2026-08-13",
+          grossTotalCents: 12_500,
+          kind: "invoice",
+          lifecycle: { state: "current" },
+          pages: [
+            {
+              assetId: "cost-asset-01",
+              contentHashSha256: "hash",
+              fileName: "footing-invoice.pdf",
+              mimeType: "application/pdf",
+              order: 0,
+            },
+          ],
+          state: "submitted",
+          submittedAt: 1_750_000_000_000,
+          title: "Footing invoice",
+          uploaderScope: "other",
+          vendorName: "Northstar Concrete",
+        },
+      ] as never,
+      onOpenCostDocument,
+      onOpenTarget,
+      selectedTab: "review",
+      viewerCapacity: "admin",
+    });
 
-    expect(screen.getByText("Child review")).toBeTruthy();
-    expect(screen.getByText("3 of 3 evidence items")).toBeTruthy();
+    expect(screen.getByText("Builder Submitted Evidence")).toBeTruthy();
+    expect(screen.getByText("Cost, schedule & draw availability")).toBeTruthy();
+    expect(screen.getAllByText("Aug 3, 2026").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Aug 6, 2026")).toBeTruthy();
+    expect(screen.getByText("Aug 8, 2026")).toBeTruthy();
+    const summary = within(screen.getByTestId("submilestone-review-summary"));
+    expect(summary.getByText("$0")).toBeTruthy();
+    expect(
+      summary.getByText(/\$200 parent Milestone availability remains locked/),
+    ).toBeTruthy();
+    expect(screen.queryByText("Child review")).toBeNull();
+    expect(screen.getByText("Footing depth measurement")).toBeTruthy();
+    expect(screen.getByText("Receipts & Invoices")).toBeTruthy();
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Documented Cost Coverage for Footing forms",
+      }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "footing-invoice.pdf" }));
+    expect(onOpenCostDocument).toHaveBeenCalledWith("cost-document-01");
     expect(screen.getAllByText("Required").length).toBeGreaterThan(0);
     expect(screen.getByText("Location could not be verified.")).toBeTruthy();
     expect(screen.getByText("Confirm the footing depth before approval.")).toBeTruthy();
@@ -481,8 +684,13 @@ describe("SubmilestoneDetailSheet", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Order Site Visit" })).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Approve Sub-milestone" }),
-    ).toBeNull();
+      screen
+        .getByRole("button", { name: "Approve Sub-milestone" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen.getByText(/Complete or waive the required Site Visit/),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Approve Milestone" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Retract Milestone approval" }),
@@ -513,6 +721,13 @@ describe("SubmilestoneDetailSheet", () => {
       persona: "broker",
     });
     renderSheet({ selectedTab: "review", viewerCapacity: "broker" });
+
+    expect(
+      screen
+        .getByRole("button", { name: "Approve Sub-milestone" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(screen.getByText("Admin only.")).toBeTruthy();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Reviewer note" }), {
       target: { value: "Recommend after the depth check." },
@@ -559,6 +774,31 @@ describe("SubmilestoneDetailSheet", () => {
         ],
       }),
     );
+  });
+
+  test("shows a read-only empty state when no requirement snapshot or Visit exists", () => {
+    review = {
+      ...(review as Record<string, unknown>),
+      siteVisit: {
+        currentVisit: null,
+        requirement: null,
+      },
+    };
+
+    renderSheet({ selectedTab: "review", viewerCapacity: "builder" });
+
+    expect(screen.getByText("No Site Visits yet")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "No Site Visit requirement snapshot exists for this review round.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/do not have Site Visit ordering authority/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Order Site Visit" }),
+    ).toBeNull();
   });
 
   test("shows the waiver rationale input and records it with the Admin waiver", async () => {
@@ -631,8 +871,7 @@ describe("SubmilestoneDetailSheet", () => {
     );
   });
 
-  test("orders and manages the child-scoped Site Visit through the shared preflight", async () => {
-    const onReferenceOpen = vi.fn();
+  test("orders and manages child-scoped Site Visits in the embedded workspace", async () => {
     bootstrap = makeBootstrap({
       capabilities: {
         canonical: {
@@ -644,11 +883,14 @@ describe("SubmilestoneDetailSheet", () => {
           recommend: { allowed: true },
           requestChanges: { allowed: true },
         },
+        siteVisit: {
+          cancel: { allowed: true },
+          order: { allowed: true },
+        },
       },
       persona: "admin",
     });
     const view = renderSheet({
-      onReferenceOpen,
       selectedTab: "review",
       viewerCapacity: "admin",
     });
@@ -675,16 +917,48 @@ describe("SubmilestoneDetailSheet", () => {
       }),
     );
 
-    review = {
-      ...(review as Record<string, unknown>),
-      siteVisit: {
-        ...((review as { siteVisit: object }).siteVisit),
-        currentVisit: {
-          _id: "site-visit-01",
-          status: "requested",
-          visitId: "VISIT-01",
-        },
+    const urgentVisit = {
+      buildDisplayId: "B-001",
+      buildId,
+      buildName: "Maple House",
+      builderName: "Maple Builder",
+      geofenceFlagged: true,
+      location: "Toronto, ON",
+      milestoneKey: "foundation",
+      milestoneName: "Foundation",
+      note: "Confirm footing depth.",
+      operationalStatus: "expired",
+      scheduledDateLabel: "Aug 13, 2026",
+      submilestoneId,
+      tokenExpiresAt: Date.now() - 1_000,
+      tokenState: "expired",
+      url: "/site-visits/urgent-token",
+      visitId: "VISIT-URGENT",
+    };
+    const completedVisit = {
+      ...urgentVisit,
+      geofenceFlagged: false,
+      operationalStatus: "complete",
+      recordNote: "Footings verified.",
+      recordNoteFormat: "text",
+      recommendedOutcome: "approve",
+      tokenState: "consumed",
+      url: "/site-visits/complete-token",
+      visitId: "VISIT-COMPLETE",
+    };
+    siteVisitRoster = {
+      builds: [],
+      summary: {
+        cancelled: 0,
+        complete: 1,
+        expired: 1,
+        expiringWithin15Min: 0,
+        geofenceFlagged: 1,
+        inField: 0,
+        open: 0,
+        total: 2,
       },
+      visits: [urgentVisit, completedVisit],
     };
     view.rerender(
       <SubmilestoneDetailSheet
@@ -692,19 +966,117 @@ describe("SubmilestoneDetailSheet", () => {
         buildSubmilestoneId={submilestoneId}
         companionActionItemId={companionActionItemId}
         onOpenChange={vi.fn()}
-        onReferenceOpen={onReferenceOpen}
         open
         organizationId={organizationId}
         selectedTab="review"
         viewerCapacity="admin"
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Manage Site Visit" }));
-    expect(onReferenceOpen).toHaveBeenCalledWith({
-      entityId: "site-visit-01",
-      entityKind: "siteVisit",
-      href: "siteVisit:site-visit-01",
+    expect(
+      screen.getByRole("button", { name: "Order another Site Visit" }),
+    ).toBeTruthy();
+    expect(screen.getAllByText("VISIT-URGENT")).toHaveLength(2);
+    expect(screen.getByText("Location unverified evidence")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /VISIT-COMPLETE/ }));
+    expect(screen.getByText("Footings verified.")).toBeTruthy();
+    expect(screen.getByText("Site Visit complete")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /VISIT-URGENT/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel visit" }));
+    const cancelDialog = screen.getByRole("alertdialog", {
+      name: "Cancel site visit",
     });
+    fireEvent.change(within(cancelDialog).getByLabelText("Reason"), {
+      target: { value: "Inspector is no longer available." },
+    });
+    let resolveCancellation: ((value: { status: string }) => void) | undefined;
+    cancelSiteVisitMutation.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCancellation = resolve;
+        }),
+    );
+    fireEvent.click(
+      within(cancelDialog).getByRole("button", { name: "Cancel visit" }),
+    );
+    await waitFor(() => expect(cancelSiteVisitMutation).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByRole("button", { name: /VISIT-URGENT/ }),
+    ).toBeNull();
+    expect(cancelSiteVisitMutation).toHaveBeenCalledWith({
+      buildId,
+      reason: "Inspector is no longer available.",
+      visitId: "VISIT-URGENT",
+      workosOrganizationId: organizationId,
+    });
+    resolveCancellation?.({ status: "cancelled" });
+  });
+
+  test("keeps the left Scope and Field Guidance companion non-modal and closes it with the parent", async () => {
+    bootstrap = makeBootstrap({
+      capabilities: {
+        canonical: {
+          approveChild: { allowed: true },
+        },
+      },
+      persona: "admin",
+    });
+    const onOpenTarget = vi.fn();
+    const sharedProps = {
+      buildId,
+      buildSubmilestoneId: submilestoneId,
+      companionActionItemId,
+      onOpenChange: vi.fn(),
+      onOpenTarget,
+      organizationId,
+      selectedTab: "review" as const,
+      viewerCapacity: "admin" as const,
+    };
+    const view = render(<SubmilestoneDetailSheet {...sharedProps} open />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Scope & Field Guidance" }),
+    );
+    const companion = await screen.findByTestId(
+      "scope-field-guidance-companion",
+    );
+    expect(companion.getAttribute("aria-modal")).toBe("false");
+    expect(within(companion).getByText("Scope & Field Guidance")).toBeTruthy();
+    expect(within(companion).getByTestId("active-build-scope-dirty")).toBeTruthy();
+    expect(
+      within(companion).getByTestId("active-build-guidance-dirty"),
+    ).toBeTruthy();
+    expect(screen.getByTestId("submilestone-review-tab")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review parent Milestone" }),
+    );
+    expect(onOpenTarget).toHaveBeenCalledWith(
+      { kind: "milestone", milestoneId: "milestone-01" },
+      { selectedTab: "review" },
+    );
+    expect(
+      screen.getByTestId("scope-field-guidance-companion"),
+    ).toBeTruthy();
+
+    fireEvent.click(within(companion).getByRole("button", { name: "Close" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("scope-field-guidance-companion"),
+      ).toBeNull(),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Scope & Field Guidance" }),
+    );
+    await screen.findByTestId("scope-field-guidance-companion");
+    view.rerender(<SubmilestoneDetailSheet {...sharedProps} open={false} />);
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("scope-field-guidance-companion"),
+      ).toBeNull(),
+    );
   });
 
   test("requires an audited reason for Admin waiver and child approval retraction", async () => {

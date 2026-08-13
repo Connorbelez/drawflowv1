@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
   Dialog,
   DialogDescription,
@@ -127,16 +128,22 @@ export function SiteVisitOrderDialog({
   const [submilestoneGuidance, setSubmilestoneGuidance] = useState<
     Record<string, SubmilestoneFieldGuidance>
   >(() => initialSubmilestoneGuidance(submilestones));
-  const [pendingAction, setPendingAction] = useState<
-    "confirm" | "generate" | null
-  >(null);
+  const [selectedSubmilestoneIdentities, setSelectedSubmilestoneIdentities] =
+    useState<string[]>(() => submilestones.map(itemIdentity));
+  const [submilestoneEditorRevisions, setSubmilestoneEditorRevisions] =
+    useState<Record<string, number>>({});
+  const [submilestoneGenerationStates, setSubmilestoneGenerationStates] =
+    useState<Record<string, GuidanceGenerationState>>({});
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [generationState, setGenerationState] =
     useState<GuidanceGenerationState>({ status: "idle" });
   const [error, setError] = useState("");
 
-  // The parent rebuilds submilestone arrays on every detail projection render.
-  // Reset only when the dialog opens or its selected milestone changes so
-  // local edits survive unrelated parent updates.
+  const milestoneIdentity = milestone ? itemIdentity(milestone) : null;
+
+  // The parent rebuilds milestone and Sub-milestone objects on every detail
+  // projection render. Reset only across the scalar dialog identity boundary
+  // so local and AI-generated drafts survive unrelated parent updates.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional local draft boundary.
   useEffect(() => {
     if (!open) {
@@ -144,16 +151,23 @@ export function SiteVisitOrderDialog({
     }
     setGuidance(initialGuidance(milestone));
     setSubmilestoneGuidance(initialSubmilestoneGuidance(submilestones));
+    setSelectedSubmilestoneIdentities(submilestones.map(itemIdentity));
+    setSubmilestoneEditorRevisions({});
+    setSubmilestoneGenerationStates({});
     setPendingAction(null);
     setGenerationState({ status: "idle" });
     setError("");
-  }, [milestone, open]);
+  }, [milestoneIdentity, open]);
 
-  const generate = async () => {
+  const selectedSubmilestones = submilestones.filter((item) =>
+    selectedSubmilestoneIdentities.includes(itemIdentity(item))
+  );
+
+  const generateVisitWideGuidance = async () => {
     if (!(milestone && onGenerate) || pendingAction) {
       return;
     }
-    setPendingAction("generate");
+    setPendingAction("generate:visit-wide");
     setGenerationState({ status: "generating" });
     setError("");
     try {
@@ -161,7 +175,10 @@ export function SiteVisitOrderDialog({
         build,
         currentGuidance: guidance,
         milestone: { key: milestone.key, name: milestone.name },
-        submilestones: submilestones.map(({ key, name }) => ({ key, name })),
+        submilestones: selectedSubmilestones.map(({ key, name }) => ({
+          key,
+          name,
+        })),
       });
       setGuidance({
         cameraAngles: generated.cameraAngles,
@@ -183,8 +200,64 @@ export function SiteVisitOrderDialog({
     }
   };
 
-  const hasGenerated = generationState.status === "generated";
-  const submilestoneGuidanceComplete = submilestones.every((item) =>
+  const generateSubmilestoneGuidance = async (item: SiteVisitScopeItem) => {
+    if (!(milestone && onGenerate) || pendingAction) {
+      return;
+    }
+    const identity = itemIdentity(item);
+    const current =
+      submilestoneGuidance[identity] ?? normalizeGuidance(item.fieldGuidance);
+    setPendingAction(`generate:submilestone:${identity}`);
+    setSubmilestoneGenerationStates((states) => ({
+      ...states,
+      [identity]: { status: "generating" },
+    }));
+    setError("");
+    try {
+      const generated = await onGenerate({
+        build,
+        currentGuidance: {
+          cameraAngles: current.cameraAnglesTiptapJson,
+          whatToVerify: current.whatToVerifyTiptapJson,
+        },
+        milestone: { key: milestone.key, name: milestone.name },
+        submilestones: [{ key: item.key, name: item.name }],
+      });
+      setSubmilestoneGuidance((guidanceByIdentity) => ({
+        ...guidanceByIdentity,
+        [identity]: {
+          cameraAnglesTiptapJson: generatedHtmlToTiptapJson(
+            generated.cameraAngles
+          ),
+          whatToVerifyTiptapJson: generatedHtmlToTiptapJson(
+            generated.whatToVerify
+          ),
+        },
+      }));
+      setSubmilestoneEditorRevisions((revisions) => ({
+        ...revisions,
+        [identity]: (revisions[identity] ?? 0) + 1,
+      }));
+      setSubmilestoneGenerationStates((states) => ({
+        ...states,
+        [identity]: { source: generated.source, status: "generated" },
+      }));
+    } catch (cause) {
+      setSubmilestoneGenerationStates((states) => ({
+        ...states,
+        [identity]: { status: "error" },
+      }));
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : `DrawFlow AI could not draft Field Guidance for ${item.name}.`
+      );
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const submilestoneGuidanceComplete = selectedSubmilestones.every((item) =>
     guidanceIsComplete(submilestoneGuidance[itemIdentity(item)])
   );
 
@@ -209,7 +282,7 @@ export function SiteVisitOrderDialog({
           ? { requestedTime: request.requestedTime }
           : {}),
         siteVisitGuidance: guidance,
-        submilestoneGuidanceSections: submilestones.map((item) => {
+        submilestoneGuidanceSections: selectedSubmilestones.map((item) => {
           const buildSubmilestoneId = item._id;
           const proposalSubmilestoneId = item.proposalSubmilestoneId;
           if (!(buildSubmilestoneId && proposalSubmilestoneId)) {
@@ -225,7 +298,7 @@ export function SiteVisitOrderDialog({
             whatToVerifyTiptapJson: pair?.whatToVerifyTiptapJson ?? "",
           };
         }),
-        submilestoneKeys: submilestones.map((item) => item.key),
+        submilestoneKeys: selectedSubmilestones.map((item) => item.key),
       });
       onOpenChange(false);
     } catch (cause) {
@@ -266,13 +339,41 @@ export function SiteVisitOrderDialog({
               </h3>
             </div>
             <p className="mt-2 font-semibold text-base">{milestone?.name}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {submilestones.map((item) => (
-                <Badge key={item.key} variant="outline">
-                  {item.name}
-                </Badge>
+                <label
+                  className="flex min-w-0 items-center gap-2 py-1.5 text-sm"
+                  htmlFor={`site-visit-scope-${itemIdentity(item)}`}
+                  key={itemIdentity(item)}
+                >
+                  <Checkbox
+                    aria-label={`Include ${item.name} in site visit`}
+                    checked={selectedSubmilestoneIdentities.includes(
+                      itemIdentity(item)
+                    )}
+                    disabled={pendingAction !== null}
+                    id={`site-visit-scope-${itemIdentity(item)}`}
+                    onCheckedChange={(checked) => {
+                      const identity = itemIdentity(item);
+                      setSelectedSubmilestoneIdentities((selected) =>
+                        checked === true
+                          ? [...new Set([...selected, identity])]
+                          : selected.filter(
+                              (candidate) => candidate !== identity
+                            )
+                      );
+                      setGenerationState({ status: "idle" });
+                      setError("");
+                    }}
+                  />
+                  <span className="min-w-0 truncate">{item.name}</span>
+                </label>
               ))}
             </div>
+            <p className="mt-2 text-muted-foreground text-xs">
+              {formatScopeCount(selectedSubmilestones.length)} included in this
+              visit.
+            </p>
           </section>
 
           <section
@@ -292,26 +393,57 @@ export function SiteVisitOrderDialog({
                 required before this visit can be ordered.
               </p>
             </div>
-            {submilestones.length === 0 ? (
+            {selectedSubmilestones.length === 0 ? (
               <p className="text-muted-foreground text-sm">
-                No Sub-milestones are selected. Visit-wide guidance below is
-                optional.
+                No Sub-milestones are included. Select at least one above to add
+                its Field Guidance, or continue with milestone-wide guidance
+                only.
               </p>
             ) : (
-              submilestones.map((item) => {
+              selectedSubmilestones.map((item) => {
                 const identity = itemIdentity(item);
+                const pair = submilestoneGuidance[identity];
+                const generation = submilestoneGenerationStates[identity];
+                const hasCurrentGuidance = Boolean(
+                  hasMeaningfulTipTapContent(pair?.cameraAnglesTiptapJson) ||
+                    hasMeaningfulTipTapContent(pair?.whatToVerifyTiptapJson)
+                );
+                const generationVerb = hasCurrentGuidance ? "Rewrite" : "Write";
                 return (
                   <div
                     className="grid gap-2 border-t pt-4"
                     data-testid={`site-visit-submilestone-guidance-row-${identity}`}
                     key={identity}
                   >
-                    <h4 className="font-semibold text-sm">{item.name}</h4>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="font-semibold text-sm">{item.name}</h4>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {generation?.status === "generated" ? (
+                          <Badge variant="success">AI draft ready</Badge>
+                        ) : null}
+                        <Button
+                          aria-label={`${generationVerb} ${item.name} with DrawFlow AI`}
+                          disabled={!onGenerate || pendingAction !== null}
+                          loading={
+                            pendingAction ===
+                            `generate:submilestone:${identity}`
+                          }
+                          onClick={() => generateSubmilestoneGuidance(item)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <Sparkles aria-hidden="true" />
+                          {generationVerb} with DrawFlow AI
+                        </Button>
+                      </div>
+                    </div>
                     <SubmilestoneFieldGuidanceEditor
                       canEdit
                       disabled={pendingAction !== null}
                       guidance={submilestoneGuidance[identity]}
                       id={identity}
+                      key={`${identity}:${submilestoneEditorRevisions[identity] ?? 0}`}
                       onDraftChange={(next) =>
                         setSubmilestoneGuidance((current) => ({
                           ...current,
@@ -347,14 +479,15 @@ export function SiteVisitOrderDialog({
                 </p>
               </div>
               <Button
+                aria-label={`${guidanceHasContent(guidance) ? "Rewrite" : "Write"} visit-wide guidance with DrawFlow AI`}
                 disabled={!onGenerate || pendingAction !== null}
-                loading={pendingAction === "generate"}
-                onClick={generate}
+                loading={pendingAction === "generate:visit-wide"}
+                onClick={generateVisitWideGuidance}
                 type="button"
                 variant="outline"
               >
                 <Sparkles aria-hidden="true" />
-                {hasGenerated
+                {guidanceHasContent(guidance)
                   ? "Rewrite with DrawFlow AI"
                   : "Write with DrawFlow AI"}
               </Button>
@@ -363,7 +496,7 @@ export function SiteVisitOrderDialog({
             <GuidanceGenerationStatus
               generationState={generationState}
               milestoneName={milestone?.name}
-              submilestoneCount={submilestones.length}
+              submilestoneCount={selectedSubmilestones.length}
             />
 
             <div className="grid gap-5 lg:grid-cols-2">
@@ -649,6 +782,55 @@ function guidanceIsComplete(guidance: SubmilestoneFieldGuidance | undefined) {
       hasMeaningfulTipTapContent(guidance.cameraAnglesTiptapJson) &&
       hasMeaningfulTipTapContent(guidance.whatToVerifyTiptapJson)
   );
+}
+
+function guidanceHasContent(guidance: SiteVisitGuidance) {
+  return Boolean(guidance.cameraAngles.trim() || guidance.whatToVerify.trim());
+}
+
+function generatedHtmlToTiptapJson(value: string) {
+  const listItems = [...value.matchAll(/<li(?:\s[^>]*)?>([\s\S]*?)<\/li>/gi)]
+    .map((match) => generatedGuidanceText(match[1] ?? ""))
+    .filter(Boolean);
+  if (listItems.length > 0) {
+    return JSON.stringify({
+      content: [
+        {
+          content: listItems.map((text) => ({
+            content: [
+              {
+                content: [{ text, type: "text" }],
+                type: "paragraph",
+              },
+            ],
+            type: "listItem",
+          })),
+          type: "bulletList",
+        },
+      ],
+      type: "doc",
+    });
+  }
+  const text = generatedGuidanceText(value);
+  return JSON.stringify({
+    content: text
+      ? [{ content: [{ text, type: "text" }], type: "paragraph" }]
+      : [{ type: "paragraph" }],
+    type: "doc",
+  });
+}
+
+function generatedGuidanceText(value: string) {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function formatScopeCount(submilestoneCount: number) {
