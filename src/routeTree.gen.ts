@@ -30,6 +30,7 @@ import { Route as PrototypeContractorQuotesRouteImport } from './routes/prototyp
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
+import { Route as LenderMilestoneReviewPrototypeRouteImport } from './routes/lender.milestone-review-prototype'
 import { Route as ContractorWorkRouteImport } from './routes/contractor/work'
 import { Route as ContractorScheduleRouteImport } from './routes/contractor/schedule'
 import { Route as ContractorProfileRouteImport } from './routes/contractor/profile'
@@ -196,6 +197,12 @@ const ProposalClaimClaimTokenRoute = ProposalClaimClaimTokenRouteImport.update({
   path: '/proposal-claim/$claimToken',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LenderMilestoneReviewPrototypeRoute =
+  LenderMilestoneReviewPrototypeRouteImport.update({
+    id: '/lender/milestone-review-prototype',
+    path: '/lender/milestone-review-prototype',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ContractorWorkRoute = ContractorWorkRouteImport.update({
   id: '/work',
   path: '/work',
@@ -545,6 +552,7 @@ export interface FileRoutesByFullPath {
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
@@ -612,6 +620,7 @@ export interface FileRoutesByTo {
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
@@ -690,6 +699,7 @@ export interface FileRoutesById {
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
@@ -772,6 +782,7 @@ export interface FileRouteTypes {
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/lender/milestone-review-prototype'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
@@ -839,6 +850,7 @@ export interface FileRouteTypes {
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/lender/milestone-review-prototype'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
@@ -916,6 +928,7 @@ export interface FileRouteTypes {
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/lender/milestone-review-prototype'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
@@ -976,6 +989,7 @@ export interface RootRouteChildren {
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   ApiReleaseRoute: typeof ApiReleaseRoute
+  LenderMilestoneReviewPrototypeRoute: typeof LenderMilestoneReviewPrototypeRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
@@ -1135,6 +1149,13 @@ declare module '@tanstack/react-router' {
       path: '/proposal-claim/$claimToken'
       fullPath: '/proposal-claim/$claimToken'
       preLoaderRoute: typeof ProposalClaimClaimTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lender/milestone-review-prototype': {
+      id: '/lender/milestone-review-prototype'
+      path: '/lender/milestone-review-prototype'
+      fullPath: '/lender/milestone-review-prototype'
+      preLoaderRoute: typeof LenderMilestoneReviewPrototypeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contractor/work': {
@@ -1852,6 +1873,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
   ApiReleaseRoute: ApiReleaseRoute,
+  LenderMilestoneReviewPrototypeRoute: LenderMilestoneReviewPrototypeRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,

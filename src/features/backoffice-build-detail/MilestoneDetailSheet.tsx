@@ -213,6 +213,8 @@ export interface MilestoneDetailSheetProps {
     note?: string;
   }) => Promise<unknown> | unknown;
   pending?: boolean;
+  /** Throwaway prototype-only slot for comparing role-specific review layers. */
+  prototypeReviewLayer?: ReactNode;
   siteVisits?: BrokerageSiteVisitsResult;
 }
 
@@ -234,6 +236,7 @@ export function MilestoneDetailSheet({
   onStartWork,
   onSubmitCompletion,
   pending: externalPending,
+  prototypeReviewLayer,
   siteVisits,
 }: MilestoneDetailSheetProps) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
@@ -418,6 +421,8 @@ export function MilestoneDetailSheet({
               </FramePanel>
             </Frame>
           ) : null}
+
+          {prototypeReviewLayer}
 
           {data.recentEvents.length > 0 ? (
             <RecentActivity events={data.recentEvents} />
