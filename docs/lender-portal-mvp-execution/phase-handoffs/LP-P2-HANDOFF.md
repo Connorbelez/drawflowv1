@@ -132,6 +132,21 @@ directly promoted assignment surface. Convex codegen remains deployment-context
 dependent in this isolated checkout and must be rerun by the certifier when a
 `CONVEX_DEPLOYMENT` is available.
 
+Candidate checks recorded before handoff:
+
+- `bun run test -- convex/production_proposals.test.ts`: 180 passed;
+- assignment surface, calendar, and assistant checks: 37 passed;
+- `bun x tsc -p convex/tsconfig.json --noEmit`: passed;
+- `bun run build`: passed;
+- `bun run validate:lender-portal-execution`: passed in execution mode;
+- `bun run validate:lender-portal-execution --release`: rejected as required
+  because Phase 2 is not independently verified;
+- `bun x convex codegen`: unavailable because `CONVEX_DEPLOYMENT` is not set;
+- full suite: 253 files passed, 7 known unrelated suites failed, 2,607 tests
+  passed, 15 failed, and 8 skipped. The Phase 2-owned focused suites remain
+  green; one affected completion-review suite was confirmed with the same
+  failures on the accepted Phase 1 baseline.
+
 ## Rollback and escalation
 
 Keep proposal revisions, assignment intervals, decisions, and audit events
