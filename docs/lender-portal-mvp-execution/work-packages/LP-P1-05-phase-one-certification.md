@@ -1,6 +1,6 @@
 # LP-P1-05 — Phase 1 certification
 
-Status: ready
+Status: verified
 
 Depends on: LP-P1-01, LP-P1-02, LP-P1-03, LP-P1-04
 
@@ -96,3 +96,11 @@ Phase 1 is complete only when all four implementation packets are independently
 accepted, every `LP-P1-X` criterion passes, E2E-08 passes at the real boundaries,
 Variant E parity is proven, and the traceability ledger points to exact-commit
 evidence. Any failure rejects certification and reopens the owning packet.
+
+## Closure exception
+
+The independent Pi review dispatched for the final exact-SHA gate remained
+connected but returned no decision. On 2026-08-14, the user explicitly
+exercised human acceptance authority and superseded that pending gate. The
+Phase 1 evidence records the missing independent decision and binds the human
+acceptance to `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`.

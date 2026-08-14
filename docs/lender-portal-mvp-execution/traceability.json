@@ -480,26 +480,38 @@
     {
       "id": "LP-P1-03",
       "phase": 1,
-      "status": "in-progress",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-03-membership-reconciliation-and-read-models.md",
       "dependsOn": ["LP-P1-01", "LP-P1-02"],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P1-03-6ba68e82.md",
+        "acceptedSha": "6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9",
+        "sha256": "5d8ae14a9196c578ec160777f2f5c99ff03bbcf0bd4e580691e6aaf774d784aa"
+      }
     },
     {
       "id": "LP-P1-04",
       "phase": 1,
-      "status": "ready",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-04-promote-organization-management-variant-e.md",
       "dependsOn": ["LP-P1-01", "LP-P1-02", "LP-P1-03"],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P1-04-6ba68e82.md",
+        "acceptedSha": "6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9",
+        "sha256": "8d90ba1effe4b0bcdbaa4ab26bee5d1de30b3148bc099fe43c9894d09b4b920c"
+      }
     },
     {
       "id": "LP-P1-05",
       "phase": 1,
-      "status": "ready",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-05-phase-one-certification.md",
       "dependsOn": ["LP-P1-01", "LP-P1-02", "LP-P1-03", "LP-P1-04"],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P1-05-6ba68e82.md",
+        "acceptedSha": "6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9",
+        "sha256": "32f090ddf6b0590d2a266aaa6f7e02f24ed2aade9a8ecaba7da84afd34597095"
+      }
     }
   ]
 }

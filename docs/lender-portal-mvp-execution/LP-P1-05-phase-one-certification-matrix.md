@@ -2,11 +2,12 @@
 
 Prepared: 2026-08-14  
 Branch: `codex/lp-phase-1-completion`  
-Candidate: bound in the final exact-SHA evidence after the implementation
-commit and consolidated review
+Accepted candidate: `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`
 
-This matrix audits the Phase 1 implementation before independent acceptance.
-It does not mark any deferred review gate accepted.
+This matrix certifies the Phase 1 implementation at the accepted candidate.
+CodeRabbit completed automated candidate reviews. The independent Pi reviewer
+did not return a decision, and the user explicitly superseded that pending gate
+through human acceptance authority on 2026-08-14.
 
 ## Canonical ownership audit
 
@@ -89,13 +90,15 @@ or reread canonical state. The absent Phase 2/4/7/8 consumers have named owners
 and deterministic inputs. External API, analytics, reporting, and support
 contracts remain explicitly unknown until Phase 9 rather than inferred.
 
-## Deferred final gates
+## Final gate disposition
 
-The following occur only after the clean candidate commit exists, per the
-user's explicit consolidated-review instruction:
-
-1. CodeRabbit CLI review of the full Phase 1 candidate range.
-2. Independent exact-SHA acceptance review of LP-P1-03, LP-P1-04, and LP-P1-05
-   plus confirmation that prior LP-P1-01/02 evidence remains valid.
-3. Exact-SHA evidence files and tracking changes from `in-progress`/`ready` to
-   `verified` only after zero unresolved material findings.
+1. CodeRabbit CLI reviewed the full Phase 1 candidate range. Valid findings
+   were fixed, stale findings were verified false, and a final light closure
+   call was rate-limited after the last fixes.
+2. The independent Pi exact-SHA review was dispatched with DeepSeek V4 Flash
+   and Kimi K3 fallback. It remained connected but produced no decision. The
+   user explicitly stopped waiting and exercised human acceptance authority.
+3. `LP-P1-03`, `LP-P1-04`, and `LP-P1-05` are accepted at
+   `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`. Exact-SHA evidence records are
+   attached, prior `LP-P1-01` and `LP-P1-02` evidence remains valid, and Phase 1
+   is closed.

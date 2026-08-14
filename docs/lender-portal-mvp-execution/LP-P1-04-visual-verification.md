@@ -2,7 +2,7 @@
 
 Verification date: 2026-08-14  
 Implementation baseline: `810d39f9`  
-Candidate: pending final Phase 1 review commit
+Accepted candidate: `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`
 
 ## Locked target
 
@@ -66,6 +66,7 @@ projection and command-state copy while preserving the locked hierarchy.
   URLs before the organization query, while the Convex read boundary repeats
   active-organization authorization server-side.
 
-The user explicitly deferred the independent visual critique and acceptance
-gate until the consolidated Phase 1 review. This file records implementation
-evidence only and does not mark LP-P1-04 verified.
+The exact comparison, focused interaction tests, production forbidden-state
+capture, and human acceptance override close the visual and interaction gate at
+the accepted candidate SHA. The dispatched independent Pi review did not
+return a decision before the user superseded it.

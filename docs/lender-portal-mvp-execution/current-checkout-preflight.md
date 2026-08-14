@@ -189,3 +189,28 @@ instead of appending a second effect. Replay remains write-free and WorkOS
 event processing remains receipt-idempotent. The projection contains only
 canonical membership-derived access and role effects; later-phase handoffs are
 contract metadata, not fabricated domain records.
+
+## Phase 1 closure
+
+- Closed: 2026-08-14
+- Branch: `codex/lp-phase-1-completion`
+- Accepted product SHA: `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`
+- Working tree at product acceptance: clean
+- Acceptance authority: explicit human override by the user
+
+The full candidate preserved the existing canonical WorkOS, brokerage,
+authorization, audit, shared user-management, and Build participant-access
+owners. The Phase 1 consumer inventory, focused tests, critical regressions,
+full-suite baseline, codegen, Convex typecheck, production build, execution
+validator, CodeRabbit CLI review, and Variant E browser evidence were complete.
+
+The independent Pi acceptance review was dispatched against the exact
+candidate using `openrouter/deepseek/deepseek-v4-flash-latest`, with
+`kimi-coding/k3` configured as the fallback. It remained connected without
+producing a decision. The user explicitly superseded the pending independent
+gate so execution could continue. Evidence records state this override rather
+than representing the missing Pi decision as independent acceptance.
+
+All five Phase 1 packets are verified. Phase 2 remains out of scope until a new
+explicit implementation instruction confirms the target checkout and reruns
+the dependency and consumer preflight.

@@ -1,6 +1,6 @@
 # LP-P1-04 — Promote Organization Management Variant E
 
-Status: ready
+Status: verified
 
 Depends on: LP-P1-01, LP-P1-02, LP-P1-03
 

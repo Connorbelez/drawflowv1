@@ -43,7 +43,8 @@ have authority to settle a conflict.
 5. Create an evidence record from `evidence-template.md`, update that packet to
    `verified`, and attach the evidence path in `traceability.json`.
    Completion criterion: a fresh read-only verifier accepts the source IDs,
-   diff, tests, prototype contract, and exact SHA.
+   diff, tests, prototype contract, and exact SHA, unless the user explicitly
+   exercises human acceptance authority and the evidence records the override.
 6. Start the next dependency-unblocked packet in a fresh task context.
    Completion criterion: no packet consumes unverified dependency behavior.
 
@@ -67,7 +68,8 @@ always-loaded prompt.
 - `ready`: bounded, dependency-declared, and permitted to start after explicit
   implementation authorization.
 - `in-progress`: product implementation has started on an identified checkout.
-- `verified`: independent acceptance evidence is attached to an exact commit.
+- `verified`: independent acceptance evidence, or an explicit documented human
+  acceptance override, is attached to an exact commit.
 
 Preparation ends with all Phase 1 work packages at `ready` and with no evidence
 attached. That state proves implementation has not started.
@@ -96,10 +98,14 @@ evidence attached before verification.
 
 ## Current stop point
 
-`LP-P1-01` and `LP-P1-02` are verified. `LP-P1-03` is in progress on branch
-`codex/lp-phase-1-completion` from verified tracking HEAD
-`83fe51d0e5d5a66add92bb5e70c08080fe3adf58`. The user explicitly authorized
-implementing `LP-P1-03` through `LP-P1-05` in dependency order with one
-consolidated independent review at the end of Phase 1. Until that review,
-`LP-P1-04` and `LP-P1-05` remain `ready` in the ledger and no unreviewed packet
-is represented as verified.
+All five Phase 1 work packages are verified. Product acceptance is bound to
+`6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9` on branch
+`codex/lp-phase-1-completion`. CodeRabbit CLI reviewed the full candidate range;
+its valid findings were resolved and stale findings were disproved. The
+independent Pi reviewer did not return a decision, so the user explicitly
+exercised human acceptance authority and superseded that pending gate on
+2026-08-14.
+
+Phase 1 is closed. Starting Phase 2 requires a new explicit implementation
+instruction, a target-checkout confirmation, a fresh preflight inventory, and
+only the next dependency-unblocked Phase 2 packet may move to `in-progress`.
