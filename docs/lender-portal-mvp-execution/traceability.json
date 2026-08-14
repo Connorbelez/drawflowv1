@@ -468,7 +468,7 @@
     {
       "id": "LP-P1-02",
       "phase": 1,
-      "status": "ready",
+      "status": "in-progress",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-02-workos-operations-and-principal-broker-protection.md",
       "dependsOn": ["LP-P1-01"],
       "evidence": null

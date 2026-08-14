@@ -108,3 +108,40 @@ consumers exist. This packet adds no membership command or membership-effect
 publication. `LP-P1-05` owns the Phase 1 consumer audit and may certify only
 after a fresh inventory names each implemented consumer, proves no impact where
 applicable, and records any still-unavailable external evidence as unknown.
+
+## LP-P1-02 implementation-checkout rerun
+
+- Rerun: 2026-08-14
+- Implementation branch: `codex/lp-p1-02`
+- Verified dependency HEAD: `509d13c11a189a15adb670181552fbcca335cdf6`
+- Accepted LP-P1-01 product SHA: `4fb59b5743be08936705cad2bb3ccda3ca3dabad`
+- Working tree before the rerun: clean
+
+The rerun confirmed that the accepted LP-P1-01 product SHA is an ancestor of
+the implementation branch and that exact-SHA evidence is attached. The
+canonical owners remain `convex/workosManagement.ts` for WorkOS commands,
+`convex/workosProjection.ts` for webhook/sync projection writes,
+`convex/brokerageProvisioning.ts` for brokerage provisioning, and
+`auditEvents` for material history.
+
+The LP-P1-02 gaps are unchanged and bounded:
+
+1. Existing invite, role update, membership creation, deactivation, and
+   reactivation commands accept broader string role inputs than the four lender
+   roles permitted by this packet.
+2. Existing user-management scope checks do not yet prove the target membership
+   belongs to the caller's exact active lender organization before invoking the
+   external adapter.
+3. Existing accepted command paths may project returned membership data before
+   the webhook/sync boundary reconciles it; LP-P1-02 must return an explicit
+   pending-sync state instead of treating that optimistic write as canonical.
+4. No protected, idempotent Principal Broker transfer command exists. Normal
+   role removal and deactivation are not yet guarded against removing the last
+   active Principal Broker.
+5. The canonical `auditEvents` table exists, but the WorkOS membership command
+   seam does not yet append the packet's required actor, role, tenant,
+   organization, prior/new state, warning, timestamp, and reason history.
+
+No new identity, organization, membership, role, permission, brokerage, audit,
+or projection owner is required. External API, analytics, reporting, and support
+consumers remain pending for the LP-P1-05 consumer audit.
