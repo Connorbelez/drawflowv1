@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import {
   FAIRLEND_BROKERAGE_NAME,
   FAIRLEND_DEFAULT_BROKER_EMAIL,
@@ -14,6 +14,7 @@ const modules = import.meta.glob("./**/*.ts");
 
 const FAIRLEND_ORG = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
 const PRINCIPAL_BROKER = "user_01KR207FRFHQT46EV9N538XBF3";
+const fixtureTime = "2026-05-01T00:00:00.000Z";
 
 function identity(roles: string[], subject: string) {
   return {
@@ -35,6 +36,58 @@ function asRole(
   return base.withIdentity(identity(roles, subject));
 }
 
+async function projectActiveWorkosMembership(
+  base: ReturnType<typeof convexTest>,
+  input: {
+    email: string;
+    membershipId?: string;
+    roleSlugs: string[];
+    userId: string;
+  },
+) {
+  const eventKey = input.userId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  await base.mutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: fixtureTime,
+    data: {
+      created_at: fixtureTime,
+      email: input.email,
+      email_verified: true,
+      first_name: input.userId,
+      id: input.userId,
+      updated_at: fixtureTime,
+    },
+    event: "user.created",
+    id: `evt_test_user_${eventKey}`,
+  });
+  await base.mutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: fixtureTime,
+    data: {
+      created_at: fixtureTime,
+      directory_managed: false,
+      id: input.membershipId ?? `om_test_${eventKey}`,
+      organization_id: FAIRLEND_ORG,
+      role: { slug: input.roleSlugs[0] },
+      roles: input.roleSlugs.map((slug) => ({ slug })),
+      status: "active",
+      updated_at: fixtureTime,
+      user_id: input.userId,
+    },
+    event: "organization_membership.created",
+    id: `evt_test_membership_${eventKey}`,
+  });
+}
+
+async function reconcileProvisionedBuilder(
+  base: ReturnType<typeof convexTest>,
+  provisioned: { ownerEmail: string; ownerWorkosUserId: string },
+) {
+  await projectActiveWorkosMembership(base, {
+    email: provisioned.ownerEmail,
+    roleSlugs: ["builder"],
+    userId: provisioned.ownerWorkosUserId,
+  });
+}
+
 /**
  * Bootstrap the FairLend brokerage and the principal broker membership on a
  * shared in-memory instance, then return the broker-scoped handle.
@@ -42,27 +95,47 @@ function asRole(
 async function bootstrappedBroker() {
   const base = convexTest(schema, modules);
   const broker = asRole(base, ["principle-broker"], PRINCIPAL_BROKER);
-  await broker.run(async (ctx: any) => {
-    await ctx.db.insert("users", {
-      authId: PRINCIPAL_BROKER,
+  await broker.mutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: fixtureTime,
+    data: {
+      created_at: fixtureTime,
+      domains: [],
+      id: FAIRLEND_ORG,
+      name: FAIRLEND_BROKERAGE_NAME,
+      updated_at: fixtureTime,
+    },
+    event: "organization.created",
+    id: "evt_test_fairlend_organization",
+  });
+  await broker.mutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: fixtureTime,
+    data: {
+      created_at: fixtureTime,
       email: FAIRLEND_DEFAULT_BROKER_EMAIL,
-      emailVerified: true,
-      name: "Elie Soberano",
-      sourceEventId: "evt_test_fairlend_principal",
-      sourceEventType: "user.created",
+      email_verified: true,
+      first_name: "Elie",
+      id: PRINCIPAL_BROKER,
+      last_name: "Soberano",
+      updated_at: fixtureTime,
+    },
+    event: "user.created",
+    id: "evt_test_fairlend_principal",
+  });
+  await broker.mutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: fixtureTime,
+    data: {
+      created_at: fixtureTime,
+      directory_managed: false,
+      id: "om_test_fairlend_principal",
+      organization_id: FAIRLEND_ORG,
+      role: { slug: "principle-broker" },
+      roles: [{ slug: "principle-broker" }],
       status: "active",
-      workosUserId: PRINCIPAL_BROKER,
-    });
-    await ctx.db.insert("workosOrganizationMemberships", {
-      roleSlug: "principle-broker",
-      roleSlugs: ["principle-broker"],
-      sourceEventId: "evt_test_fairlend_principal_membership",
-      sourceEventType: "organization_membership.created",
-      status: "active",
-      workosMembershipId: "om_test_fairlend_principal",
-      workosOrganizationId: FAIRLEND_ORG,
-      workosUserId: PRINCIPAL_BROKER,
-    });
+      updated_at: fixtureTime,
+      user_id: PRINCIPAL_BROKER,
+    },
+    event: "organization_membership.created",
+    id: "evt_test_fairlend_principal_membership",
   });
   await broker.mutation(
     (api as any).brokerageProvisioning.provisionFairLendBrokerage,
@@ -129,6 +202,45 @@ describe("new builder onboarding", () => {
       name: "TestOrganization",
       workosOrganizationId,
     });
+    const audits = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_organizationId_and_createdAt", (q: any) =>
+          q.eq("organizationId", workosOrganizationId),
+        )
+        .collect(),
+    );
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorWorkosUserId: "user_admin",
+          eventType: "brokerage.provisioning.created",
+          organizationId: workosOrganizationId,
+        }),
+      ]),
+    );
+  });
+
+  test("brokerage provisioning waits for the authoritative WorkOS organization projection", async () => {
+    const base = convexTest(schema, modules);
+    const admin = asRole(base, ["admin"], "user_admin");
+    await expect(
+      admin.mutation(
+        (api as any).brokerageProvisioning.provisionBrokerageProfile,
+        {
+          displayName: "Pending Projection Brokerage",
+          principalBrokerWorkosUserId: "user_pending_principal",
+          workosOrganizationId: "org_pending_projection",
+        },
+      ),
+    ).rejects.toThrow(/authoritative WorkOS organization projection/i);
+
+    const rows = await admin.run(async (ctx: any) => ({
+      brokerages: await ctx.db.query("brokerages").collect(),
+      organizations: await ctx.db.query("workosOrganizations").collect(),
+    }));
+    expect(rows.brokerages).toHaveLength(0);
+    expect(rows.organizations).toHaveLength(0);
   });
 
   test("standalone brokerages resolve their stored principal email after a WorkOS id change", async () => {
@@ -269,7 +381,7 @@ describe("new builder onboarding", () => {
     expect(rows.profile?.status).toBe("active");
     expect(rows.link?.role).toBe("owner");
     expect(rows.link?.status).toBe("active");
-    expect(rows.membership?.roleSlugs).toContain("builder");
+    expect(rows.membership).toBeNull();
   });
 
   test("provisionNewBuilder always assigns Elie when the FairLend operator is not an eligible broker member", async () => {
@@ -279,6 +391,11 @@ describe("new builder onboarding", () => {
       ["admin", "broker"],
       "user_fairlend_operator_without_membership",
     );
+    await projectActiveWorkosMembership(base, {
+      email: "operator@fairlend.example",
+      roleSlugs: ["admin"],
+      userId: "user_fairlend_operator_without_membership",
+    });
 
     const result = await operator.action(
       (api as any).brokerageProvisioning.provisionNewBuilder,
@@ -410,6 +527,7 @@ describe("new builder onboarding", () => {
       (api as any).brokerageProvisioning.provisionNewBuilder,
       { displayName: "Aha Builders", ownerEmail: "founder@aha.com" },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
 
     const builder = asRole(base, ["builder"], provisioned.ownerWorkosUserId);
 
@@ -457,6 +575,7 @@ describe("new builder onboarding", () => {
       (api as any).brokerageProvisioning.provisionNewBuilder,
       { displayName: "Skip Builders", ownerEmail: "skip@builders.com" },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     const builder = asRole(base, ["builder"], provisioned.ownerWorkosUserId);
 
     await builder.mutation(
@@ -585,6 +704,7 @@ describe("new builder onboarding", () => {
         ownerEmail: "tenant-state@example.com",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     const builder = asRole(base, ["builder"], provisioned.ownerWorkosUserId);
     const membership = await broker.run(async (ctx: any) =>
       ctx.db
@@ -680,6 +800,7 @@ describe("new builder onboarding", () => {
       (api as any).brokerageProvisioning.provisionNewBuilder,
       { displayName: "Twin Builders", ownerEmail: "owner@twin.com" },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
 
     await broker.run(async (ctx: any) => {
       const now = Date.now();
@@ -727,6 +848,7 @@ describe("new builder onboarding", () => {
         ownerName: "Riley Relationship",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     const builder = asRole(base, ["builder"], provisioned.ownerWorkosUserId);
 
     const relationship = await builder.query(
@@ -759,6 +881,7 @@ describe("new builder onboarding", () => {
         ownerEmail: "owner@legacy-relationship.com",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     await broker.run(async (ctx: any) => {
       const assignment = await ctx.db
         .query("builderBrokerAssignments")
@@ -1240,6 +1363,7 @@ describe("new builder onboarding", () => {
         ownerEmail: "owner@invalid-broker.com",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     const builder = asRole(base, ["builder"], provisioned.ownerWorkosUserId);
     const existingProposalId = await builder.mutation(
       (api as any).production_proposals.createDraftProposal,
@@ -1345,6 +1469,7 @@ describe("new builder onboarding", () => {
         ownerEmail: "owner@duplicate-assignment.com",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     await broker.run(async (ctx: any) => {
       const now = Date.now();
       await ctx.db.insert("builderBrokerAssignments", {
@@ -1408,6 +1533,7 @@ describe("new builder onboarding", () => {
         ownerEmail: "owner@governed-transfer.com",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     await broker.run(async (ctx: any) => {
       const assignment = await ctx.db
         .query("builderBrokerAssignments")
@@ -1587,6 +1713,7 @@ describe("new builder onboarding", () => {
           ownerEmail: `${membershipStatus}@relationship.com`,
         },
       );
+      await reconcileProvisionedBuilder(base, provisioned);
       await broker.run(async (ctx: any) => {
         const membership = await ctx.db
           .query("workosOrganizationMemberships")
@@ -1632,6 +1759,7 @@ describe("new builder onboarding", () => {
         ownerEmail: "history@relationship.com",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
 
     await broker.run(async (ctx: any) => {
       const membership = await ctx.db
@@ -1692,6 +1820,7 @@ describe("new builder onboarding", () => {
         ownerEmail: "owner@unassigned-builder.com",
       },
     );
+    await reconcileProvisionedBuilder(base, provisioned);
     await broker.run(async (ctx: any) => {
       const assignment = await ctx.db
         .query("builderBrokerAssignments")

@@ -8432,6 +8432,37 @@ export default defineSchema({
     sourceEventId: v.string(),
     sourceEventType: v.string(),
   }).index("by_workos_organization_id", ["workosOrganizationId"]),
+  workosManagementOperations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    operation: v.literal("principal-broker-transfer"),
+    idempotencyKey: v.string(),
+    sourceMembershipId: v.string(),
+    targetMembershipId: v.string(),
+    sourceRoleSlugs: v.array(v.string()),
+    targetRoleSlugs: v.array(v.string()),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    reason: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("target-promoted"),
+      v.literal("accepted"),
+      v.literal("failed")
+    ),
+    failureStage: v.optional(
+      v.union(v.literal("target-promotion"), v.literal("source-demotion"))
+    ),
+    safeError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organization_idempotency", ["organizationId", "idempotencyKey"])
+    .index("by_organization_operation_status", [
+      "organizationId",
+      "operation",
+      "status",
+    ]),
   workosOrganizationMemberships: defineTable({
     workosMembershipId: v.string(),
     workosUserId: v.string(),
