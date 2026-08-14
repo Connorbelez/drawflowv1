@@ -113,7 +113,7 @@ export function LenderOrganizationOperationDialog({
     return (
       target?.status === "active" &&
       target.workosMembershipId !== membership?.workosMembershipId &&
-      target.roleSlugs.some((role) =>
+      (target.roleSlugs ?? []).some((role) =>
         ["admin", "broker", "broker-staff"].includes(role)
       )
     );
@@ -313,7 +313,7 @@ function OperationDraft({
   if (operation === "invite") {
     return (
       <div className="space-y-4">
-        <Field label="Member email">
+        <Field htmlFor="invite-email" label="Member email">
           <Input
             autoFocus
             id="invite-email"
@@ -323,7 +323,7 @@ function OperationDraft({
             value={inviteEmail}
           />
         </Field>
-        <Field label="Starting access">
+        <Field htmlFor="invite-role" label="Starting access">
           <NativeSelect
             className="w-full"
             id="invite-role"
@@ -377,9 +377,13 @@ function OperationDraft({
         </fieldset>
       ) : null}
       {operation === "transfer-principal" ? (
-        <Field label="Replacement Principal Broker">
+        <Field
+          htmlFor="replacement-principal-broker"
+          label="Replacement Principal Broker"
+        >
           <NativeSelect
             className="w-full"
+            id="replacement-principal-broker"
             onChange={(event) => onTargetMembershipChange(event.target.value)}
             value={targetMembershipId}
           >
@@ -398,9 +402,13 @@ function OperationDraft({
         </Field>
       ) : null}
       {operation === "deactivate" || operation === "transfer-principal" ? (
-        <Field label="Operational reason">
+        <Field
+          htmlFor="organization-operation-reason"
+          label="Operational reason"
+        >
           <Textarea
             autoFocus
+            id="organization-operation-reason"
             onChange={(event) => onReasonChange(event.target.value)}
             placeholder="Provide at least 10 characters for the audit record"
             value={reason}
@@ -510,10 +518,20 @@ function MemberHeader({ member }: { member: DirectoryUser | null }) {
   );
 }
 
-function Field({ children, label }: { children: ReactNode; label: string }) {
+function Field({
+  children,
+  htmlFor,
+  label,
+}: {
+  children: ReactNode;
+  htmlFor: string;
+  label: string;
+}) {
   return (
     <div className="space-y-1.5">
-      <p className="font-medium text-sm">{label}</p>
+      <label className="block font-medium text-sm" htmlFor={htmlFor}>
+        {label}
+      </label>
       {children}
     </div>
   );

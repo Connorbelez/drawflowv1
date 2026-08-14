@@ -5,7 +5,7 @@ import {
 import { useAction, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { LockKeyhole } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LenderShell } from "#/components/lender-shell.tsx";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -34,6 +34,11 @@ import { api } from "../../../convex/_generated/api";
 type LenderManagementProjection = FunctionReturnType<
   typeof api.workosProjection.getLenderOrganizationManagement
 >;
+type LenderManagementMember = LenderManagementProjection["members"][number];
+interface LenderDirectoryState {
+  members: LenderManagementMember[];
+  projection: LenderManagementProjection;
+}
 const WHITESPACE_PATTERN = /\s+/;
 const AUTHORIZATION_ERROR_PATTERN = /forbidden|unauthorized/i;
 
@@ -96,10 +101,13 @@ function LenderOrganizationError({ error, reset }: ErrorComponentProps) {
 }
 
 function LenderOrganization() {
-  const management = useQuery(
+  const [directoryCursor, setDirectoryCursor] = useState<string | null>(null);
+  const managementPage = useQuery(
     api.workosProjection.getLenderOrganizationManagement,
-    {}
+    { cursor: directoryCursor }
   );
+  const [directoryState, setDirectoryState] =
+    useState<LenderDirectoryState | null>(null);
   const inviteUser = useAction(api.workosManagement.inviteUser);
   const updateMembershipRoles = useAction(
     api.workosManagement.updateMembershipRoles
@@ -118,9 +126,22 @@ function LenderOrganization() {
     { kind: "error" | "success"; message: string } | undefined
   >();
 
+  useEffect(() => {
+    if (!managementPage) {
+      return;
+    }
+    setDirectoryState((current) =>
+      mergeDirectoryPage(current, managementPage, directoryCursor)
+    );
+  }, [directoryCursor, managementPage]);
+
+  const management = managementPage ?? directoryState?.projection;
+  const projectedMembers =
+    directoryState?.members ?? managementPage?.members ?? [];
+
   const directoryUsers = useMemo(
-    () => toDirectoryUsers(management?.members ?? []),
-    [management?.members]
+    () => toDirectoryUsers(projectedMembers),
+    [projectedMembers]
   );
   const organization = management?.organization as
     | (WorkosOrganizationRow & { brokerageId?: string })
@@ -153,14 +174,13 @@ function LenderOrganization() {
     directoryUsers.find(
       (entry) => entry.user.workosUserId === selectedUserId
     ) ?? null;
-  const operationMember =
-    selectedDirectoryUser ??
-    (operation === "invite" ? null : (directoryUsers[0] ?? null));
-  const administrationContext = management
-    ? management.summary.principalBrokers > 0
-      ? "Admin · Principal Broker"
-      : "Organization administrator"
-    : "Loading access…";
+  const operationMember = operation === "invite" ? null : selectedDirectoryUser;
+  const { activeMemberCount, principalBrokerCount } =
+    summarizeDirectoryUsers(directoryUsers);
+  const administrationContext = getAdministrationContext(
+    Boolean(management),
+    principalBrokerCount
+  );
 
   const executeOperation = async (
     request: LenderOrganizationOperationRequest
@@ -171,6 +191,7 @@ function LenderOrganization() {
     setPending(true);
     setStatus(undefined);
     try {
+      requireSelectedOperationMembership(request, operationMember);
       let result:
         | Awaited<ReturnType<typeof inviteUser>>
         | Awaited<ReturnType<typeof updateMembershipRoles>>
@@ -212,6 +233,8 @@ function LenderOrganization() {
             : `Command state: ${result.status}. Review the protected workflow before retrying.`,
       });
       setOperation(null);
+      setDirectoryCursor(null);
+      setDirectoryState(null);
     } catch (error) {
       setStatus({
         kind: "error",
@@ -250,10 +273,16 @@ function LenderOrganization() {
             ) : null}
           </div>
           <LenderOrganizationManagementVariantE
-            activeMemberCount={management?.summary.active ?? 0}
+            activeMemberCount={activeMemberCount}
             administrationContext={administrationContext}
             directoryUsers={directoryUsers}
             mode="production"
+            moreMembersAvailable={Boolean(management && !management.isDone)}
+            onLoadMoreMembers={() => {
+              if (management && !management.isDone) {
+                setDirectoryCursor(management.continueCursor);
+              }
+            }}
             onOpenOperation={(nextOperation) => {
               setStatus(undefined);
               setOperation(nextOperation);
@@ -262,6 +291,9 @@ function LenderOrganization() {
             organizationName={organizationName}
             organizationsById={organizationsById}
             pending={management === undefined}
+            pendingMoreMembers={
+              directoryCursor !== null && managementPage === undefined
+            }
             provisioningByOrg={provisioningByOrg}
           />
         </div>
@@ -280,7 +312,7 @@ function LenderOrganization() {
         readOnlySupplement={
           selectedDirectoryUser ? (
             <LenderMemberAdministrationDetails
-              activeMembershipCount={management?.summary.active ?? 0}
+              activeMembershipCount={activeMemberCount}
               historyCount={management?.history.length ?? 0}
               member={selectedDirectoryUser}
               mode="production"
@@ -295,9 +327,10 @@ function LenderOrganization() {
         roleOptionsByOrganization={roleOptionsByOrganization}
         workspaceOrganizations={organization ? [organization] : []}
       />
-      {operation ? (
+      {operation && (operation === "invite" || operationMember) ? (
         <LenderOrganizationOperationDialog
           directoryUsers={directoryUsers}
+          key={`${operation}:${operationMember?.memberships[0]?.workosMembershipId ?? "organization"}`}
           member={operationMember}
           onExecute={executeOperation}
           onOpenChange={(open) => {
@@ -328,7 +361,7 @@ function toDirectoryUsers(
       name: member.name ?? membership.workosUserId,
       roleSlugs: member.roleSlugs,
       roles: member.roleSlugs.join(", "),
-      status: membership.status === "active" ? "active" : "deleted",
+      status: membership.status === "deleted" ? "deleted" : "active",
       workosUserId: membership.workosUserId,
     }) as WorkosUserRow;
     const displayName = member.name ?? member.email ?? membership.workosUserId;
@@ -343,6 +376,79 @@ function toDirectoryUsers(
       },
     };
   });
+}
+
+function mergeDirectoryPage(
+  current: LenderDirectoryState | null,
+  page: LenderManagementProjection,
+  cursor: string | null
+): LenderDirectoryState {
+  const sameOrganization =
+    current?.projection.organization.workosOrganizationId ===
+    page.organization.workosOrganizationId;
+  if (!(sameOrganization && cursor && current)) {
+    return { members: page.members, projection: page };
+  }
+  const membersById = new Map(
+    current.members.map((member) => [
+      member.membership.workosMembershipId,
+      member,
+    ])
+  );
+  for (const member of page.members) {
+    membersById.set(member.membership.workosMembershipId, member);
+  }
+  return { members: [...membersById.values()], projection: page };
+}
+
+function summarizeDirectoryUsers(directoryUsers: DirectoryUser[]) {
+  let activeMemberCount = 0;
+  let principalBrokerCount = 0;
+  for (const entry of directoryUsers) {
+    const activeMembership = entry.memberships.find(
+      (membership) => membership.status === "active"
+    );
+    if (!activeMembership) {
+      continue;
+    }
+    activeMemberCount += 1;
+    if ((activeMembership.roleSlugs ?? []).includes("principle-broker")) {
+      principalBrokerCount += 1;
+    }
+  }
+  return { activeMemberCount, principalBrokerCount };
+}
+
+function requireSelectedOperationMembership(
+  request: LenderOrganizationOperationRequest,
+  selectedMember: DirectoryUser | null
+) {
+  if (request.kind === "invite") {
+    return;
+  }
+  const selectedMembershipId =
+    selectedMember?.memberships[0]?.workosMembershipId;
+  const requestedMembershipId =
+    request.kind === "transfer-principal"
+      ? request.sourceMembershipId
+      : request.membershipId;
+  if (
+    !(selectedMembershipId && selectedMembershipId === requestedMembershipId)
+  ) {
+    throw new Error("Selected membership is unavailable");
+  }
+}
+
+function getAdministrationContext(
+  loaded: boolean,
+  principalBrokerCount: number
+) {
+  if (!loaded) {
+    return "Loading access…";
+  }
+  return principalBrokerCount > 0
+    ? "Admin · Principal Broker"
+    : "Organization administrator";
 }
 
 function initials(value: string) {
@@ -363,8 +469,6 @@ function getSafeErrorMessage(error: unknown) {
   if (AUTHORIZATION_ERROR_PATTERN.test(error.message)) {
     return "You are not authorized to manage this organization membership.";
   }
-  return (
-    error.message ||
-    "The command failed. Try again after checking WorkOS status."
-  );
+  console.error("Lender organization command failed", error);
+  return "The command failed. Try again after checking WorkOS status.";
 }

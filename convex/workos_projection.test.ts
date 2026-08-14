@@ -872,6 +872,83 @@ describe("WorkOS webhook projections", () => {
       roleSlugs: ["admin"],
     });
   });
+  test("paginates the lender directory without an organization-size failure", async () => {
+    const t = convexTest(schema, modules);
+    const organizationId = "org_paginated_lender";
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        domains: [],
+        id: organizationId,
+        name: "Paginated Lender",
+        status: "active",
+      },
+      event: "organization.created",
+      id: "paginated_lender_created",
+    });
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        email: "principal@paginated-lender.test",
+        firstName: "Principal",
+        id: "user_paginated_0",
+      },
+      event: "user.created",
+      id: "paginated_principal_created",
+    });
+    for (let index = 0; index < 101; index += 1) {
+      const role = index === 0 ? "principle-broker" : "broker";
+      await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+        data: {
+          id: `om_paginated_${index}`,
+          organizationId,
+          role: { slug: role },
+          roles: [{ slug: role }],
+          status: "active",
+          userId: `user_paginated_${index}`,
+        },
+        event: "organization_membership.created",
+        id: `paginated_membership_${index}`,
+      });
+    }
+    await t.run(async (ctx) => {
+      await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: "Paginated Lender",
+        legalName: "Paginated Lender",
+        principalBrokerWorkosUserId: "user_paginated_0",
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: organizationId,
+      });
+    });
+
+    const principal = asLenderMember(t, {
+      organizationId,
+      roles: ["principle-broker"],
+      subject: "user_paginated_0",
+    });
+    const firstPage = await principal.query(
+      api.workosProjection.getLenderOrganizationManagement,
+      { cursor: null }
+    );
+    expect(firstPage.members).toHaveLength(100);
+    expect(firstPage.isDone).toBe(false);
+    expect(firstPage.continueCursor).not.toBe("");
+
+    const secondPage = await principal.query(
+      api.workosProjection.getLenderOrganizationManagement,
+      { cursor: firstPage.continueCursor }
+    );
+    expect(secondPage.members).toHaveLength(1);
+    expect(secondPage.isDone).toBe(true);
+    expect(
+      new Set(
+        [...firstPage.members, ...secondPage.members].map(
+          (member) => member.membership.workosMembershipId
+        )
+      ).size
+    ).toBe(101);
+  });
+
 });
 
 function payload(type: string) {

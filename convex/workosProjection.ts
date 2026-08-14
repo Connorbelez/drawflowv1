@@ -47,7 +47,7 @@ type CurrentUserOrganizationCandidate = CurrentUserOrganization & {
   updatedAt: number;
 };
 
-const MAX_LENDER_ORGANIZATION_MEMBERS = 500;
+const LENDER_ORGANIZATION_MEMBER_PAGE_SIZE = 100;
 const MAX_LENDER_ORGANIZATION_HISTORY = 200;
 
 export const LENDER_MEMBERSHIP_CONSUMER_HANDOFFS = [
@@ -147,6 +147,48 @@ const activeLenderOrganizationRow = v.object({
   userId: v.id("users"),
   workosOrganizationId: v.string(),
   workosUserId: v.string(),
+});
+
+const lenderOrganizationMembershipRow = v.object({
+  _creationTime: v.number(),
+  _id: v.id("workosOrganizationMemberships"),
+  roleSlug: v.optional(v.string()),
+  roleSlugs: v.array(v.string()),
+  status: v.union(
+    v.literal("active"),
+    v.literal("inactive"),
+    v.literal("pending"),
+    v.literal("deleted")
+  ),
+  workosMembershipId: v.string(),
+  workosOrganizationId: v.string(),
+  workosUserId: v.string(),
+});
+
+const lenderOrganizationUserRow = v.object({
+  _creationTime: v.number(),
+  _id: v.id("users"),
+  authId: v.string(),
+  email: v.string(),
+  name: v.string(),
+  status: v.optional(v.union(v.literal("active"), v.literal("deleted"))),
+  workosUserId: v.optional(v.string()),
+});
+
+const lenderOrganizationAuditRow = v.object({
+  _creationTime: v.number(),
+  _id: v.id("auditEvents"),
+  actorRoles: v.array(v.string()),
+  actorWorkosUserId: v.string(),
+  command: v.string(),
+  createdAt: v.number(),
+  entityId: v.string(),
+  entityType: v.string(),
+  eventType: v.string(),
+  newState: v.optional(v.string()),
+  priorState: v.optional(v.string()),
+  reason: v.optional(v.string()),
+  warnings: v.array(v.string()),
 });
 
 export const processWorkosEvent = async (
@@ -437,8 +479,12 @@ export const getActiveLenderOrganizationContext = lenderOrganizationQuery
  * downstream effects.
  */
 export const getLenderOrganizationManagement = lenderUserManagementQuery
+  .input({
+    cursor: v.optional(v.union(v.string(), v.null())),
+  })
   .returns(
     v.object({
+      continueCursor: v.string(),
       consumerHandoffs: v.array(
         v.object({
           consumer: v.string(),
@@ -451,7 +497,8 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
           ),
         })
       ),
-      history: v.array(v.any()),
+      history: v.array(lenderOrganizationAuditRow),
+      isDone: v.boolean(),
       members: v.array(
         v.object({
           accessState: v.union(
@@ -462,13 +509,20 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
           ),
           canManageMembers: v.boolean(),
           email: v.optional(v.string()),
-          membership: v.any(),
+          membership: lenderOrganizationMembershipRow,
           name: v.optional(v.string()),
           roleSlugs: v.array(v.string()),
-          user: v.union(v.null(), v.any()),
+          user: v.union(v.null(), lenderOrganizationUserRow),
         })
       ),
-      organization: v.any(),
+      organization: v.object({
+        _creationTime: v.number(),
+        _id: v.id("workosOrganizations"),
+        brokerageId: v.id("brokerages"),
+        name: v.string(),
+        status: v.union(v.literal("active"), v.literal("deleted")),
+        workosOrganizationId: v.string(),
+      }),
       summary: v.object({
         active: v.number(),
         administrators: v.number(),
@@ -480,17 +534,18 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
       }),
     })
   )
-  .handler(async (ctx) => {
+  .handler(async (ctx, args) => {
     const { brokerageId, workosOrganizationId } = ctx.activeOrganization;
-    const memberships = await ctx.db
+    const membershipPage = await ctx.db
       .query("workosOrganizationMemberships")
       .withIndex("by_organization", (query) =>
         query.eq("workosOrganizationId", workosOrganizationId)
       )
-      .take(MAX_LENDER_ORGANIZATION_MEMBERS + 1);
-    if (memberships.length > MAX_LENDER_ORGANIZATION_MEMBERS) {
-      throw new Error("Organization member directory exceeds safe read limit");
-    }
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: LENDER_ORGANIZATION_MEMBER_PAGE_SIZE,
+      });
+    const memberships = membershipPage.page;
 
     const organization = await ctx.db
       .query("workosOrganizations")
@@ -536,10 +591,29 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
               ["admin", "principle-broker"].includes(role)
             ),
           email: user?.email,
-          membership,
+          membership: {
+            _creationTime: membership._creationTime,
+            _id: membership._id,
+            roleSlug: membership.roleSlug,
+            roleSlugs: membership.roleSlugs,
+            status: membership.status,
+            workosMembershipId: membership.workosMembershipId,
+            workosOrganizationId: membership.workosOrganizationId,
+            workosUserId: membership.workosUserId,
+          },
           name: user?.name,
           roleSlugs,
-          user,
+          user: user
+            ? {
+                _creationTime: user._creationTime,
+                _id: user._id,
+                authId: user.authId,
+                email: user.email,
+                name: user.name,
+                status: user.status,
+                workosUserId: user.workosUserId,
+              }
+            : null,
         };
       })
     );
@@ -560,12 +634,32 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
       members.filter((member) => member.accessState === state).length;
 
     return {
+      continueCursor: membershipPage.continueCursor,
       consumerHandoffs: [...LENDER_MEMBERSHIP_CONSUMER_HANDOFFS],
-      history,
+      history: history.map((event) => ({
+        _creationTime: event._creationTime,
+        _id: event._id,
+        actorRoles: event.actorRoles,
+        actorWorkosUserId: event.actorWorkosUserId,
+        command: event.command,
+        createdAt: event.createdAt,
+        entityId: event.entityId,
+        entityType: event.entityType,
+        eventType: event.eventType,
+        newState: event.newState,
+        priorState: event.priorState,
+        reason: event.reason,
+        warnings: event.warnings,
+      })),
+      isDone: membershipPage.isDone,
       members,
       organization: {
-        ...organization,
+        _creationTime: organization._creationTime,
+        _id: organization._id,
         brokerageId,
+        name: organization.name,
+        status: organization.status,
+        workosOrganizationId: organization.workosOrganizationId,
       },
       summary: {
         active: count("active"),

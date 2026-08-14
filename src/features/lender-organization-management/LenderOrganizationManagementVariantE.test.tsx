@@ -158,9 +158,10 @@ describe("approved lender organization management Variant E", () => {
 
     const review = screen.getByRole("button", { name: /Review draft/ });
     expect(review.hasAttribute("disabled")).toBe(true);
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByLabelText("Member email"), {
       target: { value: "new.broker@northstar.test" },
     });
+    expect(screen.getByLabelText("Starting access")).toBeTruthy();
     expect(review.hasAttribute("disabled")).toBe(false);
     fireEvent.click(review);
     expect(screen.getByText("Ready to submit")).toBeTruthy();
@@ -184,7 +185,7 @@ describe("approved lender organization management Variant E", () => {
         pending={false}
       />
     );
-    fireEvent.change(screen.getByRole("textbox"), {
+    fireEvent.change(screen.getByLabelText("Operational reason"), {
       target: { value: "Principal is leaving the brokerage" },
     });
     const acknowledgement = screen.getByRole("checkbox");
@@ -193,6 +194,33 @@ describe("approved lender organization management Variant E", () => {
     expect(screen.getByText("Transfer required")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Confirm command" }).hasAttribute("disabled")).toBe(true);
   });
+  test("ignores an incomplete transfer candidate without crashing", () => {
+    const incompleteCandidate = directoryUser({
+      email: "incomplete@northstar.test",
+      membershipId: "om_incomplete",
+      name: "Incomplete Candidate",
+      roles: ["broker"],
+      status: "active",
+      userId: "user_incomplete",
+    });
+    incompleteCandidate.memberships[0]!.roleSlugs = undefined;
+
+    render(
+      <LenderOrganizationOperationDialog
+        directoryUsers={[principal, incompleteCandidate]}
+        member={principal}
+        onExecute={vi.fn()}
+        onOpenChange={() => undefined}
+        operation="transfer-principal"
+        organizationName="Northstar Lending"
+        pending={false}
+      />
+    );
+
+    expect(screen.getByLabelText("Replacement Principal Broker")).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Incomplete Candidate" })).toBeNull();
+  });
+
 });
 
 function directoryUser(input: {

@@ -43,11 +43,14 @@ export interface LenderOrganizationManagementVariantEProps {
   administrationContext: string;
   directoryUsers: DirectoryUser[];
   mode: "production" | "prototype";
+  moreMembersAvailable?: boolean;
+  onLoadMoreMembers?: () => void;
   onOpenOperation: (operation: LenderOrganizationOperation) => void;
   onOpenUser: (workosUserId: string) => void;
   organizationName: string;
   organizationsById: Map<string, WorkosOrganizationRow>;
   pending: boolean;
+  pendingMoreMembers?: boolean;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
 }
 
@@ -57,11 +60,14 @@ export function LenderOrganizationManagementVariantE({
   administrationContext,
   directoryUsers,
   mode,
+  moreMembersAvailable = false,
+  onLoadMoreMembers,
   onOpenOperation,
   onOpenUser,
   organizationName,
   organizationsById,
   pending,
+  pendingMoreMembers = false,
   provisioningByOrg,
 }: LenderOrganizationManagementVariantEProps) {
   const [memberQuery, setMemberQuery] = useState("");
@@ -225,6 +231,18 @@ export function LenderOrganizationManagementVariantE({
             rowActionVerb="View"
             rows={visibleDirectoryUsers}
           />
+          {moreMembersAvailable && onLoadMoreMembers ? (
+            <div className="flex justify-center border-t p-3">
+              <Button
+                disabled={pendingMoreMembers}
+                onClick={onLoadMoreMembers}
+                size="sm"
+                variant="ghost"
+              >
+                {pendingMoreMembers ? "Loading members…" : "Load more members"}
+              </Button>
+            </div>
+          ) : null}
         </FramePanel>
       </Frame>
       <div className="grid gap-5 lg:grid-cols-2">
