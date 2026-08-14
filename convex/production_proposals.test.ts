@@ -1250,6 +1250,19 @@ describe("production proposal foundation", () => {
       workosOrganizationId: ORG,
     });
     await expect(
+      t.mutation((api as any).production_proposals.recordProposalClosing, {
+        buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId: externalProposalId,
+        reason: "Reject external closing without a lender assignment.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("current lender assignment");
+    await expect(
       t.mutation(
         (api as any).production_proposals.assignExternalLenderOrganization,
         {
@@ -1279,8 +1292,8 @@ describe("production proposal foundation", () => {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
-          interestAnnualBps: 925,
-          principalCents: 55_000_000,
+          interestAnnualBps: 925.4,
+          principalCents: 55_000_000.4,
         },
         proposalId,
         reason: "Record the loan closing before activation.",
@@ -1307,6 +1320,10 @@ describe("production proposal foundation", () => {
         .unique(),
     );
     expect(persistedClosing?._id).toBe(closing.closingId);
+    expect(persistedClosing?.loanFacility).toEqual({
+      interestAnnualBps: 925,
+      principalCents: 55_000_000,
+    });
 
     const activated = await t.mutation(
       (api as any).production_proposals.activateClosedProposal,
