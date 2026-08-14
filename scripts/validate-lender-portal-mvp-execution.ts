@@ -408,14 +408,29 @@ if (phaseOnePacketGaps.length > 0) {
   fail(`Phase 1 packet gaps: ${phaseOnePacketGaps.join(", ")}`);
 }
 
-for (const group of ledger.coverageGroups.filter((item) => item.phase === 1)) {
+for (const group of ledger.coverageGroups) {
+  if (group.status === "planned") {
+    if (group.workPackages.length > 0) {
+      fail(`${group.id}: planned coverage groups cannot declare work packages`);
+    }
+    continue;
+  }
+  if (group.workPackages.length === 0) {
+    fail(`${group.id}: ${group.status} coverage groups require work packages`);
+  }
   const declaredPacketCoverage = new Set(
     group.workPackages.flatMap((workPackageId) => [
       ...(packetRequirementsByWorkPackage.get(workPackageId) ?? []),
     ])
   );
   const groupRequirements = group.requirementSelectors.flatMap(expandSelector);
-  const groupPacketGaps = groupRequirements.filter(
+  // Phase 0 quality groups span the entire roadmap. Only the requirements
+  // selected by currently prepared packets are due until later packets exist.
+  const requirementsDueFromPreparedPackets =
+    group.phase === 0
+      ? groupRequirements.filter((id) => packetCoveredRequirements.has(id))
+      : groupRequirements;
+  const groupPacketGaps = requirementsDueFromPreparedPackets.filter(
     (id) => !declaredPacketCoverage.has(id)
   );
   if (groupPacketGaps.length > 0) {
