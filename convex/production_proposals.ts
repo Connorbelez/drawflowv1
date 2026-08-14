@@ -499,7 +499,7 @@ const proposalLenderAssignmentProjectionValidator = v.object({
 });
 
 const PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT = 50;
-const LENDER_ORGANIZATION_MEMBERSHIP_SCAN_LIMIT = 100;
+const LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE = 100;
 
 const proposalDraftDrawInput = v.object({
   amountCents: v.number(),
@@ -33436,43 +33436,50 @@ async function resolveEligibleExternalLenderOrganization(
     throw new Error("External lender organization must be a separate active tenant.");
   }
 
-  const memberships = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_organization", (query) =>
-      query.eq("workosOrganizationId", workosOrganizationId),
-    )
-    .take(LENDER_ORGANIZATION_MEMBERSHIP_SCAN_LIMIT + 1);
-  if (memberships.length > LENDER_ORGANIZATION_MEMBERSHIP_SCAN_LIMIT) {
-    throw new Error("External lender organization membership scope exceeds limit.");
-  }
-  for (const membership of memberships) {
-    if (membership.status !== "active") {
-      continue;
-    }
-    const roles = normalizeRoleSlugs([
-      membership.roleSlug,
-      ...membership.roleSlugs,
-    ]);
-    if (
-      !roles.some((role) =>
-        lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+  let cursor: string | null = null;
+  while (true) {
+    const membershipPage = await ctx.db
+      .query("workosOrganizationMemberships")
+      .withIndex("by_organization", (query) =>
+        query.eq("workosOrganizationId", workosOrganizationId),
       )
-    ) {
-      continue;
+      .paginate({
+        cursor,
+        numItems: LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE,
+      });
+    for (const membership of membershipPage.page) {
+      if (membership.status !== "active") {
+        continue;
+      }
+      const roles = normalizeRoleSlugs([
+        membership.roleSlug,
+        ...membership.roleSlugs,
+      ]);
+      if (
+        !roles.some((role) =>
+          lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+        )
+      ) {
+        continue;
+      }
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (query) =>
+          query.eq("workosUserId", membership.workosUserId),
+        )
+        .unique();
+      if (user?.status === "active") {
+        return {
+          brokerageId: lenderBrokerage._id,
+          name: organization.name,
+          workosOrganizationId,
+        };
+      }
     }
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_workos_user_id", (query) =>
-        query.eq("workosUserId", membership.workosUserId),
-      )
-      .unique();
-    if (user && user.status !== "deleted") {
-      return {
-        brokerageId: lenderBrokerage._id,
-        name: organization.name,
-        workosOrganizationId,
-      };
+    if (membershipPage.isDone) {
+      break;
     }
+    cursor = membershipPage.continueCursor;
   }
   throw new Error("External lender organization has no eligible active lender user.");
 }

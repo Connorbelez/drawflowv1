@@ -1025,6 +1025,22 @@ describe("production proposal foundation", () => {
         { proposalId, workosOrganizationId: ORG },
       ),
     ).rejects.toThrow("Forbidden: role");
+    const unrelated = await seedExternalLenderOrganization(t, {
+      organizationId: "org_unrelated_assignment_reader",
+      userId: "user_unrelated_assignment_reader",
+    });
+    const unrelatedViewer = withIdentity(
+      base,
+      ["admin"],
+      unrelated.userId,
+      unrelated.organizationId,
+    );
+    await expect(
+      unrelatedViewer.query(
+        (api as any).production_proposals.listProposalLenderAssignmentHistory,
+        { proposalId, workosOrganizationId: unrelated.organizationId },
+      ),
+    ).rejects.toThrow(/foreign organization|proposal organization|proposal scope|tenant/);
   });
 
   test("withdrawal closes the assignment interval without deleting history", async () => {
