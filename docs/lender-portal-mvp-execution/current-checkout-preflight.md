@@ -80,11 +80,15 @@ The rerun found these preparation-to-implementation differences:
    `1b6b33b5`, which committed the prepared contract and execution documents.
 2. The validator script and package command remained only in the accepted dirty
    preparation checkout. Their exact prepared bytes were carried into this
-   worktree; unrelated preparation-checkout `bun.lock` drift was not copied.
-3. The generated Convex AI guidance is ignored and was absent from the clean
-   worktree. The prepared checkout copy with SHA-256
+   worktree and committed before verification; unrelated preparation-checkout
+   `bun.lock` drift was not copied. The committed traceability ledger was
+   already present at the base HEAD.
+3. The generated Convex AI guidance was ignored and absent from the clean base
+   checkout. The prepared checkout copy with SHA-256
    `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`
-   was read before Convex implementation.
+   was read before implementation. The verification checkout now tracks the
+   current generated guidance, so a clean checkout contains every required
+   instruction input without relying on another worktree.
 4. The auth foundation remains WorkOS AuthKit plus the webhook-owned `users`,
    `workosOrganizations`, `workosOrganizationMemberships`,
    `workosOrganizationRoles`, `workosRoles`, and `workosPermissions`
@@ -94,5 +98,13 @@ The rerun found these preparation-to-implementation differences:
    organization scope also intentionally differs from the new lender-local
    boundary and must remain separate.
 
-The rerun therefore confirms that `LP-P1-01` is still the next
-dependency-unblocked packet and that no additional product owner is required.
+`LP-P1-01` became dependency-unblocked only after the required execution inputs
+above were present and the preparation validator passed. No additional product
+owner was required for this packet's read-only authorization boundary.
+
+The external API, webhook, analytics, reporting, and support consumer boundaries
+remain explicitly pending; `LP-P1-01` does not close them or assume that no
+consumers exist. This packet adds no membership command or membership-effect
+publication. `LP-P1-05` owns the Phase 1 consumer audit and may certify only
+after a fresh inventory names each implemented consumer, proves no impact where
+applicable, and records any still-unavailable external evidence as unknown.

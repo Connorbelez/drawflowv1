@@ -14,10 +14,8 @@ playwright-report/
 __unconfig*
 todos.json
 tmp/
-# Convex generated bindings are imported by Vite/TanStack routes at build time.
-# Keep them tracked so clean Vercel clones can compile without running Convex
-# codegen before the app bundle is built.
-convex/_generated/ai/
+# Convex generated bindings and required AI guidance stay tracked so clean
+# checkouts can compile and follow the repository's Convex authoring rules.
 
 # Impeccable live mode config is source, but runtime journals are not.
 .impeccable/live/sessions/

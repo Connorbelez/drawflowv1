@@ -390,14 +390,19 @@ describe("WorkOS webhook projections", () => {
         },
       ],
     });
-    await t.run(async (ctx) => {
-      await ctx.db.insert("users", {
-        authId: "user_builder",
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      created_at: "2023-11-27T19:07:33.155Z",
+      data: {
+        created_at: "2023-11-27T19:07:33.155Z",
         email: "builder@example.com",
-        name: "Builder",
-        status: "active",
-        workosUserId: "user_builder",
-      });
+        email_verified: true,
+        first_name: "Builder",
+        id: "user_builder",
+        last_name: "User",
+        updated_at: "2023-11-27T19:07:33.155Z",
+      },
+      event: "user.created",
+      id: "seed_user_builder",
     });
     await expect(
       asBuilderInOrganization(t, "org_fairlend").query(

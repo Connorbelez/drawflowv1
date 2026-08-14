@@ -87,6 +87,22 @@ type LenderFixtureOptions = {
   userStatus?: "active" | "deleted";
 };
 
+const workosFixtureTime = "2023-11-27T19:07:33.155Z";
+
+async function projectWorkosFixture(
+  t: ReturnType<typeof convexTest>,
+  event: string,
+  id: string,
+  data: Record<string, unknown>
+) {
+  await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: workosFixtureTime,
+    data,
+    event,
+    id,
+  });
+}
+
 async function seedLenderAuthorization(
   t: ReturnType<typeof convexTest>,
   options: LenderFixtureOptions = {}
@@ -94,52 +110,130 @@ async function seedLenderAuthorization(
   const workosOrganizationId = "org_lender";
   const workosUserId = "user_lender";
   const roleSlugs = options.roleSlugs ?? ["admin"];
-  return await t.run(async (ctx) => {
-    if (options.includeUser !== false) {
-      await ctx.db.insert("users", {
-        authId: workosUserId,
-        email: "lender@example.com",
-        name: "Lender User",
-        status: options.userStatus ?? "active",
-        workosUserId,
+
+  if (options.includeUser !== false) {
+    await projectWorkosFixture(t, "user.created", "authz_test_user", {
+      created_at: workosFixtureTime,
+      email: "lender@example.com",
+      email_verified: true,
+      first_name: "Lender",
+      id: workosUserId,
+      last_name: "User",
+      updated_at: workosFixtureTime,
+    });
+    if (options.userStatus === "deleted") {
+      await projectWorkosFixture(t, "user.deleted", "authz_test_user_deleted", {
+        id: workosUserId,
       });
-      if (options.duplicateUserProjection) {
-        await ctx.db.insert("users", {
-          authId: `${workosUserId}_duplicate`,
-          email: "duplicate-lender@example.com",
-          name: "Duplicate Lender User",
-          status: "active",
-          workosUserId,
-        });
-      }
     }
-    await ctx.db.insert("workosOrganizations", {
-      domains: [],
-      name: "Lender Organization",
-      sourceEventId: "authz_test_org",
-      sourceEventType: "organization.created",
-      status: options.organizationStatus ?? "active",
-      workosOrganizationId,
-    });
-    await ctx.db.insert("workosOrganizationMemberships", {
-      roleSlug: roleSlugs[0],
-      roleSlugs,
-      sourceEventId: "authz_test_membership",
-      sourceEventType: "organization_membership.created",
-      status: options.membershipStatus ?? "active",
-      workosMembershipId: "om_lender",
-      workosOrganizationId,
-      workosUserId,
-    });
-    if (roleSlugs[0]) {
-      await ctx.db.insert("workosOrganizationRoles", {
+  }
+
+  await projectWorkosFixture(t, "organization.created", "authz_test_org", {
+    created_at: workosFixtureTime,
+    domains: [],
+    id: workosOrganizationId,
+    name: "Lender Organization",
+    object: "organization",
+    updated_at: workosFixtureTime,
+  });
+  if (options.organizationStatus === "deleted") {
+    await projectWorkosFixture(
+      t,
+      "organization.deleted",
+      "authz_test_org_deleted",
+      { id: workosOrganizationId }
+    );
+  }
+
+  const membershipStatus = options.membershipStatus ?? "active";
+  await projectWorkosFixture(
+    t,
+    "organization_membership.created",
+    "authz_test_membership",
+    {
+      created_at: workosFixtureTime,
+      directory_managed: false,
+      id: "om_lender",
+      object: "organization_membership",
+      organization_id: workosOrganizationId,
+      ...(roleSlugs[0] ? { role: { slug: roleSlugs[0] } } : {}),
+      roles: roleSlugs.map((slug) => ({ slug })),
+      status: membershipStatus === "deleted" ? "active" : membershipStatus,
+      updated_at: workosFixtureTime,
+      user_id: workosUserId,
+    }
+  );
+  if (membershipStatus === "deleted") {
+    await projectWorkosFixture(
+      t,
+      "organization_membership.deleted",
+      "authz_test_membership_deleted",
+      { id: "om_lender" }
+    );
+  }
+
+  if (roleSlugs[0]) {
+    await projectWorkosFixture(
+      t,
+      "organization_role.created",
+      "authz_test_role",
+      {
+        created_at: workosFixtureTime,
         name: roleSlugs[0],
-        permissionSlugs: options.permissionSlugs ?? [],
+        object: "organization_role",
+        organization_id: workosOrganizationId,
+        permissions: options.permissionSlugs ?? [],
+        resource_type_slug: "organization",
         slug: roleSlugs[0],
-        sourceEventId: "authz_test_role",
-        sourceEventType: "organization_role.created",
+        updated_at: workosFixtureTime,
+      }
+    );
+  }
+
+  if (options.extraActiveOrganization) {
+    await projectWorkosFixture(
+      t,
+      "organization.created",
+      "authz_test_org_second",
+      {
+        created_at: workosFixtureTime,
+        domains: [],
+        id: "org_lender_second",
+        name: "Second Lender Organization",
+        object: "organization",
+        updated_at: workosFixtureTime,
+      }
+    );
+    await projectWorkosFixture(
+      t,
+      "organization_membership.created",
+      "authz_test_membership_second",
+      {
+        created_at: workosFixtureTime,
+        directory_managed: false,
+        id: "om_lender_second",
+        object: "organization_membership",
+        organization_id: "org_lender_second",
+        role: { slug: "broker" },
+        roles: [{ slug: "broker" }],
         status: "active",
-        workosOrganizationId,
+        updated_at: workosFixtureTime,
+        user_id: workosUserId,
+      }
+    );
+  }
+
+  return await t.run(async (ctx) => {
+    if (options.duplicateUserProjection) {
+      // Corruption-only fixture: canonical webhook ingestion deduplicates this
+      // state, so inject it explicitly to prove the authorization boundary
+      // rejects an already-malformed projection.
+      await ctx.db.insert("users", {
+        authId: `${workosUserId}_duplicate`,
+        email: "duplicate-lender@example.com",
+        name: "Duplicate Lender User",
+        status: "active",
+        workosUserId,
       });
     }
     const brokerageId =
@@ -169,26 +263,6 @@ async function seedLenderAuthorization(
         status: "active",
         updatedAt: 1,
         workosOrganizationId,
-      });
-    }
-    if (options.extraActiveOrganization) {
-      await ctx.db.insert("workosOrganizations", {
-        domains: [],
-        name: "Second Lender Organization",
-        sourceEventId: "authz_test_org_second",
-        sourceEventType: "organization.created",
-        status: "active",
-        workosOrganizationId: "org_lender_second",
-      });
-      await ctx.db.insert("workosOrganizationMemberships", {
-        roleSlug: "broker",
-        roleSlugs: ["broker"],
-        sourceEventId: "authz_test_membership_second",
-        sourceEventType: "organization_membership.created",
-        status: "active",
-        workosMembershipId: "om_lender_second",
-        workosOrganizationId: "org_lender_second",
-        workosUserId,
       });
     }
     return {
@@ -285,14 +359,14 @@ describe("canonical lender organization authorization", () => {
     });
 
     const missing = convexTest(schema, modules);
-    await missing.run(async (ctx) => {
-      await ctx.db.insert("users", {
-        authId: "user_lender",
-        email: "lender@example.com",
-        name: "Lender User",
-        status: "active",
-        workosUserId: "user_lender",
-      });
+    await projectWorkosFixture(missing, "user.created", "missing_context_user", {
+      created_at: workosFixtureTime,
+      email: "lender@example.com",
+      email_verified: true,
+      first_name: "Lender",
+      id: "user_lender",
+      last_name: "User",
+      updated_at: workosFixtureTime,
     });
     await expect(
       asLender(missing, undefined).query(

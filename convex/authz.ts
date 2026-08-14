@@ -277,10 +277,21 @@ export async function resolveActiveLenderOrganizationContext(
   }
 
   const user = await requireActiveWorkosUser(ctx, workosUserId);
-  const memberships = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (query) => query.eq("workosUserId", workosUserId))
-    .take(MAX_LENDER_ORGANIZATION_MEMBERSHIPS + 1);
+  const claimedWorkosOrganizationId = identityViewer.organizationId?.trim();
+  let workosOrganizationId = claimedWorkosOrganizationId;
+  const memberships = claimedWorkosOrganizationId
+    ? await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user_and_organization", (query) =>
+          query
+            .eq("workosUserId", workosUserId)
+            .eq("workosOrganizationId", claimedWorkosOrganizationId)
+        )
+        .take(MAX_LENDER_ORGANIZATION_MEMBERSHIPS + 1)
+    : await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user", (query) => query.eq("workosUserId", workosUserId))
+        .take(MAX_LENDER_ORGANIZATION_MEMBERSHIPS + 1);
   if (memberships.length > MAX_LENDER_ORGANIZATION_MEMBERSHIPS) {
     throw new Error("Forbidden: organization membership context exceeds limit");
   }
@@ -291,7 +302,6 @@ export async function resolveActiveLenderOrganizationContext(
         .map((membership) => membership.workosOrganizationId)
     ),
   ];
-  let workosOrganizationId = identityViewer.organizationId?.trim();
   if (!workosOrganizationId) {
     if (activeOrganizationIds.length === 0) {
       throw new Error("Forbidden: active organization context missing");
