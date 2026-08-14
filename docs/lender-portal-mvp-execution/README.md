@@ -96,11 +96,10 @@ evidence attached before verification.
 
 ## Current stop point
 
-`LP-P1-01` remains in progress on branch `codex/lp-p1-01`, based on
-source-branch HEAD `1b6b33b58c13fa22db150bc0f16203c853d9e0e1`. Candidate commit
-`4fb59b5743be08936705cad2bb3ccda3ca3dabad` passes the packet's required
-codegen, typecheck, focused tests, and execution validator. CodeRabbit CLI
-completed five review passes and all actionable findings were resolved, but its
-exact-candidate closure retry was rate-limited. Evidence therefore remains null,
-`LP-P1-02` is not authorized to start, and the other Phase 1 work packages
-remain ready.
+`LP-P1-01` is verified at accepted product commit
+`4fb59b5743be08936705cad2bb3ccda3ca3dabad`. CodeRabbit CLI completed its exact
+committed-range closure review, and a separate read-only Pi reviewer accepted
+every packet criterion. Exact-SHA evidence is attached at
+`evidence/LP-P1-01-4fb59b57.md`. `LP-P1-02` is now dependency-unblocked and has
+explicit implementation authorization; the remaining Phase 1 packets stay
+ready until their dependencies are verified.

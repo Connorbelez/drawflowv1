@@ -242,6 +242,29 @@ function assertNoDependencyCycle(
   }
 }
 
+function assertCommitAncestor(args: {
+  ancestorSha: string;
+  descendantSha: string;
+  lookupFailurePrefix: string;
+  notAncestorMessage: string;
+}) {
+  const result = spawnSync(
+    "git",
+    ["merge-base", "--is-ancestor", args.ancestorSha, args.descendantSha],
+    { cwd: repositoryRoot, encoding: "utf8" }
+  );
+  if (result.status === 0) {
+    return;
+  }
+  if (result.status === 1) {
+    fail(args.notAncestorMessage);
+  }
+  const diagnostic = result.stderr.trim();
+  fail(
+    `${args.lookupFailurePrefix}: git merge-base exited ${result.status ?? "without a status"}${diagnostic ? `: ${diagnostic}` : ""}`
+  );
+}
+
 function validateEvidence(
   workPackage: z.infer<typeof ledgerSchema>["workPackages"][number],
   currentHead: string
@@ -262,16 +285,12 @@ function validateEvidence(
   if (!evidenceText.includes(evidence.acceptedSha)) {
     fail(`${workPackage.id}: evidence does not name accepted SHA`);
   }
-  const acceptedCommitIsAncestor = spawnSync(
-    "git",
-    ["merge-base", "--is-ancestor", evidence.acceptedSha, currentHead],
-    { cwd: repositoryRoot, encoding: "utf8" }
-  );
-  if (acceptedCommitIsAncestor.status !== 0) {
-    fail(
-      `${workPackage.id}: accepted SHA ${evidence.acceptedSha} is not an ancestor of ${currentHead}`
-    );
-  }
+  assertCommitAncestor({
+    ancestorSha: evidence.acceptedSha,
+    descendantSha: currentHead,
+    lookupFailurePrefix: `${workPackage.id}: unable to verify accepted SHA ${evidence.acceptedSha}`,
+    notAncestorMessage: `${workPackage.id}: accepted SHA ${evidence.acceptedSha} is not an ancestor of ${currentHead}`,
+  });
 }
 
 const rawLedger = JSON.parse(readFileSync(ledgerPath, "utf8"));
@@ -454,24 +473,12 @@ if (mode === "prep" && currentHead !== ledger.preparationBaseline.headSha) {
   );
 }
 if (mode !== "prep") {
-  const baselineIsAncestor = spawnSync(
-    "git",
-    [
-      "merge-base",
-      "--is-ancestor",
-      ledger.preparationBaseline.headSha,
-      currentHead,
-    ],
-    {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-    }
-  );
-  if (baselineIsAncestor.status !== 0) {
-    fail(
-      `Implementation HEAD ${currentHead} does not descend from preparation baseline ${ledger.preparationBaseline.headSha}`
-    );
-  }
+  assertCommitAncestor({
+    ancestorSha: ledger.preparationBaseline.headSha,
+    descendantSha: currentHead,
+    lookupFailurePrefix: `Unable to verify preparation baseline ${ledger.preparationBaseline.headSha}`,
+    notAncestorMessage: `Implementation HEAD ${currentHead} does not descend from preparation baseline ${ledger.preparationBaseline.headSha}`,
+  });
 }
 
 if (mode === "prep") {
@@ -492,11 +499,7 @@ if (mode === "prep") {
     );
   }
   for (const workPackage of ledger.workPackages) {
-    if (
-      (workPackage.status === "ready" ||
-        workPackage.status === "in-progress") &&
-      workPackage.evidence !== null
-    ) {
+    if (workPackage.status !== "verified" && workPackage.evidence !== null) {
       fail(
         `${workPackage.id}: ${workPackage.status} packets cannot attach evidence`
       );

@@ -1,13 +1,15 @@
 # LP-P1-01 — Canonical organization context and authorization
 
-Status: in-progress
+Status: verified
 
 Review candidate: `4fb59b5743be08936705cad2bb3ccda3ca3dabad`
 
-Review status: CodeRabbit CLI completed five committed-range review passes and
-every actionable finding from those passes was resolved. The exact-candidate
-closure retry was refused by CodeRabbit's review rate limit. Independent
-acceptance evidence remains unattached until that read-only retry completes.
+Review status: CodeRabbit CLI completed its exact committed-range closure review.
+The independent Pi reviewer accepted every packet criterion at the candidate
+SHA. Two non-material execution-validator hardening observations were resolved
+after acceptance without changing the accepted product, Convex, or test bytes.
+
+Evidence: [`LP-P1-01-4fb59b57.md`](../evidence/LP-P1-01-4fb59b57.md)
 
 Depends on: current-checkout preflight
 

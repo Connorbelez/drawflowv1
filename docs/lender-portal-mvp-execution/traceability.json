@@ -456,10 +456,14 @@
     {
       "id": "LP-P1-01",
       "phase": 1,
-      "status": "in-progress",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-01-canonical-organization-context-and-authorization.md",
       "dependsOn": [],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P1-01-4fb59b57.md",
+        "acceptedSha": "4fb59b5743be08936705cad2bb3ccda3ca3dabad",
+        "sha256": "59b8d7dd02cb5ed17f31e4481c90dfa53fafe50069b96dfefee1079e39546c9f"
+      }
     },
     {
       "id": "LP-P1-02",
