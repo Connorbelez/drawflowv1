@@ -297,7 +297,7 @@ function validateEvidence(
         })()
       : "";
     const hasAcceptanceDecision =
-      /^-\s*Decision:\s*(?:accepted|verified)(?:\s|$)/im.test(
+      /^-\s*Decision:\s*`?(?:accepted|verified)`?(?:\s|$)/im.test(
         acceptanceSection,
       ) ||
       /^-\s*Decision:[^\n]*\baccepted\b[^\n]*\b(?:human (?:acceptance )?override|acceptance authority)\b/im.test(
