@@ -27,7 +27,6 @@ import {
 import type {
   OrganizationProvisioning,
   WorkosOrganizationRow,
-  WorkosUserRow,
 } from "#/routes/backoffice/-user-management-types.ts";
 import { api } from "../../../convex/_generated/api";
 
@@ -101,6 +100,7 @@ function LenderOrganizationError({ error, reset }: ErrorComponentProps) {
 }
 
 function LenderOrganization() {
+  const routeContext = Route.useRouteContext();
   const [directoryCursor, setDirectoryCursor] = useState<string | null>(null);
   const managementPage = useQuery(
     api.workosProjection.getLenderOrganizationManagement,
@@ -155,6 +155,9 @@ function LenderOrganization() {
     [organization]
   );
   const provisioningByOrg = useMemo(
+    // Phase 1 owns WorkOS membership operations only. Brokerage and Builder
+    // provisioning remain Back Office-owned and are intentionally not exposed
+    // by the active-organization projection.
     () => new Map<string, OrganizationProvisioning>(),
     []
   );
@@ -251,8 +254,8 @@ function LenderOrganization() {
       identity={{
         avatarFallback: initials(organizationName),
         organizationName,
-        roleLabel: administrationContext,
-        userName: "Organization administrator",
+        roleLabel: formatViewerRoles(routeContext.role, routeContext.roles),
+        userName: routeContext.userName?.trim() || "Signed-in user",
       }}
       pageTitle="Organization"
     >
@@ -350,12 +353,10 @@ function LenderOrganization() {
 function toDirectoryUsers(
   members: LenderManagementProjection["members"]
 ): DirectoryUser[] {
-  return members.map((member) => {
+  const directoryUsersByWorkosUserId = new Map<string, DirectoryUser>();
+  for (const member of members) {
     const membership = member.membership;
-    const fallbackId = membership._id as WorkosUserRow["_id"];
     const user = (member.user ?? {
-      _creationTime: membership._creationTime,
-      _id: fallbackId,
       authId: membership.workosUserId,
       email: member.email ?? `${membership.workosUserId}@unknown.invalid`,
       name: member.name ?? membership.workosUserId,
@@ -363,9 +364,18 @@ function toDirectoryUsers(
       roles: member.roleSlugs.join(", "),
       status: membership.status === "deleted" ? "deleted" : "active",
       workosUserId: membership.workosUserId,
-    }) as WorkosUserRow;
+    }) as DirectoryUser["user"];
     const displayName = member.name ?? member.email ?? membership.workosUserId;
-    return {
+    const current = directoryUsersByWorkosUserId.get(membership.workosUserId);
+    if (current) {
+      current.memberships.push(membership);
+      current.user.roleSlugs = [
+        ...new Set([...(current.user.roleSlugs ?? []), ...member.roleSlugs]),
+      ];
+      current.user.roles = current.user.roleSlugs.join(", ");
+      continue;
+    }
+    directoryUsersByWorkosUserId.set(membership.workosUserId, {
       displayName,
       initials: initials(displayName),
       memberships: [membership],
@@ -374,8 +384,9 @@ function toDirectoryUsers(
         roleSlugs: member.roleSlugs,
         roles: member.roleSlugs.join(", "),
       },
-    };
-  });
+    });
+  }
+  return [...directoryUsersByWorkosUserId.values()];
 }
 
 function mergeDirectoryPage(
@@ -449,6 +460,22 @@ function getAdministrationContext(
   return principalBrokerCount > 0
     ? "Admin · Principal Broker"
     : "Organization administrator";
+}
+
+function formatViewerRoles(role?: string | null, roles: string[] = []) {
+  const normalized = [role, ...roles]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.trim().toLowerCase());
+  const labels = [...new Set(normalized)].map((value) => {
+    if (value === "principle-broker" || value === "principal-broker") {
+      return "Principal Broker";
+    }
+    return value
+      .split("-")
+      .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+      .join(" ");
+  });
+  return labels.join(" · ") || "Organization member";
 }
 
 function initials(value: string) {

@@ -157,7 +157,9 @@ consumers remain pending for the LP-P1-05 consumer audit.
   `LP-P1-05` end to end and deferring packet review gates to one consolidated
   Phase 1 review.
 
-The fresh consumer inventory found 1,974 role, membership, access, assignment,
+Historical snapshot at dependency commit
+`83fe51d0e5d5a66add92bb5e70c08080fe3adf58`: the fresh consumer inventory
+found 1,974 role, membership, access, assignment,
 queue, recipient, quorum, notification, and audit references before
 classification. Implemented membership readers span shared authorization,
 active-Build access, broker assignments, Builder onboarding and roster,
@@ -165,6 +167,11 @@ collaboration access and recipients, cost documents, production proposals, and
 current user-management surfaces. No production lender Organization Management
 route exists yet; the selected Variant E remains a prototype and is owned by
 `LP-P1-04`.
+
+Follow-up: commit `51bf4691d20153414b629b65fe5f73966486a6b8`
+directly promoted the extracted shared Variant E composition into
+`src/routes/lender/organization.tsx`. The production route, shared component,
+canonical loader, and WorkOS operation wiring are now owned by `LP-P1-04`.
 
 The bounded LP-P1-03 implementation seam is one rebuildable membership-effect
 projection derived only from canonical WorkOS membership state. It must publish

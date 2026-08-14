@@ -29,7 +29,7 @@ The boundary therefore has these properties:
 
 | Consumer class | Current owners | Reconciliation result |
 |---|---|---|
-| Active organization and route authorization | `convex/authz.ts`, `convex/activeBuildAccess.ts`, `src/components/nav-user.tsx`, `src/routes/-tenant-activation-recovery.tsx` | Every request rereads the canonical active membership and supported lender roles. Deactivation removes access on the next request; reactivation or role change restores only currently authorized actions. |
+| Active organization and route authorization | `convex/authz.ts`, `convex/activeBuildAccess.ts`, route `beforeLoad` guards | Lender management requests require one canonical active membership and supported lender role. Active-Build authorization drops stale token roles when no active membership remains; Build-local participant grants retain their separate canonical revocation owner. Deactivation removes membership-derived access on the next request; reactivation or role change restores only currently authorized actions. |
 | Lender organization management | `convex/workosProjection.ts`, `convex/workosManagement.ts`, `convex/brokerageProvisioning.ts` | The new bounded read model returns only the active organization. WorkOS operations preserve pending/accepted/failed states and auditable Principal Broker protection. |
 | Collaboration access and search authority | `convex/build_collaboration_access.ts`, `convex/build_collaboration_recipient_access.ts`, `convex/build_collaboration_search_authority_projection.ts`, `convex/build_collaboration_search_maintenance.ts` | Request authorization rereads canonical membership. Projection ingestion synchronizes the existing search-authority projection from the canonical membership event; event replay is receipt-idempotent. |
 | Collaboration writes, drafts, moderation, inbox, and system events | `convex/build_collaboration_drafts.ts`, `convex/build_collaboration_inbox.ts`, `convex/build_collaboration_moderation.ts`, `convex/build_collaboration_system_events.ts`, `convex/proposal_collaboration.ts`, `convex/proposal_collaboration_model.ts` | Existing commands and reads enforce current organization membership and resource access. No separate lender membership record exists. |
@@ -66,10 +66,24 @@ cannot silently invent a different membership contract.
 
 ## Inventory command and result
 
-The implementation-checkout preflight searched `convex/` and `src/` for role,
-membership, access, assignment, queue, recipient, quorum, notification, and
-audit vocabulary. It recorded 1,974 raw matches in
-`/tmp/lp-p1-03-consumer-inventory.txt`. Each production match is represented by
-an implemented, unaffected, absent, or unknown class above. No current
-lender-portal proposal assignment, review quorum, participant queue, or
-transactional-recipient state was found, so Phase 1 creates none.
+The historical preflight recorded 1,974 transient raw matches. The
+certification rerun replaces that unversioned temporary output with this exact,
+reproducible command:
+
+```sh
+rg -n --glob '!**/*.test.ts' --glob '!**/*.test.tsx' \
+  --glob '!convex/_generated/**' --glob '!src/routeTree.gen.ts' \
+  'workosOrganizationMemberships|roleSlug|roleSlugs|assignedBrokerWorkosUserId|recipient|quorum|notification|auditEvents' \
+  convex src
+```
+
+The command produced 1,795 production-source matches. Its versioned output is
+`docs/lender-portal-mvp-execution/LP-P1-03-consumer-inventory-output.txt`
+with SHA-256
+`07d3b68c3d5568bb0ee20b77720258e0fb8f2c6ad8d1a631b1d55ef091a828ba`.
+Each production match is represented by an implemented, unaffected, absent, or
+unknown class above. No current lender-portal proposal assignment, review
+quorum, participant queue, transactional-recipient table, or later-phase
+schema owner was found, so Phase 1 creates none. The exact handoff-contract
+assertion and write-free repeat-read assertion live in
+`convex/workos_projection.test.ts`.

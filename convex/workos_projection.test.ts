@@ -778,19 +778,53 @@ describe("WorkOS webhook projections", () => {
       "user_foreign_effects"
     );
     expect(first.history).toHaveLength(1);
-    expect(first.consumerHandoffs).toMatchObject([
-      { consumer: "authorization-and-access", owner: "Phase 1", state: "implemented" },
-      { consumer: "collaboration-search-authority", owner: "Phase 1", state: "implemented" },
-      { consumer: "proposal-assignment", owner: "Phase 2", state: "unavailable" },
-      { consumer: "review-quorum-and-policy-eligibility", owner: "Phase 4", state: "unavailable" },
-      { consumer: "participant-queues-and-counts", owner: "Phase 7", state: "unavailable" },
+    expect(first.consumerHandoffs).toEqual([
+      {
+        consumer: "authorization-and-access",
+        inputContract:
+          "active organization id + canonical WorkOS membership status + canonical lender role slugs",
+        owner: "Phase 1",
+        state: "implemented",
+      },
+      {
+        consumer: "collaboration-search-authority",
+        inputContract:
+          "canonical WorkOS membership id + organization id + user id + status + role slugs",
+        owner: "Phase 1",
+        state: "implemented",
+      },
+      {
+        consumer: "proposal-assignment",
+        inputContract:
+          "active organization id + current canonical membership eligibility + persisted proposal assignment",
+        owner: "Phase 2",
+        state: "unavailable",
+      },
+      {
+        consumer: "review-quorum-and-policy-eligibility",
+        inputContract:
+          "immutable review-policy snapshot + current canonical membership eligibility + persisted review assignment",
+        owner: "Phase 4",
+        state: "unavailable",
+      },
+      {
+        consumer: "participant-queues-and-counts",
+        inputContract:
+          "canonical request or review-cycle state + current canonical membership eligibility",
+        owner: "Phase 7",
+        state: "unavailable",
+      },
       {
         consumer: "transactional-recipients-and-notification-intent",
+        inputContract:
+          "durable domain event + resource and cycle scope + current canonical membership eligibility and access",
         owner: "Phase 8",
         state: "unavailable",
       },
       {
         consumer: "external-api-analytics-reporting-and-support",
+        inputContract:
+          "versioned external contract + canonical organization and membership identifiers",
         owner: "Phase 9",
         state: "unknown",
       },
