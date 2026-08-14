@@ -1,6 +1,6 @@
 # LP-P2-03 — Closing eligibility and activation
 
-Status: verified
+Status: implementation-complete
 
 Depends on: LP-P2-01, LP-P2-02
 

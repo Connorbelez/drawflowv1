@@ -1,6 +1,6 @@
 # LP-P2-02 — External assignment history and withdrawal
 
-Status: verified
+Status: implementation-complete
 
 Package-start SHA: `1a6b164c211989c1762e7199e4eeab9f46aca147`.
 

@@ -1,6 +1,6 @@
 # LP-P2-04 — Lifecycle projections and assignment surface
 
-Status: verified
+Status: implementation-complete
 
 Depends on: LP-P2-01, LP-P2-02, LP-P2-03
 

@@ -47,10 +47,10 @@ have authority to settle a conflict.
    Completion criterion: every packet completion criterion and required test
    passes on one exact commit.
 6. Create an evidence record from `evidence-template.md`, update that packet to
-   `verified`, and attach the evidence path in `traceability.json`.
-   Completion criterion: a fresh read-only verifier accepts the source IDs,
-   diff, tests, prototype contract, and exact SHA, unless the user explicitly
-   exercises human acceptance authority and the evidence records the override.
+   `implementation-complete`, and attach the implementation-evidence path in
+   `traceability.json`. A fresh read-only verifier may then promote the packet
+   to `verified` after accepting the source IDs, diff, tests, prototype
+   contract, and exact SHA.
 7. Start the next dependency-unblocked packet in a fresh task context.
    Completion criterion: no packet consumes unverified dependency behavior.
 
@@ -75,6 +75,8 @@ always-loaded prompt.
 - `ready`: bounded, dependency-declared, and permitted to start after explicit
   implementation authorization.
 - `in-progress`: product implementation has started on an identified checkout.
+- `implementation-complete`: implementation evidence is attached to an exact
+  commit, but independent acceptance remains pending.
 - `verified`: independent acceptance evidence, or an explicit documented human
   acceptance override, is attached to an exact commit.
 
@@ -88,8 +90,9 @@ Phases 2–9 ready with no implementation evidence attached.
 The validator selects `prep` while every packet is ready, `execution` after
 an authorized packet transition, and `release` only when called with
 `--release`. Execution mode permits at most one in-progress packet, requires
-verified dependencies, checks packet and ledger status agreement, and rejects
-evidence attached before verification.
+implementation-complete or verified dependencies, checks packet and ledger
+status agreement, and rejects evidence attached before implementation
+completion.
 
 ## Traceability rules
 
@@ -103,9 +106,10 @@ evidence attached before verification.
   verification.
 - Locked prototypes are promoted directly from their selected route and shared
   components.
-- Verified packet attachments store the evidence path, accepted commit SHA,
-  and evidence-file SHA-256. The validator checks the file bytes and confirms
-  that the accepted commit remains in the current branch history.
+- Implementation-complete and verified packet attachments store the evidence
+  path, accepted commit SHA, and evidence-file SHA-256. The validator checks
+  the file bytes and confirms that the accepted commit remains in the current
+  branch history.
 - Completion evidence belongs to one exact commit. A later code change makes
   behavioral evidence stale until the affected checks run again.
 - Product code, tests, or UI without a source requirement is unscoped work and

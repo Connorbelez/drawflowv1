@@ -1,6 +1,6 @@
 # LP-P2-01 — Proposal lifecycle state machine
 
-Status: verified
+Status: implementation-complete
 
 Implementation-complete and CodeRabbit-clean at `1b9f4f421968fa194750cf0f50e4739419c7cab1`; independent Phase 2 acceptance remains reserved for fresh read-only `LP-P2-05`.
 

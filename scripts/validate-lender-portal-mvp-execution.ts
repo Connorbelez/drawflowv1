@@ -39,7 +39,13 @@ const explicitCatalogSchema = z.object({
   source: z.string().min(1),
 });
 
-const statusSchema = z.enum(["planned", "ready", "in-progress", "verified"]);
+const statusSchema = z.enum([
+  "planned",
+  "ready",
+  "in-progress",
+  "implementation-complete",
+  "verified",
+]);
 const evidenceSchema = z.object({
   acceptedSha: z.string().regex(/^[a-f0-9]{40}$/),
   path: z.string().min(1),
@@ -499,22 +505,30 @@ if (mode === "prep") {
     );
   }
   for (const workPackage of ledger.workPackages) {
-    if (workPackage.status !== "verified" && workPackage.evidence !== null) {
+    const hasImplementationEvidence =
+      workPackage.status === "implementation-complete" ||
+      workPackage.status === "verified";
+    if (!hasImplementationEvidence && workPackage.evidence !== null) {
       fail(
         `${workPackage.id}: ${workPackage.status} packets cannot attach evidence`
       );
     }
-    if (workPackage.status === "verified") {
+    if (hasImplementationEvidence) {
       validateEvidence(workPackage, currentHead);
     }
     if (
       workPackage.status === "in-progress" ||
+      workPackage.status === "implementation-complete" ||
       workPackage.status === "verified"
     ) {
       for (const dependencyId of workPackage.dependsOn) {
-        if (workPackages.get(dependencyId)?.status !== "verified") {
+        const dependencyStatus = workPackages.get(dependencyId)?.status;
+        if (
+          dependencyStatus !== "implementation-complete" &&
+          dependencyStatus !== "verified"
+        ) {
           fail(
-            `${workPackage.id}: dependency ${dependencyId} must be verified before execution`
+            `${workPackage.id}: dependency ${dependencyId} must be implementation-complete before execution`
           );
         }
       }
