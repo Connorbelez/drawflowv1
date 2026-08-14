@@ -300,7 +300,7 @@ function validateEvidence(
       /^-\s*Decision:\s*`?(?:accepted|verified)`?(?:\s|$)/im.test(
         acceptanceSection,
       ) ||
-      /^-\s*Decision:[^\n]*\baccepted\b[^\n]*\b(?:human (?:acceptance )?override|acceptance authority)\b/im.test(
+      /^-\s*Decision:[^\n]*\b(?:human (?:acceptance )?override|acceptance authority|explicit human override)\b/im.test(
         acceptanceSection,
       );
     if (!acceptanceSection || !hasAcceptanceDecision) {
