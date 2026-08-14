@@ -49,6 +49,8 @@ type CurrentUserOrganizationCandidate = CurrentUserOrganization & {
 
 const LENDER_ORGANIZATION_MEMBER_PAGE_SIZE = 100;
 const MAX_LENDER_ORGANIZATION_HISTORY = 200;
+const LENDER_MEMBERSHIP_EFFECTS_PROJECTION_VERSION =
+  "lender-membership-effects-v1" as const;
 
 export const LENDER_MEMBERSHIP_CONSUMER_HANDOFFS = [
   {
@@ -511,6 +513,7 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
         status: v.union(v.literal("active"), v.literal("deleted")),
         workosOrganizationId: v.string(),
       }),
+      projectionVersion: v.literal("lender-membership-effects-v1"),
       pageSummary: v.object({
         active: v.number(),
         administrators: v.number(),
@@ -599,11 +602,21 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
         };
       })
     );
-    members.sort((left, right) =>
-      (left.name ?? left.email ?? left.membership.workosUserId).localeCompare(
+    members.sort((left, right) => {
+      const labelOrder = (
+        left.name ??
+        left.email ??
+        left.membership.workosUserId
+      ).localeCompare(
         right.name ?? right.email ?? right.membership.workosUserId
-      )
-    );
+      );
+      return (
+        labelOrder ||
+        left.membership.workosMembershipId.localeCompare(
+          right.membership.workosMembershipId
+        )
+      );
+    });
 
     const history = await ctx.db
       .query("auditEvents")
@@ -642,6 +655,7 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
         status: organization.status,
         workosOrganizationId: organization.workosOrganizationId,
       },
+      projectionVersion: LENDER_MEMBERSHIP_EFFECTS_PROJECTION_VERSION,
       pageSummary: {
         active: count("active"),
         administrators: members.filter(

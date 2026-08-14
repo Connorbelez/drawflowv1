@@ -421,7 +421,12 @@ function compareProjectionMembers(
 ) {
   const leftLabel = left.name ?? left.email ?? left.membership.workosUserId;
   const rightLabel = right.name ?? right.email ?? right.membership.workosUserId;
-  return leftLabel.localeCompare(rightLabel);
+  return (
+    leftLabel.localeCompare(rightLabel) ||
+    left.membership.workosMembershipId.localeCompare(
+      right.membership.workosMembershipId
+    )
+  );
 }
 
 function summarizeDirectoryUsers(directoryUsers: DirectoryUser[]) {

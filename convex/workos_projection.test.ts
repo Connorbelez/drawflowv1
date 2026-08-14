@@ -766,6 +766,7 @@ describe("WorkOS webhook projections", () => {
       api.workosProjection.getLenderOrganizationManagement,
       {}
     );
+    expect(first.projectionVersion).toBe("lender-membership-effects-v1");
     expect(first.pageSummary).toEqual({
       active: 2,
       administrators: 0,

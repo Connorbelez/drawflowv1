@@ -180,3 +180,12 @@ proposal assignment, review-policy, quorum-satisfaction, queue, or
 transactional-recipient records. Existing canonical consumers continue to read
 the WorkOS projections directly; the effect projection describes reconciliation
 and feeds the Phase 1 organization-management UI.
+
+The read contract is versioned as `lender-membership-effects-v1`. Pages sort by
+member name, email, or WorkOS user id, then by `workosMembershipId` as the
+deterministic tie-breaker. Consumers merge pages by `workosMembershipId` with
+replace-by-identity semantics, so reconciliation replaces the current effect
+instead of appending a second effect. Replay remains write-free and WorkOS
+event processing remains receipt-idempotent. The projection contains only
+canonical membership-derived access and role effects; later-phase handoffs are
+contract metadata, not fabricated domain records.
