@@ -11,9 +11,9 @@ const ledgerPath = resolve(
 );
 const HEADING_LEVEL_PATTERN = /^#+/;
 const MARKDOWN_HEADING_PATTERN = /^(#{1,6})\s+/;
-const NUMBERED_LIST_ITEM_PATTERN = /^\d+\.\s/;
-const NUMBERED_HEADING_PATTERN = /^###\s+\d+\./;
-const E2E_HEADING_PATTERN = /^###\s+E2E-\d+\s/;
+const NUMBERED_LIST_ORDINAL_PATTERN = /^(\d+)\.\s/;
+const NUMBERED_HEADING_ORDINAL_PATTERN = /^###\s+(\d+)\./;
+const E2E_HEADING_ORDINAL_PATTERN = /^###\s+E2E-(\d+)\s/;
 const RANGE_ENDPOINT_PATTERN = /^(.*?)(\d+)$/;
 const PACKET_SELECTOR_PATTERN = /^[-*]\s+`?([^`]+?)`?\s*$/;
 
@@ -146,22 +146,32 @@ function validateCatalog(catalog: Catalog, sourceText: string) {
     fail(`${catalog.name}: section does not declare ${catalog.prefix}`);
   }
 
-  const actualCount =
+  const ordinalPattern =
     catalog.kind === "numbered-list"
-      ? section
-          .split("\n")
-          .filter((line) => NUMBERED_LIST_ITEM_PATTERN.test(line)).length
+      ? NUMBERED_LIST_ORDINAL_PATTERN
       : catalog.kind === "numbered-headings"
-        ? section
-            .split("\n")
-            .filter((line) => NUMBERED_HEADING_PATTERN.test(line)).length
-        : section.split("\n").filter((line) => E2E_HEADING_PATTERN.test(line))
-            .length;
+        ? NUMBERED_HEADING_ORDINAL_PATTERN
+        : E2E_HEADING_ORDINAL_PATTERN;
+  const ordinals = section
+    .split("\n")
+    .map((line) => line.match(ordinalPattern)?.[1])
+    .filter((value): value is string => Boolean(value))
+    .map(Number);
+  const actualCount = ordinals.length;
 
   if (actualCount !== catalog.count) {
     fail(
       `${catalog.name}: expected ${catalog.count} numbered requirements, found ${actualCount}`
     );
+  }
+  for (let index = 0; index < catalog.count; index += 1) {
+    const expectedOrdinal = index + 1;
+    if (ordinals[index] !== expectedOrdinal) {
+      const expectedId = ids[index];
+      fail(
+        `${catalog.name}: ${expectedId} must map to ordinal ${expectedOrdinal}, found ${ordinals[index] ?? "missing"}`
+      );
+    }
   }
 }
 
@@ -311,6 +321,7 @@ if (orphanedRequirements.length > 0) {
 }
 
 const packetCoveredRequirements = new Set<string>();
+const packetRequirementsByWorkPackage = new Map<string, Set<string>>();
 for (const workPackage of ledger.workPackages) {
   const absolutePath = resolve(repositoryRoot, workPackage.path);
   if (!existsSync(absolutePath)) {
@@ -328,14 +339,17 @@ for (const workPackage of ledger.workPackages) {
   if (/\b(?:TODO|TBD|PLACEHOLDER)\b/.test(markdown)) {
     fail(`${workPackage.id}: unresolved placeholder text is not allowed`);
   }
+  const workPackageRequirements = new Set<string>();
   for (const selector of packetSelectors(markdown, workPackage.id)) {
     for (const id of expandSelector(selector)) {
       if (!knownRequirementIds.has(id)) {
         fail(`${workPackage.id}: unknown requirement ${id}`);
       }
       packetCoveredRequirements.add(id);
+      workPackageRequirements.add(id);
     }
   }
+  packetRequirementsByWorkPackage.set(workPackage.id, workPackageRequirements);
 }
 
 const phaseOneRequirements = new Set(
@@ -348,6 +362,23 @@ const phaseOnePacketGaps = [...phaseOneRequirements].filter(
 );
 if (phaseOnePacketGaps.length > 0) {
   fail(`Phase 1 packet gaps: ${phaseOnePacketGaps.join(", ")}`);
+}
+
+for (const group of ledger.coverageGroups.filter((item) => item.phase === 1)) {
+  const declaredPacketCoverage = new Set(
+    group.workPackages.flatMap((workPackageId) => [
+      ...(packetRequirementsByWorkPackage.get(workPackageId) ?? []),
+    ])
+  );
+  const groupRequirements = group.requirementSelectors.flatMap(expandSelector);
+  const groupPacketGaps = groupRequirements.filter(
+    (id) => !declaredPacketCoverage.has(id)
+  );
+  if (groupPacketGaps.length > 0) {
+    fail(
+      `${group.id}: declared work-package coverage gaps: ${groupPacketGaps.join(", ")}`
+    );
+  }
 }
 
 const gitHead = spawnSync("git", ["rev-parse", "HEAD"], {

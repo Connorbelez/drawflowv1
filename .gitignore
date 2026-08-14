@@ -16,6 +16,8 @@ todos.json
 tmp/
 # Convex generated bindings and required AI guidance stay tracked so clean
 # checkouts can compile and follow the repository's Convex authoring rules.
+convex/_generated/ai/*
+!convex/_generated/ai/guidelines.md
 
 # Impeccable live mode config is source, but runtime journals are not.
 .impeccable/live/sessions/
