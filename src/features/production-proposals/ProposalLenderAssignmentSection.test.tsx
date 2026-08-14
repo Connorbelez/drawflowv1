@@ -38,7 +38,7 @@ describe("ProposalLenderAssignmentSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Assign lender" }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Review policy")).toBeTruthy();
+    expect(within(dialog).getByText("Review policy boundary")).toBeTruthy();
     expect(within(dialog).getByText("Assignment effect")).toBeTruthy();
 
     fireEvent.click(

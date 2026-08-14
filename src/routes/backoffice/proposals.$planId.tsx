@@ -240,6 +240,8 @@ function ProposalReviewRoute() {
   const [visualCostItems, setVisualCostItems] = useState(
     () => visualProposalDetail.costItems ?? []
   );
+  const [lenderAssignmentDialogOpen, setLenderAssignmentDialogOpen] =
+    useState(false);
   useEffect(() => {
     setVisualCostItems(visualProposalDetail.costItems ?? []);
   }, [visualProposalDetail]);
@@ -322,7 +324,8 @@ function ProposalReviewRoute() {
     : productionDetailQuery;
   const lenderOrganizationsQuery = useQuery(
     api.production_proposals.listEligibleExternalLenderOrganizations,
-    visualFixtureEnabled ||
+      visualFixtureEnabled ||
+      !lenderAssignmentDialogOpen ||
       !productionDetail ||
       !canManageBrokerAssignment ||
       productionDetail.proposal.status !== "approved" ||
@@ -651,6 +654,7 @@ function ProposalReviewRoute() {
         }
         initialActiveTab={search.tab}
         lenderAssignmentSurface={
+          !visualFixtureEnabled &&
           canManageBrokerAssignment &&
           productionDetail.proposal.status === "approved" &&
           productionDetail.proposal.capitalSource === "external" ? (
@@ -670,14 +674,7 @@ function ProposalReviewRoute() {
                   workosOrganizationId,
                 })
               }
-              onEditReviewPolicy={() =>
-                void navigate({
-                  params: { planId },
-                  replace: true,
-                  search: { ...search, tab: "closing" },
-                  to: "/backoffice/proposals/$planId",
-                })
-              }
+              onDialogOpenChange={setLenderAssignmentDialogOpen}
               onWithdraw={(assignmentId, reason) =>
                 withdrawExternalLender({
                   assignmentId: assignmentId as Id<"proposalLenderAssignments">,

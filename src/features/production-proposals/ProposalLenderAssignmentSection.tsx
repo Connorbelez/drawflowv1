@@ -68,6 +68,7 @@ export function ProposalLenderAssignmentSection({
   lenderOrganizations,
   lenderOrganizationsPending = false,
   onAssign,
+  onDialogOpenChange,
   onEditReviewPolicy,
   onWithdraw,
   proposal,
@@ -81,6 +82,7 @@ export function ProposalLenderAssignmentSection({
     lenderOrganizationId: string,
     reason: string
   ) => Promise<unknown> | unknown;
+  onDialogOpenChange?: (open: boolean) => void;
   onEditReviewPolicy?: () => void;
   onWithdraw?: (
     assignmentId: string,
@@ -128,10 +130,12 @@ export function ProposalLenderAssignmentSection({
     setWithdrawalAcknowledged(false);
     setDialogView(currentAssignment ? "details" : "assign");
     setDialogOpen(true);
+    onDialogOpenChange?.(true);
   };
 
   const handleOpenChange = (open: boolean) => {
     setDialogOpen(open);
+    onDialogOpenChange?.(open);
     if (!open) {
       requestAnimationFrame(() => triggerRef.current?.focus());
     }
@@ -254,6 +258,8 @@ export function ProposalLenderAssignmentSection({
         assigned={currentAssignment}
         assignmentHistory={assignmentHistory}
         assignmentReason={assignmentReason}
+        canAssign={canAssign}
+        canWithdraw={canWithdraw}
         lenderOrganizations={lenderOrganizations}
         lenderOrganizationsPending={lenderOrganizationsPending}
         onAcknowledgedChange={setAssignmentAcknowledged}
@@ -289,6 +295,8 @@ function AssignmentDialog({
   assignmentHistory,
   assignmentReason,
   approval,
+  canAssign,
+  canWithdraw,
   lenderOrganizations,
   lenderOrganizationsPending,
   onAcknowledgedChange,
@@ -315,6 +323,8 @@ function AssignmentDialog({
   assignmentHistory: readonly ProposalLenderAssignmentRecord[];
   assignmentReason: string;
   approval?: ProposalLenderApprovalSummary | null;
+  canAssign: boolean;
+  canWithdraw: boolean;
   lenderOrganizations: readonly ProposalLenderOrganizationOption[];
   lenderOrganizationsPending: boolean;
   onAcknowledgedChange: (checked: boolean) => void;
@@ -331,7 +341,9 @@ function AssignmentDialog({
   pending: boolean;
   proposal: {
     buildName: string;
+    capitalSource?: "internal" | "external";
     location: string;
+    status: "approved" | "closed" | "draft" | "submitted";
   };
   selectedOrganization?: ProposalLenderOrganizationOption;
   selectedOrganizationId: string;
@@ -362,6 +374,7 @@ function AssignmentDialog({
         approval={approval}
         assigned={assigned}
         assignmentHistory={assignmentHistory}
+        canWithdraw={canWithdraw}
         onEditReviewPolicy={onEditReviewPolicy}
         onOpenChange={onOpenChange}
         onWithdraw={() => onViewChange("withdraw")}
@@ -375,6 +388,7 @@ function AssignmentDialog({
     <FocusedAssignmentDialog
       acknowledged={acknowledged}
       assignmentReason={assignmentReason}
+      canAssign={canAssign}
       lenderOrganizations={lenderOrganizations}
       lenderOrganizationsPending={lenderOrganizationsPending}
       onAcknowledgedChange={onAcknowledgedChange}
@@ -395,6 +409,7 @@ function AssignmentDialog({
 function FocusedAssignmentDialog({
   acknowledged,
   assignmentReason,
+  canAssign,
   lenderOrganizations,
   lenderOrganizationsPending,
   onAcknowledgedChange,
@@ -411,6 +426,7 @@ function FocusedAssignmentDialog({
 }: {
   acknowledged: boolean;
   assignmentReason: string;
+  canAssign: boolean;
   lenderOrganizations: readonly ProposalLenderOrganizationOption[];
   lenderOrganizationsPending: boolean;
   onAcknowledgedChange: (checked: boolean) => void;
@@ -421,7 +437,12 @@ function FocusedAssignmentDialog({
   onSelectedOrganizationChange: (organizationId: string) => void;
   open: boolean;
   pending: boolean;
-  proposal: { buildName: string; location: string };
+  proposal: {
+    buildName: string;
+    capitalSource?: "internal" | "external";
+    location: string;
+    status: "approved" | "closed" | "draft" | "submitted";
+  };
   selectedOrganization?: ProposalLenderOrganizationOption;
   selectedOrganizationId: string;
 }) {
@@ -435,7 +456,10 @@ function FocusedAssignmentDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
-          <ProposalAssignmentContext />
+          <ProposalAssignmentContext
+            capitalSource={proposal.capitalSource}
+            status={proposal.status}
+          />
           <div className="grid gap-2">
             <Label htmlFor="production-lender-organization">
               Lender Organization
@@ -524,6 +548,7 @@ function FocusedAssignmentDialog({
             aria-describedby="production-lender-assignment-readiness"
             disabled={
               pending ||
+              !canAssign ||
               !(selectedOrganization && acknowledged && assignmentReason.trim())
             }
             onClick={onConfirm}
@@ -544,6 +569,7 @@ function AssignedLenderDialog({
   assigned,
   assignmentHistory,
   approval,
+  canWithdraw,
   onEditReviewPolicy,
   onOpenChange,
   onWithdraw,
@@ -553,6 +579,7 @@ function AssignedLenderDialog({
   assigned: ProposalLenderAssignmentRecord;
   assignmentHistory: readonly ProposalLenderAssignmentRecord[];
   approval?: ProposalLenderApprovalSummary | null;
+  canWithdraw: boolean;
   onEditReviewPolicy?: () => void;
   onOpenChange: (open: boolean) => void;
   onWithdraw: () => void;
@@ -638,7 +665,7 @@ function AssignedLenderDialog({
         </DialogPanel>
         <DialogFooter className="sm:justify-between">
           <Button
-            disabled={pending}
+            disabled={pending || !canWithdraw}
             onClick={onWithdraw}
             variant="destructive-outline"
           >
@@ -749,11 +776,19 @@ function WithdrawAssignmentDialog({
   );
 }
 
-function ProposalAssignmentContext() {
+function ProposalAssignmentContext({
+  capitalSource,
+  status,
+}: {
+  capitalSource?: "internal" | "external";
+  status: "approved" | "closed" | "draft" | "submitted";
+}) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <Badge variant="success">Approved</Badge>
-      <Badge variant="outline">External capital</Badge>
+      <Badge variant={status === "approved" ? "success" : "outline"}>
+        {proposalStatusLabel(status)}
+      </Badge>
+      <Badge variant="outline">{capitalSourceLabel(capitalSource)}</Badge>
       <Badge variant="outline">Current revision</Badge>
     </div>
   );
@@ -776,13 +811,14 @@ function ReviewPolicySnapshot({
               className="font-semibold text-sm"
               id="production-current-review-policy"
             >
-              Review policy
+              Review policy boundary
             </h3>
-            <Badge variant="success">Configured</Badge>
+            <Badge variant="outline">Back Office owned</Badge>
           </div>
           <p className="mt-1 max-w-md text-muted-foreground text-xs leading-relaxed">
-            The Back Office-configured policy applies to the current proposal
-            revision and remains read-only for the lender.
+            Policy configuration and locking remain canonical Back Office
+            concerns. The lender can review this boundary but cannot edit it
+            from the assignment flow.
           </p>
         </div>
         <Button
@@ -796,20 +832,36 @@ function ReviewPolicySnapshot({
       </div>
       <dl className="grid gap-x-5 gap-y-3 text-xs sm:grid-cols-2">
         <div>
-          <dt className="text-muted-foreground">Milestone review</dt>
-          <dd className="mt-1 font-semibold">Back Office + lender approval</dd>
+          <dt className="text-muted-foreground">Policy owner</dt>
+          <dd className="mt-1 font-semibold">Back Office</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Required evidence</dt>
-          <dd className="mt-1 font-semibold">Configured before closing</dd>
+          <dt className="text-muted-foreground">Lender access</dt>
+          <dd className="mt-1 font-semibold">Read-only</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Draw review</dt>
-          <dd className="mt-1 font-semibold">Back Office + lender approval</dd>
+          <dt className="text-muted-foreground">Revision scope</dt>
+          <dd className="mt-1 font-semibold">Current proposal revision</dd>
         </div>
       </dl>
     </section>
   );
+}
+
+function proposalStatusLabel(
+  status: "approved" | "closed" | "draft" | "submitted"
+) {
+  return status === "approved"
+    ? "Approved"
+    : status === "closed"
+      ? "Closed"
+      : status === "submitted"
+        ? "Submitted"
+        : "Draft";
+}
+
+function capitalSourceLabel(capitalSource?: "internal" | "external") {
+  return capitalSource === "external" ? "External capital" : "Internal capital";
 }
 
 function AssignmentImpact() {

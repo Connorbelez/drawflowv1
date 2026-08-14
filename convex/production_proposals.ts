@@ -3254,67 +3254,87 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
       return { organizations: [] };
     }
 
-    const activeBrokerages = await ctx.db
-      .query("brokerages")
-      .withIndex("by_status", (query) => query.eq("status", "active"))
-      .collect();
-    const organizations = await ctx.db.query("workosOrganizations").collect();
-    const organizationById = new Map(
-      organizations
-        .filter((organization) => organization.status === "active")
-        .map((organization) => [
-          organization.workosOrganizationId,
-          organization,
-        ]),
-    );
     const eligibleOrganizations = [];
-    for (const brokerage of activeBrokerages) {
-      if (brokerage._id === auth.brokerage._id) {
-        continue;
-      }
-      const organization = organizationById.get(brokerage.workosOrganizationId);
-      if (!organization) {
-        continue;
-      }
-      const memberships = await ctx.db
-        .query("workosOrganizationMemberships")
-        .withIndex("by_organization", (query) =>
-          query.eq("workosOrganizationId", brokerage.workosOrganizationId),
+    let organizationCursor: string | null = null;
+    while (eligibleOrganizations.length < ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
+      const organizationPage = await ctx.db
+        .query("workosOrganizations")
+        .withIndex("by_status_and_name", (query) =>
+          query.eq("status", "active"),
         )
-        .collect();
-      let eligible = false;
-      for (const membership of memberships) {
-        if (membership.status !== "active") {
+        .paginate({
+          cursor: organizationCursor,
+          numItems: ELIGIBLE_LENDER_ORGANIZATION_LIMIT,
+        });
+
+      for (const organization of organizationPage.page) {
+        const brokerages = await ctx.db
+          .query("brokerages")
+          .withIndex("by_workos_organization", (query) =>
+            query.eq("workosOrganizationId", organization.workosOrganizationId),
+          )
+          .take(2);
+        const brokerage = brokerages.length === 1 ? brokerages[0] : null;
+        if (!brokerage || brokerage._id === auth.brokerage._id || brokerage.status !== "active") {
           continue;
         }
-        const roles = normalizeRoleSlugs([
-          membership.roleSlug,
-          ...membership.roleSlugs,
-        ]);
-        if (
-          !roles.some((role) =>
-            lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
-          )
-        ) {
-          continue;
+
+        let membershipCursor: string | null = null;
+        let eligible = false;
+        while (!eligible) {
+          const membershipPage = await ctx.db
+            .query("workosOrganizationMemberships")
+            .withIndex("by_organization_and_status_and_roleSlug", (query) =>
+              query
+                .eq("workosOrganizationId", organization.workosOrganizationId)
+                .eq("status", "active"),
+            )
+            .paginate({
+              cursor: membershipCursor,
+              numItems: LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE,
+            });
+          for (const membership of membershipPage.page) {
+            const roles = normalizeRoleSlugs([
+              membership.roleSlug,
+              ...membership.roleSlugs,
+            ]);
+            if (
+              !roles.some((role) =>
+                lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+              )
+            ) {
+              continue;
+            }
+            const user = await ctx.db
+              .query("users")
+              .withIndex("by_workos_user_id", (query) =>
+                query.eq("workosUserId", membership.workosUserId),
+              )
+              .unique();
+            if (user?.status === "active") {
+              eligible = true;
+              break;
+            }
+          }
+          if (eligible || membershipPage.isDone) {
+            break;
+          }
+          membershipCursor = membershipPage.continueCursor;
         }
-        const user = await ctx.db
-          .query("users")
-          .withIndex("by_workos_user_id", (query) =>
-            query.eq("workosUserId", membership.workosUserId),
-          )
-          .unique();
-        if (user?.status === "active") {
-          eligible = true;
+        if (eligible) {
+          eligibleOrganizations.push({
+            lenderOrganizationId: organization.workosOrganizationId,
+            lenderOrganizationName: organization.name,
+          });
+        }
+        if (eligibleOrganizations.length >= ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
           break;
         }
       }
-      if (eligible) {
-        eligibleOrganizations.push({
-          lenderOrganizationId: brokerage.workosOrganizationId,
-          lenderOrganizationName: organization.name,
-        });
+      if (organizationPage.isDone) {
+        break;
       }
+      organizationCursor = organizationPage.continueCursor;
     }
     eligibleOrganizations.sort((left, right) =>
       left.lenderOrganizationName.localeCompare(right.lenderOrganizationName),

@@ -8496,7 +8496,9 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     sourceEventId: v.string(),
     sourceEventType: v.string(),
-  }).index("by_workos_organization_id", ["workosOrganizationId"]),
+  })
+    .index("by_workos_organization_id", ["workosOrganizationId"])
+    .index("by_status_and_name", ["status", "name"]),
   workosManagementOperations: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
