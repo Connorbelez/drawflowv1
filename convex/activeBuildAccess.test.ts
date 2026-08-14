@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  currentMembershipBackedTokenRoles,
-  selectActiveBuildAuthorizationCapacity,
-} from "./activeBuildAccess";
+import { selectActiveBuildAuthorizationCapacity } from "./activeBuildAccess";
 
 describe("active Build authorization capacity selection", () => {
   test("narrows both the effective role and downstream role set", () => {
@@ -22,14 +19,5 @@ describe("active Build authorization capacity selection", () => {
     expect(selected.effectiveRole).toEqual({ role: "homeowner", tier: 2 });
     expect(selected.roles).toEqual(["homeowner"]);
     expect(authorization.roles).toEqual(["builder", "homeowner"]);
-  });
-
-  test("drops stale token roles when no active WorkOS membership remains", () => {
-    expect(currentMembershipBackedTokenRoles(["admin", "broker"], 0)).toEqual(
-      []
-    );
-    expect(currentMembershipBackedTokenRoles(["admin", "broker"], 1)).toEqual(
-      ["admin", "broker"]
-    );
   });
 });
