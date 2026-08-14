@@ -2,7 +2,7 @@
   "schemaVersion": "lender-portal-mvp-traceability/v1",
   "preparationBaseline": {
     "branch": "08-13-lenderdashboard-prod",
-    "headSha": "02e825e29936ce5f7a960a68dfca1438010e5645",
+    "headSha": "1b6b33b58c13fa22db150bc0f16203c853d9e0e1",
     "preparedAt": "2026-08-14",
     "workingTreePolicy": "dirty-authorized"
   },
@@ -456,7 +456,7 @@
     {
       "id": "LP-P1-01",
       "phase": 1,
-      "status": "ready",
+      "status": "in-progress",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-01-canonical-organization-context-and-authorization.md",
       "dependsOn": [],
       "evidence": null

@@ -72,6 +72,12 @@ always-loaded prompt.
 Preparation ends with all Phase 1 work packages at `ready` and with no evidence
 attached. That state proves implementation has not started.
 
+The validator selects `prep` while every packet is ready, `execution` after
+an authorized packet transition, and `release` only when called with
+`--release`. Execution mode permits at most one in-progress packet, requires
+verified dependencies, checks packet and ledger status agreement, and rejects
+evidence attached before verification.
+
 ## Traceability rules
 
 - Every catalogued requirement is covered by at least one coverage group.
@@ -87,6 +93,6 @@ attached. That state proves implementation has not started.
 
 ## Current stop point
 
-The repository is prepared through Phase 1 work-package definition. No work
-package is in progress, no implementation evidence exists, and no product-code
-change is authorized by this execution pack alone.
+`LP-P1-01` is in progress on branch `codex/lp-p1-01`, based on source-branch
+HEAD `1b6b33b58c13fa22db150bc0f16203c853d9e0e1`. The other Phase 1 work packages
+remain ready and have no implementation evidence attached.

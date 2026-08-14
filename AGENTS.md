@@ -103,6 +103,14 @@ Direct imports from `convex/server` are still appropriate for schema, HTTP routi
   contracts: start from their route and components, replace prototype data and
   local actions with canonical integrations, and preserve the locked hierarchy
   and ownership boundaries.
+- Lender Organization Management: the approved production contract is Variant
+  E at `/lender/organization-management-prototype?variant=E`. Read
+  `docs/lender_portal_mvp_feature_brief.md`,
+  `docs/lender_portal_mvp_spec.md`, and Phase 1 of
+  `docs/lender_portal_mvp_implementation_plan.md` before implementation. Reuse
+  canonical WorkOS organization, membership, role, permission, brokerage, and
+  Back Office user-management boundaries. Do not introduce a lender-manager
+  alias or an application-owned lender organization/membership system.
 - Preserve domain vocabulary from PRD: Build, Loan, Build Proposal, Budget, Construction Roadmap, Milestone, Draw, Draw Group, Evidence Package, Site Visit, Borrower Working Capital Limit, Lender Draw Policy Limit.
 - Do not collapse lender and builder roles into generic users.
 - Do not split roadmap, draw, evidence, and approval state into disconnected modules when Build Workspace should be canonical context.

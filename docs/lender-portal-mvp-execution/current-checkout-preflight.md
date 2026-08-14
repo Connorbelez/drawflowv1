@@ -4,7 +4,7 @@
 
 - Prepared: 2026-08-14
 - Branch: `08-13-lenderdashboard-prod`
-- HEAD: `02e825e29936ce5f7a960a68dfca1438010e5645`
+- HEAD: `1b6b33b58c13fa22db150bc0f16203c853d9e0e1`
 - Working tree: dirty state explicitly accepted for preparation by the user
 - Historical planning baseline: `e299f6a3` is provenance only
 
@@ -64,3 +64,35 @@ product implementation.
 The current checkout has canonical owners that must be extended and four
 bounded Phase 1 implementation seams. Preparation may proceed to ready work
 packages. Product implementation has not started.
+
+## LP-P1-01 implementation-checkout rerun
+
+- Rerun: 2026-08-14
+- Implementation branch: `codex/lp-p1-01`
+- Source branch: `08-13-lenderdashboard-prod`
+- Base HEAD: `1b6b33b58c13fa22db150bc0f16203c853d9e0e1`
+- Working tree before the rerun: clean
+
+The canonical owners and four bounded implementation seams above are unchanged.
+The rerun found these preparation-to-implementation differences:
+
+1. The source branch advanced from the dirty preparation HEAD `02e825e2` to
+   `1b6b33b5`, which committed the prepared contract and execution documents.
+2. The validator script and package command remained only in the accepted dirty
+   preparation checkout. Their exact prepared bytes were carried into this
+   worktree; unrelated preparation-checkout `bun.lock` drift was not copied.
+3. The generated Convex AI guidance is ignored and was absent from the clean
+   worktree. The prepared checkout copy with SHA-256
+   `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`
+   was read before Convex implementation.
+4. The auth foundation remains WorkOS AuthKit plus the webhook-owned `users`,
+   `workosOrganizations`, `workosOrganizationMemberships`,
+   `workosOrganizationRoles`, `workosRoles`, and `workosPermissions`
+   projections. Brokerage tenant mapping remains owned by `brokerages`.
+5. Existing capability middleware still trusts token roles and does not resolve
+   an active projected organization membership. Existing Back Office
+   organization scope also intentionally differs from the new lender-local
+   boundary and must remain separate.
+
+The rerun therefore confirms that `LP-P1-01` is still the next
+dependency-unblocked packet and that no additional product owner is required.

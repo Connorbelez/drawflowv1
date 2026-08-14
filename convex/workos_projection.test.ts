@@ -229,6 +229,13 @@ describe("WorkOS webhook projections", () => {
     const t = convexTest(schema, modules);
 
     await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "user_builder",
+        email: "builder@example.com",
+        name: "Builder",
+        status: "active",
+        workosUserId: "user_builder",
+      });
       await ctx.db.insert("workosOrganizations", {
         domains: [],
         name: "FairLend",
@@ -358,6 +365,14 @@ describe("WorkOS webhook projections", () => {
         workosOrganizationId: "org_fairlend",
         workosUserId: "user_other",
       });
+      await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: "FairLend",
+        legalName: "FairLend",
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: "org_fairlend",
+      });
     });
 
     await expect(
@@ -381,6 +396,18 @@ describe("WorkOS webhook projections", () => {
           workosOrganizationId: "org_oakline",
         },
       ],
+    });
+    await expect(
+      asBuilderInOrganization(t, "org_fairlend").query(
+        api.workosProjection.getActiveLenderOrganizationContext,
+        {}
+      )
+    ).resolves.toMatchObject({
+      membershipIds: ["om_fairlend", "om_fairlend_duplicate"],
+      organizationName: "FairLend",
+      roles: ["principle-broker", "broker"],
+      workosOrganizationId: "org_fairlend",
+      workosUserId: "user_builder",
     });
   });
 
@@ -669,6 +696,18 @@ function asBuilder(t: any) {
   return t.withIdentity({
     email: "builder@example.com",
     name: "Builder",
+    role: "builder",
+    roles: ["builder"],
+    subject: "user_builder",
+    tokenIdentifier: "https://api.workos.com/|user_builder",
+  } as any);
+}
+
+function asBuilderInOrganization(t: any, organizationId: string) {
+  return t.withIdentity({
+    email: "builder@example.com",
+    name: "Builder",
+    organizationId,
     role: "builder",
     roles: ["builder"],
     subject: "user_builder",

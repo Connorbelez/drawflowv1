@@ -1,6 +1,6 @@
 # LP-P1-01 — Canonical organization context and authorization
 
-Status: ready
+Status: in-progress
 
 Depends on: current-checkout preflight
 

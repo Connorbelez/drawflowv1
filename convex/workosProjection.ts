@@ -6,6 +6,8 @@ import {
   type AuthorizedViewer,
   authenticatedQuery,
   backofficeQuery,
+  lenderOrganizationQuery,
+  requireActiveWorkosUser,
 } from "./authz";
 import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import { fluent } from "./fluent";
@@ -73,6 +75,23 @@ const currentUserOrganizationRow = v.object({
   roleSlug: v.optional(v.string()),
   roleSlugs: v.array(v.string()),
   workosOrganizationId: v.string(),
+});
+
+const activeLenderOrganizationRow = v.object({
+  brokerageId: v.id("brokerages"),
+  membershipIds: v.array(v.string()),
+  organizationName: v.string(),
+  roles: v.array(
+    v.union(
+      v.literal("admin"),
+      v.literal("principle-broker"),
+      v.literal("broker"),
+      v.literal("broker-staff")
+    )
+  ),
+  userId: v.id("users"),
+  workosOrganizationId: v.string(),
+  workosUserId: v.string(),
 });
 
 export const processWorkosEvent = async (
@@ -237,6 +256,7 @@ export const listCurrentUserOrganizations = authenticatedQuery
     })
   )
   .handler(async (ctx) => {
+    await requireActiveWorkosUser(ctx, ctx.viewer.subject);
     const memberships = await ctx.db
       .query("workosOrganizationMemberships")
       .withIndex("by_user", (q) => q.eq("workosUserId", ctx.viewer.subject))
@@ -348,6 +368,11 @@ export const listCurrentUserOrganizations = authenticatedQuery
 
     return { organizations };
   })
+  .public();
+
+export const getActiveLenderOrganizationContext = lenderOrganizationQuery
+  .returns(activeLenderOrganizationRow)
+  .handler(async (ctx) => ctx.activeOrganization)
   .public();
 
 function uniqueCurrentUserOrganizationSwitchTargets(
