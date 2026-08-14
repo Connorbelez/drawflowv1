@@ -468,10 +468,14 @@
     {
       "id": "LP-P1-02",
       "phase": 1,
-      "status": "in-progress",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-02-workos-operations-and-principal-broker-protection.md",
       "dependsOn": ["LP-P1-01"],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P1-02-360f11dd.md",
+        "acceptedSha": "360f11dd3d950a6bc896969df587ef909af45ee1",
+        "sha256": "75b18ad392108bcfe58703c297f01c35cb5efb8e4387b768c1f02a26b2630c30"
+      }
     },
     {
       "id": "LP-P1-03",

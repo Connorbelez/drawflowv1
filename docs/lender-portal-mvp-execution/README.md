@@ -96,10 +96,9 @@ evidence attached before verification.
 
 ## Current stop point
 
-`LP-P1-01` is verified at accepted product commit
-`4fb59b5743be08936705cad2bb3ccda3ca3dabad`, with exact-SHA evidence attached at
-`evidence/LP-P1-01-4fb59b57.md`. `LP-P1-02` is in progress on branch
-`codex/lp-p1-02` from verified dependency HEAD
-`509d13c11a189a15adb670181552fbcca335cdf6`. Its implementation-checkout
-inventory is recorded in `current-checkout-preflight.md`. The remaining Phase 1
-packets stay ready until their dependencies are independently verified.
+`LP-P1-01` and `LP-P1-02` are verified. `LP-P1-02` is accepted at product
+commit `360f11dd3d950a6bc896969df587ef909af45ee1`, with exact-SHA evidence attached
+at `evidence/LP-P1-02-360f11dd.md`. `LP-P1-03` is the next dependency-unblocked
+packet and remains `ready`; starting it requires a new explicit implementation
+instruction and a fresh implementation-checkout preflight. `LP-P1-04` and
+`LP-P1-05` remain ready behind their declared dependency gates.

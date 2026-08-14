@@ -1,6 +1,6 @@
 # LP-P1-02 — WorkOS operations and Principal Broker protection
 
-Status: in-progress
+Status: verified
 
 Depends on: LP-P1-01
 
