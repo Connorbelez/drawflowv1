@@ -35,7 +35,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 });
 
 vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn(),
+  useMutation: () =>
+    vi.fn().mockResolvedValue("https://example.test/source-document.pdf"),
   usePaginatedQuery: () => {
     if (convexMocks.paginatedQueryError) {
       throw convexMocks.paginatedQueryError;
@@ -46,11 +47,32 @@ vi.mock("convex/react", () => ({
       status: "Exhausted",
     };
   },
-  useQuery: (reference: unknown) =>
-    getFunctionName(reference as Parameters<typeof getFunctionName>[0]) ===
-    "build_collaboration_rollout:getBuildCollaborationRolloutState"
-      ? convexMocks.collaborationRolloutState
-      : undefined,
+  useQuery: (reference: unknown) => {
+    const name = getFunctionName(
+      reference as Parameters<typeof getFunctionName>[0]
+    );
+    if (
+      name === "build_collaboration_rollout:getBuildCollaborationRolloutState"
+    ) {
+      return convexMocks.collaborationRolloutState;
+    }
+    if (
+      name ===
+      "build_submilestone_workspace:getBuildSubmilestoneWorkspaceBootstrap"
+    ) {
+      if (convexMocks.collaborationRolloutState.status !== "active") {
+        return undefined;
+      }
+      return {
+        capabilities: {
+          canonical: { approveChild: { allowed: true } },
+          review: { requestChanges: { allowed: true } },
+        },
+        submilestone: { buildSubmilestoneId: "sub-01" },
+      };
+    }
+    return undefined;
+  },
 }));
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
@@ -2320,6 +2342,53 @@ describe("ProductionBuildDetailSurface", () => {
       screen.queryByTestId("milestone-detail-sheet-assign-visit"),
     ).toBeNull();
     expect(screen.queryByTestId("milestone-detail-sheet-reject")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excavation actions" }));
+    expect(screen.getByRole("menuitem", { name: "Open full detail" })).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: /Approve Sub-milestone/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: /Reject Sub-milestone/ }),
+    ).toBeNull();
+  });
+
+  test("routes Back Office child decisions to the canonical governed Review tab", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerCapacity="admin"
+        viewerRole="lender"
+        workosOrganizationId="org_1"
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "Evidence" })).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: "Receipts / invoices" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Collaboration" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excavation actions" }));
+    expect(
+      screen.getByRole("menuitem", { name: "Approve Sub-milestone" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /^Reject Sub-milestone/ }),
+    );
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      { kind: "submilestone", submilestoneId: "sub-01" },
+      { selectedTab: "review" },
+    );
   });
 
   test("writes clicked milestone cards back to the production route search state", () => {

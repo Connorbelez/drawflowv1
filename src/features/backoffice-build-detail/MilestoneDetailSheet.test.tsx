@@ -199,7 +199,7 @@ function renderSheet(
 }
 
 describe("MilestoneDetailSheet", () => {
-  test("renders only the parent aggregate and read-only child ledger", () => {
+  test("renders the canonical parent aggregate with the accepted shared tabs", () => {
     renderSheet();
 
     expect(screen.getByText("Milestone execution")).toBeTruthy();
@@ -208,10 +208,95 @@ describe("MilestoneDetailSheet", () => {
     expect(screen.getByText("Concrete pour")).toBeTruthy();
     expect(screen.queryByText("Submilestone detail")).toBeNull();
     expect(screen.queryByText("Guided completion")).toBeNull();
-    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Evidence",
+      "Receipts / invoices",
+      "Collaboration",
+    ]);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Footing forms actions" }),
+    );
     expect(
-      screen.getAllByRole("button", { name: "Open Sub-milestone" })[0],
-    ).toHaveProperty("disabled", true);
+      screen
+        .getByRole("menuitem", { name: "Open full detail" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+  });
+
+  test("aggregates evidence and cost documents across canonical children", () => {
+    const onOpenCanonicalTarget = vi.fn();
+    const onOpenCostDocument = vi.fn();
+    const onOpenCostDocumentPage = vi.fn();
+    renderSheet({
+      onOpenCanonicalTarget,
+      onOpenCostDocument,
+      onOpenCostDocumentPage,
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
+    expect(screen.getByText("Builder evidence")).toBeTruthy();
+    expect(screen.getByText("Completed footing forms")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Footing forms" }));
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      { kind: "submilestone", submilestoneId: "submilestone-forms" },
+      { selectedTab: "evidence" },
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Receipts / invoices" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Open \/ download/ })[0]);
+    expect(onOpenCostDocumentPage).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: "cost-document-page-forms" })
+    );
+    expect(onOpenCostDocument).not.toHaveBeenCalled();
+  });
+
+  test("shows review gates and only exposes governed reviewer menu actions when supplied", () => {
+    const onApprove = vi.fn();
+    const onReject = vi.fn();
+    const firstChild = sheetData.submilestones?.[0];
+    if (!firstChild) {
+      throw new Error("Expected a child fixture.");
+    }
+    renderSheet({
+      data: {
+        ...sheetData,
+        submilestones: [
+          {
+            ...firstChild,
+            review: {
+              backOfficeApproved: false,
+              backOfficeRequired: true,
+              lenderApprovals: 1,
+              lenderQuorumRequired: true,
+              lenderQuorumSize: 2,
+              state: "pending_review",
+            },
+          },
+        ],
+      },
+      onOpenCanonicalTarget: vi.fn(),
+      submilestoneReviewActions: { onApprove, onReject },
+    });
+
+    expect(screen.getByText("Pending Review")).toBeTruthy();
+    expect(screen.getByText("Back Office · Pending")).toBeTruthy();
+    expect(screen.getByText("Lender quorum · 1/2")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Footing forms actions" }),
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Approve Sub-milestone" }),
+    );
+    expect(onApprove).toHaveBeenCalledWith("forms");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Footing forms actions" }),
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /Reject Sub-milestone/ }),
+    );
+    expect(onReject).toHaveBeenCalledWith("forms");
   });
 
   test("retains In progress while showing accessible active overdue health", () => {
@@ -353,8 +438,9 @@ describe("MilestoneDetailSheet", () => {
     renderSheet({ onOpenCanonicalTarget });
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Open Sub-milestone" })[0],
+      screen.getByRole("button", { name: "Footing forms actions" }),
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open full detail" }));
 
     expect(onOpenCanonicalTarget).toHaveBeenCalledTimes(1);
     expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
@@ -416,11 +502,14 @@ describe("MilestoneDetailSheet", () => {
       onOpenCanonicalTarget,
     });
 
-    const openButton = screen.getByRole("button", {
-      name: "Open Sub-milestone",
+    fireEvent.click(
+      screen.getByRole("button", { name: "Footing forms actions" }),
+    );
+    const openItem = screen.getByRole("menuitem", {
+      name: "Open full detail",
     });
-    expect((openButton as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(openButton);
+    expect(openItem.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(openItem);
     expect(onOpenCanonicalTarget).not.toHaveBeenCalled();
   });
 
