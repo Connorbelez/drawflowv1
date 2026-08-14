@@ -30,6 +30,9 @@ convex/_generated/ai/
 # Kept out of git and therefore out of Vercel/production deployments.
 artifacts/
 prototypes/
+# Runtime prototype components are source and must remain version-controlled.
+!src/components/prototypes/
+!src/components/prototypes/**
 docs/prototypes/
 .claude/worktrees/
 .git/worktrees/

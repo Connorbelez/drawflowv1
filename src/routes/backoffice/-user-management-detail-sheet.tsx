@@ -11,7 +11,13 @@ import {
   ShieldCheck,
   UserMinus,
 } from "lucide-react";
-import { type ReactElement, useId, useMemo, useState } from "react";
+import {
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useMemo,
+  useState,
+} from "react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -78,14 +84,18 @@ export function UserDetailSheet({
   onOpenChange,
   organizationsById,
   provisioningByOrg,
+  readOnly = false,
+  readOnlySupplement,
   roleOptionsByOrganization,
   workspaceOrganizations,
 }: {
   directoryUser: DirectoryUser | null;
-  handlers: SheetHandlers;
+  handlers?: SheetHandlers;
   onOpenChange: (open: boolean) => void;
   organizationsById: Map<string, WorkosOrganizationRow>;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
+  readOnly?: boolean;
+  readOnlySupplement?: ReactNode;
   roleOptionsByOrganization: Map<string, string[]>;
   workspaceOrganizations: WorkosOrganizationRow[];
 }): ReactElement {
@@ -98,6 +108,8 @@ export function UserDetailSheet({
             handlers={handlers}
             organizationsById={organizationsById}
             provisioningByOrg={provisioningByOrg}
+            readOnly={readOnly}
+            readOnlySupplement={readOnlySupplement}
             roleOptionsByOrganization={roleOptionsByOrganization}
             workspaceOrganizations={workspaceOrganizations}
           />
@@ -112,13 +124,17 @@ function UserDetailBody({
   handlers,
   organizationsById,
   provisioningByOrg,
+  readOnly,
+  readOnlySupplement,
   roleOptionsByOrganization,
   workspaceOrganizations,
 }: {
   directoryUser: DirectoryUser;
-  handlers: SheetHandlers;
+  handlers?: SheetHandlers;
   organizationsById: Map<string, WorkosOrganizationRow>;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
+  readOnly: boolean;
+  readOnlySupplement?: ReactNode;
   roleOptionsByOrganization: Map<string, string[]>;
   workspaceOrganizations: WorkosOrganizationRow[];
 }): ReactElement {
@@ -157,9 +173,12 @@ function UserDetailBody({
               <span className="truncate">{user.email}</span>
             </SheetDescription>
           </div>
-          <Badge variant={status === "active" ? "success" : "outline"}>
-            {status}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {readOnly ? <Badge variant="outline">Read-only</Badge> : null}
+            <Badge variant={status === "active" ? "success" : "outline"}>
+              {status}
+            </Badge>
+          </div>
         </div>
         <p className="font-mono text-[0.6875rem] text-muted-foreground/80">
           {user.workosUserId}
@@ -170,21 +189,35 @@ function UserDetailBody({
           handlers={handlers}
           memberships={memberships}
           organizationsById={organizationsById}
+          readOnly={readOnly}
           roleOptionsByOrganization={roleOptionsByOrganization}
         />
-        <AddMembershipSection
-          availableOrganizations={availableOrganizations}
-          onCreateMembership={handlers.onCreateMembership}
-          roleOptionsByOrganization={roleOptionsByOrganization}
-          userId={user.workosUserId ?? ""}
-          workspaceOrganizations={workspaceOrganizations}
-        />
-        <ProfilesSection
-          handlers={handlers}
-          memberships={memberships}
-          provisioningByOrg={provisioningByOrg}
-          workosUserId={user.workosUserId ?? ""}
-        />
+        {readOnly ? (
+          <ProfilesSection
+            memberships={memberships}
+            provisioningByOrg={provisioningByOrg}
+            readOnly
+            workosUserId={user.workosUserId ?? ""}
+          />
+        ) : null}
+        {readOnlySupplement}
+        {readOnly || !handlers ? null : (
+          <>
+            <AddMembershipSection
+              availableOrganizations={availableOrganizations}
+              onCreateMembership={handlers.onCreateMembership}
+              roleOptionsByOrganization={roleOptionsByOrganization}
+              userId={user.workosUserId ?? ""}
+              workspaceOrganizations={workspaceOrganizations}
+            />
+            <ProfilesSection
+              handlers={handlers}
+              memberships={memberships}
+              provisioningByOrg={provisioningByOrg}
+              workosUserId={user.workosUserId ?? ""}
+            />
+          </>
+        )}
       </SheetPanel>
       <SheetFooter variant="bare">
         <SheetClose render={<Button variant="outline" />}>Close</SheetClose>
@@ -197,11 +230,13 @@ function MembershipsSection({
   handlers,
   memberships,
   organizationsById,
+  readOnly,
   roleOptionsByOrganization,
 }: {
-  handlers: SheetHandlers;
+  handlers?: SheetHandlers;
   memberships: WorkosMembershipRow[];
   organizationsById: Map<string, WorkosOrganizationRow>;
+  readOnly: boolean;
   roleOptionsByOrganization: Map<string, string[]>;
 }): ReactElement {
   const canonicalMemberships = useMemo(
@@ -216,7 +251,9 @@ function MembershipsSection({
       />
       {canonicalMemberships.length === 0 ? (
         <EmptyHint>
-          This account belongs to no organization yet. Add one below.
+          {readOnly
+            ? "No organization membership is projected for this account."
+            : "This account belongs to no organization yet. Add one below."}
         </EmptyHint>
       ) : (
         <div className="flex flex-col gap-2.5">
@@ -230,6 +267,7 @@ function MembershipsSection({
                 organizationsById.values(),
                 membership.workosOrganizationId
               )}
+              readOnly={readOnly}
               roleOptions={
                 roleOptionsByOrganization.get(
                   membership.workosOrganizationId
@@ -247,11 +285,13 @@ function MembershipCard({
   handlers,
   membership,
   organizationName,
+  readOnly,
   roleOptions,
 }: {
-  handlers: SheetHandlers;
+  handlers?: SheetHandlers;
   membership: WorkosMembershipRow;
   organizationName: string;
+  readOnly: boolean;
   roleOptions: string[];
 }): ReactElement {
   const [saving, setSaving] = useState(false);
@@ -272,7 +312,7 @@ function MembershipCard({
         </div>
         <div className="flex items-center gap-1.5">
           <MembershipStatusBadge status={membership.status} />
-          {membership.status === "inactive" ? (
+          {!readOnly && handlers && membership.status === "inactive" ? (
             <Button
               disabled={saving}
               onClick={async () => {
@@ -292,7 +332,7 @@ function MembershipCard({
               Reactivate
             </Button>
           ) : null}
-          {isDeleted ? null : (
+          {readOnly || !handlers || isDeleted ? null : (
             <ConfirmButton
               confirmLabel="Remove membership"
               description={`This revokes ${organizationName} access for this account. The membership is removed in WorkOS and can only be restored by re-inviting.`}
@@ -315,24 +355,42 @@ function MembershipCard({
           )}
         </div>
       </div>
-      <RoleEditor
-        disabled={isDeleted}
-        onSubmit={async (args) => {
-          setSaving(true);
-          try {
-            await handlers.onRoleUpdate({
-              membershipId: membership.workosMembershipId,
-              ...args,
-            });
-          } finally {
-            setSaving(false);
-          }
-        }}
-        pending={saving}
-        primaryRoleSlug={membership.roleSlug}
-        roleOptions={[...new Set([...roleOptions, ...selectedRoles])]}
-        roleSlugs={selectedRoles}
-      />
+      {readOnly || !handlers ? (
+        <div className="flex flex-col gap-2">
+          <p className="font-medium text-muted-foreground text-xs">Roles</p>
+          <div className="flex flex-wrap gap-1.5">
+            {selectedRoles.length > 0 ? (
+              selectedRoles.map((role) => (
+                <Badge key={role} variant="secondary">
+                  {role}
+                  {role === membership.roleSlug ? " · Primary" : ""}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-muted-foreground text-xs">No roles</span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <RoleEditor
+          disabled={isDeleted}
+          onSubmit={async (args) => {
+            setSaving(true);
+            try {
+              await handlers.onRoleUpdate({
+                membershipId: membership.workosMembershipId,
+                ...args,
+              });
+            } finally {
+              setSaving(false);
+            }
+          }}
+          pending={saving}
+          primaryRoleSlug={membership.roleSlug}
+          roleOptions={[...new Set([...roleOptions, ...selectedRoles])]}
+          roleSlugs={selectedRoles}
+        />
+      )}
     </div>
   );
 }
@@ -449,11 +507,13 @@ function ProfilesSection({
   handlers,
   memberships,
   provisioningByOrg,
+  readOnly = false,
   workosUserId,
 }: {
-  handlers: SheetHandlers;
+  handlers?: SheetHandlers;
   memberships: WorkosMembershipRow[];
   provisioningByOrg: Map<string, OrganizationProvisioning>;
+  readOnly?: boolean;
   workosUserId: string;
 }): ReactElement | null {
   const orgs = useMemo(() => {
@@ -502,6 +562,7 @@ function ProfilesSection({
             isBuilder={isBuilder}
             key={provisioning.workosOrganizationId}
             provisioning={provisioning}
+            readOnly={readOnly}
             workosUserId={workosUserId}
           />
         ))}
@@ -515,12 +576,14 @@ function ProfileRow({
   isBroker,
   isBuilder,
   provisioning,
+  readOnly,
   workosUserId,
 }: {
-  handlers: SheetHandlers;
+  handlers?: SheetHandlers;
   isBroker: boolean;
   isBuilder: boolean;
   provisioning: OrganizationProvisioning;
+  readOnly: boolean;
   workosUserId: string;
 }): ReactElement {
   const [savingBrokerage, setSavingBrokerage] = useState(false);
@@ -538,7 +601,7 @@ function ProfileRow({
     provisioning.builderProfile !== null;
 
   const linkAs = async (role: "owner" | "staff") => {
-    if (!provisioning.builderProfile) {
+    if (!(provisioning.builderProfile && handlers)) {
       return;
     }
     setSavingBuilder(true);
@@ -554,7 +617,7 @@ function ProfileRow({
   };
 
   const unlink = async () => {
-    if (!existingLink) {
+    if (!(existingLink && handlers)) {
       return;
     }
     setSavingBuilder(true);
@@ -593,10 +656,12 @@ function ProfileRow({
           ) : null}
         </div>
       </div>
-      {showBrokerageAction ||
-      showBuilderProvision ||
-      showLinkActions ||
-      linkedAsBuilder ? (
+      {!readOnly &&
+      handlers &&
+      (showBrokerageAction ||
+        showBuilderProvision ||
+        showLinkActions ||
+        linkedAsBuilder) ? (
         <div className="flex flex-wrap items-center gap-2 border-border/60 border-t pt-3">
           {showBrokerageAction ? (
             <Button

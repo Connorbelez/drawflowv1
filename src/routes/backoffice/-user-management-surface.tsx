@@ -1,6 +1,12 @@
 "use client";
 
 import {
+  type ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import {
   AlertTriangle,
   Building2,
   CheckCircle2,
@@ -939,43 +945,13 @@ function DirectoryPanel({
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[36%]">Person</TableHead>
-                <TableHead>Roles</TableHead>
-                <TableHead>Organizations</TableHead>
-                <TableHead>Profiles</TableHead>
-                <TableHead className="text-right">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pending ? (
-                <PlaceholderRows columnCount={5} />
-              ) : filtered.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    className="py-10 text-center text-muted-foreground text-sm"
-                    colSpan={5}
-                  >
-                    No people match the current filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filtered.map((entry) => (
-                  <PersonRow
-                    entry={entry}
-                    key={entry.user._id ?? entry.user.workosUserId}
-                    onClick={() => onRowClick(entry.user.workosUserId ?? "")}
-                    organizationsById={organizationsById}
-                    provisioningByOrg={provisioningByOrg}
-                  />
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+        <UserManagementDirectoryTable
+          onRowClick={onRowClick}
+          organizationsById={organizationsById}
+          pending={pending}
+          provisioningByOrg={provisioningByOrg}
+          rows={filtered}
+        />
       </FramePanel>
     </Frame>
   );
@@ -1012,142 +988,289 @@ function FilterSelect({
   );
 }
 
-function PersonRow({
-  entry,
-  onClick,
+export function UserManagementDirectoryTable({
+  emptyMessage = "No people match the current filters.",
+  onRowClick,
   organizationsById,
+  pending,
+  provisioningByOrg,
+  rowActionVerb = "Manage",
+  rows,
+}: {
+  emptyMessage?: string;
+  onRowClick: (workosUserId: string) => void;
+  organizationsById: Map<string, WorkosOrganizationRow>;
+  pending: boolean;
+  provisioningByOrg: Map<string, OrganizationProvisioning>;
+  rowActionVerb?: "Manage" | "View";
+  rows: DirectoryUser[];
+}): ReactElement {
+  const columns = useMemo<ColumnDef<DirectoryUser>[]>(
+    () => [
+      {
+        cell: ({ row }) => (
+          <PersonCell
+            entry={row.original}
+            onOpen={() => onRowClick(row.original.user.workosUserId ?? "")}
+            rowActionVerb={rowActionVerb}
+          />
+        ),
+        header: "Person",
+        id: "person",
+      },
+      {
+        cell: ({ row }) => <RolesCell entry={row.original} />,
+        header: "Roles",
+        id: "roles",
+      },
+      {
+        cell: ({ row }) => (
+          <OrganizationsCell
+            entry={row.original}
+            organizationsById={organizationsById}
+          />
+        ),
+        header: "Organizations",
+        id: "organizations",
+      },
+      {
+        cell: ({ row }) => (
+          <ProfilesCell
+            entry={row.original}
+            provisioningByOrg={provisioningByOrg}
+          />
+        ),
+        header: "Profiles",
+        id: "profiles",
+      },
+      {
+        cell: ({ row }) => (
+          <UserStatusBadge status={row.original.user.status} />
+        ),
+        header: "Status",
+        id: "status",
+      },
+    ],
+    [onRowClick, organizationsById, provisioningByOrg, rowActionVerb]
+  );
+  const table = useReactTable({
+    columns,
+    data: rows,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (row) =>
+      String(row.user._id ?? row.user.workosUserId ?? row.user.authId),
+  });
+
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <TableRow className="hover:bg-transparent" key={headerGroup.id}>
+              {headerGroup.headers.map((header) => (
+                <TableHead
+                  className={
+                    header.column.id === "person"
+                      ? "w-[36%]"
+                      : header.column.id === "status"
+                        ? "text-right"
+                        : undefined
+                  }
+                  key={header.id}
+                >
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
+                </TableHead>
+              ))}
+            </TableRow>
+          ))}
+        </TableHeader>
+        <TableBody>
+          {pending ? (
+            <PlaceholderRows columnCount={columns.length} />
+          ) : table.getRowModel().rows.length === 0 ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell
+                className="py-10 text-center text-muted-foreground text-sm"
+                colSpan={columns.length}
+              >
+                {emptyMessage}
+              </TableCell>
+            </TableRow>
+          ) : (
+            table.getRowModel().rows.map((row) => (
+              <TableRow
+                className="cursor-pointer transition-colors hover:bg-accent/40 has-[button[data-row-trigger]:focus-visible]:bg-accent/40"
+                key={row.id}
+                onClick={() => onRowClick(row.original.user.workosUserId ?? "")}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell
+                    className={
+                      cell.column.id === "status" ? "text-right" : undefined
+                    }
+                    key={cell.id}
+                  >
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function PersonCell({
+  entry,
+  onOpen,
+  rowActionVerb,
+}: {
+  entry: DirectoryUser;
+  onOpen: () => void;
+  rowActionVerb: "Manage" | "View";
+}): ReactElement {
+  const { displayName, initials, user } = entry;
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <Avatar className="size-8 bg-secondary text-secondary-foreground">
+        <AvatarFallback className="bg-secondary text-secondary-foreground">
+          {initials}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0">
+        <button
+          aria-label={`${rowActionVerb} ${displayName}`}
+          className="block min-w-0 max-w-full truncate rounded-sm text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-row-trigger
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+          type="button"
+        >
+          {displayName}
+        </button>
+        <p className="truncate text-muted-foreground text-xs">
+          {user.email ?? user.workosUserId}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function RolesCell({ entry }: { entry: DirectoryUser }): ReactElement {
+  const distinctRoles = uniqueRoles(entry.memberships);
+  if (distinctRoles.length === 0) {
+    return <span className="text-muted-foreground text-xs">No roles</span>;
+  }
+  return (
+    <div className="flex max-w-[18rem] flex-wrap gap-1">
+      {distinctRoles.slice(0, 3).map((role) => (
+        <Badge key={role} variant="secondary">
+          {role}
+        </Badge>
+      ))}
+      {distinctRoles.length > 3 ? (
+        <Badge title={distinctRoles.slice(3).join(", ")} variant="outline">
+          +{distinctRoles.length - 3}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function OrganizationsCell({
+  entry,
+  organizationsById,
+}: {
+  entry: DirectoryUser;
+  organizationsById: Map<string, WorkosOrganizationRow>;
+}): ReactElement {
+  const orgsForUser = entry.memberships.filter(
+    (membership) => membership.status === "active"
+  );
+  if (orgsForUser.length === 0) {
+    return <span className="text-muted-foreground text-xs">No orgs</span>;
+  }
+  return (
+    <ul className="flex max-w-[20rem] flex-col gap-0.5">
+      {orgsForUser.slice(0, 2).map((membership) => (
+        <li
+          className="truncate text-xs"
+          key={membership._id ?? membership.workosMembershipId}
+        >
+          {organizationsById.get(membership.workosOrganizationId)?.name ??
+            membership.workosOrganizationId}
+        </li>
+      ))}
+      {orgsForUser.length > 2 ? (
+        <li
+          className="text-muted-foreground text-xs"
+          title={orgsForUser
+            .slice(2)
+            .map(
+              (membership) =>
+                organizationsById.get(membership.workosOrganizationId)?.name ??
+                membership.workosOrganizationId
+            )
+            .join(", ")}
+        >
+          +{orgsForUser.length - 2} more
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
+function ProfilesCell({
+  entry,
   provisioningByOrg,
 }: {
   entry: DirectoryUser;
-  onClick: () => void;
-  organizationsById: Map<string, WorkosOrganizationRow>;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
 }): ReactElement {
-  const { user, memberships, displayName, initials } = entry;
-  const distinctRoles = uniqueRoles(memberships);
-  const orgsForUser = memberships.filter((m) => m.status === "active");
-  const profileFlags = computeProfileFlags(memberships, provisioningByOrg);
-
+  const profileFlags = computeProfileFlags(
+    entry.memberships,
+    provisioningByOrg
+  );
   return (
-    <TableRow
-      className="cursor-pointer transition-colors hover:bg-accent/40 has-[button[data-row-trigger]:focus-visible]:bg-accent/40"
-      onClick={onClick}
-    >
-      <TableCell>
-        <div className="flex min-w-0 items-center gap-3">
-          <Avatar className="size-8 bg-secondary text-secondary-foreground">
-            <AvatarFallback className="bg-secondary text-secondary-foreground">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <button
-              aria-label={`Manage ${displayName}`}
-              className="block min-w-0 max-w-full truncate rounded-sm text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              data-row-trigger
-              onClick={(event) => {
-                event.stopPropagation();
-                onClick();
-              }}
-              type="button"
-            >
-              {displayName}
-            </button>
-            <p className="truncate text-muted-foreground text-xs">
-              {user.email ?? user.workosUserId}
-            </p>
-          </div>
-        </div>
-      </TableCell>
-      <TableCell>
-        {distinctRoles.length === 0 ? (
-          <span className="text-muted-foreground text-xs">No roles</span>
-        ) : (
-          <div className="flex max-w-[18rem] flex-wrap gap-1">
-            {distinctRoles.slice(0, 3).map((role) => (
-              <Badge key={role} variant="secondary">
-                {role}
-              </Badge>
-            ))}
-            {distinctRoles.length > 3 ? (
-              <Badge
-                title={distinctRoles.slice(3).join(", ")}
-                variant="outline"
-              >
-                +{distinctRoles.length - 3}
-              </Badge>
-            ) : null}
-          </div>
-        )}
-      </TableCell>
-      <TableCell>
-        {orgsForUser.length === 0 ? (
-          <span className="text-muted-foreground text-xs">No orgs</span>
-        ) : (
-          <ul className="flex max-w-[20rem] flex-col gap-0.5">
-            {orgsForUser.slice(0, 2).map((membership) => (
-              <li
-                className="truncate text-xs"
-                key={membership._id ?? membership.workosMembershipId}
-              >
-                {organizationsById.get(membership.workosOrganizationId)?.name ??
-                  membership.workosOrganizationId}
-              </li>
-            ))}
-            {orgsForUser.length > 2 ? (
-              <li
-                className="text-muted-foreground text-xs"
-                title={orgsForUser
-                  .slice(2)
-                  .map(
-                    (membership) =>
-                      organizationsById.get(membership.workosOrganizationId)
-                        ?.name ?? membership.workosOrganizationId
-                  )
-                  .join(", ")}
-              >
-                +{orgsForUser.length - 2} more
-              </li>
-            ) : null}
-          </ul>
-        )}
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-1">
-          {profileFlags.brokerage ? (
-            <Badge variant="success">
-              <Building2 className="size-3" />
-              Brokerage
-            </Badge>
-          ) : profileFlags.needsBrokerage ? (
-            <Badge variant="warning">
-              <AlertTriangle className="size-3" />
-              Brokerage missing
-            </Badge>
-          ) : null}
-          {profileFlags.builder ? (
-            <Badge variant="success">
-              <HardHat className="size-3" />
-              Builder
-            </Badge>
-          ) : profileFlags.needsBuilder ? (
-            <Badge variant="warning">
-              <AlertTriangle className="size-3" />
-              Builder missing
-            </Badge>
-          ) : null}
-          {profileFlags.brokerage ||
-          profileFlags.builder ||
-          profileFlags.needsBrokerage ||
-          profileFlags.needsBuilder ? null : (
-            <span className="text-muted-foreground text-xs">—</span>
-          )}
-        </div>
-      </TableCell>
-      <TableCell className="text-right">
-        <UserStatusBadge status={user.status} />
-      </TableCell>
-    </TableRow>
+    <div className="flex flex-wrap items-center gap-1">
+      {profileFlags.brokerage ? (
+        <Badge variant="success">
+          <Building2 className="size-3" />
+          Brokerage
+        </Badge>
+      ) : profileFlags.needsBrokerage ? (
+        <Badge variant="warning">
+          <AlertTriangle className="size-3" />
+          Brokerage missing
+        </Badge>
+      ) : null}
+      {profileFlags.builder ? (
+        <Badge variant="success">
+          <HardHat className="size-3" />
+          Builder
+        </Badge>
+      ) : profileFlags.needsBuilder ? (
+        <Badge variant="warning">
+          <AlertTriangle className="size-3" />
+          Builder missing
+        </Badge>
+      ) : null}
+      {profileFlags.brokerage ||
+      profileFlags.builder ||
+      profileFlags.needsBrokerage ||
+      profileFlags.needsBuilder ? null : (
+        <span className="text-muted-foreground text-xs">—</span>
+      )}
+    </div>
   );
 }
 

@@ -13,7 +13,10 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { UserDetailSheet } from "./-user-management-detail-sheet";
 import type { DirectoryUser } from "./-user-management-detail-sheet";
-import { UserManagementSurface } from "./-user-management-surface";
+import {
+  UserManagementDirectoryTable,
+  UserManagementSurface,
+} from "./-user-management-surface";
 import type {
   OrganizationProvisioning,
   UserManagementHandlers,
@@ -482,6 +485,111 @@ describe("UserDetailSheet role editor", () => {
     expect(
       membershipEditor.getByRole("alert").textContent
     ).toContain("WorkOS unavailable");
+  });
+});
+
+describe("shared read-only user management", () => {
+  test("renders the shared directory table and opens a selected row", () => {
+    const onRowClick = vi.fn();
+    const user = directoryUser([
+      membership({
+        roleSlug: "admin",
+        roleSlugs: ["admin", "principle-broker"],
+        workosMembershipId: "om_existing",
+        workosOrganizationId: "org_alpha",
+      }),
+    ]);
+
+    render(
+      <UserManagementDirectoryTable
+        onRowClick={onRowClick}
+        organizationsById={orgMap([ORG_ALPHA])}
+        pending={false}
+        provisioningByOrg={new Map()}
+        rowActionVerb="View"
+        rows={[user]}
+      />
+    );
+
+    const table = screen.getByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent)
+    ).toEqual(["Person", "Roles", "Organizations", "Profiles", "Status"]);
+
+    fireEvent.click(
+      within(table).getByRole("button", { name: "View River Han" })
+    );
+    expect(onRowClick).toHaveBeenCalledWith("user_1");
+  });
+
+  test("shows membership roles without rendering mutation controls", () => {
+    const user = directoryUser([
+      membership({
+        roleSlug: "admin",
+        roleSlugs: ["admin", "principle-broker"],
+        workosMembershipId: "om_existing",
+        workosOrganizationId: "org_alpha",
+      }),
+    ]);
+
+    render(
+      <UserDetailSheet
+        directoryUser={user}
+        onOpenChange={() => undefined}
+        organizationsById={orgMap([ORG_ALPHA])}
+        provisioningByOrg={
+          new Map([
+            [
+              "org_alpha",
+              {
+                brokerage: {
+                  _id: "brokerage_alpha",
+                  displayName: "Alpha Lending",
+                  legalName: "Alpha Lending",
+                  principalBrokerWorkosUserId: "user_1",
+                  status: "active",
+                },
+                brokerMemberships: [],
+                builderAccountLinks: [],
+                builderMemberships: [],
+                builderProfile: null,
+                hasBrokerageProfile: true,
+                hasBuilderProfile: false,
+                name: "Alpha Lending",
+                needsBrokerageProfile: false,
+                needsBuilderProfile: false,
+                status: "active",
+                workosOrganizationId: "org_alpha",
+              } satisfies OrganizationProvisioning,
+            ],
+          ])
+        }
+        readOnly
+        readOnlySupplement={<p>Administration workflow context</p>}
+        roleOptionsByOrganization={roleOptionsMap(
+          [ORG_ALPHA],
+          ["admin", "principle-broker"]
+        )}
+        workspaceOrganizations={[ORG_ALPHA]}
+      />
+    );
+
+    expect(screen.getByText("Read-only")).toBeTruthy();
+    expect(screen.getAllByText("Alpha Lending")).toHaveLength(2);
+    expect(screen.getByText("admin · Primary")).toBeTruthy();
+    expect(screen.getByText("principle-broker")).toBeTruthy();
+    expect(screen.getByText("Workspace profiles")).toBeTruthy();
+    expect(screen.getByText("Brokerage profile")).toBeTruthy();
+    expect(screen.getByText("Administration workflow context")).toBeTruthy();
+    expect(screen.queryByText("Add to organization")).toBeNull();
+    expect(screen.queryByText("Profiles and links")).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: /add membership|reactivate|remove|save roles/i,
+      })
+    ).toBeNull();
   });
 });
 
