@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { operationalRequestFingerprint } from "./build_operational_idempotency";
+import { assertProposalLenderApprovalTimestamps } from "./production_proposals";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -809,6 +810,41 @@ function findLegacyDrawOperationCollision(input: {
 }
 
 describe("production proposal foundation", () => {
+  test("enforces lender approval timestamp invariants", () => {
+    expect(() =>
+      assertProposalLenderApprovalTimestamps({ status: "approved" }),
+    ).toThrow("approvedAt");
+    expect(() =>
+      assertProposalLenderApprovalTimestamps({
+        approvedAt: 1,
+        declinedAt: 2,
+        status: "approved",
+      }),
+    ).toThrow("declinedAt");
+    expect(() =>
+      assertProposalLenderApprovalTimestamps({ status: "declined" }),
+    ).toThrow("declinedAt");
+    expect(() =>
+      assertProposalLenderApprovalTimestamps({
+        approvedAt: 1,
+        declinedAt: 2,
+        status: "declined",
+      }),
+    ).toThrow("approvedAt");
+    expect(() =>
+      assertProposalLenderApprovalTimestamps({
+        approvedAt: 1,
+        status: "approved",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertProposalLenderApprovalTimestamps({
+        declinedAt: 2,
+        status: "declined",
+      }),
+    ).not.toThrow();
+  });
+
   test("projects explicit capital, approval, closing, and activation axes", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(

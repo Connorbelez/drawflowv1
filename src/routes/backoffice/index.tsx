@@ -293,6 +293,7 @@ function dashboardProposalDirectoryCard(
     column: card.column,
     createdAt: card.createdAt,
     href: card.href,
+    interestAnnualBps: card.interestAnnualBps,
     id: card.proposalId,
     lenderDrawPolicyLimitCents: card.lenderDrawPolicyLimitCents,
     loanAmount: centsToCurrency(card.totalBudgetCents),
@@ -441,7 +442,7 @@ function RouteComponent() {
           buildStartDate: input.buildStartDate,
           ianaTimezone: input.ianaTimezone,
           loanFacility: {
-            interestAnnualBps: 925,
+            interestAnnualBps: proposal.interestAnnualBps ?? 925,
             principalCents: proposal.lenderDrawPolicyLimitCents ?? 0,
           },
           proposalId,

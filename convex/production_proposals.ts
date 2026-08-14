@@ -3550,6 +3550,10 @@ export const approveExternalProposalForClosing = authenticatedMutation
       throw new Error("Forbidden: lender proposal approval role");
     }
     const now = Date.now();
+    assertProposalLenderApprovalTimestamps({
+      approvedAt: now,
+      status: "approved",
+    });
     const approvalId = await ctx.db.insert("proposalLenderApprovals", {
       approverRole,
       approverWorkosUserId: auth.subject,
@@ -6467,9 +6471,10 @@ export const recordProposalClosing = authenticatedMutation
     }
     requireReason(args.reason);
     const timezone = validateBuildTimezone(args.ianaTimezone);
-    if (!args.buildStartDate.trim()) {
-      throw new Error("Closing requires a build start date.");
-    }
+    const buildStartDate = normalizeIsoDateOnly(
+      args.buildStartDate,
+      "Closing build start date",
+    );
     if (
       !Number.isFinite(args.loanFacility.interestAnnualBps) ||
       !Number.isFinite(args.loanFacility.principalCents) ||
@@ -6515,7 +6520,7 @@ export const recordProposalClosing = authenticatedMutation
     const now = Date.now();
     const closingId = await ctx.db.insert("proposalClosings", {
       brokerageId: auth.brokerage._id,
-      buildStartDate: args.buildStartDate.trim(),
+      buildStartDate,
       closedAt: now,
       closedByRole,
       closedByWorkosUserId: auth.subject,
@@ -6565,6 +6570,12 @@ export const activateClosedProposal = authenticatedMutation
     if (!auth.isCurrentLenderActor) {
       requireAnyRole(auth.roles, APPROVER_ROLES);
       requireBackofficeProposalWrite(auth, auth.proposal);
+    } else if (
+      !auth.roles.some((role) =>
+        lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+      )
+    ) {
+      throw new Error("Forbidden: activation authority");
     }
     requireState(auth.proposal, "closed");
     requireReason(args.reason);
@@ -31024,6 +31035,9 @@ function productionDashboardProposalCard(
     column: card?.column ?? proposal.status,
     createdAt: proposal.createdAt,
     href: card?.href ?? `/backoffice/proposals/${proposal._id}`,
+    ...(proposal.interestAnnualBps === undefined
+      ? {}
+      : { interestAnnualBps: proposal.interestAnnualBps }),
     id: String(proposal._id),
     lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
     loanAmount: centsToCurrency(
@@ -34037,8 +34051,9 @@ async function isActiveEligibleLenderApproval(
         .eq("workosUserId", approval.approverWorkosUserId)
         .eq("workosOrganizationId", assignment.lenderOrganizationId),
     )
+    .filter((query) => query.eq(query.field("status"), "active"))
     .first();
-  if (!membership || membership.status !== "active") {
+  if (!membership) {
     return false;
   }
   const roles = normalizeRoleSlugs([
@@ -34203,9 +34218,34 @@ function projectProposalLenderApproval(
 ) {
   return {
     approvalId: approval._id,
-    approvedAt: approval.approvedAt,
+    ...(approval.status === "approved"
+      ? { approvedAt: approval.approvedAt }
+      : { declinedAt: approval.declinedAt }),
     status: approval.status,
   };
+}
+
+export function assertProposalLenderApprovalTimestamps(input: {
+  approvedAt?: number;
+  declinedAt?: number;
+  status: "approved" | "declined";
+}) {
+  if (
+    input.status === "approved" &&
+    (input.approvedAt === undefined || input.declinedAt !== undefined)
+  ) {
+    throw new Error(
+      "Approved lender decisions require approvedAt and cannot include declinedAt.",
+    );
+  }
+  if (
+    input.status === "declined" &&
+    (input.declinedAt === undefined || input.approvedAt !== undefined)
+  ) {
+    throw new Error(
+      "Declined lender decisions require declinedAt and cannot include approvedAt.",
+    );
+  }
 }
 
 function requireReason(reason: string) {
