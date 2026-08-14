@@ -765,7 +765,7 @@ describe("WorkOS webhook projections", () => {
       api.workosProjection.getLenderOrganizationManagement,
       {}
     );
-    expect(first.summary).toEqual({
+    expect(first.pageSummary).toEqual({
       active: 2,
       administrators: 0,
       pending: 1,
@@ -867,7 +867,7 @@ describe("WorkOS webhook projections", () => {
       api.workosProjection.getLenderOrganizationManagement,
       {}
     );
-    expect(deactivated.summary).toMatchObject({ active: 1, removed: 1 });
+    expect(deactivated.pageSummary).toMatchObject({ active: 1, removed: 1 });
     expect(
       deactivated.members.find(
         (member: any) => member.membership.workosMembershipId === "om_broker_effects"
@@ -891,7 +891,7 @@ describe("WorkOS webhook projections", () => {
       api.workosProjection.getLenderOrganizationManagement,
       {}
     );
-    expect(reactivated.summary).toMatchObject({
+    expect(reactivated.pageSummary).toMatchObject({
       active: 2,
       administrators: 1,
       removed: 0,

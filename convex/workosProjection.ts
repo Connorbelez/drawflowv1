@@ -523,7 +523,7 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
         status: v.union(v.literal("active"), v.literal("deleted")),
         workosOrganizationId: v.string(),
       }),
-      summary: v.object({
+      pageSummary: v.object({
         active: v.number(),
         administrators: v.number(),
         pending: v.number(),
@@ -661,7 +661,7 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
         status: organization.status,
         workosOrganizationId: organization.workosOrganizationId,
       },
-      summary: {
+      pageSummary: {
         active: count("active"),
         administrators: members.filter(
           (member) =>
