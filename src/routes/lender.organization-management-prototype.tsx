@@ -9,16 +9,12 @@ import {
   Database,
   FileLock2,
   Filter,
-  History,
   Landmark,
   ListFilter,
   LockKeyhole,
   Search,
   ShieldCheck,
-  UserMinus,
-  UserPlus,
   UserRoundCheck,
-  UserRoundCog,
   Users,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
@@ -59,14 +55,16 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
-import { Tabs, TabsList, TabsPanel, TabsTab } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
+import {
+  LenderMemberAdministrationDetails as ApprovedMemberAdministrationDetails,
+  LenderOrganizationManagementVariantE as ApprovedVariantE,
+} from "../features/lender-organization-management/LenderOrganizationManagementVariantE";
 import { cn } from "../lib/utils";
 import {
   type DirectoryUser,
   UserDetailSheet,
 } from "./backoffice/-user-management-detail-sheet";
-import { UserManagementDirectoryTable } from "./backoffice/-user-management-surface";
 import type {
   OrganizationProvisioning,
   WorkosMembershipRow,
@@ -384,9 +382,21 @@ function LenderOrganizationManagementPrototype() {
           {variant === "C" ? <VariantC {...sharedProps} /> : null}
           {variant === "D" ? <VariantD {...sharedProps} /> : null}
           {variant === "E" ? (
-            <VariantE
-              onOpenOperation={setPrototypeOperation}
+            <ApprovedVariantE
+              activeMemberCount={prototypeDirectoryUsers.length}
+              administrationContext="Admin · Principal Broker"
+              directoryUsers={prototypeDirectoryUsers}
+              mode="prototype"
+              onOpenOperation={(operation) => {
+                if (operation !== "transfer-principal") {
+                  setPrototypeOperation(operation);
+                }
+              }}
               onOpenUser={setSelectedDirectoryUserId}
+              organizationName={organization.name}
+              organizationsById={prototypeOrganizationsById}
+              pending={false}
+              provisioningByOrg={prototypeProvisioningByOrg}
             />
           ) : null}
         </main>
@@ -404,9 +414,18 @@ function LenderOrganizationManagementPrototype() {
         readOnlyBadgeLabel="Operations prototype"
         readOnlySupplement={
           selectedDirectoryUser ? (
-            <MemberAdministrationDetails
+            <ApprovedMemberAdministrationDetails
+              activeMembershipCount={prototypeDirectoryUsers.length}
+              historyCount={0}
               member={selectedDirectoryUser}
-              onOpenOperation={setPrototypeOperation}
+              mode="prototype"
+              onOpenOperation={(operation) => {
+                if (operation !== "transfer-principal") {
+                  setPrototypeOperation(operation);
+                }
+              }}
+              organizationName={organization.name}
+              showTransfer={false}
             />
           ) : null
         }
@@ -763,350 +782,6 @@ function VariantD({ currentMember }: VariantProps) {
   );
 }
 
-function VariantE({
-  onOpenOperation,
-  onOpenUser,
-}: {
-  onOpenOperation: (operation: PrototypeOperation) => void;
-  onOpenUser: (workosUserId: string) => void;
-}) {
-  const [memberQuery, setMemberQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "active" | "pending" | "inactive"
-  >("all");
-  const visibleDirectoryUsers = useMemo(() => {
-    const normalizedQuery = memberQuery.trim().toLowerCase();
-    return prototypeDirectoryUsers.filter((entry) => {
-      const matchesQuery =
-        !normalizedQuery ||
-        [
-          entry.displayName,
-          entry.user.email,
-          ...entry.memberships.flatMap((membership) => [
-            membership.roleSlug,
-            ...(membership.roleSlugs ?? []),
-          ]),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedQuery);
-      const matchesStatus =
-        statusFilter === "all" ||
-        entry.memberships.some(
-          (membership) => membership.status === statusFilter
-        );
-      return matchesQuery && matchesStatus;
-    });
-  }, [memberQuery, statusFilter]);
-  const statusFilters = [
-    { count: prototypeDirectoryUsers.length, key: "all", label: "All" },
-    {
-      count: prototypeDirectoryUsers.filter((entry) =>
-        entry.memberships.some((membership) => membership.status === "active")
-      ).length,
-      key: "active",
-      label: "Active",
-    },
-    {
-      count: prototypeDirectoryUsers.filter((entry) =>
-        entry.memberships.some((membership) => membership.status === "pending")
-      ).length,
-      key: "pending",
-      label: "Pending",
-    },
-    {
-      count: prototypeDirectoryUsers.filter((entry) =>
-        entry.memberships.some((membership) => membership.status === "inactive")
-      ).length,
-      key: "inactive",
-      label: "Deactivated",
-    },
-  ] as const;
-
-  return (
-    <div className="space-y-5">
-      <PageHeading
-        description="The production User Management table and membership sheet, composed into the lender workspace with operational workflows staged safely in memory."
-        eyebrow="Variant E · Shared user management"
-        title="Organization members"
-      />
-      <OrganizationSummaryStrip />
-      <Frame>
-        <FramePanel
-          aria-label="Shared user management directory"
-          className="flex flex-col gap-0 overflow-hidden p-0"
-          role="region"
-        >
-          <div className="flex flex-col gap-4 border-b p-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h2 className="font-semibold text-sm">Organization members</h2>
-                <p className="mt-1 text-muted-foreground text-xs">
-                  Exact Back Office table component and visual fixture · E3, E4
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="outline">shadcn Table</Badge>
-                <Badge variant="outline">TanStack Table</Badge>
-                <Badge variant="secondary">Operational sheet</Badge>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="relative min-w-0 max-w-sm flex-1">
-                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    aria-label="Search organization members"
-                    className="pl-7"
-                    onChange={(event) => setMemberQuery(event.target.value)}
-                    placeholder="Search name, email, or role"
-                    size="sm"
-                    type="search"
-                    value={memberQuery}
-                  />
-                </div>
-                <fieldset className="flex flex-wrap gap-1">
-                  <legend className="sr-only">Membership status</legend>
-                  {statusFilters.map((filter) => (
-                    <Button
-                      key={filter.key}
-                      onClick={() => setStatusFilter(filter.key)}
-                      size="xs"
-                      variant={
-                        statusFilter === filter.key ? "secondary" : "ghost"
-                      }
-                    >
-                      {filter.label}
-                      <span className="tabular-nums">{filter.count}</span>
-                    </Button>
-                  ))}
-                </fieldset>
-              </div>
-              <Button
-                onClick={() => onOpenOperation("invite")}
-                size="sm"
-                variant="outline"
-              >
-                <UserPlus />
-                Invite member
-              </Button>
-            </div>
-          </div>
-          <UserManagementDirectoryTable
-            emptyMessage="No organization members match this view."
-            onRowClick={onOpenUser}
-            organizationsById={prototypeOrganizationsById}
-            pending={false}
-            provisioningByOrg={prototypeProvisioningByOrg}
-            rowActionVerb="View"
-            rows={visibleDirectoryUsers}
-          />
-        </FramePanel>
-      </Frame>
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Membership context</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <CheckLine text="Select a member to inspect their WorkOS organization membership" />
-            <CheckLine text="Stage access and deactivation operations from the membership sheet" />
-            <CheckLine text="Review the complete local draft and downstream impact before execution" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Policy boundary</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <BoundaryLine text="No invitation delivery, WorkOS mutation, role assignment, or policy change" />
-            <BoundaryLine text="No quorum eligibility or satisfaction claim" />
-            <BoundaryLine text="Pre-closing review requirements remain Back Office-owned" />
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function MemberAdministrationDetails({
-  member,
-  onOpenOperation,
-}: {
-  member: DirectoryUser;
-  onOpenOperation: (operation: PrototypeOperation) => void;
-}) {
-  const membership = member.memberships[0];
-  const activeMembershipCount = prototypeDirectoryUsers.filter((entry) =>
-    entry.memberships.some((row) => row.status === "active")
-  ).length;
-
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-heading font-semibold text-sm">
-            Access and administration
-          </h3>
-          <p className="mt-1 text-muted-foreground text-xs leading-5">
-            Stage member operations, validate drafts, and review downstream
-            effects. Drafts stay local and never call WorkOS.
-          </p>
-        </div>
-        <Badge variant="outline">E1–E9</Badge>
-      </div>
-      <Tabs defaultValue="access">
-        <TabsList
-          className="w-full justify-start overflow-x-auto"
-          variant="underline"
-        >
-          <TabsTab value="access">Access</TabsTab>
-          <TabsTab value="administration">Administration</TabsTab>
-          <TabsTab value="review">Review relationship</TabsTab>
-          <TabsTab value="history">History</TabsTab>
-        </TabsList>
-        <TabsPanel className="pt-3" value="access">
-          <div className="flex flex-col divide-y">
-            <SheetFact
-              label="Active organization"
-              source="E2, E4"
-              value={organization.name}
-            />
-            <SheetFact
-              label="Account status"
-              source="E3, E4"
-              value={member.user.status ?? "Unknown"}
-            />
-            <SheetFact
-              label="Membership state"
-              source="E3, E4"
-              value={membership?.status ?? "Unknown"}
-            />
-            <SheetFact
-              label="Access scope"
-              source="E1, E2, E7"
-              value="Organization-wide · Admin + Principal Broker"
-            />
-            <SheetFact
-              label="Principal Broker protection"
-              source="E2, E8"
-              value="Transfer-of-control required before replacement"
-            />
-          </div>
-        </TabsPanel>
-        <TabsPanel className="space-y-3 pt-3" value="administration">
-          <WorkflowPreview
-            action="Organization-level control"
-            buttonLabel="Start invite"
-            description="Invite or add brokers and staff inside the active organization. Stage an email and verified starting role before reviewing the draft."
-            icon={UserPlus}
-            onSelect={() => onOpenOperation("invite")}
-            source="E2, E8"
-            title="Invite or add member"
-          />
-          <WorkflowPreview
-            action="Member-level control"
-            buttonLabel="Stage access change"
-            description="Change a non-protected member's WorkOS roles through the canonical WorkOS action boundary. Review current and proposed access together."
-            icon={UserRoundCog}
-            onSelect={() => onOpenOperation("change-access")}
-            source="E1, E2, E7"
-            title="Change member access"
-          />
-          <WorkflowPreview
-            action="Protected for this member"
-            buttonLabel="Review deactivation"
-            description="Deactivation ends future access and actions while preserving membership and decision history. The displayed Principal Broker requires transfer-of-control first."
-            icon={UserMinus}
-            onSelect={() => onOpenOperation("deactivate")}
-            source="E2, E8, E9"
-            title="Deactivate member"
-          />
-          <WorkflowPreview
-            action="Unresolved mapping"
-            buttonLabel="Back Office only"
-            description="The transferred lender contract makes manager appointment Back Office-controlled, but the current WorkOS projection has no separate manager capability. No parallel role is inferred here."
-            disabled
-            icon={LockKeyhole}
-            source="E9"
-            title="Appoint or replace manager"
-          />
-        </TabsPanel>
-        <TabsPanel className="space-y-3 pt-3" value="review">
-          <div className="flex flex-col divide-y">
-            <SheetFact
-              label="Representative review rule"
-              source="E5, E6"
-              value="2 active lender members"
-            />
-            <SheetFact
-              label="Verified active memberships shown"
-              source="E3, E4"
-              value={String(activeMembershipCount)}
-            />
-            <SheetFact
-              label="Eligibility or satisfaction"
-              source="E5, E6"
-              value="Not derived on this surface"
-            />
-            <SheetFact
-              label="Policy owner"
-              source="E5, E6"
-              value="Back Office pre-closing review requirements"
-            />
-          </div>
-          <div className="flex gap-3 border-t pt-3 text-muted-foreground text-xs leading-5">
-            <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-            <p>
-              Membership changes must be consumed by quorum re-evaluation,
-              recipient routing, work queues, and audit. This sheet explains
-              that relationship; it does not own or change the approval policy.
-            </p>
-          </div>
-        </TabsPanel>
-        <TabsPanel className="space-y-3 pt-3" value="history">
-          <div className="flex flex-col divide-y">
-            <SheetFact
-              label="Identity source"
-              source="E1, E3"
-              value="WorkOS read projection"
-            />
-            <SheetFact
-              label="Membership record"
-              source="E3, E4"
-              value={membership?.workosMembershipId ?? "Not available"}
-            />
-            <SheetFact
-              label="Membership timeline"
-              source="E9"
-              value="Required by transferred contract · not exposed by current projection"
-            />
-            <SheetFact
-              label="Decision history"
-              source="E5"
-              value="Preserved in review workflows · not duplicated here"
-            />
-            <SheetFact
-              label="Prototype audit events"
-              source="E1, E2"
-              value="None · operational drafts are local and discarded"
-            />
-          </div>
-          <div className="flex gap-3 border-t pt-3 text-muted-foreground text-xs leading-5">
-            <History className="mt-0.5 size-4 shrink-0" />
-            <p>
-              Production mutations require auditable actor and state history.
-              The current fixture verifies only the present projection, so no
-              dates, inviters, appointing actors, or prior states are invented.
-            </p>
-          </div>
-        </TabsPanel>
-      </Tabs>
-    </section>
-  );
-}
-
 function SheetFact({
   label,
   source,
@@ -1126,62 +801,6 @@ function SheetFact({
       </div>
       <p className="text-sm sm:text-right">{value}</p>
     </div>
-  );
-}
-
-function WorkflowPreview({
-  action,
-  buttonLabel,
-  description,
-  disabled = false,
-  icon: Icon,
-  onSelect,
-  source,
-  title,
-}: {
-  action: string;
-  buttonLabel?: string;
-  description: string;
-  disabled?: boolean;
-  icon: typeof UserPlus;
-  onSelect?: () => void;
-  source: string;
-  title: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex gap-3 p-3.5">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-          <Icon className="size-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <p className="font-medium text-sm">{title}</p>
-              <p className="mt-0.5 font-mono text-muted-foreground text-xs">
-                {source}
-              </p>
-            </div>
-            <Badge variant="outline">{action}</Badge>
-          </div>
-          <p className="mt-2 text-muted-foreground text-xs leading-5">
-            {description}
-          </p>
-          {buttonLabel ? (
-            <Button
-              className="mt-3"
-              disabled={disabled}
-              onClick={onSelect}
-              size="sm"
-              variant="outline"
-            >
-              {buttonLabel}
-              {disabled ? <LockKeyhole /> : <ArrowRight />}
-            </Button>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

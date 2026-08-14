@@ -1,32 +1,53 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Mail, ShieldCheck, Users } from "lucide-react";
-import { useState } from "react";
-
+import {
+  createFileRoute,
+  type ErrorComponentProps,
+} from "@tanstack/react-router";
+import { useAction, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
+import { LockKeyhole } from "lucide-react";
+import { useMemo, useState } from "react";
 import { LenderShell } from "#/components/lender-shell.tsx";
-import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
+import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Card, CardContent, CardHeader } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import {
-  Sheet,
-  SheetDescription,
-  SheetHeader,
-  SheetPanel,
-  SheetPopup,
-  SheetTitle,
-} from "#/components/ui/sheet.tsx";
+  LenderMemberAdministrationDetails,
+  LenderOrganizationManagementVariantE,
+  type LenderOrganizationOperation,
+} from "#/features/lender-organization-management/LenderOrganizationManagementVariantE.tsx";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "#/components/ui/table.tsx";
+  LenderOrganizationOperationDialog,
+  type LenderOrganizationOperationRequest,
+} from "#/features/lender-organization-management/LenderOrganizationOperationDialog.tsx";
+import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
+import {
+  type DirectoryUser,
+  UserDetailSheet,
+} from "#/routes/backoffice/-user-management-detail-sheet.tsx";
+import type {
+  OrganizationProvisioning,
+  WorkosOrganizationRow,
+  WorkosUserRow,
+} from "#/routes/backoffice/-user-management-types.ts";
+import { api } from "../../../convex/_generated/api";
+
+type LenderManagementProjection = FunctionReturnType<
+  typeof api.workosProjection.getLenderOrganizationManagement
+>;
+const WHITESPACE_PATTERN = /\s+/;
+const AUTHORIZATION_ERROR_PATTERN = /forbidden|unauthorized/i;
 
 export const Route = createFileRoute("/lender/organization")({
+  beforeLoad: ({ context, location }) =>
+    requireUserManagementWriteAccess({
+      isAuthenticated: Boolean(context.userId),
+      organizationId: context.organizationId,
+      pathname: location.pathname,
+      roles: [context.role, ...(context.roles ?? [])],
+      workspace: "lender",
+    }),
   component: LenderOrganization,
+  errorComponent: LenderOrganizationError,
   staticData: {
     breadcrumb: {
       label: "Organization",
@@ -35,214 +56,315 @@ export const Route = createFileRoute("/lender/organization")({
   },
 });
 
-interface PlaceholderMember {
-  email: string;
-  initials: string;
-  name: string;
-  reviewAccess: string;
-  role: string;
-  status: "Active";
-}
-
-// TODO(lender-portal): replace this local organization view model with the
-// canonical lender organization and membership projections. Until those exist,
-// do not reuse Back Office user-management records as lender data.
-const LENDER_ORGANIZATION_PLACEHOLDER = {
-  members: [
-    {
-      email: "morgan.lee@example.test",
-      initials: "ML",
-      name: "Morgan Lee",
-      reviewAccess: "Can participate in lender reviews",
-      role: "Organization administrator",
-      status: "Active",
-    },
-    {
-      email: "alex.rivera@example.test",
-      initials: "AR",
-      name: "Alex Rivera",
-      reviewAccess: "Can participate in lender reviews",
-      role: "Lender reviewer",
-      status: "Active",
-    },
-  ] satisfies readonly PlaceholderMember[],
-  name: "Meridian Capital",
-} as const;
-
-function LenderOrganization() {
-  const [selectedMember, setSelectedMember] =
-    useState<PlaceholderMember | null>(null);
-
+function LenderOrganizationError({ error, reset }: ErrorComponentProps) {
+  const forbidden = AUTHORIZATION_ERROR_PATTERN.test(
+    error instanceof Error ? error.message : String(error)
+  );
   return (
     <LenderShell activeNavigation="Organization" pageTitle="Organization">
-      <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
-        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6">
-          <header className="flex flex-wrap items-start justify-between gap-4 border-b pb-5">
-            <div>
-              <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
-                Lender organization
-              </p>
-              <h1 className="mt-1 font-semibold text-2xl">
-                {LENDER_ORGANIZATION_PLACEHOLDER.name}
-              </h1>
-              <p className="mt-1 text-muted-foreground text-sm">
-                Organization members and their lender review access.
-              </p>
-            </div>
-            <Badge variant="outline">Placeholder data</Badge>
-          </header>
-
-          <Frame>
-            <FramePanel className="flex gap-3">
-              <ShieldCheck
-                aria-hidden="true"
-                className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-              />
-              <div>
-                <p className="font-medium text-sm">
-                  Read-only organization view
-                </p>
-                <p className="mt-1 text-muted-foreground text-sm">
-                  Membership changes will be connected when the lender
-                  organization administration contract is implemented.
-                </p>
+      <main className="flex min-h-[calc(100vh-3.5rem)] items-start justify-center bg-muted/30 p-4 pt-16 md:p-6 md:pt-24">
+        <Frame className="w-full max-w-xl">
+          <FramePanel className="p-6">
+            <div className="flex items-start gap-4">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <LockKeyhole className="size-5" />
               </div>
-            </FramePanel>
-          </Frame>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center gap-2 font-medium text-sm">
-              <Users
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-              Members
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Member</TableHead>
-                    <TableHead>Organization role</TableHead>
-                    <TableHead>Review access</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>
-                      <span className="sr-only">Open member details</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {LENDER_ORGANIZATION_PLACEHOLDER.members.map((member) => (
-                    <TableRow key={member.email}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <Avatar size="sm">
-                            <AvatarFallback>{member.initials}</AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm">{member.name}</p>
-                            <p className="truncate text-muted-foreground text-xs">
-                              {member.email}
-                            </p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm">{member.role}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {member.reviewAccess}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="success">{member.status}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          onClick={() => setSelectedMember(member)}
-                          size="sm"
-                          variant="outline"
-                        >
-                          View
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.14em]">
+                  {forbidden ? "Access restricted" : "Organization unavailable"}
+                </p>
+                <h1 className="mt-2 font-heading font-semibold text-xl">
+                  {forbidden
+                    ? "You cannot manage this lender organization."
+                    : "Organization management could not load."}
+                </h1>
+                <p className="mt-2 text-muted-foreground text-sm leading-6">
+                  {forbidden
+                    ? "Use an active organization membership with Admin or Principal Broker access. No organization data was exposed."
+                    : "The canonical WorkOS projection is temporarily unavailable. No membership command was submitted."}
+                </p>
+                <Button className="mt-5" onClick={reset} variant="outline">
+                  Try again
+                </Button>
+              </div>
+            </div>
+          </FramePanel>
+        </Frame>
       </main>
-
-      <MemberDetailSheet
-        member={selectedMember}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedMember(null);
-          }
-        }}
-      />
     </LenderShell>
   );
 }
 
-function MemberDetailSheet({
-  member,
-  onOpenChange,
-}: {
-  member: PlaceholderMember | null;
-  onOpenChange: (open: boolean) => void;
-}) {
+function LenderOrganization() {
+  const management = useQuery(
+    api.workosProjection.getLenderOrganizationManagement,
+    {}
+  );
+  const inviteUser = useAction(api.workosManagement.inviteUser);
+  const updateMembershipRoles = useAction(
+    api.workosManagement.updateMembershipRoles
+  );
+  const deactivateMembership = useAction(
+    api.workosManagement.deactivateMembership
+  );
+  const transferPrincipalBroker = useAction(
+    api.workosManagement.transferPrincipalBroker
+  );
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [operation, setOperation] =
+    useState<LenderOrganizationOperation | null>(null);
+  const [pending, setPending] = useState(false);
+  const [status, setStatus] = useState<
+    { kind: "error" | "success"; message: string } | undefined
+  >();
+
+  const directoryUsers = useMemo(
+    () => toDirectoryUsers(management?.members ?? []),
+    [management?.members]
+  );
+  const organization = management?.organization as
+    | (WorkosOrganizationRow & { brokerageId?: string })
+    | undefined;
+  const organizationName = organization?.name ?? "Loading organization…";
+  const organizationsById = useMemo(
+    () =>
+      organization
+        ? new Map([[organization.workosOrganizationId, organization]])
+        : new Map<string, WorkosOrganizationRow>(),
+    [organization]
+  );
+  const provisioningByOrg = useMemo(
+    () => new Map<string, OrganizationProvisioning>(),
+    []
+  );
+  const roleOptionsByOrganization = useMemo(
+    () =>
+      organization
+        ? new Map([
+            [
+              organization.workosOrganizationId,
+              ["admin", "principle-broker", "broker", "broker-staff"],
+            ],
+          ])
+        : new Map<string, string[]>(),
+    [organization]
+  );
+  const selectedDirectoryUser =
+    directoryUsers.find(
+      (entry) => entry.user.workosUserId === selectedUserId
+    ) ?? null;
+  const operationMember =
+    selectedDirectoryUser ??
+    (operation === "invite" ? null : (directoryUsers[0] ?? null));
+  const administrationContext = management
+    ? management.summary.principalBrokers > 0
+      ? "Admin · Principal Broker"
+      : "Organization administrator"
+    : "Loading access…";
+
+  const executeOperation = async (
+    request: LenderOrganizationOperationRequest
+  ) => {
+    if (!organization) {
+      return;
+    }
+    setPending(true);
+    setStatus(undefined);
+    try {
+      let result:
+        | Awaited<ReturnType<typeof inviteUser>>
+        | Awaited<ReturnType<typeof updateMembershipRoles>>
+        | Awaited<ReturnType<typeof deactivateMembership>>
+        | Awaited<ReturnType<typeof transferPrincipalBroker>>;
+      if (request.kind === "invite") {
+        result = await inviteUser({
+          email: request.email,
+          organizationId: organization.workosOrganizationId,
+          roleSlug: request.roleSlug,
+        });
+      } else if (request.kind === "change-access") {
+        result = await updateMembershipRoles({
+          membershipId: request.membershipId,
+          primaryRoleSlug: request.roleSlugs[0],
+          roleSlugs: request.roleSlugs,
+        });
+      } else if (request.kind === "deactivate") {
+        result = await deactivateMembership({
+          membershipId: request.membershipId,
+          reason: request.reason,
+        });
+      } else {
+        result = await transferPrincipalBroker(request);
+      }
+      if (result.status === "transfer-required") {
+        setStatus({
+          kind: "error",
+          message:
+            "Principal Broker protection blocked this command. Use Transfer Principal Broker control.",
+        });
+        return;
+      }
+      setStatus({
+        kind: "success",
+        message:
+          result.status === "accepted"
+            ? "Command accepted. Access updates after the canonical WorkOS projection reconciles."
+            : `Command state: ${result.status}. Review the protected workflow before retrying.`,
+      });
+      setOperation(null);
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: getSafeErrorMessage(error),
+      });
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
-    <Sheet onOpenChange={onOpenChange} open={member !== null}>
-      <SheetPopup className="w-full sm:max-w-xl" side="right">
-        {member ? (
-          <>
-            <SheetHeader className="border-b">
-              <div className="flex items-center gap-3 pr-8">
-                <Avatar className="size-11">
-                  <AvatarFallback>{member.initials}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <SheetTitle className="truncate">{member.name}</SheetTitle>
-                  <SheetDescription className="mt-1 flex items-center gap-1.5">
-                    <Mail aria-hidden="true" className="size-3.5 shrink-0" />
-                    <span className="truncate">{member.email}</span>
-                  </SheetDescription>
-                </div>
-              </div>
-            </SheetHeader>
-            <SheetPanel className="space-y-6">
-              <DetailFact label="Organization role" value={member.role} />
-              <DetailFact label="Review access" value={member.reviewAccess} />
-              <DetailFact label="Membership status" value={member.status} />
-              {/* TODO(lender-portal): connect role changes, invitations, and
-                  deactivation only after their canonical commands and audit
-                  trail are implemented. */}
-              <Frame>
-                <FramePanel>
-                  <p className="font-medium text-sm">
-                    No changes available yet
-                  </p>
-                  <p className="mt-1 text-muted-foreground text-sm">
-                    Membership administration will be available in a later
-                    implementation pass.
-                  </p>
-                </FramePanel>
-              </Frame>
-            </SheetPanel>
-          </>
-        ) : null}
-      </SheetPopup>
-    </Sheet>
+    <LenderShell
+      activeNavigation="Organization"
+      identity={{
+        avatarFallback: initials(organizationName),
+        organizationName,
+        roleLabel: administrationContext,
+        userName: "Organization administrator",
+      }}
+      pageTitle="Organization"
+    >
+      <main className="min-h-[calc(100vh-3.5rem)] bg-muted/30 pb-20">
+        <div className="mx-auto min-w-0 max-w-[1440px] space-y-4 p-4 md:p-6">
+          <div aria-atomic="true" aria-live="polite">
+            {status ? (
+              <Alert
+                variant={status.kind === "error" ? "destructive" : "default"}
+              >
+                <AlertTitle>
+                  {status.kind === "error"
+                    ? "Command not completed"
+                    : "Command accepted"}
+                </AlertTitle>
+                <AlertDescription>{status.message}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+          <LenderOrganizationManagementVariantE
+            activeMemberCount={management?.summary.active ?? 0}
+            administrationContext={administrationContext}
+            directoryUsers={directoryUsers}
+            mode="production"
+            onOpenOperation={(nextOperation) => {
+              setStatus(undefined);
+              setOperation(nextOperation);
+            }}
+            onOpenUser={setSelectedUserId}
+            organizationName={organizationName}
+            organizationsById={organizationsById}
+            pending={management === undefined}
+            provisioningByOrg={provisioningByOrg}
+          />
+        </div>
+      </main>
+      <UserDetailSheet
+        directoryUser={selectedDirectoryUser}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedUserId(null);
+          }
+        }}
+        organizationsById={organizationsById}
+        provisioningByOrg={provisioningByOrg}
+        readOnly
+        readOnlyBadgeLabel="WorkOS managed"
+        readOnlySupplement={
+          selectedDirectoryUser ? (
+            <LenderMemberAdministrationDetails
+              activeMembershipCount={management?.summary.active ?? 0}
+              historyCount={management?.history.length ?? 0}
+              member={selectedDirectoryUser}
+              mode="production"
+              onOpenOperation={(nextOperation) => {
+                setStatus(undefined);
+                setOperation(nextOperation);
+              }}
+              organizationName={organizationName}
+            />
+          ) : null
+        }
+        roleOptionsByOrganization={roleOptionsByOrganization}
+        workspaceOrganizations={organization ? [organization] : []}
+      />
+      {operation ? (
+        <LenderOrganizationOperationDialog
+          directoryUsers={directoryUsers}
+          member={operationMember}
+          onExecute={executeOperation}
+          onOpenChange={(open) => {
+            if (!(open || pending)) {
+              setOperation(null);
+            }
+          }}
+          operation={operation}
+          organizationName={organizationName}
+          pending={pending}
+        />
+      ) : null}
+    </LenderShell>
   );
 }
 
-function DetailFact({ label, value }: { label: string; value: string }) {
+function toDirectoryUsers(
+  members: LenderManagementProjection["members"]
+): DirectoryUser[] {
+  return members.map((member) => {
+    const membership = member.membership;
+    const fallbackId = membership._id as WorkosUserRow["_id"];
+    const user = (member.user ?? {
+      _creationTime: membership._creationTime,
+      _id: fallbackId,
+      authId: membership.workosUserId,
+      email: member.email ?? `${membership.workosUserId}@unknown.invalid`,
+      name: member.name ?? membership.workosUserId,
+      roleSlugs: member.roleSlugs,
+      roles: member.roleSlugs.join(", "),
+      status: membership.status === "active" ? "active" : "deleted",
+      workosUserId: membership.workosUserId,
+    }) as WorkosUserRow;
+    const displayName = member.name ?? member.email ?? membership.workosUserId;
+    return {
+      displayName,
+      initials: initials(displayName),
+      memberships: [membership],
+      user: {
+        ...user,
+        roleSlugs: member.roleSlugs,
+        roles: member.roleSlugs.join(", "),
+      },
+    };
+  });
+}
+
+function initials(value: string) {
   return (
-    <div className="space-y-1">
-      <p className="text-muted-foreground text-xs uppercase tracking-[0.12em]">
-        {label}
-      </p>
-      <p className="text-sm">{value}</p>
-    </div>
+    value
+      .split(WHITESPACE_PATTERN)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "LO"
+  );
+}
+
+function getSafeErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "The command failed. No projection state was changed optimistically.";
+  }
+  if (AUTHORIZATION_ERROR_PATTERN.test(error.message)) {
+    return "You are not authorized to manage this organization membership.";
+  }
+  return (
+    error.message ||
+    "The command failed. Try again after checking WorkOS status."
   );
 }
