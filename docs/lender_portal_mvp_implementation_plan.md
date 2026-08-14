@@ -1,6 +1,6 @@
 # DrawFlow Lender Portal MVP Implementation Plan
 
-- **Status:** Phase Zero complete for `e299f6a3`; target-branch freshness gate required
+- **Status:** Phase Zero decisions complete; current-checkout preparation refreshed for `02e825e29936ce5f7a960a68dfca1438010e5645`
 - **Feature contract:** [Confirmed feature brief](lender_portal_mvp_feature_brief.md)
 - **Consolidated specification:** [Lender Portal MVP spec](lender_portal_mvp_spec.md)
 - **Approved interfaces:** Lender Draw Queue Variant D, Build packets; Lender Build Detail Variant C, Precision console; Lender Organization Management Variant E, Shared user management operations; Builder Milestone Needs Revision Variant A, Inline revision notice; locked 2026-08-13
@@ -9,6 +9,12 @@
 ## Delivery rule
 
 Implement the feature brief in the phases below. A phase is complete only when its exit criteria pass. Preserve one canonical domain model; queue counts, dashboards, and notification work are rebuildable projections of durable records.
+
+Before product implementation, run
+`bun run validate:lender-portal-execution` and open only the next ready packet
+under `docs/lender-portal-mvp-execution/work-packages/`. A packet narrows
+context and evidence ownership; it does not replace this plan or the feature
+contract.
 
 For a Lender Portal surface with an **Accepted**, **Approved**, or **Locked**
 prototype in `src/components/prototypes/README.md`, directly promote that
@@ -109,15 +115,15 @@ The documentation baseline now:
 
 Every phase that changes authorization or workflow state must include:
 
-- tenant-isolation and Lender Organization isolation tests;
-- allow/deny permission tests for every actor in the feature brief matrix;
-- state-transition tests for valid, stale, duplicate, and out-of-order actions;
-- paired-surface tests proving every initiating action appears correctly for the next responsible actor;
-- consumer-inventory checks for queues, counts, badges, notifications, history, and builder-safe projections affected by the transition;
-- append-only audit assertions for material changes;
-- idempotency tests for retried commands and notifications;
-- accessibility tests for keyboard flow, focus movement, validation, and status announcements; and
-- exact-cycle checks so a stale proposal revision or request cycle cannot receive a current decision.
+- `LP-QG-01` tenant-isolation and Lender Organization isolation tests;
+- `LP-QG-02` allow/deny permission tests for every actor in the feature brief matrix;
+- `LP-QG-03` state-transition tests for valid, stale, duplicate, and out-of-order actions;
+- `LP-QG-04` paired-surface tests proving every initiating action appears correctly for the next responsible actor;
+- `LP-QG-05` consumer-inventory checks for queues, counts, badges, notifications, history, and builder-safe projections affected by the transition;
+- `LP-QG-06` append-only audit assertions for material changes;
+- `LP-QG-07` idempotency tests for retried commands and notifications;
+- `LP-QG-08` accessibility tests for keyboard flow, focus movement, validation, and status announcements; and
+- `LP-QG-09` exact-cycle checks so a stale proposal revision or request cycle cannot receive a current decision.
 
 ## Blast-radius assessment
 
@@ -273,6 +279,9 @@ This vertical slice is incomplete until all of the following work together:
 
 No workflow ticket is complete because one actor can click its new action. For each material transition, the implementing ticket or tightly bound ticket set must prove:
 
+Each numbered proof obligation has the stable identifier `LP-VSG-NN`, where
+`NN` is the zero-padded list number.
+
 1. one canonical command owns the transition and validates actor, resource, revision/cycle, and prior state;
 2. the initiating actor's surface exposes only valid actions;
 3. every next-responsible actor receives the correct queue/list/detail state;
@@ -306,6 +315,9 @@ The baseline implementation must refactor these verified documentation contracts
 
 These journeys are release gates, not optional browser spot checks:
 
+Each numbered journey uses the same stable `LP-E2E-NN` identifier as the
+corresponding journey in `lender_portal_mvp_spec.md`.
+
 1. **Internal capital:** Back Office approval -> no lender assignment -> internal close -> Back Office activation.
 2. **External approval:** Back Office approval -> lender assignment -> full lender confirmation -> close -> activation by each authorized side in separate tests.
 3. **Lender remediation:** lender decline with reason -> Back Office queue/detail remediation -> update same proposal -> revision/diff -> full lender reconfirmation -> close.
@@ -319,7 +331,11 @@ These journeys are release gates, not optional browser spot checks:
 
 ## Phase 0 — Resolve decisions and align documentation
 
-**Status:** Complete on 2026-08-13 for exact baseline `e299f6a3`. Reopen this phase if the implementation revision changes before Phase 1.
+**Status:** Product decisions completed on 2026-08-13 for historical baseline
+`e299f6a3`. The current-checkout implementation inventory was refreshed on
+2026-08-14 for `02e825e29936ce5f7a960a68dfca1438010e5645`; see
+`docs/lender-portal-mvp-execution/current-checkout-preflight.md`. Re-run that
+gate if the checkout changes before Phase 1 product implementation.
 
 **Depends on:** Confirmed feature brief.
 
@@ -349,32 +365,32 @@ These journeys are release gates, not optional browser spot checks:
 
 ### Work
 
-1. Reconcile the target branch's existing brokerage mapping, WorkOS organization, membership, role, permission, invitation, and webhook/sync projection boundaries before adding product authorization.
-2. Use one active organization context per lender request while preserving canonical support for a user to hold memberships in more than one WorkOS organization.
-3. Implement authorization helpers for Back Office Admin, lender Admin, Principal Broker, lender member, builder, current assignment, historical withdrawn access, and locked review-policy eligibility.
-4. Reuse the existing WorkOS-first invite, membership-role-change, and membership-deactivation commands; never write WorkOS projection tables from product flows.
-5. Enforce organization-local administration and the supported `admin`, `principle-broker`, `broker`, and `broker-staff` role set.
-6. Fail closed when normal role removal or deactivation targets the active Principal Broker; route the user to the protected transfer-of-control workflow and preserve exactly one active Principal Broker.
-7. Directly promote Variant E using the shared `UserManagementDirectoryTable` and `UserDetailSheet`, including Access, Administration, Review relationship, and History tabs.
-8. Expose command validation, authorization, pending sync, success, and failure. Reconcile route/query/write access, assignment and quorum context, recipients, queues, and audit/notification work without mutating Back Office review requirements.
-9. Audit brokerage provisioning, invitation, role changes, membership activation/deactivation, and Principal Broker transfer with actor, role, timestamp, prior/new state, warning, and reason where applicable.
+1. `LP-P1-W01` Reconcile the target branch's existing brokerage mapping, WorkOS organization, membership, role, permission, invitation, and webhook/sync projection boundaries before adding product authorization.
+2. `LP-P1-W02` Use one active organization context per lender request while preserving canonical support for a user to hold memberships in more than one WorkOS organization.
+3. `LP-P1-W03` Implement authorization helpers for Back Office Admin, lender Admin, Principal Broker, lender member, builder, current assignment, historical withdrawn access, and locked review-policy eligibility.
+4. `LP-P1-W04` Reuse the existing WorkOS-first invite, membership-role-change, and membership-deactivation commands; never write WorkOS projection tables from product flows.
+5. `LP-P1-W05` Enforce organization-local administration and the supported `admin`, `principle-broker`, `broker`, and `broker-staff` role set.
+6. `LP-P1-W06` Fail closed when normal role removal or deactivation targets the active Principal Broker; route the user to the protected transfer-of-control workflow and preserve exactly one active Principal Broker.
+7. `LP-P1-W07` Directly promote Variant E using the shared `UserManagementDirectoryTable` and `UserDetailSheet`, including Access, Administration, Review relationship, and History tabs.
+8. `LP-P1-W08` Expose command validation, authorization, pending sync, success, and failure. Reconcile route/query/write access, assignment and quorum context, recipients, queues, and audit/notification work without mutating Back Office review requirements.
+9. `LP-P1-W09` Audit brokerage provisioning, invitation, role changes, membership activation/deactivation, and Principal Broker transfer with actor, role, timestamp, prior/new state, warning, and reason where applicable.
 
 ### Tests
 
-- Users with multiple WorkOS memberships remain isolated to the active organization context for every lender request.
-- Admin and Principal Broker commands cannot cross organization boundaries or assign unsupported roles.
-- Normal role removal or deactivation cannot leave the organization without exactly one active Principal Broker.
-- WorkOS command failure or delayed sync never produces an optimistic projection write or false success state.
-- Deactivated users cannot perform new lender reads or actions; withdrawn-record access remains available only to eligible active users in the former Lender Organization.
-- Historical memberships and decisions survive deactivation.
-- Membership changes recalculate pending review eligibility, queues, and recipients without changing the locked review policy.
+- `LP-P1-T01` Users with multiple WorkOS memberships remain isolated to the active organization context for every lender request.
+- `LP-P1-T02` Admin and Principal Broker commands cannot cross organization boundaries or assign unsupported roles.
+- `LP-P1-T03` Normal role removal or deactivation cannot leave the organization without exactly one active Principal Broker.
+- `LP-P1-T04` WorkOS command failure or delayed sync never produces an optimistic projection write or false success state.
+- `LP-P1-T05` Deactivated users cannot perform new lender reads or actions; withdrawn-record access remains available only to eligible active users in the former Lender Organization.
+- `LP-P1-T06` Historical memberships and decisions survive deactivation.
+- `LP-P1-T07` Membership changes recalculate pending review eligibility, queues, and recipients without changing the locked review policy.
 
 ### Exit criteria
 
-- Every lender-facing query and command resolves one active organization context and validates canonical membership plus product assignment/policy authority.
-- Back Office Admin, Lender Admin, and Principal Broker administration matches the feature brief permission matrix and the approved Variant E contract.
-- No application-owned lender organization, membership, manager capability, or role alias is introduced.
-- Cross-tenant and cross-lender access suites are red for forbidden cases and green for allowed cases.
+- `LP-P1-X01` Every lender-facing query and command resolves one active organization context and validates canonical membership plus product assignment/policy authority.
+- `LP-P1-X02` Back Office Admin, Lender Admin, and Principal Broker administration matches the feature brief permission matrix and the approved Variant E contract.
+- `LP-P1-X03` No application-owned lender organization, membership, manager capability, or role alias is introduced.
+- `LP-P1-X04` Cross-tenant and cross-lender access suites are red for forbidden cases and green for allowed cases.
 
 ## Phase 2 — Separate proposal approval, assignment, closing, and activation
 
@@ -679,6 +695,9 @@ Create implementation tickets only after Phase 0. Keep ownership aligned to cano
 ## Final acceptance gate
 
 The MVP is complete only when:
+
+Each numbered condition has the stable identifier `LP-FINAL-NN`, where `NN` is
+the zero-padded list number.
 
 1. every acceptance criterion in `lender_portal_mvp_feature_brief.md` passes;
 2. all required implementation decisions are recorded and reflected in tests;

@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -193,7 +193,7 @@ export function BackOfficeLenderAssignmentPrototype() {
 function usePrototypePortalHost(rootRef: RefObject<HTMLDivElement | null>) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) {
       return;
@@ -403,10 +403,16 @@ function FocusedAssignmentDialog({
               onValueChange={(value) =>
                 onSelectedOrganizationChange(value as string)
               }
-              value={selectedOrganizationKey || undefined}
+              value={selectedOrganizationKey}
             >
               <SelectTrigger id="focused-lender-organization">
-                <SelectValue placeholder="Select a lender organization" />
+                <SelectValue placeholder="Select a lender organization">
+                  {(value) =>
+                    lenderOrganizations.find(
+                      (organization) => organization.key === value
+                    )?.name ?? "Select a lender organization"
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectPopup>
                 {lenderOrganizations.map((organization) => (
@@ -537,6 +543,14 @@ function WithdrawAssignmentDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
+  const acknowledgementRef = useRef<HTMLButtonElement>(null);
+
+  useLayoutEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => acknowledgementRef.current?.focus());
+    }
+  }, [open]);
+
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-lg">
@@ -567,6 +581,7 @@ function WithdrawAssignmentDialog({
               checked={acknowledged}
               id="withdraw-assignment-acknowledgement"
               onCheckedChange={onAcknowledgedChange}
+              ref={acknowledgementRef}
             />
             <span className="leading-relaxed">
               Withdraw {assigned.organizationName} and restore internal closing.
@@ -606,9 +621,9 @@ function ReviewPolicySnapshot() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-semibold text-sm" id="current-review-policy">
+            <h3 className="font-semibold text-sm" id="current-review-policy">
               Review policy
-            </h2>
+            </h3>
             <Badge variant="success">Configured</Badge>
           </div>
           <p className="mt-1 max-w-md text-muted-foreground text-xs leading-relaxed">
@@ -670,9 +685,9 @@ function AssignmentImpact() {
   return (
     <section aria-labelledby="assignment-impact" className="space-y-3">
       <Separator />
-      <h2 className="font-semibold text-sm" id="assignment-impact">
+      <h3 className="font-semibold text-sm" id="assignment-impact">
         After assignment
-      </h2>
+      </h3>
       <div className="space-y-3">
         {rows.map((row) => {
           const Icon = row.icon;

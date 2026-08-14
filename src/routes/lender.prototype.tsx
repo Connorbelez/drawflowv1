@@ -15,9 +15,8 @@ import {
   WalletCards,
 } from "lucide-react";
 import type { ComponentType } from "react";
-
-import { PrototypeVariantSwitcher } from "../components/prototypes/PrototypeVariantSwitcher";
 import { LenderPrototypeShell } from "../components/prototypes/LenderPrototypeShell";
+import { PrototypeVariantSwitcher } from "../components/prototypes/PrototypeVariantSwitcher";
 import { Badge } from "../components/ui/badge";
 import {
   Card,
@@ -141,7 +140,7 @@ function LenderDashboardPrototypeRoute() {
       return;
     }
 
-    void navigate({
+    navigate({
       replace: true,
       search: { variant: nextVariant },
       to: "/lender/prototype",
@@ -151,7 +150,7 @@ function LenderDashboardPrototypeRoute() {
   return (
     <LenderPrototypeShell>
       <div className="min-h-[calc(100vh-3.5rem)] bg-muted/30 pb-28">
-        <div className="border-y border-amber-500/30 bg-amber-50 px-4 py-2 text-center text-[11px] font-medium tracking-wide text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">
+        <div className="border-amber-500/30 border-y bg-amber-50 px-4 py-2 text-center font-medium text-amber-950 text-xs tracking-wide dark:bg-amber-950/40 dark:text-amber-100">
           THROWAWAY PROTOTYPE · READ-ONLY REPRESENTATIVE DATA · NOT PRODUCTION
         </div>
         <main className="mx-auto min-w-0 max-w-[1440px] p-4">
@@ -182,13 +181,13 @@ function PageHeading({
   return (
     <header className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
       <div>
-        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        <p className="mb-1 font-semibold text-muted-foreground text-xs uppercase tracking-[0.18em]">
           {eyebrow}
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+        <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
           {title}
         </h1>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
           {description}
         </p>
       </div>
@@ -240,7 +239,7 @@ function VariantA() {
           <CardHeader className="flex-row items-center justify-between border-b">
             <div>
               <CardTitle>Needs my action</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-muted-foreground text-xs">
                 4 assigned reviews with current workflow state
               </p>
             </div>
@@ -274,8 +273,8 @@ function VariantA() {
             <CardContent className="flex items-start gap-3 py-5">
               <ShieldCheck className="mt-0.5 size-5 text-primary-foreground" />
               <div>
-                <p className="text-sm font-semibold">Review policy in effect</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                <p className="font-semibold text-sm">Review policy in effect</p>
+                <p className="mt-1 text-muted-foreground text-xs leading-5">
                   Two active Builds require both Back Office and lender-group
                   approval.
                 </p>
@@ -307,12 +306,12 @@ function MetricCard({
         </div>
         <div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-semibold tabular-nums">{value}</span>
-            <span className="text-xs font-medium text-muted-foreground">
+            <span className="font-semibold text-2xl tabular-nums">{value}</span>
+            <span className="font-medium text-muted-foreground text-xs">
               need action
             </span>
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             {label} · {total}
           </p>
         </div>
@@ -330,18 +329,16 @@ function ActionRow({ item }: { item: (typeof actionItems)[number] }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate text-sm font-semibold">{item.title}</p>
+          <p className="truncate font-semibold text-sm">{item.title}</p>
           <Badge variant="outline">{item.type}</Badge>
         </div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
+        <p className="mt-1 truncate text-muted-foreground text-xs">
           {item.meta}
         </p>
       </div>
       <div className="hidden text-right sm:block">
-        <p className="text-xs font-medium text-foreground">{item.fact}</p>
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          Assigned to you
-        </p>
+        <p className="font-medium text-foreground text-xs">{item.fact}</p>
+        <p className="mt-1 text-muted-foreground text-xs">Assigned to you</p>
       </div>
       <ChevronRight className="size-4 text-muted-foreground" />
     </div>
@@ -351,10 +348,10 @@ function ActionRow({ item }: { item: (typeof actionItems)[number] }) {
 function PortfolioStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+      <p className="text-muted-foreground text-xs uppercase tracking-wide">
         {label}
       </p>
-      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 font-semibold text-xl tabular-nums">{value}</p>
     </div>
   );
 }
@@ -372,23 +369,23 @@ function VariantB() {
         <div className="grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
           <InlineMetric
             label="Total facility"
-            value="$18.4M"
             note="7 active Builds"
+            value="$18.4M"
           />
           <InlineMetric
             label="Funds released"
-            value="$7.8M"
             note="42% of facility"
+            value="$7.8M"
           />
           <InlineMetric
             label="Needs action"
-            value="6"
             note="Across 4 records"
+            value="6"
           />
           <InlineMetric
             label="Awaiting others"
-            value="5"
             note="No action from you"
+            value="5"
           />
         </div>
       </section>
@@ -397,8 +394,8 @@ function VariantB() {
         <section className="overflow-hidden rounded-lg border bg-card">
           <div className="flex items-center justify-between border-b px-5 py-4">
             <div>
-              <h2 className="text-sm font-semibold">Active Build ledger</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <h2 className="font-semibold text-sm">Active Build ledger</h2>
+              <p className="mt-1 text-muted-foreground text-xs">
                 All assigned Builds with their next review state
               </p>
             </div>
@@ -417,11 +414,11 @@ function VariantB() {
             <TableBody>
               {builds.map((build) => (
                 <TableRow key={build.name}>
-                  <TableCell className="pl-5 py-4">
+                  <TableCell className="py-4 pl-5">
                     <p className="font-semibold text-foreground">
                       {build.name}
                     </p>
-                    <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <p className="mt-1 flex items-center gap-1 text-muted-foreground text-xs">
                       <MapPin className="size-3" /> {build.location}
                     </p>
                   </TableCell>
@@ -430,7 +427,7 @@ function VariantB() {
                   </TableCell>
                   <TableCell>
                     <div className="w-28">
-                      <div className="mb-1 flex justify-between text-[10px] text-muted-foreground">
+                      <div className="mb-1 flex justify-between text-muted-foreground text-xs">
                         <span>{build.released}</span>
                         <span>{build.progress}%</span>
                       </div>
@@ -455,8 +452,8 @@ function VariantB() {
 
         <aside className="rounded-lg border bg-card">
           <div className="border-b px-5 py-4">
-            <h2 className="text-sm font-semibold">Review requirements</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <h2 className="font-semibold text-sm">Review requirements</h2>
+            <p className="mt-1 text-muted-foreground text-xs">
               Current workflow facts for lender review
             </p>
           </div>
@@ -464,14 +461,14 @@ function VariantB() {
             {actionItems.slice(0, 3).map((item, index) => (
               <div className="px-5 py-4" key={item.title}>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                     {item.type}
                   </span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                  <span className="text-muted-foreground text-xs tabular-nums">
                     0{index + 1}
                   </span>
                 </div>
-                <p className="mt-2 text-sm font-semibold leading-5">
+                <p className="mt-2 font-semibold text-sm leading-5">
                   {item.title}
                 </p>
                 <div className="mt-3 flex items-center justify-between text-xs">
@@ -500,7 +497,7 @@ function VariantD() {
         <CardHeader className="flex-row items-center justify-between border-b bg-primary/5">
           <div>
             <CardTitle>Needs my attention</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-muted-foreground text-xs">
               4 assigned reviews with current workflow state
             </p>
           </div>
@@ -517,12 +514,12 @@ function VariantD() {
         <div className="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
           <div>
             <h2
-              className="text-sm font-semibold"
+              className="font-semibold text-sm"
               id="variant-d-portfolio-heading"
             >
               Assigned portfolio
             </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-muted-foreground text-xs">
               Complete lender book with current review state in context
             </p>
           </div>
@@ -536,8 +533,8 @@ function VariantD() {
           <section className="overflow-hidden rounded-lg border bg-card">
             <div className="flex items-center justify-between border-b px-5 py-4">
               <div>
-                <h3 className="text-sm font-semibold">Active Build ledger</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <h3 className="font-semibold text-sm">Active Build ledger</h3>
+                <p className="mt-1 text-muted-foreground text-xs">
                   All assigned Builds with their next review state
                 </p>
               </div>
@@ -556,11 +553,11 @@ function VariantD() {
               <TableBody>
                 {builds.map((build) => (
                   <TableRow key={build.name}>
-                    <TableCell className="pl-5 py-4">
+                    <TableCell className="py-4 pl-5">
                       <p className="font-semibold text-foreground">
                         {build.name}
                       </p>
-                      <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <p className="mt-1 flex items-center gap-1 text-muted-foreground text-xs">
                         <MapPin className="size-3" /> {build.location}
                       </p>
                     </TableCell>
@@ -569,7 +566,7 @@ function VariantD() {
                     </TableCell>
                     <TableCell>
                       <div className="w-28">
-                        <div className="mb-1 flex justify-between text-[10px] text-muted-foreground">
+                        <div className="mb-1 flex justify-between text-muted-foreground text-xs">
                           <span>{build.released}</span>
                           <span>{build.progress}%</span>
                         </div>
@@ -596,8 +593,8 @@ function VariantD() {
 
           <aside className="rounded-lg border bg-card">
             <div className="border-b px-5 py-4">
-              <h3 className="text-sm font-semibold">Review requirements</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <h3 className="font-semibold text-sm">Review requirements</h3>
+              <p className="mt-1 text-muted-foreground text-xs">
                 Current workflow facts for lender review
               </p>
             </div>
@@ -605,14 +602,14 @@ function VariantD() {
               {actionItems.slice(0, 3).map((item, index) => (
                 <div className="px-5 py-4" key={item.title}>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       {item.type}
                     </span>
-                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                    <span className="text-muted-foreground text-xs tabular-nums">
                       0{index + 1}
                     </span>
                   </div>
-                  <p className="mt-2 text-sm font-semibold leading-5">
+                  <p className="mt-2 font-semibold text-sm leading-5">
                     {item.title}
                   </p>
                   <div className="mt-3 flex items-center justify-between text-xs">
@@ -646,12 +643,12 @@ function InlineMetric({
 }) {
   return (
     <div className="px-5 py-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+      <p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.15em]">
         {label}
       </p>
       <div className="mt-2 flex items-end justify-between gap-3">
-        <p className="text-2xl font-semibold tabular-nums">{value}</p>
-        <p className="pb-1 text-[10px] text-muted-foreground">{note}</p>
+        <p className="font-semibold text-2xl tabular-nums">{value}</p>
+        <p className="pb-1 text-muted-foreground text-xs">{note}</p>
       </div>
     </div>
   );
@@ -749,8 +746,8 @@ function VariantC() {
                 <div className="flex items-center gap-2.5">
                   <Icon className="size-4 text-muted-foreground" />
                   <div>
-                    <h2 className="text-sm font-semibold">{lane.title}</h2>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    <h2 className="font-semibold text-sm">{lane.title}</h2>
+                    <p className="mt-0.5 text-muted-foreground text-xs">
                       {lane.description}
                     </p>
                   </div>
@@ -770,8 +767,8 @@ function VariantC() {
       <section className="mt-6 rounded-xl border bg-card p-5">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <p className="text-sm font-semibold">Portfolio coverage</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="font-semibold text-sm">Portfolio coverage</p>
+            <p className="mt-1 text-muted-foreground text-xs">
               7 assigned active Builds · $18.4M total facility
             </p>
           </div>
@@ -797,10 +794,10 @@ function CompactPulse({
 }) {
   return (
     <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+      <div className="flex items-center gap-2 font-medium text-muted-foreground text-xs">
         <Icon className="size-3.5" /> {label}
       </div>
-      <span className="text-lg font-semibold tabular-nums">{value}</span>
+      <span className="font-semibold text-lg tabular-nums">{value}</span>
     </div>
   );
 }
@@ -825,11 +822,11 @@ function LaneCard({
         </div>
         <Badge variant="outline">{item.type}</Badge>
       </div>
-      <h3 className="mt-4 text-sm font-semibold leading-5">{item.title}</h3>
-      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+      <h3 className="mt-4 font-semibold text-sm leading-5">{item.title}</h3>
+      <p className="mt-1 text-muted-foreground text-xs leading-4">
         {item.meta}
       </p>
-      <div className="mt-4 flex items-center justify-between border-t pt-3 text-[10px]">
+      <div className="mt-4 flex items-center justify-between border-t pt-3 text-xs">
         <span className="flex items-center gap-1 text-muted-foreground">
           <Activity className="size-3" /> {item.fact}
         </span>
@@ -842,10 +839,10 @@ function LaneCard({
 function CoverageItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-28">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+      <p className="text-muted-foreground text-xs uppercase tracking-wide">
         {label}
       </p>
-      <p className="mt-1 text-sm font-semibold">{value}</p>
+      <p className="mt-1 font-semibold text-sm">{value}</p>
     </div>
   );
 }

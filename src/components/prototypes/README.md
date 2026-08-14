@@ -210,7 +210,7 @@ assets.
 production proposal detail. This is not a replacement proposal screen.
 
 **Selection status:** Variant A was explicitly approved and locked on
-2026-08-13. The selected interaction is a compact **External lender** row in the
+2026-08-14. The selected interaction is a compact **External lender** row in the
 existing proposal header that opens one focused assignment modal. Variants B
 and C were comparison hypotheses and are not part of the locked surface.
 

@@ -1,0 +1,497 @@
+{
+  "schemaVersion": "lender-portal-mvp-traceability/v1",
+  "preparationBaseline": {
+    "branch": "08-13-lenderdashboard-prod",
+    "headSha": "02e825e29936ce5f7a960a68dfca1438010e5645",
+    "preparedAt": "2026-08-14",
+    "workingTreePolicy": "dirty-authorized"
+  },
+  "sources": [
+    {
+      "path": "docs/lender_portal_mvp_feature_brief.md",
+      "authority": "product-contract",
+      "sha256": "ee0711b57ea86e31cd6e112605d0b8c245d7a7e5e1a0075364b4745efcd1273b"
+    },
+    {
+      "path": "docs/lender_portal_mvp_spec.md",
+      "authority": "implementation-synthesis",
+      "sha256": "fbb8a5165978746434cca3d981b6f44aac3f35665dd67e1933519e948a1d3c5b"
+    },
+    {
+      "path": "docs/lender_portal_mvp_implementation_plan.md",
+      "authority": "delivery-sequence-and-gates",
+      "sha256": "8d44828c928160478fa0ef2973617fee4f4470ae9988a4d964b21404220e4b2f"
+    },
+    {
+      "path": "docs/lender-portal-prototype-promotion.md",
+      "authority": "prototype-promotion-contract",
+      "sha256": "921236efb5523504db58fd5e8aa593dabe1fd68b4ba1197ec065344df0b246e2"
+    },
+    {
+      "path": "src/components/prototypes/README.md",
+      "authority": "prototype-decision-registry",
+      "sha256": "e44ad908c6fb626b570e7df8e72888e87fbb78476559b3d23ff3d04ac60249c2"
+    }
+  ],
+  "catalogs": [
+    {
+      "name": "confirmed-scope",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "heading": "Confirmed MVP scope",
+      "kind": "numbered-headings",
+      "prefix": "LP-SCOPE-",
+      "count": 7,
+      "width": 2
+    },
+    {
+      "name": "domain-invariants",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "heading": "Domain invariants",
+      "kind": "numbered-list",
+      "prefix": "LP-INV-",
+      "count": 18,
+      "width": 2
+    },
+    {
+      "name": "permissions",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "kind": "explicit",
+      "prefix": "LP-PERM-",
+      "count": 19,
+      "width": 2
+    },
+    {
+      "name": "notifications",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "kind": "explicit",
+      "prefix": "LP-NOTIF-",
+      "count": 4,
+      "width": 2
+    },
+    {
+      "name": "acceptance-organization",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "kind": "explicit",
+      "prefix": "LP-AC-ORG-",
+      "count": 7,
+      "width": 2
+    },
+    {
+      "name": "acceptance-proposal",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "kind": "explicit",
+      "prefix": "LP-AC-PROP-",
+      "count": 7,
+      "width": 2
+    },
+    {
+      "name": "acceptance-policy",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "kind": "explicit",
+      "prefix": "LP-AC-POL-",
+      "count": 7,
+      "width": 2
+    },
+    {
+      "name": "acceptance-evidence",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "kind": "explicit",
+      "prefix": "LP-AC-EVID-",
+      "count": 5,
+      "width": 2
+    },
+    {
+      "name": "acceptance-portal",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "kind": "explicit",
+      "prefix": "LP-AC-PORTAL-",
+      "count": 4,
+      "width": 2
+    },
+    {
+      "name": "phase-zero-decisions",
+      "source": "docs/lender_portal_mvp_feature_brief.md",
+      "heading": "Phase Zero decisions",
+      "kind": "numbered-list",
+      "prefix": "LP-DEC-",
+      "count": 4,
+      "width": 2
+    },
+    {
+      "name": "user-stories",
+      "source": "docs/lender_portal_mvp_spec.md",
+      "heading": "User Stories",
+      "kind": "numbered-list",
+      "prefix": "LP-US-",
+      "count": 88,
+      "width": 3
+    },
+    {
+      "name": "multi-actor-journeys",
+      "source": "docs/lender_portal_mvp_spec.md",
+      "heading": "Multi-Actor End-to-End Journeys",
+      "kind": "e2e-headings",
+      "prefix": "LP-E2E-",
+      "count": 10,
+      "width": 2
+    },
+    {
+      "name": "testing-decisions",
+      "source": "docs/lender_portal_mvp_spec.md",
+      "kind": "explicit",
+      "prefix": "LP-TEST-",
+      "count": 15,
+      "width": 2
+    },
+    {
+      "name": "cross-phase-quality-gates",
+      "source": "docs/lender_portal_mvp_implementation_plan.md",
+      "kind": "explicit",
+      "prefix": "LP-QG-",
+      "count": 9,
+      "width": 2
+    },
+    {
+      "name": "vertical-slice-gate",
+      "source": "docs/lender_portal_mvp_implementation_plan.md",
+      "heading": "Vertical-slice completion gate",
+      "kind": "numbered-list",
+      "prefix": "LP-VSG-",
+      "count": 10,
+      "width": 2
+    },
+    {
+      "name": "phase-one-work",
+      "source": "docs/lender_portal_mvp_implementation_plan.md",
+      "kind": "explicit",
+      "prefix": "LP-P1-W",
+      "count": 9,
+      "width": 2
+    },
+    {
+      "name": "phase-one-tests",
+      "source": "docs/lender_portal_mvp_implementation_plan.md",
+      "kind": "explicit",
+      "prefix": "LP-P1-T",
+      "count": 7,
+      "width": 2
+    },
+    {
+      "name": "phase-one-exits",
+      "source": "docs/lender_portal_mvp_implementation_plan.md",
+      "kind": "explicit",
+      "prefix": "LP-P1-X",
+      "count": 4,
+      "width": 2
+    },
+    {
+      "name": "final-acceptance",
+      "source": "docs/lender_portal_mvp_implementation_plan.md",
+      "heading": "Final acceptance gate",
+      "kind": "numbered-list",
+      "prefix": "LP-FINAL-",
+      "count": 7,
+      "width": 2
+    },
+    {
+      "name": "locked-prototypes",
+      "source": "docs/lender-portal-prototype-promotion.md",
+      "kind": "explicit-values",
+      "ids": [
+        "LP-PROT-DASH",
+        "LP-PROT-ORG",
+        "LP-PROT-PROP",
+        "LP-PROT-POLICY",
+        "LP-PROT-ASSIGN",
+        "LP-PROT-BUILD",
+        "LP-PROT-MILESTONE-QUEUE",
+        "LP-PROT-MILESTONE-SHEET",
+        "LP-PROT-DRAW-QUEUE",
+        "LP-PROT-DRAW-SHEET",
+        "LP-PROT-BUILDER-MILESTONE"
+      ]
+    }
+  ],
+  "coverageGroups": [
+    {
+      "id": "LP-COV-P1-IDENTITY-OPERATIONS",
+      "phase": 1,
+      "status": "ready",
+      "requirementSelectors": [
+        "LP-SCOPE-01",
+        "LP-INV-01..LP-INV-02",
+        "LP-INV-12",
+        "LP-PERM-01..LP-PERM-04",
+        "LP-AC-ORG-01..LP-AC-ORG-07",
+        "LP-DEC-01",
+        "LP-DEC-03",
+        "LP-US-001..LP-US-014",
+        "LP-US-077..LP-US-078",
+        "LP-US-084",
+        "LP-US-087..LP-US-088",
+        "LP-E2E-08",
+        "LP-PROT-ORG",
+        "LP-P1-W01..LP-P1-W09",
+        "LP-P1-T01..LP-P1-T07",
+        "LP-P1-X01..LP-P1-X04"
+      ],
+      "workPackages": [
+        "LP-P1-01",
+        "LP-P1-02",
+        "LP-P1-03",
+        "LP-P1-04",
+        "LP-P1-05"
+      ],
+      "verification": [
+        "authenticated Convex command/query authorization suites",
+        "WorkOS action and projection reconciliation tests",
+        "Variant E route and shared-component browser contract",
+        "LP-E2E-08 multi-actor journey"
+      ],
+      "journeys": ["LP-E2E-08"]
+    },
+    {
+      "id": "LP-COV-P2-PROPOSAL-LIFECYCLE",
+      "phase": 2,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-SCOPE-02",
+        "LP-INV-03..LP-INV-06",
+        "LP-INV-18",
+        "LP-PERM-05..LP-PERM-06",
+        "LP-PERM-10",
+        "LP-PERM-15",
+        "LP-AC-PROP-01..LP-AC-PROP-02",
+        "LP-AC-PROP-05..LP-AC-PROP-07",
+        "LP-DEC-02",
+        "LP-US-015..LP-US-018",
+        "LP-US-033..LP-US-042",
+        "LP-E2E-01..LP-E2E-02",
+        "LP-E2E-04",
+        "LP-PROT-ASSIGN"
+      ],
+      "workPackages": [],
+      "verification": [
+        "proposal lifecycle command-boundary tests",
+        "internal, external, and withdrawal participant journeys"
+      ],
+      "journeys": ["LP-E2E-01", "LP-E2E-02", "LP-E2E-04"]
+    },
+    {
+      "id": "LP-COV-P3-REVISION-POLICY",
+      "phase": 3,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-SCOPE-04",
+        "LP-INV-05",
+        "LP-INV-07..LP-INV-08",
+        "LP-INV-13",
+        "LP-PERM-07",
+        "LP-AC-POL-01..LP-AC-POL-04",
+        "LP-US-043..LP-US-051",
+        "LP-E2E-05",
+        "LP-PROT-POLICY"
+      ],
+      "workPackages": [],
+      "verification": [
+        "immutable revision and policy lock tests",
+        "quorum validation and exact-revision tests"
+      ],
+      "journeys": ["LP-E2E-05"]
+    },
+    {
+      "id": "LP-COV-P4-CONFIRMATION-REMEDIATION",
+      "phase": 4,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-SCOPE-03",
+        "LP-INV-05",
+        "LP-INV-07..LP-INV-08",
+        "LP-INV-16",
+        "LP-PERM-08..LP-PERM-09",
+        "LP-AC-PROP-02..LP-AC-PROP-04",
+        "LP-US-019..LP-US-032",
+        "LP-E2E-02..LP-E2E-03",
+        "LP-PROT-PROP"
+      ],
+      "workPackages": [],
+      "verification": [
+        "five-checkpoint confirmation tests",
+        "decline, remediation, diff, and full reconfirmation journey"
+      ],
+      "journeys": ["LP-E2E-02", "LP-E2E-03"]
+    },
+    {
+      "id": "LP-COV-P5-REQUEST-CYCLES",
+      "phase": 5,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-SCOPE-06",
+        "LP-INV-09..LP-INV-11",
+        "LP-INV-16",
+        "LP-PERM-11..LP-PERM-13",
+        "LP-AC-POL-05..LP-AC-POL-07",
+        "LP-US-061..LP-US-066",
+        "LP-E2E-05..LP-E2E-06",
+        "LP-PROT-MILESTONE-SHEET",
+        "LP-PROT-DRAW-SHEET",
+        "LP-PROT-BUILDER-MILESTONE"
+      ],
+      "workPackages": [],
+      "verification": [
+        "same-record cycle and stale-decision tests",
+        "correction and resubmission participant journey"
+      ],
+      "journeys": ["LP-E2E-05", "LP-E2E-06"]
+    },
+    {
+      "id": "LP-COV-P6-EVIDENCE-APPROVALS",
+      "phase": 6,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-SCOPE-05",
+        "LP-INV-10..LP-INV-12",
+        "LP-INV-14..LP-INV-18",
+        "LP-PERM-12..LP-PERM-18",
+        "LP-AC-EVID-01..LP-AC-EVID-05",
+        "LP-US-052..LP-US-060",
+        "LP-E2E-05",
+        "LP-E2E-07"
+      ],
+      "workPackages": [],
+      "verification": [
+        "Site Visit, receipt equality, approval-group, privacy, and deactivation tests",
+        "shared evidence multi-actor journey"
+      ],
+      "journeys": ["LP-E2E-05", "LP-E2E-07"]
+    },
+    {
+      "id": "LP-COV-P7-PARTICIPANT-SURFACES",
+      "phase": 7,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-SCOPE-07",
+        "LP-PERM-14..LP-PERM-19",
+        "LP-AC-PORTAL-01..LP-AC-PORTAL-03",
+        "LP-US-067..LP-US-076",
+        "LP-E2E-09",
+        "LP-PROT-DASH",
+        "LP-PROT-BUILD",
+        "LP-PROT-MILESTONE-QUEUE",
+        "LP-PROT-DRAW-QUEUE"
+      ],
+      "workPackages": [],
+      "verification": [
+        "permission-shaped projection tests",
+        "locked prototype parity and privacy browser evidence"
+      ],
+      "journeys": ["LP-E2E-09"]
+    },
+    {
+      "id": "LP-COV-P8-NOTIFICATIONS",
+      "phase": 8,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-NOTIF-01..LP-NOTIF-04",
+        "LP-AC-PORTAL-04",
+        "LP-DEC-04",
+        "LP-US-079..LP-US-086"
+      ],
+      "workPackages": [],
+      "verification": [
+        "recipient eligibility, privacy, link authorization, retry, and idempotency tests"
+      ],
+      "journeys": [
+        "LP-E2E-02",
+        "LP-E2E-03",
+        "LP-E2E-04",
+        "LP-E2E-05",
+        "LP-E2E-06",
+        "LP-E2E-08"
+      ]
+    },
+    {
+      "id": "LP-COV-CROSS-PHASE-QUALITY",
+      "phase": 0,
+      "status": "ready",
+      "requirementSelectors": [
+        "LP-TEST-01..LP-TEST-13",
+        "LP-QG-01..LP-QG-09",
+        "LP-VSG-01..LP-VSG-10"
+      ],
+      "workPackages": ["LP-P1-05"],
+      "verification": [
+        "applied by every phase packet and checked again by phase certification"
+      ],
+      "journeys": []
+    },
+    {
+      "id": "LP-COV-P9-RELEASE",
+      "phase": 9,
+      "status": "planned",
+      "requirementSelectors": [
+        "LP-E2E-01..LP-E2E-10",
+        "LP-TEST-14..LP-TEST-15",
+        "LP-FINAL-01..LP-FINAL-07"
+      ],
+      "workPackages": [],
+      "verification": [
+        "exact-release-commit journey suite, security review, migration proof, and final traceability audit"
+      ],
+      "journeys": [
+        "LP-E2E-01",
+        "LP-E2E-02",
+        "LP-E2E-03",
+        "LP-E2E-04",
+        "LP-E2E-05",
+        "LP-E2E-06",
+        "LP-E2E-07",
+        "LP-E2E-08",
+        "LP-E2E-09",
+        "LP-E2E-10"
+      ]
+    }
+  ],
+  "workPackages": [
+    {
+      "id": "LP-P1-01",
+      "phase": 1,
+      "status": "ready",
+      "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-01-canonical-organization-context-and-authorization.md",
+      "dependsOn": [],
+      "evidence": null
+    },
+    {
+      "id": "LP-P1-02",
+      "phase": 1,
+      "status": "ready",
+      "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-02-workos-operations-and-principal-broker-protection.md",
+      "dependsOn": ["LP-P1-01"],
+      "evidence": null
+    },
+    {
+      "id": "LP-P1-03",
+      "phase": 1,
+      "status": "ready",
+      "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-03-membership-reconciliation-and-read-models.md",
+      "dependsOn": ["LP-P1-01", "LP-P1-02"],
+      "evidence": null
+    },
+    {
+      "id": "LP-P1-04",
+      "phase": 1,
+      "status": "ready",
+      "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-04-promote-organization-management-variant-e.md",
+      "dependsOn": ["LP-P1-01", "LP-P1-02", "LP-P1-03"],
+      "evidence": null
+    },
+    {
+      "id": "LP-P1-05",
+      "phase": 1,
+      "status": "ready",
+      "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-05-phase-one-certification.md",
+      "dependsOn": ["LP-P1-01", "LP-P1-02", "LP-P1-03", "LP-P1-04"],
+      "evidence": null
+    }
+  ]
+}

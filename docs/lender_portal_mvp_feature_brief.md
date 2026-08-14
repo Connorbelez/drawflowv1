@@ -5,10 +5,15 @@
 - **Approved interfaces:** Lender Draw Queue Variant D, Build packets; Lender Organization Management Variant E, Shared user management operations; Lender Build Detail Variant C, Precision console; Builder Milestone Needs Revision Variant A, Inline revision notice; locked 2026-08-13
 - **Companion:** [Sequenced implementation plan](lender_portal_mvp_implementation_plan.md)
 - **Implementation handoff:** [Consolidated specification](lender_portal_mvp_spec.md)
+- **Execution control:** [Traceability and work packages](lender-portal-mvp-execution/README.md)
 
 ## Purpose and authority
 
 This brief defines the confirmed Lender Portal MVP for external-capital Builds. It is the product contract for this feature slice. `draw_flow_prd.md` remains authoritative for DrawFlow concepts and rules that do not conflict with this brief.
+
+Execution status, work-package ownership, and evidence live in
+`docs/lender-portal-mvp-execution/`. That control layer references this brief
+and cannot change its product meaning.
 
 ## Prototype promotion rule
 
@@ -128,6 +133,10 @@ Back Office Admin remains the internal owner of proposal approval, lender assign
 | Decision cycle | One submission or resubmission of the same Milestone or Draw request record. |
 
 ## Confirmed MVP scope
+
+The seven numbered scope sections have stable identifiers `LP-SCOPE-01`
+through `LP-SCOPE-07`. The identifier number matches the section number and
+must not be renumbered after implementation evidence references it.
 
 ### 1. Lender Organizations and users
 
@@ -262,6 +271,9 @@ Office Build Workspace in full and does not own decisions or mutations.
 
 ## Domain invariants
 
+Each numbered invariant has the stable identifier `LP-INV-NN`, where `NN` is
+the zero-padded list number. For example, invariant 1 is `LP-INV-01`.
+
 1. Every organization-scoped projection, assignment, proposal revision, policy, request, decision, attachment, notification, and audit event is scoped to the owning DrawFlow tenant and canonical WorkOS organization.
 2. WorkOS is authoritative for user, organization, membership, role, and permission state. DrawFlow owns lender assignment, workflow authorization, review policy, decisions, and product-resource access derived from that canonical identity state.
 3. Exactly one current external lender assignment may exist for an eligible proposal.
@@ -283,27 +295,27 @@ Office Build Workspace in full and does not own decisions or mutations.
 
 ## Permissions
 
-| Capability | Back Office Admin | Lender Admin / Principal Broker | Lender member | Builder |
-|---|---:|---:|---:|---:|
-| Provision brokerage organization and initial Principal Broker | Yes, through the canonical brokerage/WorkOS boundary | No | No | No |
-| Transfer Principal Broker control | Under tenant authority | Yes, through the protected transfer workflow | No | No |
-| Invite/change role/deactivate members in own Lender Organization | Under tenant authority | Yes | No | No |
-| Invite/add/deactivate users in another Lender Organization | Within tenant authority | No | No | No |
-| Approve proposal before lender assignment | Yes | No | No | No |
-| Assign/withdraw external lender before closing | Yes | No | No | No |
-| Configure and lock review policy before closing | Yes | No | No | No |
-| Confirm or decline assigned proposal | No lender-side decision | If eligible | If eligible | No |
-| Edit lender confirmation checkpoints | Yes, through proposal update | No | No | No |
-| Activate closed Build | Yes | If eligible and assigned | If eligible and assigned | No |
-| Submit Milestone/Draw correction | No | No | No | Yes |
-| Decide Milestone/Draw when policy requires lender approval | No lender-side decision | If eligible | If eligible | No |
-| Decide Milestone/Draw when policy requires Back Office approval | Yes | No | No | No |
-| Release an approved Draw | Yes | No | No | No |
-| Record proposal closing after prerequisites | Yes | If eligible and assigned | If eligible and assigned | No |
-| Complete required site visit | Yes | If eligible | If eligible | No |
-| View assigned review evidence | Yes | Yes | Yes | Own submission/high-level state only |
-| View reviewer identity/private reviewer rationale | Yes | Yes, for assigned records | Yes, for assigned records | No |
-| View withdrawn historical lender record | Yes | Read-only | Read-only | No new lender-facing entitlement |
+| Requirement | Capability | Back Office Admin | Lender Admin / Principal Broker | Lender member | Builder |
+|---|---|---:|---:|---:|---:|
+| `LP-PERM-01` | Provision brokerage organization and initial Principal Broker | Yes, through the canonical brokerage/WorkOS boundary | No | No | No |
+| `LP-PERM-02` | Transfer Principal Broker control | Under tenant authority | Yes, through the protected transfer workflow | No | No |
+| `LP-PERM-03` | Invite/change role/deactivate members in own Lender Organization | Under tenant authority | Yes | No | No |
+| `LP-PERM-04` | Invite/add/deactivate users in another Lender Organization | Within tenant authority | No | No | No |
+| `LP-PERM-05` | Approve proposal before lender assignment | Yes | No | No | No |
+| `LP-PERM-06` | Assign/withdraw external lender before closing | Yes | No | No | No |
+| `LP-PERM-07` | Configure and lock review policy before closing | Yes | No | No | No |
+| `LP-PERM-08` | Confirm or decline assigned proposal | No lender-side decision | If eligible | If eligible | No |
+| `LP-PERM-09` | Edit lender confirmation checkpoints | Yes, through proposal update | No | No | No |
+| `LP-PERM-10` | Activate closed Build | Yes | If eligible and assigned | If eligible and assigned | No |
+| `LP-PERM-11` | Submit Milestone/Draw correction | No | No | No | Yes |
+| `LP-PERM-12` | Decide Milestone/Draw when policy requires lender approval | No lender-side decision | If eligible | If eligible | No |
+| `LP-PERM-13` | Decide Milestone/Draw when policy requires Back Office approval | Yes | No | No | No |
+| `LP-PERM-14` | Release an approved Draw | Yes | No | No | No |
+| `LP-PERM-15` | Record proposal closing after prerequisites | Yes | If eligible and assigned | If eligible and assigned | No |
+| `LP-PERM-16` | Complete required site visit | Yes | If eligible | If eligible | No |
+| `LP-PERM-17` | View assigned review evidence | Yes | Yes | Yes | Own submission/high-level state only |
+| `LP-PERM-18` | View reviewer identity/private reviewer rationale | Yes | Yes, for assigned records | Yes, for assigned records | No |
+| `LP-PERM-19` | View withdrawn historical lender record | Yes | Read-only | Read-only | No new lender-facing entitlement |
 
 Manager status grants user-administration authority. It does not create a separate approval weight or bypass record assignment and policy gates.
 
@@ -421,12 +433,12 @@ and Milestone or Draw Group funding attribution are not part of this contract.
 
 ## Notifications
 
-| Event | Required behavior |
-|---|---|
-| Approval required | Send once per recipient/resource/cycle to every currently eligible actor who has not supplied a counting decision in each outstanding group: active assigned lender users for lender approval and Back Office Admin reviewers for Back Office approval. |
-| Proposal updated after decline | Notify all active users in the assigned Lender Organization that a new full confirmation cycle is ready. |
-| Assignment withdrawn | Notify all active users in the withdrawn Lender Organization and retain a link to their read-only record. |
-| Approval outcome | Notify the appropriate Back Office Admin reviewers and the builder proposal owner or request submitter. When the outcome creates another group's action, send approval-required instead of a duplicate outcome email. |
+| Requirement | Event | Required behavior |
+|---|---|---|
+| `LP-NOTIF-01` | Approval required | Send once per recipient/resource/cycle to every currently eligible actor who has not supplied a counting decision in each outstanding group: active assigned lender users for lender approval and Back Office Admin reviewers for Back Office approval. |
+| `LP-NOTIF-02` | Proposal updated after decline | Notify all active users in the assigned Lender Organization that a new full confirmation cycle is ready. |
+| `LP-NOTIF-03` | Assignment withdrawn | Notify all active users in the withdrawn Lender Organization and retain a link to their read-only record. |
+| `LP-NOTIF-04` | Approval outcome | Notify the appropriate Back Office Admin reviewers and the builder proposal owner or request submitter. When the outcome creates another group's action, send approval-required instead of a duplicate outcome email. |
 
 Retries must be idempotent. Authorization is checked again when an email link is opened.
 
@@ -434,53 +446,56 @@ Retries must be idempotent. Authorization is checked again when an email link is
 
 ### Organization and access
 
-- Organization Management directly promotes approved Variant E and reuses the existing shared user-management table and member sheet.
-- WorkOS remains authoritative for organizations, memberships, roles, and permissions; DrawFlow introduces no duplicate identity or manager system.
-- Active `admin` and `principle-broker` members can invite members, change supported roles, and deactivate members only in their active organization.
-- The active Principal Broker cannot be removed or deactivated through normal member commands; transfer preserves exactly one active Principal Broker and records audit history.
-- Deactivation blocks future Lender Portal access and new lender actions after authoritative completion and leaves complete decision and membership history.
-- Membership changes reconcile access, quorum context, queues, recipients, and audit work without mutating Back Office-owned review requirements.
-- Tenant, organization, assignment, and policy checks prevent cross-organization reads, writes, or review decisions.
+- `LP-AC-ORG-01` Organization Management directly promotes approved Variant E and reuses the existing shared user-management table and member sheet.
+- `LP-AC-ORG-02` WorkOS remains authoritative for organizations, memberships, roles, and permissions; DrawFlow introduces no duplicate identity or manager system.
+- `LP-AC-ORG-03` Active `admin` and `principle-broker` members can invite members, change supported roles, and deactivate members only in their active organization.
+- `LP-AC-ORG-04` The active Principal Broker cannot be removed or deactivated through normal member commands; transfer preserves exactly one active Principal Broker and records audit history.
+- `LP-AC-ORG-05` Deactivation blocks future Lender Portal access and new lender actions after authoritative completion and leaves complete decision and membership history.
+- `LP-AC-ORG-06` Membership changes reconcile access, quorum context, queues, recipients, and audit work without mutating Back Office-owned review requirements.
+- `LP-AC-ORG-07` Tenant, organization, assignment, and policy checks prevent cross-organization reads, writes, or review decisions.
 
 ### Proposal lifecycle
 
-- External assignment is unavailable before Back Office Admin approval and for internal capital.
-- An assigned proposal cannot close without current Back Office Admin and lender approvals.
-- Lender decline requires a reason and leaves the proposal approved/pending closing.
-- A Back Office Admin update preserves proposal identity, creates a revision, highlights changes, and requires every checkpoint again.
-- Withdrawal removes current lender authority, preserves a read-only lender record, and restores internal closing eligibility.
-- Once applicable prerequisites are satisfied, either Back Office Admin or an eligible assigned lender user can record closing.
-- Closing does not automatically activate the Build; either authorized side can activate after closing.
+- `LP-AC-PROP-01` External assignment is unavailable before Back Office Admin approval and for internal capital.
+- `LP-AC-PROP-02` An assigned proposal cannot close without current Back Office Admin and lender approvals.
+- `LP-AC-PROP-03` Lender decline requires a reason and leaves the proposal approved/pending closing.
+- `LP-AC-PROP-04` A Back Office Admin update preserves proposal identity, creates a revision, highlights changes, and requires every checkpoint again.
+- `LP-AC-PROP-05` Withdrawal removes current lender authority, preserves a read-only lender record, and restores internal closing eligibility.
+- `LP-AC-PROP-06` Once applicable prerequisites are satisfied, either Back Office Admin or an eligible assigned lender user can record closing.
+- `LP-AC-PROP-07` Closing does not automatically activate the Build; either authorized side can activate after closing.
 
 ### Policy and approvals
 
-- Back Office Admin can select each confirmed approval mode and independent Milestone evidence switch.
-- Quorum validation accepts only `1..active lender members` at lock time.
-- Both-group approvals work in either order and complete only when both requirements are met.
-- No post-closing policy edit or override path is available.
-- Rejection requires Builder-visible revision instructions, returns the same request to **Needs revision**, and resubmission resets all approvals.
-- Completing policy-required Draw approvals may make the Draw release-ready, but does not grant external lender users Draw-release authority.
-- Builders see requirements, high-level state, eligibility, and published revision instructions without reviewer identity or private reviewer rationale.
+- `LP-AC-POL-01` Back Office Admin can select each confirmed approval mode and independent Milestone evidence switch.
+- `LP-AC-POL-02` Quorum validation accepts only `1..active lender members` at lock time.
+- `LP-AC-POL-03` Both-group approvals work in either order and complete only when both requirements are met.
+- `LP-AC-POL-04` No post-closing policy edit or override path is available.
+- `LP-AC-POL-05` Rejection requires Builder-visible revision instructions, returns the same request to **Needs revision**, and resubmission resets all approvals.
+- `LP-AC-POL-06` Completing policy-required Draw approvals may make the Draw release-ready, but does not grant external lender users Draw-release authority.
+- `LP-AC-POL-07` Builders see requirements, high-level state, eligibility, and published revision instructions without reviewer identity or private reviewer rationale.
 
 ### Evidence
 
-- A required site visit cannot satisfy the gate without a completed report and at least one photo.
-- An eligible lender user or Back Office Admin can satisfy the site-visit requirement.
-- Location-verification failure preserves the evidence as location-unverified.
-- When receipt/invoice evidence is required, Milestone submission is blocked until documented total equals actual cost.
-- Both required reviewing groups can view evidence attached to the review.
+- `LP-AC-EVID-01` A required site visit cannot satisfy the gate without a completed report and at least one photo.
+- `LP-AC-EVID-02` An eligible lender user or Back Office Admin can satisfy the site-visit requirement.
+- `LP-AC-EVID-03` Location-verification failure preserves the evidence as location-unverified.
+- `LP-AC-EVID-04` When receipt/invoice evidence is required, Milestone submission is blocked until documented total equals actual cost.
+- `LP-AC-EVID-05` Both required reviewing groups can view evidence attached to the review.
 
 ### Portal and email
 
-- Dashboard and lists expose only records authorized through current or historical assignment.
-- Milestone and Draw queues contain all assigned requests and default to **Needs my action**.
-- Build detail directly promotes locked Variant C and contains only its
+- `LP-AC-PORTAL-01` Dashboard and lists expose only records authorized through current or historical assignment.
+- `LP-AC-PORTAL-02` Milestone and Draw queues contain all assigned requests and default to **Needs my action**.
+- `LP-AC-PORTAL-03` Build detail directly promotes locked Variant C and contains only its
   confirmed narrow, permission-shaped surface.
-- Emails are emitted only for the four confirmed event classes, are idempotent, and do not leak private reviewer data.
+- `LP-AC-PORTAL-04` Emails are emitted only for the four confirmed event classes, are idempotent, and do not leak private reviewer data.
 
 ## Phase Zero decisions
 
 Resolved on 2026-08-13:
+
+Each numbered decision has the stable identifier `LP-DEC-NN`, where `NN` is
+the zero-padded list number.
 
 1. **Organization authority:** one broad Back Office Admin role owns Back Office capabilities. Organization membership operations use canonical `admin` and `principle-broker`; no lender-manager application capability exists.
 2. **Closing:** after applicable approvals and policy lock, either Back Office Admin or an eligible user in the assigned Lender Organization may record closing. Activation remains a separate shared action.

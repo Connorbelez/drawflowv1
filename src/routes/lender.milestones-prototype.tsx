@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { useState, type ComponentType } from "react";
+import { type ComponentType, useState } from "react";
 
 import { LenderPrototypeShell } from "../components/prototypes/LenderPrototypeShell";
 import { PrototypeVariantSwitcher } from "../components/prototypes/PrototypeVariantSwitcher";
@@ -304,8 +304,10 @@ function LenderMilestoneQueuePrototype() {
       : milestoneRequests;
 
   const selectVariant = (nextVariant: string) => {
-    if (!isPrototypeVariant(nextVariant)) return;
-    void navigate({
+    if (!isPrototypeVariant(nextVariant)) {
+      return;
+    }
+    return navigate({
       replace: true,
       search: { variant: nextVariant },
       to: "/lender/milestones-prototype",
@@ -318,7 +320,7 @@ function LenderMilestoneQueuePrototype() {
       pageTitle="Milestone queue"
     >
       <div className="min-h-[calc(100vh-3.5rem)] bg-muted/30 pb-28">
-        <div className="border-y border-amber-500/30 bg-amber-50 px-4 py-2 text-center text-[11px] font-medium tracking-wide text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">
+        <div className="border-amber-500/30 border-y bg-amber-50 px-4 py-2 text-center font-medium text-[11px] text-amber-950 tracking-wide dark:bg-amber-950/40 dark:text-amber-100">
           THROWAWAY PROTOTYPE · READ-ONLY REPRESENTATIVE DATA · NO DECISIONS ARE
           SAVED
         </div>
@@ -350,22 +352,19 @@ function QueueHeader({
   return (
     <header className="mb-5 flex flex-col justify-between gap-4 border-b pb-5 lg:flex-row lg:items-end">
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        <p className="font-semibold text-[11px] text-muted-foreground uppercase tracking-[0.18em]">
           Assigned Milestone requests
         </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+        <h1 className="mt-1 font-semibold text-2xl tracking-tight sm:text-3xl">
           Milestone queue
         </h1>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
           Review current-cycle requirements, evidence, and approval-group
           progress across your organization&apos;s assigned Builds.
         </p>
       </div>
-      <div
-        aria-label="Milestone queue scope"
-        className="flex w-fit rounded-lg border bg-background p-1"
-        role="group"
-      >
+      <fieldset className="flex w-fit rounded-lg border bg-background p-1">
+        <legend className="sr-only">Milestone queue scope</legend>
         <Button
           aria-pressed={scope === "action"}
           onClick={() => setScope("action")}
@@ -382,7 +381,7 @@ function QueueHeader({
         >
           All assigned <Badge variant="secondary">5</Badge>
         </Button>
-      </div>
+      </fieldset>
     </header>
   );
 }
@@ -393,7 +392,7 @@ function VariantA({ requests }: { requests: readonly MilestoneRequest[] }) {
       <CardHeader className="flex-row items-center justify-between border-b">
         <div>
           <CardTitle>Decision roster</CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-muted-foreground text-xs">
             Dense scan of current state, requirements, and group progress
           </p>
         </div>
@@ -417,16 +416,16 @@ function VariantA({ requests }: { requests: readonly MilestoneRequest[] }) {
               <TableRow key={`${request.build}-${request.milestone}`}>
                 <TableCell className="min-w-56 py-4 pl-5">
                   <p className="font-semibold">{request.milestone}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p className="mt-1 text-muted-foreground text-xs">
                     {request.build}
                   </p>
                 </TableCell>
                 <TableCell className="min-w-44">
                   <StateBadge
-                    state={request.state}
                     label={request.stateLabel}
+                    state={request.state}
                   />
-                  <p className="mt-2 max-w-52 text-xs leading-5 text-muted-foreground">
+                  <p className="mt-2 max-w-52 text-muted-foreground text-xs leading-5">
                     {request.summary}
                   </p>
                 </TableCell>
@@ -434,8 +433,8 @@ function VariantA({ requests }: { requests: readonly MilestoneRequest[] }) {
                   <EvidenceList evidence={request.evidence} />
                 </TableCell>
                 <TableCell className="min-w-56">
-                  <p className="text-xs font-semibold">{request.policy}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">
+                  <p className="font-semibold text-xs">{request.policy}</p>
+                  <p className="mt-2 text-muted-foreground text-xs">
                     {request.approval}
                   </p>
                 </TableCell>
@@ -456,7 +455,12 @@ function VariantA({ requests }: { requests: readonly MilestoneRequest[] }) {
 function VariantB({ requests }: { requests: readonly MilestoneRequest[] }) {
   const grouped = requests.reduce<Record<string, MilestoneRequest[]>>(
     (groups, request) => {
-      (groups[request.build] ??= []).push(request);
+      const buildRequests = groups[request.build];
+      if (buildRequests) {
+        buildRequests.push(request);
+      } else {
+        groups[request.build] = [request];
+      }
       return groups;
     },
     {}
@@ -468,8 +472,8 @@ function VariantB({ requests }: { requests: readonly MilestoneRequest[] }) {
         <div className="flex items-start gap-3">
           <Building2 className="mt-0.5 size-5" />
           <div>
-            <p className="text-sm font-semibold">Build-grouped queue</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            <p className="font-semibold text-sm">Build-grouped queue</p>
+            <p className="mt-1 text-muted-foreground text-xs leading-5">
               Keep related Milestone requests together while retaining each
               request&apos;s independent review cycle.
             </p>
@@ -484,7 +488,7 @@ function VariantB({ requests }: { requests: readonly MilestoneRequest[] }) {
               <CardTitle className="flex items-center gap-2 text-sm">
                 <Building2 className="size-4" /> {build}
               </CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-muted-foreground text-xs">
                 {buildRequests.length} assigned Milestone
                 {buildRequests.length === 1 ? "" : "s"}
               </p>
@@ -500,7 +504,7 @@ function VariantB({ requests }: { requests: readonly MilestoneRequest[] }) {
                 key={request.milestone}
               >
                 <div>
-                  <p className="text-sm font-semibold">{request.milestone}</p>
+                  <p className="font-semibold text-sm">{request.milestone}</p>
                   <div className="mt-2">
                     <StateBadge
                       label={request.stateLabel}
@@ -509,8 +513,8 @@ function VariantB({ requests }: { requests: readonly MilestoneRequest[] }) {
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold">{request.policy}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  <p className="font-semibold text-xs">{request.policy}</p>
+                  <p className="mt-1 text-muted-foreground text-xs leading-5">
                     {request.approval}
                   </p>
                 </div>
@@ -572,11 +576,11 @@ function VariantC({
         <div>
           <div className="flex items-center gap-2">
             <Badge>Locked Variant C</Badge>
-            <p className="text-sm font-semibold">
+            <p className="font-semibold text-sm">
               Evidence-rich workflow lanes
             </p>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-muted-foreground text-xs">
             Each card combines cost, schedule, evidence coverage, and
             SubMilestone signals.
           </p>
@@ -600,11 +604,11 @@ function VariantC({
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <LaneIcon className="size-4" />
-                    <h2 className="text-sm font-semibold">{lane.title}</h2>
+                    <h2 className="font-semibold text-sm">{lane.title}</h2>
                   </div>
                   <Badge variant="outline">{laneRequests.length}</Badge>
                 </div>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                <p className="mt-1 text-muted-foreground text-xs leading-5">
                   {lane.description}
                 </p>
               </header>
@@ -621,7 +625,7 @@ function VariantC({
                   />
                 ))}
                 {laneRequests.length === 0 ? (
-                  <p className="rounded-lg border border-dashed bg-background p-4 text-center text-xs text-muted-foreground">
+                  <p className="rounded-lg border border-dashed bg-background p-4 text-center text-muted-foreground text-xs">
                     No assigned requests in this state
                   </p>
                 ) : null}
@@ -656,14 +660,14 @@ function MilestoneWorkflowCard({ request }: { request: MilestoneRequest }) {
       <CardHeader className="border-b px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-xs text-muted-foreground">
+            <p className="truncate text-muted-foreground text-xs">
               {request.build}
             </p>
             <CardTitle className="mt-1 text-sm">{request.milestone}</CardTitle>
           </div>
           <StateBadge label={request.stateLabel} state={request.state} />
         </div>
-        <p className="text-xs leading-5 text-muted-foreground">
+        <p className="text-muted-foreground text-xs leading-5">
           {request.summary}
         </p>
       </CardHeader>
@@ -687,23 +691,23 @@ function MilestoneWorkflowCard({ request }: { request: MilestoneRequest }) {
 
         <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
               Locked policy
             </p>
-            <p className="mt-1 text-xs font-semibold">{request.policy}</p>
+            <p className="mt-1 font-semibold text-xs">{request.policy}</p>
           </div>
           <Separator />
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
               Approval progress
             </p>
-            <p className="mt-1 text-xs font-semibold">{request.approval}</p>
+            <p className="mt-1 font-semibold text-xs">{request.approval}</p>
           </div>
         </div>
 
         <div>
           <div className="mb-2 flex items-center justify-between gap-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
               SubMilestones
             </p>
             <Badge variant="outline">{request.subMilestones.length}</Badge>
@@ -718,8 +722,17 @@ function MilestoneWorkflowCard({ request }: { request: MilestoneRequest }) {
           </div>
         </div>
 
-        <Button className="w-full" size="sm" variant="outline">
-          View request <ArrowUpRight className="size-3.5" />
+        {/* TODO(lender-portal): enable this only after the lender-authorized
+            current-cycle Milestone projection can identify the canonical sheet. */}
+        <Button
+          aria-description="Request details become available when the lender Milestone projection is connected."
+          className="w-full"
+          disabled
+          size="sm"
+          title="Request details are not available yet"
+          variant="outline"
+        >
+          Request details unavailable <ArrowUpRight className="size-3.5" />
         </Button>
       </CardContent>
     </Card>
@@ -737,10 +750,10 @@ function ReviewFact({
 }) {
   return (
     <div className="min-w-0 rounded-lg border bg-background p-2.5">
-      <p className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="flex items-center gap-1 font-semibold text-[9px] text-muted-foreground uppercase tracking-wide">
         {Icon ? <Icon className="size-3" /> : null} {label}
       </p>
-      <p className="mt-1 truncate text-xs font-semibold">{value}</p>
+      <p className="mt-1 truncate font-semibold text-xs">{value}</p>
     </div>
   );
 }
@@ -749,21 +762,21 @@ function ReceiptCoverageSummary({ coverage }: { coverage: ReceiptCoverage }) {
   return (
     <div className="rounded-lg border bg-background p-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="flex items-center gap-1.5 text-xs font-semibold">
+        <p className="flex items-center gap-1.5 font-semibold text-xs">
           <ReceiptText className="size-3.5" /> Receipt/invoice coverage
         </p>
         <Badge variant="secondary">
           {coverage.percent === null ? "Not required" : `${coverage.percent}%`}
         </Badge>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">{coverage.label}</p>
-      {coverage.percent !== null ? (
+      <p className="mt-2 text-muted-foreground text-xs">{coverage.label}</p>
+      {coverage.percent === null ? null : (
         <Progress
           aria-label="Receipt and invoice coverage"
           className="mt-2 h-1.5"
           value={coverage.percent}
         />
-      ) : null}
+      )}
     </div>
   );
 }
@@ -800,7 +813,7 @@ function SubMilestoneTile({
 }) {
   return (
     <div className="min-w-0 rounded-lg border bg-background p-2.5">
-      <p className="truncate text-[11px] font-semibold">{subMilestone.name}</p>
+      <p className="truncate font-semibold text-[11px]">{subMilestone.name}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <SubMilestoneSignal
           active={subMilestone.siteVisitAddressed}
@@ -832,13 +845,13 @@ function SubMilestoneTile({
               : `${subMilestone.receiptCoverage}%`}
           </span>
         </div>
-        {subMilestone.receiptCoverage !== null ? (
+        {subMilestone.receiptCoverage === null ? null : (
           <Progress
             aria-label={`${subMilestone.name} receipt and invoice coverage`}
             className="mt-1.5 h-1"
             value={subMilestone.receiptCoverage}
           />
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -859,7 +872,7 @@ function SubMilestoneSignal({
     <span
       aria-label={active ? label : `${label}: no`}
       className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-[9px] font-semibold",
+        "inline-flex h-6 items-center gap-1 rounded-md border px-1.5 font-semibold text-[9px]",
         !active && "border-transparent bg-muted text-muted-foreground/45",
         active &&
           tone === "success" &&
@@ -871,6 +884,7 @@ function SubMilestoneSignal({
           tone === "evidence" &&
           "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
       )}
+      role="img"
       title={active ? label : `${label}: no`}
     >
       <Icon className="size-3" />
@@ -906,7 +920,7 @@ function EvidenceList({ evidence }: { evidence: readonly EvidenceFact[] }) {
         const Icon = fact.icon;
         return (
           <p
-            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            className="flex items-center gap-1.5 text-muted-foreground text-xs"
             key={fact.label}
           >
             <Icon className="size-3.5 shrink-0" /> {fact.label}

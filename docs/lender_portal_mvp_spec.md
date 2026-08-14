@@ -13,6 +13,7 @@ Source artifacts:
 - [DrawFlow product requirements](draw_flow_prd.md)
 - [Prototype decision registry](../src/components/prototypes/README.md)
 - [Prototype promotion contract](lender-portal-prototype-promotion.md)
+- [Execution control and traceability](lender-portal-mvp-execution/README.md)
 - [Route manifest](uiManifest/routeManifest.md)
 - [Screen manifest](uiManifest/screenManifest.md)
 - [Component manifest](uiManifest/componentManifest.md)
@@ -95,6 +96,10 @@ The supplementary Memtrace graph covers branch `08-13-lenderdashboard-prod` at `
 Critical clusters require a clean canonical-model cutover and complete multi-actor journey evidence. A feature flag may control release exposure, but it must not permit old and new lifecycle owners to make conflicting decisions.
 
 ## User Stories
+
+Each numbered story has the stable identifier `LP-US-NNN`, where `NNN` is the
+zero-padded story number. For example, story 1 is `LP-US-001`. Story numbers
+must not be reused or renumbered after implementation evidence references them.
 
 1. As a Back Office Admin, I want to provision a lender brokerage and its initial Principal Broker through the canonical brokerage/WorkOS boundary, so that external capital providers reuse the existing tenant identity model.
 2. As an implementation team, we want WorkOS to remain authoritative for lender organizations, memberships, roles, and permissions, so that DrawFlow does not create a second identity system.
@@ -385,6 +390,10 @@ Universal transition gates:
 
 ## Multi-Actor End-to-End Journeys
 
+The heading identifier `E2E-NN` is also the stable requirement identifier
+`LP-E2E-NN`. These journeys are immutable release-gate identities even if their
+steps are refined.
+
 ### E2E-01 — Internal capital
 
 1. Builder submits a valid internal-capital proposal.
@@ -490,21 +499,21 @@ Universal transition gates:
 
 ## Testing Decisions
 
-- Test external behavior through the highest available seam. The primary seam is the authenticated canonical Convex command/query boundary used by every participant surface.
-- Do not unit-test implementation-private helper structure when the command boundary can prove authorization, lifecycle state, audit, notification intent, and participant projections together.
-- Use a small secondary browser/route seam for multi-actor handoffs, accessibility, focus behavior, status announcements, loading/empty/forbidden states, and proof that private data is absent from rendered participant views.
-- Establish product fixtures around tenant, WorkOS organization/membership/role projections, brokerage mapping, Back Office Admin, Principal Broker, builder ownership, proposal revision, assignment, locked policy, request cycle, evidence, and notification intent.
-- Every authorization suite covers allow and deny cases across tenant, active WorkOS organization, membership status, canonical role/permission, protected Principal Broker target, assignment status, historical withdrawn access, resource, revision, and decision cycle.
-- Every transition suite covers valid, stale, duplicate, unauthorized, post-terminal, and out-of-order actions.
-- Every material command asserts its durable state, append-only audit event, affected queue/count/badge projections, builder-safe view, notification intent, and attachment visibility.
-- Concurrency tests cover competing approval/rejection, withdrawal/confirmation, revision publication/stale decision, closing/policy change, deactivation/quorum completion, and duplicate activation.
-- Idempotency tests prove retried commands and notification delivery do not duplicate transitions, decisions, audit events, or email.
-- Exact-cycle tests prove an older proposal revision or request cycle cannot receive or satisfy a current decision.
-- Privacy tests inspect Builder query payloads, errors, email, analytics, and audit summaries for reviewer identity and private reviewer-rationale leakage while confirming published revision instructions remain available.
-- Evidence tests prove Site Visit report/photo requirements, geofence preservation, attachment scoping, and exact documented-total equality.
-- Projection tests prove Needs my action and all-assigned results from canonical records, including partial group approval, withdrawal, deactivation, correction, and resubmission.
-- The ten journeys in **Multi-Actor End-to-End Journeys** are required release gates. They must run through the real participant boundaries, not mocked copies of the lifecycle.
-- Final acceptance evidence must be tied to the exact release commit and must cover every transition-consumer relationship, not only the initiating UI.
+- `LP-TEST-01` Test external behavior through the highest available seam. The primary seam is the authenticated canonical Convex command/query boundary used by every participant surface.
+- `LP-TEST-02` Test implementation behavior at the command boundary when that seam can prove authorization, lifecycle state, audit, notification intent, and participant projections together; helper-only tests are supplementary.
+- `LP-TEST-03` Use a small secondary browser/route seam for multi-actor handoffs, accessibility, focus behavior, status announcements, loading/empty/forbidden states, and proof that private data is absent from rendered participant views.
+- `LP-TEST-04` Establish product fixtures around tenant, WorkOS organization/membership/role projections, brokerage mapping, Back Office Admin, Principal Broker, builder ownership, proposal revision, assignment, locked policy, request cycle, evidence, and notification intent.
+- `LP-TEST-05` Every authorization suite covers allow and deny cases across tenant, active WorkOS organization, membership status, canonical role/permission, protected Principal Broker target, assignment status, historical withdrawn access, resource, revision, and decision cycle.
+- `LP-TEST-06` Every transition suite covers valid, stale, duplicate, unauthorized, post-terminal, and out-of-order actions.
+- `LP-TEST-07` Every material command asserts its durable state, append-only audit event, affected queue/count/badge projections, builder-safe view, notification intent, and attachment visibility.
+- `LP-TEST-08` Concurrency tests cover competing approval/rejection, withdrawal/confirmation, revision publication/stale decision, closing/policy change, deactivation/quorum completion, and duplicate activation.
+- `LP-TEST-09` Idempotency tests prove retried commands and notification delivery do not duplicate transitions, decisions, audit events, or email.
+- `LP-TEST-10` Exact-cycle tests prove an older proposal revision or request cycle cannot receive or satisfy a current decision.
+- `LP-TEST-11` Privacy tests inspect Builder query payloads, errors, email, analytics, and audit summaries for reviewer identity and private reviewer-rationale leakage while confirming published revision instructions remain available.
+- `LP-TEST-12` Evidence tests prove Site Visit report/photo requirements, geofence preservation, attachment scoping, and exact documented-total equality.
+- `LP-TEST-13` Projection tests prove Needs my action and all-assigned results from canonical records, including partial group approval, withdrawal, deactivation, correction, and resubmission.
+- `LP-TEST-14` The ten journeys in **Multi-Actor End-to-End Journeys** are required release gates. They must run through the real participant boundaries, not mocked copies of the lifecycle.
+- `LP-TEST-15` Final acceptance evidence must be tied to the exact release commit and must cover every transition-consumer relationship, not only the initiating UI.
 
 ## Artifact Cross-Reference and Gap Audit
 

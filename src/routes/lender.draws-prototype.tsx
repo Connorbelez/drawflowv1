@@ -110,7 +110,11 @@ function LenderDrawQueuePrototype() {
           SAVED
         </div>
         <main className="mx-auto min-w-0 max-w-[1560px] p-4">
-          <QueueHeader scope={scope} setScope={setScope} />
+          <QueueHeader
+            requests={drawRequests}
+            scope={scope}
+            setScope={setScope}
+          />
           {variant === "A" ? <VariantA requests={visibleRequests} /> : null}
           {variant === "B" ? <VariantB requests={visibleRequests} /> : null}
           {variant === "C" ? (
@@ -129,12 +133,17 @@ function LenderDrawQueuePrototype() {
 }
 
 function QueueHeader({
+  requests,
   scope,
   setScope,
 }: {
+  requests: readonly DrawRequest[];
   scope: QueueScope;
   setScope: (scope: QueueScope) => void;
 }) {
+  const actionCount = requests.filter(
+    (request) => request.state === "needs-action"
+  ).length;
   return (
     <header className="mb-5 flex flex-col justify-between gap-4 border-b pb-5 lg:flex-row lg:items-end">
       <div>
@@ -159,7 +168,7 @@ function QueueHeader({
           size="sm"
           variant={scope === "action" ? "default" : "ghost"}
         >
-          Needs my action <Badge variant="secondary">3</Badge>
+          Needs my action <Badge variant="secondary">{actionCount}</Badge>
         </Button>
         <Button
           aria-pressed={scope === "all"}
@@ -167,7 +176,7 @@ function QueueHeader({
           size="sm"
           variant={scope === "all" ? "default" : "ghost"}
         >
-          All assigned <Badge variant="secondary">6</Badge>
+          All assigned <Badge variant="secondary">{requests.length}</Badge>
         </Button>
       </fieldset>
     </header>
@@ -679,7 +688,15 @@ function DrawWorkflowCard({ request }: { request: DrawRequest }) {
   );
 }
 
-function VariantD({ requests }: { requests: readonly DrawRequest[] }) {
+export type LenderDrawQueueRequest = DrawRequest;
+
+function VariantD({
+  onOpenDraw,
+  requests,
+}: {
+  onOpenDraw?: (request: DrawRequest) => void;
+  requests: readonly DrawRequest[];
+}) {
   const grouped = requests.reduce<Record<string, DrawRequest[]>>(
     (groups, request) => {
       const buildRequests = groups[request.build] ?? [];
@@ -769,8 +786,13 @@ function VariantD({ requests }: { requests: readonly DrawRequest[] }) {
                     </div>
                     <EvidenceList evidence={request.evidence} />
                     <FundingPosition position={request.fundingPosition} />
-                    <Button className="w-full" size="sm" variant="outline">
-                      Open Draw <ArrowUpRight className="size-3.5" />
+                    <Button
+                      className="w-full"
+                      onClick={() => onOpenDraw?.(request)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Review Draw <ArrowUpRight className="size-3.5" />
                     </Button>
                   </div>
                 </CardContent>
@@ -783,10 +805,32 @@ function VariantD({ requests }: { requests: readonly DrawRequest[] }) {
   );
 }
 
-// TODO(lender-portal): supply the lender-authorized Draw queue projection.
-// This exports the selected Variant D composition without the prototype switcher.
-export function LenderDrawQueueVariantD() {
-  return <VariantD requests={drawRequests} />;
+// TODO(lender-portal): replace representative queue facts with the
+// lender-authorized Draw queue projection before enabling production commands.
+// This retains the selected Variant D composition without prototype-only chrome.
+export function LenderDrawQueueVariantD({
+  onOpenDraw,
+}: {
+  onOpenDraw?: (request: DrawRequest) => void;
+}) {
+  const [scope, setScope] = useState<QueueScope>("action");
+  const visibleRequests =
+    scope === "action"
+      ? drawRequests.filter((request) => request.state === "needs-action")
+      : drawRequests;
+
+  return (
+    <div className="min-h-[calc(100vh-3.5rem)] bg-muted/30">
+      <main className="mx-auto min-w-0 max-w-[1560px] p-4">
+        <QueueHeader
+          requests={drawRequests}
+          scope={scope}
+          setScope={setScope}
+        />
+        <VariantD onOpenDraw={onOpenDraw} requests={visibleRequests} />
+      </main>
+    </div>
+  );
 }
 
 function ApprovalGroups({
