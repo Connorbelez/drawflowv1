@@ -2320,6 +2320,52 @@ describe("ProductionBuildDetailSurface", () => {
       screen.queryByTestId("milestone-detail-sheet-assign-visit"),
     ).toBeNull();
     expect(screen.queryByTestId("milestone-detail-sheet-reject")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excavation actions" }));
+    expect(screen.getByRole("menuitem", { name: "Open full detail" })).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: /Approve Sub-milestone/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: /Reject Sub-milestone/ }),
+    ).toBeNull();
+  });
+
+  test("routes Back Office child decisions to the canonical governed Review tab", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerCapacity="admin"
+        viewerRole="lender"
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "Evidence" })).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: "Receipts / invoices" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Collaboration" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excavation actions" }));
+    expect(
+      screen.getByRole("menuitem", { name: "Approve Sub-milestone" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /^Reject Sub-milestone/ }),
+    );
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      { kind: "submilestone", submilestoneId: "sub-01" },
+      { selectedTab: "review" },
+    );
   });
 
   test("writes clicked milestone cards back to the production route search state", () => {

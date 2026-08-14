@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   Ellipsis,
   Eye,
+  Link2,
   ListChecks,
   MapPinOff,
   MessageCircle,
@@ -76,6 +77,7 @@ import type {
 import type { BuildSubmilestoneDetailTab } from "../build-detail-targets/buildDetailTab.ts";
 import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
+import { EvidenceAssetCard } from "../build-submilestone-detail/SubmilestoneDetailCanonical.tsx";
 import {
   CostDocumentFileList,
   DocumentedCostCoverage,
@@ -210,6 +212,8 @@ export interface MilestoneSheetData {
  */
 export interface MilestoneDetailSheetProps {
   assignmentsSourceLabel?: string;
+  /** Canonical comment threads aggregated by the route from existing child companions. */
+  collaboration?: ReactNode;
   data: MilestoneSheetData | null;
   errorMessage?: string;
   eventsSourceLabel?: string;
@@ -241,20 +245,14 @@ export interface MilestoneDetailSheetProps {
     note?: string;
   }) => Promise<unknown> | unknown;
   pending?: boolean;
-  /** Throwaway prototype-only aggregate tabs composed from canonical child data. */
-  prototypeAggregateTabs?: {
-    collaboration: ReactNode;
-    evidence: ReactNode;
-    receiptsInvoices: ReactNode;
-  };
-  /** Throwaway prototype-only slot for comparing role-specific review layers. */
-  prototypeReviewLayer?: ReactNode;
-  /** Throwaway prototype-only actions; production must derive these from active route and role capabilities. */
-  prototypeSubmilestoneReviewActions?: {
-    onApprove: (submilestoneKey: string) => void;
-    onReject: (submilestoneKey: string) => void;
-  };
+  /** Optional route-specific review facts composed into the shared Overview. */
+  reviewLayer?: ReactNode;
   siteVisits?: BrokerageSiteVisitsResult;
+  /** Governed reviewer entrypoints. Omit for Builder and read-only routes. */
+  submilestoneReviewActions?: {
+    onApprove?: (submilestoneKey: string) => void;
+    onReject?: (submilestoneKey: string) => void;
+  };
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The parent surface coordinates canonical routing, milestone completion, and lender decisions in one sheet.
@@ -275,9 +273,9 @@ export function MilestoneDetailSheet({
   onStartWork,
   onSubmitCompletion,
   pending: externalPending,
-  prototypeAggregateTabs,
-  prototypeReviewLayer,
-  prototypeSubmilestoneReviewActions,
+  collaboration,
+  reviewLayer,
+  submilestoneReviewActions,
   siteVisits,
 }: MilestoneDetailSheetProps) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
@@ -415,70 +413,61 @@ export function MilestoneDetailSheet({
           </div>
         </SheetHeader>
 
-        {prototypeAggregateTabs ? (
-          <Tabs
-            className="min-h-0 flex-1 gap-0"
-            onValueChange={(value) => setActiveSection(String(value))}
-            value={activeSection}
-          >
-            <div className="shrink-0 border-b px-4 pt-1 sm:px-6">
-              <TabsList
-                aria-label="Milestone detail sections"
-                className="w-full max-w-full justify-start overflow-x-auto"
-                variant="underline"
-              >
-                <TabsTab value="overview">Overview</TabsTab>
-                <TabsTab value="evidence">Evidence</TabsTab>
-                <TabsTab value="receipts-invoices">Receipts / invoices</TabsTab>
-                <TabsTab value="collaboration">Collaboration</TabsTab>
-              </TabsList>
-            </div>
-            <SheetPanel className="min-h-0 px-3 sm:px-5">
-              <TabsPanel className="grid gap-4 pt-4" value="overview">
-                <MilestoneOverviewContent
-                  data={data}
-                  errorMessage={errorMessage}
-                  localError={localError}
-                  onOpenCanonicalTarget={onOpenCanonicalTarget}
-                  onOpenCostDocument={onOpenCostDocument}
-                  openCanonicalForRow={openCanonicalForRow}
-                  prototypeReviewLayer={prototypeReviewLayer}
-                  prototypeSubmilestoneReviewActions={
-                    prototypeSubmilestoneReviewActions
-                  }
+        <Tabs
+          className="min-h-0 flex-1 gap-0"
+          onValueChange={(value) => setActiveSection(String(value))}
+          value={activeSection}
+        >
+          <div className="shrink-0 border-b px-4 pt-1 sm:px-6">
+            <TabsList
+              aria-label="Milestone detail sections"
+              className="w-full max-w-full justify-start overflow-x-auto"
+              variant="underline"
+            >
+              <TabsTab value="overview">Overview</TabsTab>
+              <TabsTab value="evidence">Evidence</TabsTab>
+              <TabsTab value="receipts-invoices">Receipts / invoices</TabsTab>
+              <TabsTab value="collaboration">Collaboration</TabsTab>
+            </TabsList>
+          </div>
+          <SheetPanel className="min-h-0 px-3 sm:px-5">
+            <TabsPanel className="grid gap-4 pt-4" value="overview">
+              <MilestoneOverviewContent
+                data={data}
+                errorMessage={errorMessage}
+                localError={localError}
+                onOpenCanonicalTarget={onOpenCanonicalTarget}
+                onOpenCostDocument={onOpenCostDocument}
+                openCanonicalForRow={openCanonicalForRow}
+                reviewLayer={reviewLayer}
+                rows={rows}
+                siteVisits={siteVisits}
+                submilestoneReviewActions={submilestoneReviewActions}
+              />
+            </TabsPanel>
+            <TabsPanel className="pt-4" value="evidence">
+              <MilestoneEvidenceAggregate
+                onOpen={openCanonicalForRow}
+                rows={rows}
+              />
+            </TabsPanel>
+            <TabsPanel className="pt-4" value="receipts-invoices">
+              <MilestoneCostDocumentAggregate
+                onOpen={openCanonicalForRow}
+                onOpenCostDocument={onOpenCostDocument}
+                rows={rows}
+              />
+            </TabsPanel>
+            <TabsPanel className="pt-4" value="collaboration">
+              {collaboration ?? (
+                <MilestoneCollaborationLinks
+                  onOpen={openCanonicalForRow}
                   rows={rows}
-                  siteVisits={siteVisits}
                 />
-              </TabsPanel>
-              <TabsPanel className="pt-4" value="evidence">
-                {prototypeAggregateTabs.evidence}
-              </TabsPanel>
-              <TabsPanel className="pt-4" value="receipts-invoices">
-                {prototypeAggregateTabs.receiptsInvoices}
-              </TabsPanel>
-              <TabsPanel className="pt-4" value="collaboration">
-                {prototypeAggregateTabs.collaboration}
-              </TabsPanel>
-            </SheetPanel>
-          </Tabs>
-        ) : (
-          <SheetPanel className="grid gap-4 px-3 sm:px-5">
-            <MilestoneOverviewContent
-              data={data}
-              errorMessage={errorMessage}
-              localError={localError}
-              onOpenCanonicalTarget={onOpenCanonicalTarget}
-              onOpenCostDocument={onOpenCostDocument}
-              openCanonicalForRow={openCanonicalForRow}
-              prototypeReviewLayer={prototypeReviewLayer}
-              prototypeSubmilestoneReviewActions={
-                prototypeSubmilestoneReviewActions
-              }
-              rows={rows}
-              siteVisits={siteVisits}
-            />
+              )}
+            </TabsPanel>
           </SheetPanel>
-        )}
+        </Tabs>
 
         <SheetFooter className="z-20 flex-col items-stretch gap-3 bg-background/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:flex-col sm:items-stretch sm:px-6">
           <div
@@ -575,10 +564,10 @@ function MilestoneOverviewContent({
   onOpenCanonicalTarget,
   onOpenCostDocument,
   openCanonicalForRow,
-  prototypeReviewLayer,
-  prototypeSubmilestoneReviewActions,
+  reviewLayer,
   rows,
   siteVisits,
+  submilestoneReviewActions,
 }: {
   data: MilestoneSheetData;
   errorMessage?: string;
@@ -589,10 +578,10 @@ function MilestoneOverviewContent({
     row: MilestoneSheetSubmilestone | undefined,
     selectedTab: BuildSubmilestoneDetailTab
   ) => boolean;
-  prototypeReviewLayer?: ReactNode;
-  prototypeSubmilestoneReviewActions?: MilestoneDetailSheetProps["prototypeSubmilestoneReviewActions"];
+  reviewLayer?: ReactNode;
   rows: MilestoneSheetSubmilestone[];
   siteVisits?: BrokerageSiteVisitsResult;
+  submilestoneReviewActions?: MilestoneDetailSheetProps["submilestoneReviewActions"];
 }) {
   return (
     <>
@@ -622,8 +611,8 @@ function MilestoneOverviewContent({
                   key={row.key}
                   onOpen={(tab) => openCanonicalForRow(row, tab)}
                   onOpenCostDocument={onOpenCostDocument}
-                  prototypeReviewActions={prototypeSubmilestoneReviewActions}
                   row={row}
+                  submilestoneReviewActions={submilestoneReviewActions}
                 />
               ))}
             </div>
@@ -643,7 +632,7 @@ function MilestoneOverviewContent({
         </Frame>
       ) : null}
 
-      {prototypeReviewLayer}
+      {reviewLayer}
 
       {data.recentEvents.length > 0 ? (
         <RecentActivity events={data.recentEvents} />
@@ -793,14 +782,14 @@ function ParentScopeRow({
   canOpenCanonicalTarget,
   onOpen,
   onOpenCostDocument,
-  prototypeReviewActions,
   row,
+  submilestoneReviewActions,
 }: {
   canOpenCanonicalTarget: boolean;
   onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
   onOpenCostDocument?: (costDocumentId: string) => void;
-  prototypeReviewActions?: MilestoneDetailSheetProps["prototypeSubmilestoneReviewActions"];
   row: MilestoneSheetSubmilestone;
+  submilestoneReviewActions?: MilestoneDetailSheetProps["submilestoneReviewActions"];
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasCanonicalTarget =
@@ -870,26 +859,22 @@ function ParentScopeRow({
             </CardDescription>
           </div>
           <CardAction>
-            {prototypeReviewActions ? (
-              <SubmilestoneActionsMenu
-                hasCanonicalTarget={hasCanonicalTarget}
-                onApprove={() => prototypeReviewActions.onApprove(row.key)}
-                onOpen={onOpen}
-                onReject={() => prototypeReviewActions.onReject(row.key)}
-                reviewState={row.review?.state}
-                submilestoneName={row.name}
-              />
-            ) : (
-              <Button
-                disabled={!hasCanonicalTarget}
-                onClick={() => onOpen("overview")}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Open Sub-milestone <ChevronRight />
-              </Button>
-            )}
+            <SubmilestoneActionsMenu
+              hasCanonicalTarget={hasCanonicalTarget}
+              onApprove={
+                submilestoneReviewActions?.onApprove
+                  ? () => submilestoneReviewActions.onApprove?.(row.key)
+                  : undefined
+              }
+              onOpen={onOpen}
+              onReject={
+                submilestoneReviewActions?.onReject
+                  ? () => submilestoneReviewActions.onReject?.(row.key)
+                  : undefined
+              }
+              reviewState={row.review?.state}
+              submilestoneName={row.name}
+            />
           </CardAction>
         </CardHeader>
         {row.review ? <SubmilestoneReviewStrip review={row.review} /> : null}
@@ -1069,9 +1054,9 @@ function SubmilestoneActionsMenu({
   submilestoneName,
 }: {
   hasCanonicalTarget: boolean;
-  onApprove: () => void;
+  onApprove?: () => void;
   onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
-  onReject: () => void;
+  onReject?: () => void;
   reviewState?: SubmilestoneReviewState;
   submilestoneName: string;
 }) {
@@ -1113,28 +1098,34 @@ function SubmilestoneActionsMenu({
             <MessageCircle aria-hidden="true" />
             Open collaboration thread
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Reviewer actions</DropdownMenuLabel>
-          <DropdownMenuItem
-            disabled={reviewState === "approved"}
-            onClick={onApprove}
-          >
-            <CheckCircle2 aria-hidden="true" />
-            Approve Sub-milestone
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={reviewState === "rejected"}
-            onClick={onReject}
-            variant="destructive"
-          >
-            <CircleX aria-hidden="true" />
-            <span>
-              Reject Sub-milestone
-              <span className="block text-[0.68rem] text-muted-foreground">
-                Return for correction and reset approvals
+          {onApprove || onReject ? <DropdownMenuSeparator /> : null}
+          {onApprove || onReject ? (
+            <DropdownMenuLabel>Reviewer actions</DropdownMenuLabel>
+          ) : null}
+          {onApprove ? (
+            <DropdownMenuItem
+              disabled={reviewState === "approved"}
+              onClick={onApprove}
+            >
+              <CheckCircle2 aria-hidden="true" />
+              Approve Sub-milestone
+            </DropdownMenuItem>
+          ) : null}
+          {onReject ? (
+            <DropdownMenuItem
+              disabled={reviewState === "rejected"}
+              onClick={onReject}
+              variant="destructive"
+            >
+              <CircleX aria-hidden="true" />
+              <span>
+                Reject Sub-milestone
+                <span className="block text-muted-foreground text-xs">
+                  Return for correction and reset approvals
+                </span>
               </span>
-            </span>
-          </DropdownMenuItem>
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1218,6 +1209,178 @@ function SupportingSection({
       <h3 className="mb-2 font-semibold text-sm">{title}</h3>
       <div className="text-muted-foreground text-sm">{children}</div>
     </section>
+  );
+}
+
+function MilestoneEvidenceAggregate({
+  onOpen,
+  rows,
+}: {
+  onOpen: (
+    row: MilestoneSheetSubmilestone | undefined,
+    tab: BuildSubmilestoneDetailTab
+  ) => boolean;
+  rows: MilestoneSheetSubmilestone[];
+}) {
+  const evidence = rows.flatMap((row) =>
+    row.evidence
+      .filter((asset) => asset.source !== "site_visit")
+      .map((asset) => ({ asset, row }))
+  );
+
+  return (
+    <Frame>
+      <FramePanel className="space-y-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-base">Builder evidence</h2>
+            <p className="text-muted-foreground text-sm">
+              Evidence aggregated from this Milestone&apos;s canonical
+              Sub-milestones.
+            </p>
+          </div>
+          <Badge variant="outline">{evidence.length} assets</Badge>
+        </div>
+        {evidence.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {evidence.map(({ asset, row }) => (
+              <EvidenceAssetCard
+                asset={asset}
+                footer={
+                  <Button
+                    aria-label={row.name}
+                    className="h-auto min-w-0 justify-start p-0 text-left"
+                    disabled={!row.submilestoneId}
+                    onClick={() => onOpen(row, "evidence")}
+                    size="sm"
+                    type="button"
+                    variant="link"
+                  >
+                    <Link2 aria-hidden="true" />
+                    <span className="truncate">{row.name}</span>
+                  </Button>
+                }
+                key={`${row.key}:${asset.evidenceKey}`}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            No Builder evidence is attached to this Milestone.
+          </p>
+        )}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function MilestoneCostDocumentAggregate({
+  onOpen,
+  onOpenCostDocument,
+  rows,
+}: {
+  onOpen: (
+    row: MilestoneSheetSubmilestone | undefined,
+    tab: BuildSubmilestoneDetailTab
+  ) => boolean;
+  onOpenCostDocument?: (costDocumentId: string) => void;
+  rows: MilestoneSheetSubmilestone[];
+}) {
+  const documentedCents = rows.reduce(
+    (total, row) =>
+      total +
+      (row.costDocuments ?? []).reduce(
+        (rowTotal, document) => rowTotal + document.allocationAmountCents,
+        0
+      ),
+    0
+  );
+
+  return (
+    <Frame>
+      <FramePanel className="space-y-5 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-base">Receipts / invoices</h2>
+            <p className="text-muted-foreground text-sm">
+              Cost documents aggregated across every canonical Sub-milestone.
+            </p>
+          </div>
+          <Badge variant="success">
+            {formatCents(documentedCents)} documented
+          </Badge>
+        </div>
+        <div className="space-y-5">
+          {rows.map((row, index) => (
+            <section className="space-y-3" key={row.key}>
+              {index > 0 ? <Separator /> : null}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-medium text-sm">{row.name}</h3>
+                  <p className="text-muted-foreground text-xs">
+                    {row.costDocuments?.length ?? 0} linked cost document
+                    {(row.costDocuments?.length ?? 0) === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <Button
+                  className="h-auto p-0"
+                  disabled={!row.submilestoneId}
+                  onClick={() => onOpen(row, "overview")}
+                  size="sm"
+                  type="button"
+                  variant="link"
+                >
+                  <Link2 aria-hidden="true" /> Open Sub-milestone
+                </Button>
+              </div>
+              <CostDocumentFileList
+                documents={row.costDocuments ?? []}
+                onOpenCostDocument={onOpenCostDocument}
+              />
+            </section>
+          ))}
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function MilestoneCollaborationLinks({
+  onOpen,
+  rows,
+}: {
+  onOpen: (
+    row: MilestoneSheetSubmilestone | undefined,
+    tab: BuildSubmilestoneDetailTab
+  ) => boolean;
+  rows: MilestoneSheetSubmilestone[];
+}) {
+  return (
+    <Frame>
+      <FramePanel className="space-y-4 p-4">
+        <div>
+          <h2 className="font-semibold text-base">Collaboration</h2>
+          <p className="text-muted-foreground text-sm">
+            Open the canonical comment thread for each Sub-milestone.
+          </p>
+        </div>
+        <div className="grid gap-2">
+          {rows.map((row) => (
+            <Button
+              className="justify-between"
+              disabled={!row.submilestoneId}
+              key={row.key}
+              onClick={() => onOpen(row, "collaboration")}
+              type="button"
+              variant="outline"
+            >
+              {row.name}
+              <MessageCircle aria-hidden="true" />
+            </Button>
+          ))}
+        </div>
+      </FramePanel>
+    </Frame>
   );
 }
 

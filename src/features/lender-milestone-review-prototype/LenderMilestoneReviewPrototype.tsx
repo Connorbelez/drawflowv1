@@ -42,8 +42,6 @@ import {
   type SubmilestoneReviewSummary,
 } from "#/features/backoffice-build-detail/MilestoneDetailSheet.tsx";
 import { SubmilestoneDiscussionThread } from "#/features/build-submilestone-detail/SubmilestoneCollaborationPanel.tsx";
-import { EvidenceAssetCard } from "#/features/build-submilestone-detail/SubmilestoneDetailCanonical.tsx";
-import { CostDocumentFileList } from "#/features/cost-documents/SubmilestoneCostDocuments.tsx";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export const LENDER_MILESTONE_REVIEW_VARIANTS = [
@@ -540,6 +538,7 @@ export function VariantA() {
       </Frame>
       {sheetOpen ? (
         <MilestoneDetailSheet
+          collaboration={<AggregateCollaborationTab />}
           data={milestoneWithReviews}
           onClose={() => setSheetOpen(false)}
           onOpenCanonicalTarget={(_target, context) =>
@@ -547,15 +546,8 @@ export function VariantA() {
               `Canonical Sub-milestone ${context?.selectedTab ?? "overview"} tab selected in prototype.`
             )
           }
-          prototypeAggregateTabs={{
-            collaboration: <AggregateCollaborationTab />,
-            evidence: <AggregateEvidenceTab />,
-            receiptsInvoices: <AggregateCostDocumentsTab />,
-          }}
-          prototypeReviewLayer={
-            <CanonicalLenderReviewLayer activity={lastAction} />
-          }
-          prototypeSubmilestoneReviewActions={{
+          reviewLayer={<CanonicalLenderReviewLayer activity={lastAction} />}
+          submilestoneReviewActions={{
             onApprove: approveSubmilestone,
             onReject: rejectSubmilestone,
           }}
@@ -600,112 +592,6 @@ function CanonicalLenderReviewLayer({ activity }: { activity: string }) {
         <DecisionComposer compact />
         <p aria-live="polite" className="text-muted-foreground text-xs">
           {activity}
-        </p>
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function AggregateEvidenceTab() {
-  const [openedSubmilestone, setOpenedSubmilestone] = useState<string | null>(
-    null
-  );
-  const evidence = (milestone.submilestones ?? []).flatMap((submilestone) =>
-    submilestone.evidence
-      .filter((asset) => asset.source !== "site_visit")
-      .map((asset) => ({ asset, submilestone }))
-  );
-
-  return (
-    <Frame>
-      <FramePanel className="space-y-4 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-base">Builder evidence</h2>
-            <p className="text-muted-foreground text-sm">
-              All Builder-submitted evidence attached to this Milestone's
-              canonical Sub-milestones.
-            </p>
-          </div>
-          <Badge variant="outline">{evidence.length} assets</Badge>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {evidence.map(({ asset, submilestone }) => (
-            <EvidenceAssetCard
-              asset={{ ...asset }}
-              footer={
-                <Button
-                  className="h-auto min-w-0 justify-start p-0 text-left"
-                  onClick={() => setOpenedSubmilestone(submilestone.name)}
-                  size="sm"
-                  variant="link"
-                >
-                  <Link2 aria-hidden="true" />
-                  <span className="truncate">{submilestone.name}</span>
-                </Button>
-              }
-              key={`${submilestone.key}:${asset.evidenceKey}`}
-            />
-          ))}
-        </div>
-        <p aria-live="polite" className="min-h-4 text-muted-foreground text-xs">
-          {openedSubmilestone
-            ? `${openedSubmilestone} selected · canonical Sub-milestone link preview.`
-            : "Each photo stays linked to its canonical Sub-milestone."}
-        </p>
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function AggregateCostDocumentsTab() {
-  const [openedSubmilestone, setOpenedSubmilestone] = useState<string | null>(
-    null
-  );
-  const rows = milestone.submilestones ?? [];
-  return (
-    <Frame>
-      <FramePanel className="space-y-5 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-base">Receipts / invoices</h2>
-            <p className="text-muted-foreground text-sm">
-              Cost documents aggregated across every canonical Sub-milestone.
-            </p>
-          </div>
-          <Badge variant="success">$82,400 documented</Badge>
-        </div>
-        <div className="space-y-5">
-          {rows.map((submilestone, index) => (
-            <section className="space-y-3" key={submilestone.key}>
-              {index > 0 ? <Separator /> : null}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="font-medium text-sm">{submilestone.name}</h3>
-                  <p className="text-muted-foreground text-xs">
-                    {submilestone.costDocuments?.length ?? 0} linked cost
-                    document
-                  </p>
-                </div>
-                <Button
-                  className="h-auto p-0"
-                  onClick={() => setOpenedSubmilestone(submilestone.name)}
-                  size="sm"
-                  variant="link"
-                >
-                  <Link2 aria-hidden="true" /> Open Sub-milestone
-                </Button>
-              </div>
-              <CostDocumentFileList
-                documents={submilestone.costDocuments ?? []}
-              />
-            </section>
-          ))}
-        </div>
-        <p aria-live="polite" className="min-h-4 text-muted-foreground text-xs">
-          {openedSubmilestone
-            ? `${openedSubmilestone} selected · canonical Receipts / invoices tab preview.`
-            : "Each cost document stays linked to its canonical Sub-milestone."}
         </p>
       </FramePanel>
     </Frame>

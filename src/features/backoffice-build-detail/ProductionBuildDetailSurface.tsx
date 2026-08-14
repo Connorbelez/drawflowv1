@@ -145,6 +145,7 @@ const LazyFieldRichTextPreview = lazy(() =>
 import { ContractorsCard } from "./ContractorsCard";
 import { EventRailSheet } from "./EventRail";
 import { formatCents, formatDate, initialsFor } from "./format";
+import { MilestoneCollaborationAggregate } from "./MilestoneCollaborationAggregate.tsx";
 import {
   MilestoneDetailSheet,
   type MilestoneSheetData,
@@ -585,11 +586,21 @@ interface ProductionSubmilestone {
   completedAt?: number;
   completedByWorkosUserId?: string;
   durationDays?: number;
+  evidenceReviewState?:
+    | "approved"
+    | "changes_requested"
+    | "in_review"
+    | "not_ready";
   fieldNote?: string;
   key: string;
   milestoneKey: string;
   name: string;
   order: number;
+  reviewDecisionState?:
+    | "approved"
+    | "changes_requested"
+    | "in_review"
+    | "reopened";
   startDay?: number;
   startEventId?: string;
   startedByWorkosUserId?: string;
@@ -1072,6 +1083,21 @@ export function ProductionBuildDetailSurface({
     projection,
     viewerRole,
   ]);
+  const openSubmilestoneReview = useCallback(
+    (submilestoneKey: string) => {
+      const submilestone = detail.submilestones.find(
+        (candidate) => candidate.key === submilestoneKey
+      );
+      if (!(submilestone && onOpenCanonicalTarget)) {
+        return;
+      }
+      onOpenCanonicalTarget(
+        { kind: "submilestone", submilestoneId: submilestone._id },
+        { selectedTab: "review" }
+      );
+    },
+    [detail.submilestones, onOpenCanonicalTarget]
+  );
   const openCanonicalReference = useCallback(
     (reference: { entityId: string; entityKind: string; href: string }) => {
       if (reference.entityKind === "milestone") {
@@ -1597,6 +1623,18 @@ export function ProductionBuildDetailSurface({
       ) : null}
       <MilestoneDetailSheet
         assignmentsSourceLabel="buildContractorAssignments"
+        collaboration={
+          workosOrganizationId ? (
+            <MilestoneCollaborationAggregate
+              buildId={detail.build._id as Id<"activeBuilds">}
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
+              organizationId={workosOrganizationId}
+              readOnly
+              rows={sheetData?.submilestones ?? []}
+              viewerCapacity={viewerCapacity}
+            />
+          ) : undefined
+        }
         data={sheetData}
         eventsSourceLabel="activeBuildAuditEvents"
         focusedSubmilestoneId={focusedSubmilestoneId}
@@ -1675,9 +1713,19 @@ export function ProductionBuildDetailSurface({
                   });
                 });
               }
-              : undefined
+            : undefined
         }
         siteVisits={milestoneSiteVisits}
+        submilestoneReviewActions={
+          viewerRole === "lender" && onOpenCanonicalTarget
+            ? {
+                ...(viewerCapacity === "admin"
+                  ? { onApprove: openSubmilestoneReview }
+                  : {}),
+                onReject: openSubmilestoneReview,
+              }
+            : undefined
+        }
       />
       {milestoneStartRequest ? (
         <MilestoneStartDialog
@@ -6758,6 +6806,25 @@ function buildMilestoneSheetData(
         materials,
         name: submilestone.name,
         order: submilestone.order,
+        review:
+          submilestone.reviewDecisionState || submilestone.evidenceReviewState
+            ? {
+                backOfficeApproved:
+                  submilestone.reviewDecisionState === "approved",
+                backOfficeRequired: true,
+                lenderApprovals: 0,
+                lenderQuorumRequired: false,
+                lenderQuorumSize: 0,
+                state:
+                  submilestone.reviewDecisionState === "approved"
+                    ? "approved"
+                    : submilestone.reviewDecisionState ===
+                          "changes_requested" ||
+                        submilestone.evidenceReviewState === "changes_requested"
+                      ? "rejected"
+                      : "pending_review",
+              }
+            : undefined,
         scheduleHealth,
         siteVisits,
         startDate: addDaysSafe(detail.build.startDate, startDay),

@@ -1,13 +1,13 @@
 # Canonical Milestone detail sheet direction
 
-Status: accepted prototype direction. This document records a product decision;
-it is not a production implementation or persistence contract.
+Status: implemented as the shared production Milestone detail surface.
 
 ## Decision
 
 The Milestone detail sheet demonstrated at
-`/lender/milestone-review-prototype?variant=A` should become the default
-Milestone detail surface for Builder, Back Office, and Lender routes.
+`/lender/milestone-review-prototype?variant=A` is the source design for the
+default Milestone detail surface used by Builder, Back Office, and Lender
+routes.
 
 There must be one canonical Milestone detail surface and one canonical
 Milestone record. Role-specific pages should compose role-aware tabs, facts,
@@ -48,11 +48,21 @@ show Back Office approval and lender quorum progress. A rejection returns the
 same request record for correction, retains history, and resets all required
 approvals.
 
-## Prototype boundary
+## Production implementation boundary
 
-The current prototype uses representative in-memory state. Its menus, approval
-transitions, comments, and file links must not be treated as production
-commands, authorization, persistence, or complete data contracts. Production
-work should reuse the canonical Sub-milestone review and collaboration
-functions and derive action availability from the active route, WorkOS role,
-and locked Build policy.
+`MilestoneDetailSheet` owns the shared information architecture. Production
+route adapters supply canonical Milestone and Sub-milestone data, canonical
+comment-thread projections, and route-aware action availability. Child menu
+decisions route into the existing governed Sub-milestone Review tab; they do
+not duplicate review mutations, authorization, revision checks, or audit
+history in the parent sheet.
+
+The current production review contract exposes the existing Back Office gate.
+The shared card model can display a distinct lender quorum gate, but a Lender
+route must populate and authorize that gate from the locked Build approval
+policy when the external Lender organization and quorum backend is introduced.
+The UI must not infer quorum from Back Office roles or manufacture a parallel
+approval record.
+
+The throwaway prototype remains representative only. Its in-memory transitions
+are not production commands or persistence contracts.
