@@ -5025,6 +5025,10 @@ describe("Cost Document public contract", () => {
         ],
         category: "labour",
         duplicateWarning: false,
+        financialComponents: [
+          expect.objectContaining({ kind: "subtotal", amountCents: 11_000 }),
+          expect.objectContaining({ kind: "tax", amountCents: 1_345 }),
+        ],
         integrity: { healthy: false, openExceptionKinds: ["missing"] },
         lifecycle: { state: "current" },
         pages: [
@@ -6286,6 +6290,13 @@ async function prepareIntegrityFixtureDraft(
         },
       ],
       documentDate: "2026-08-01",
+      financialComponents: [
+        { amountCents: 11_000, kind: "subtotal" },
+        {
+          amountCents: 1_345 + (input.sequence ?? 0),
+          kind: "tax",
+        },
+      ],
       grossTotalCents: 12_345 + (input.sequence ?? 0),
       pageAssetIds: [assetId],
       title: input.sequence
