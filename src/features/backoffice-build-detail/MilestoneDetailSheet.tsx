@@ -6,14 +6,9 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  CircleX,
   ClipboardCheck,
-  Ellipsis,
-  Eye,
-  Link2,
   ListChecks,
   MapPinOff,
-  MessageCircle,
   Paperclip,
   Play,
 } from "lucide-react";
@@ -34,15 +29,6 @@ import {
   CollapsiblePanel,
   CollapsibleTrigger,
 } from "#/components/ui/collapsible.tsx";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import {
@@ -54,7 +40,6 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
-import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   Tooltip,
@@ -77,7 +62,6 @@ import type {
 import type { BuildSubmilestoneDetailTab } from "../build-detail-targets/buildDetailTab.ts";
 import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
 import type { BuildDetailTargetContext } from "../build-detail-targets/useBuildDetailTargetController.ts";
-import { EvidenceAssetCard } from "../build-submilestone-detail/SubmilestoneDetailCanonical.tsx";
 import {
   CostDocumentFileList,
   DocumentedCostCoverage,
@@ -86,16 +70,6 @@ import { formatDate, formatRelative } from "./format";
 import type { ScheduleHealthResult } from "./scheduleHealth";
 
 type WorkState = "planned" | "in_progress" | "complete";
-type SubmilestoneReviewState = "approved" | "pending_review" | "rejected";
-
-export interface SubmilestoneReviewSummary {
-  backOfficeApproved: boolean;
-  backOfficeRequired: boolean;
-  lenderApprovals: number;
-  lenderQuorumRequired: boolean;
-  lenderQuorumSize: number;
-  state: SubmilestoneReviewState;
-}
 
 export interface MilestoneSheetSubmilestone {
   actualCostCents?: number;
@@ -122,12 +96,9 @@ export interface MilestoneSheetSubmilestone {
     kind: "invoice" | "receipt";
     pages: Array<{
       assetId: string;
-      downloadUrl?: string;
       fileName: string;
       mimeType: string;
     }>;
-    subtotalCents?: number;
-    taxCents?: number;
     title: string;
   }>;
   description: string;
@@ -157,7 +128,6 @@ export interface MilestoneSheetSubmilestone {
   }>;
   name: string;
   order: number;
-  review?: SubmilestoneReviewSummary;
   scheduleHealth?: ScheduleHealthResult;
   siteVisits: Array<{
     completedAt?: string;
@@ -202,13 +172,6 @@ export interface MilestoneSheetData {
   submittedAt?: number;
 }
 
-export interface MilestoneCostDocumentPage {
-  assetId: string;
-  downloadUrl?: string;
-  fileName: string;
-  mimeType: string;
-}
-
 /**
  * Parent Milestone aggregate/detail surface.
  *
@@ -219,8 +182,6 @@ export interface MilestoneCostDocumentPage {
  */
 export interface MilestoneDetailSheetProps {
   assignmentsSourceLabel?: string;
-  /** Canonical comment threads aggregated by the route from existing child companions. */
-  collaboration?: ReactNode;
   data: MilestoneSheetData | null;
   errorMessage?: string;
   eventsSourceLabel?: string;
@@ -239,7 +200,6 @@ export interface MilestoneDetailSheetProps {
     context?: BuildDetailTargetContext
   ) => void;
   onOpenCostDocument?: (costDocumentId: string) => void;
-  onOpenCostDocumentPage?: (page: MilestoneCostDocumentPage) => void;
   onReject?: (milestoneKey: string) => void;
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
@@ -253,18 +213,7 @@ export interface MilestoneDetailSheetProps {
     note?: string;
   }) => Promise<unknown> | unknown;
   pending?: boolean;
-  /** Optional route-specific review facts composed into the shared Overview. */
-  reviewLayer?: ReactNode;
-  /** Canonical route adapter for capability-aware child decision menu items. */
-  renderSubmilestoneReviewItems?: (
-    row: MilestoneSheetSubmilestone
-  ) => ReactNode;
   siteVisits?: BrokerageSiteVisitsResult;
-  /** Governed reviewer entrypoints. Omit for Builder and read-only routes. */
-  submilestoneReviewActions?: {
-    onApprove?: (submilestoneKey: string) => void;
-    onReject?: (submilestoneKey: string) => void;
-  };
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The parent surface coordinates canonical routing, milestone completion, and lender decisions in one sheet.
@@ -280,22 +229,16 @@ export function MilestoneDetailSheet({
   onClose,
   onOpenCanonicalTarget,
   onOpenCostDocument,
-  onOpenCostDocumentPage,
   onReject,
   onRequestInfo,
   onStartWork,
   onSubmitCompletion,
   pending: externalPending,
-  collaboration,
-  reviewLayer,
-  renderSubmilestoneReviewItems,
-  submilestoneReviewActions,
   siteVisits,
 }: MilestoneDetailSheetProps) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [milestoneNote, setMilestoneNote] = useState("");
-  const [activeSection, setActiveSection] = useState("overview");
 
   const rows = useMemo(() => data?.submilestones ?? [], [data?.submilestones]);
   const incomplete = rows.filter((row) => row.status !== "complete");
@@ -427,63 +370,59 @@ export function MilestoneDetailSheet({
           </div>
         </SheetHeader>
 
-        <Tabs
-          className="min-h-0 flex-1 gap-0"
-          onValueChange={(value) => setActiveSection(String(value))}
-          value={activeSection}
-        >
-          <div className="shrink-0 border-b px-4 pt-1 sm:px-6">
-            <TabsList
-              aria-label="Milestone detail sections"
-              className="w-full max-w-full justify-start overflow-x-auto"
-              variant="underline"
-            >
-              <TabsTab value="overview">Overview</TabsTab>
-              <TabsTab value="evidence">Evidence</TabsTab>
-              <TabsTab value="receipts-invoices">Receipts / invoices</TabsTab>
-              <TabsTab value="collaboration">Collaboration</TabsTab>
-            </TabsList>
-          </div>
-          <SheetPanel className="min-h-0 px-3 sm:px-5">
-            <TabsPanel className="grid gap-4 pt-4" value="overview">
-              <MilestoneOverviewContent
-                data={data}
-                errorMessage={errorMessage}
-                localError={localError}
-                onOpenCanonicalTarget={onOpenCanonicalTarget}
-                onOpenCostDocument={onOpenCostDocument}
-                openCanonicalForRow={openCanonicalForRow}
-                reviewLayer={reviewLayer}
-                renderSubmilestoneReviewItems={renderSubmilestoneReviewItems}
-                rows={rows}
-                siteVisits={siteVisits}
-                submilestoneReviewActions={submilestoneReviewActions}
-              />
-            </TabsPanel>
-            <TabsPanel className="pt-4" value="evidence">
-              <MilestoneEvidenceAggregate
-                onOpen={openCanonicalForRow}
-                rows={rows}
-              />
-            </TabsPanel>
-            <TabsPanel className="pt-4" value="receipts-invoices">
-              <MilestoneCostDocumentAggregate
-                onOpen={openCanonicalForRow}
-                onOpenCostDocument={onOpenCostDocument}
-                onOpenCostDocumentPage={onOpenCostDocumentPage}
-                rows={rows}
-              />
-            </TabsPanel>
-            <TabsPanel className="pt-4" value="collaboration">
-              {collaboration ?? (
-                <MilestoneCollaborationLinks
-                  onOpen={openCanonicalForRow}
-                  rows={rows}
-                />
+        <SheetPanel className="grid gap-4 px-3 sm:px-5">
+          <Frame>
+            <FramePanel className="space-y-4 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-base">
+                    Sub-milestone scope
+                  </h2>
+                  <p className="text-muted-foreground text-sm">
+                    Child execution, evidence, assignments, materials, and
+                    review are owned by the unified detail surface.
+                  </p>
+                </div>
+                <Badge variant="outline">
+                  {rows.length} item{rows.length === 1 ? "" : "s"}
+                </Badge>
+              </div>
+              {rows.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  No child scope has been configured.
+                </p>
+              ) : (
+                <div className="grid gap-3">
+                  {rows.map((row) => (
+                    <ParentScopeRow
+                      canOpenCanonicalTarget={Boolean(onOpenCanonicalTarget)}
+                      key={row.key}
+                      onOpen={(tab) => openCanonicalForRow(row, tab)}
+                      onOpenCostDocument={onOpenCostDocument}
+                      row={row}
+                    />
+                  ))}
+                </div>
               )}
-            </TabsPanel>
-          </SheetPanel>
-        </Tabs>
+            </FramePanel>
+          </Frame>
+
+          {siteVisits ? (
+            <MilestoneSiteVisits rows={rows} siteVisits={siteVisits.visits} />
+          ) : null}
+
+          {localError || errorMessage ? (
+            <Frame>
+              <FramePanel className="p-3 text-destructive text-sm" role="alert">
+                {localError ?? errorMessage}
+              </FramePanel>
+            </Frame>
+          ) : null}
+
+          {data.recentEvents.length > 0 ? (
+            <RecentActivity events={data.recentEvents} />
+          ) : null}
+        </SheetPanel>
 
         <SheetFooter className="z-20 flex-col items-stretch gap-3 bg-background/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:flex-col sm:items-stretch sm:px-6">
           <div
@@ -570,93 +509,6 @@ export function MilestoneDetailSheet({
         </SheetFooter>
       </SheetPopup>
     </Sheet>
-  );
-}
-
-function MilestoneOverviewContent({
-  data,
-  errorMessage,
-  localError,
-  onOpenCanonicalTarget,
-  onOpenCostDocument,
-  openCanonicalForRow,
-  reviewLayer,
-  renderSubmilestoneReviewItems,
-  rows,
-  siteVisits,
-  submilestoneReviewActions,
-}: {
-  data: MilestoneSheetData;
-  errorMessage?: string;
-  localError: string | null;
-  onOpenCanonicalTarget?: MilestoneDetailSheetProps["onOpenCanonicalTarget"];
-  onOpenCostDocument?: MilestoneDetailSheetProps["onOpenCostDocument"];
-  openCanonicalForRow: (
-    row: MilestoneSheetSubmilestone | undefined,
-    selectedTab: BuildSubmilestoneDetailTab
-  ) => boolean;
-  reviewLayer?: ReactNode;
-  renderSubmilestoneReviewItems?: MilestoneDetailSheetProps["renderSubmilestoneReviewItems"];
-  rows: MilestoneSheetSubmilestone[];
-  siteVisits?: BrokerageSiteVisitsResult;
-  submilestoneReviewActions?: MilestoneDetailSheetProps["submilestoneReviewActions"];
-}) {
-  return (
-    <>
-      <Frame>
-        <FramePanel className="space-y-4 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="font-semibold text-base">Sub-milestone scope</h2>
-              <p className="text-muted-foreground text-sm">
-                Child execution, evidence, assignments, materials, and review
-                are owned by the unified detail surface.
-              </p>
-            </div>
-            <Badge variant="outline">
-              {rows.length} item{rows.length === 1 ? "" : "s"}
-            </Badge>
-          </div>
-          {rows.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No child scope has been configured.
-            </p>
-          ) : (
-            <div className="grid gap-3">
-              {rows.map((row) => (
-                <ParentScopeRow
-                  canOpenCanonicalTarget={Boolean(onOpenCanonicalTarget)}
-                  key={row.key}
-                  onOpen={(tab) => openCanonicalForRow(row, tab)}
-                  onOpenCostDocument={onOpenCostDocument}
-                  row={row}
-                  reviewItems={renderSubmilestoneReviewItems?.(row)}
-                  submilestoneReviewActions={submilestoneReviewActions}
-                />
-              ))}
-            </div>
-          )}
-        </FramePanel>
-      </Frame>
-
-      {siteVisits ? (
-        <MilestoneSiteVisits rows={rows} siteVisits={siteVisits.visits} />
-      ) : null}
-
-      {localError || errorMessage ? (
-        <Frame>
-          <FramePanel className="p-3 text-destructive text-sm" role="alert">
-            {localError ?? errorMessage}
-          </FramePanel>
-        </Frame>
-      ) : null}
-
-      {reviewLayer}
-
-      {data.recentEvents.length > 0 ? (
-        <RecentActivity events={data.recentEvents} />
-      ) : null}
-    </>
   );
 }
 
@@ -796,21 +648,16 @@ function MilestoneSiteVisits({
   );
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This canonical card composes schedule, evidence, site-visit, cost, and optional prototype review state.
 function ParentScopeRow({
   canOpenCanonicalTarget,
   onOpen,
   onOpenCostDocument,
   row,
-  reviewItems,
-  submilestoneReviewActions,
 }: {
   canOpenCanonicalTarget: boolean;
   onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
   onOpenCostDocument?: (costDocumentId: string) => void;
   row: MilestoneSheetSubmilestone;
-  reviewItems?: ReactNode;
-  submilestoneReviewActions?: MilestoneDetailSheetProps["submilestoneReviewActions"];
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasCanonicalTarget =
@@ -880,26 +727,17 @@ function ParentScopeRow({
             </CardDescription>
           </div>
           <CardAction>
-            <SubmilestoneActionsMenu
-              hasCanonicalTarget={hasCanonicalTarget}
-              onApprove={
-                submilestoneReviewActions?.onApprove
-                  ? () => submilestoneReviewActions.onApprove?.(row.key)
-                  : undefined
-              }
-              onOpen={onOpen}
-              onReject={
-                submilestoneReviewActions?.onReject
-                  ? () => submilestoneReviewActions.onReject?.(row.key)
-                  : undefined
-              }
-              reviewState={row.review?.state}
-              reviewItems={reviewItems}
-              submilestoneName={row.name}
-            />
+            <Button
+              disabled={!hasCanonicalTarget}
+              onClick={() => onOpen("overview")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Open Sub-milestone <ChevronRight />
+            </Button>
           </CardAction>
         </CardHeader>
-        {row.review ? <SubmilestoneReviewStrip review={row.review} /> : null}
         <CardPanel className="space-y-4 pt-0">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
             <OperationalFact
@@ -1031,7 +869,10 @@ function ParentScopeRow({
                 )}
               </SupportingSection>
               <Separator />
-              <SupportingSection className="py-4" title="Receipts / invoices">
+              <SupportingSection
+                className="py-4"
+                title="Receipts / invoices"
+              >
                 <CostDocumentFileList
                   documents={row.costDocuments ?? []}
                   onOpenCostDocument={onOpenCostDocument}
@@ -1067,150 +908,6 @@ function ParentScopeRow({
   );
 }
 
-function SubmilestoneActionsMenu({
-  hasCanonicalTarget,
-  onApprove,
-  onOpen,
-  onReject,
-  reviewState,
-  reviewItems,
-  submilestoneName,
-}: {
-  hasCanonicalTarget: boolean;
-  onApprove?: () => void;
-  onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
-  onReject?: () => void;
-  reviewState?: SubmilestoneReviewState;
-  reviewItems?: ReactNode;
-  submilestoneName: string;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            aria-label={`${submilestoneName} actions`}
-            size="icon-sm"
-            type="button"
-            variant="outline"
-          />
-        }
-      >
-        <Ellipsis aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-56">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Sub-milestone</DropdownMenuLabel>
-          <DropdownMenuItem
-            disabled={!hasCanonicalTarget}
-            onClick={() => onOpen("overview")}
-          >
-            <Eye aria-hidden="true" />
-            Open full detail
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!hasCanonicalTarget}
-            onClick={() => onOpen("evidence")}
-          >
-            <Paperclip aria-hidden="true" />
-            Review evidence
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!hasCanonicalTarget}
-            onClick={() => onOpen("collaboration")}
-          >
-            <MessageCircle aria-hidden="true" />
-            Open collaboration thread
-          </DropdownMenuItem>
-          {onApprove || onReject ? <DropdownMenuSeparator /> : null}
-          {onApprove || onReject ? (
-            <DropdownMenuLabel>Reviewer actions</DropdownMenuLabel>
-          ) : null}
-          {onApprove ? (
-            <DropdownMenuItem
-              disabled={reviewState === "approved"}
-              onClick={onApprove}
-            >
-              <CheckCircle2 aria-hidden="true" />
-              Approve Sub-milestone
-            </DropdownMenuItem>
-          ) : null}
-          {onReject ? (
-            <DropdownMenuItem
-              disabled={reviewState === "rejected"}
-              onClick={onReject}
-              variant="destructive"
-            >
-              <CircleX aria-hidden="true" />
-              <span>
-                Reject Sub-milestone
-                <span className="block text-muted-foreground text-xs">
-                  Return for correction and reset approvals
-                </span>
-              </span>
-            </DropdownMenuItem>
-          ) : null}
-          {reviewItems}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function SubmilestoneReviewStrip({
-  review,
-}: {
-  review: SubmilestoneReviewSummary;
-}) {
-  const label =
-    review.state === "approved"
-      ? "Approved"
-      : review.state === "rejected"
-        ? "Rejected"
-        : "Pending Review";
-  const badgeVariant =
-    review.state === "approved"
-      ? "success"
-      : review.state === "rejected"
-        ? "error"
-        : "warning";
-  const lenderQuorumMet = review.lenderApprovals >= review.lenderQuorumSize;
-
-  return (
-    <section
-      className="flex flex-wrap items-center justify-between gap-3 border-y bg-muted/24 px-6 py-3"
-      data-review-state={review.state}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-xs">Review state</span>
-        <Badge size="sm" variant={badgeVariant}>
-          {review.state === "approved" ? (
-            <CheckCircle2 aria-hidden="true" />
-          ) : review.state === "rejected" ? (
-            <CircleX aria-hidden="true" />
-          ) : null}
-          {label}
-        </Badge>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {review.backOfficeRequired ? (
-          <Badge
-            size="sm"
-            variant={review.backOfficeApproved ? "success" : "warning"}
-          >
-            Back Office · {review.backOfficeApproved ? "Approved" : "Pending"}
-          </Badge>
-        ) : null}
-        {review.lenderQuorumRequired ? (
-          <Badge size="sm" variant={lenderQuorumMet ? "success" : "warning"}>
-            Lender quorum · {review.lenderApprovals}/{review.lenderQuorumSize}
-          </Badge>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
 function OperationalFact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -1234,181 +931,6 @@ function SupportingSection({
       <h3 className="mb-2 font-semibold text-sm">{title}</h3>
       <div className="text-muted-foreground text-sm">{children}</div>
     </section>
-  );
-}
-
-function MilestoneEvidenceAggregate({
-  onOpen,
-  rows,
-}: {
-  onOpen: (
-    row: MilestoneSheetSubmilestone | undefined,
-    tab: BuildSubmilestoneDetailTab
-  ) => boolean;
-  rows: MilestoneSheetSubmilestone[];
-}) {
-  const evidence = rows.flatMap((row) =>
-    row.evidence.map((asset) => ({ asset, row }))
-  );
-
-  return (
-    <Frame>
-      <FramePanel className="space-y-4 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-base">Builder evidence</h2>
-            <p className="text-muted-foreground text-sm">
-              Evidence aggregated from this Milestone&apos;s canonical
-              Sub-milestones.
-            </p>
-          </div>
-          <Badge variant="outline">{evidence.length} assets</Badge>
-        </div>
-        {evidence.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {evidence.map(({ asset, row }) => (
-              <EvidenceAssetCard
-                asset={asset}
-                footer={
-                  <Button
-                    aria-label={row.name}
-                    className="h-auto min-w-0 justify-start p-0 text-left"
-                    disabled={!row.submilestoneId}
-                    onClick={() => onOpen(row, "evidence")}
-                    size="sm"
-                    type="button"
-                    variant="link"
-                  >
-                    <Link2 aria-hidden="true" />
-                    <span className="truncate">{row.name}</span>
-                  </Button>
-                }
-                key={`${row.key}:${asset.evidenceKey}`}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-sm">
-            No Builder evidence is attached to this Milestone.
-          </p>
-        )}
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function MilestoneCostDocumentAggregate({
-  onOpen,
-  onOpenCostDocument,
-  onOpenCostDocumentPage,
-  rows,
-}: {
-  onOpen: (
-    row: MilestoneSheetSubmilestone | undefined,
-    tab: BuildSubmilestoneDetailTab
-  ) => boolean;
-  onOpenCostDocument?: (costDocumentId: string) => void;
-  onOpenCostDocumentPage?: (page: MilestoneCostDocumentPage) => void;
-  rows: MilestoneSheetSubmilestone[];
-}) {
-  const documentedCents = rows.reduce(
-    (total, row) =>
-      total +
-      (row.costDocuments ?? []).reduce(
-        (rowTotal, document) => rowTotal + document.allocationAmountCents,
-        0
-      ),
-    0
-  );
-
-  return (
-    <Frame>
-      <FramePanel className="space-y-5 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-base">Receipts / invoices</h2>
-            <p className="text-muted-foreground text-sm">
-              Cost documents aggregated across every canonical Sub-milestone.
-            </p>
-          </div>
-          <Badge variant="success">
-            {formatCents(documentedCents)} documented
-          </Badge>
-        </div>
-        <div className="space-y-5">
-          {rows.map((row, index) => (
-            <section className="space-y-3" key={row.key}>
-              {index > 0 ? <Separator /> : null}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="font-medium text-sm">{row.name}</h3>
-                  <p className="text-muted-foreground text-xs">
-                    {row.costDocuments?.length ?? 0} linked cost document
-                    {(row.costDocuments?.length ?? 0) === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <Button
-                  className="h-auto p-0"
-                  disabled={!row.submilestoneId}
-                  onClick={() => onOpen(row, "overview")}
-                  size="sm"
-                  type="button"
-                  variant="link"
-                >
-                  <Link2 aria-hidden="true" /> Open Sub-milestone
-                </Button>
-              </div>
-              <CostDocumentFileList
-                documents={row.costDocuments ?? []}
-                onOpenCostDocument={
-                  onOpenCostDocumentPage ? undefined : onOpenCostDocument
-                }
-                onOpenPage={onOpenCostDocumentPage}
-              />
-            </section>
-          ))}
-        </div>
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function MilestoneCollaborationLinks({
-  onOpen,
-  rows,
-}: {
-  onOpen: (
-    row: MilestoneSheetSubmilestone | undefined,
-    tab: BuildSubmilestoneDetailTab
-  ) => boolean;
-  rows: MilestoneSheetSubmilestone[];
-}) {
-  return (
-    <Frame>
-      <FramePanel className="space-y-4 p-4">
-        <div>
-          <h2 className="font-semibold text-base">Collaboration</h2>
-          <p className="text-muted-foreground text-sm">
-            Open the canonical comment thread for each Sub-milestone.
-          </p>
-        </div>
-        <div className="grid gap-2">
-          {rows.map((row) => (
-            <Button
-              className="justify-between"
-              disabled={!row.submilestoneId}
-              key={row.key}
-              onClick={() => onOpen(row, "collaboration")}
-              type="button"
-              variant="outline"
-            >
-              {row.name}
-              <MessageCircle aria-hidden="true" />
-            </Button>
-          ))}
-        </div>
-      </FramePanel>
-    </Frame>
   );
 }
 

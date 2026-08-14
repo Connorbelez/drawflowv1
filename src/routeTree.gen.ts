@@ -34,7 +34,6 @@ import { Route as LenderPrototypeRouteImport } from './routes/lender.prototype'
 import { Route as LenderProposalConfirmationPrototypeRouteImport } from './routes/lender.proposal-confirmation-prototype'
 import { Route as LenderOrganizationManagementPrototypeRouteImport } from './routes/lender.organization-management-prototype'
 import { Route as LenderMilestonesPrototypeRouteImport } from './routes/lender.milestones-prototype'
-import { Route as LenderMilestoneReviewPrototypeRouteImport } from './routes/lender.milestone-review-prototype'
 import { Route as LenderDrawsPrototypeRouteImport } from './routes/lender.draws-prototype'
 import { Route as LenderDrawReviewSheetPrototypeRouteImport } from './routes/lender.draw-review-sheet-prototype'
 import { Route as LenderDrawReviewPrototypeRouteImport } from './routes/lender.draw-review-prototype'
@@ -226,12 +225,6 @@ const LenderMilestonesPrototypeRoute =
   LenderMilestonesPrototypeRouteImport.update({
     id: '/lender/milestones-prototype',
     path: '/lender/milestones-prototype',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LenderMilestoneReviewPrototypeRoute =
-  LenderMilestoneReviewPrototypeRouteImport.update({
-    id: '/lender/milestone-review-prototype',
-    path: '/lender/milestone-review-prototype',
     getParentRoute: () => rootRouteImport,
   } as any)
 const LenderDrawsPrototypeRoute = LenderDrawsPrototypeRouteImport.update({
@@ -609,7 +602,6 @@ export interface FileRoutesByFullPath {
   '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
   '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
   '/lender/draws-prototype': typeof LenderDrawsPrototypeRoute
-  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
   '/lender/milestones-prototype': typeof LenderMilestonesPrototypeRoute
   '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
   '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
@@ -685,7 +677,6 @@ export interface FileRoutesByTo {
   '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
   '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
   '/lender/draws-prototype': typeof LenderDrawsPrototypeRoute
-  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
   '/lender/milestones-prototype': typeof LenderMilestonesPrototypeRoute
   '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
   '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
@@ -772,7 +763,6 @@ export interface FileRoutesById {
   '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
   '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
   '/lender/draws-prototype': typeof LenderDrawsPrototypeRoute
-  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
   '/lender/milestones-prototype': typeof LenderMilestonesPrototypeRoute
   '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
   '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
@@ -863,7 +853,6 @@ export interface FileRouteTypes {
     | '/lender/draw-review-prototype'
     | '/lender/draw-review-sheet-prototype'
     | '/lender/draws-prototype'
-    | '/lender/milestone-review-prototype'
     | '/lender/milestones-prototype'
     | '/lender/organization-management-prototype'
     | '/lender/proposal-confirmation-prototype'
@@ -939,7 +928,6 @@ export interface FileRouteTypes {
     | '/lender/draw-review-prototype'
     | '/lender/draw-review-sheet-prototype'
     | '/lender/draws-prototype'
-    | '/lender/milestone-review-prototype'
     | '/lender/milestones-prototype'
     | '/lender/organization-management-prototype'
     | '/lender/proposal-confirmation-prototype'
@@ -1025,7 +1013,6 @@ export interface FileRouteTypes {
     | '/lender/draw-review-prototype'
     | '/lender/draw-review-sheet-prototype'
     | '/lender/draws-prototype'
-    | '/lender/milestone-review-prototype'
     | '/lender/milestones-prototype'
     | '/lender/organization-management-prototype'
     | '/lender/proposal-confirmation-prototype'
@@ -1094,7 +1081,6 @@ export interface RootRouteChildren {
   LenderDrawReviewPrototypeRoute: typeof LenderDrawReviewPrototypeRoute
   LenderDrawReviewSheetPrototypeRoute: typeof LenderDrawReviewSheetPrototypeRoute
   LenderDrawsPrototypeRoute: typeof LenderDrawsPrototypeRoute
-  LenderMilestoneReviewPrototypeRoute: typeof LenderMilestoneReviewPrototypeRoute
   LenderMilestonesPrototypeRoute: typeof LenderMilestonesPrototypeRoute
   LenderOrganizationManagementPrototypeRoute: typeof LenderOrganizationManagementPrototypeRoute
   LenderProposalConfirmationPrototypeRoute: typeof LenderProposalConfirmationPrototypeRoute
@@ -1286,13 +1272,6 @@ declare module '@tanstack/react-router' {
       path: '/lender/milestones-prototype'
       fullPath: '/lender/milestones-prototype'
       preLoaderRoute: typeof LenderMilestonesPrototypeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lender/milestone-review-prototype': {
-      id: '/lender/milestone-review-prototype'
-      path: '/lender/milestone-review-prototype'
-      fullPath: '/lender/milestone-review-prototype'
-      preLoaderRoute: typeof LenderMilestoneReviewPrototypeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lender/draws-prototype': {
@@ -2044,7 +2023,6 @@ const rootRouteChildren: RootRouteChildren = {
   LenderDrawReviewPrototypeRoute: LenderDrawReviewPrototypeRoute,
   LenderDrawReviewSheetPrototypeRoute: LenderDrawReviewSheetPrototypeRoute,
   LenderDrawsPrototypeRoute: LenderDrawsPrototypeRoute,
-  LenderMilestoneReviewPrototypeRoute: LenderMilestoneReviewPrototypeRoute,
   LenderMilestonesPrototypeRoute: LenderMilestonesPrototypeRoute,
   LenderOrganizationManagementPrototypeRoute:
     LenderOrganizationManagementPrototypeRoute,

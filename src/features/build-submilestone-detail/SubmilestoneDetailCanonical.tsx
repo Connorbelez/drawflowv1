@@ -16,13 +16,12 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Card,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardPanel,
   CardTitle,
@@ -1984,16 +1983,13 @@ export function evidenceAssetIdentity(asset: Record<string, unknown>) {
 
 export function EvidenceAssetCard({
   asset,
-  footer,
 }: {
   asset: Record<string, unknown>;
-  footer?: ReactNode;
 }) {
   const locationVerified = booleanValue(
     asset.locationVerified ?? asset.verified,
     false
   );
-  const previewUrl = stringValue(asset.previewUrl ?? asset.url);
   return (
     <Card className="overflow-hidden shadow-none">
       <CardHeader className="p-3">
@@ -2020,21 +2016,6 @@ export function EvidenceAssetCard({
           </Badge>
         </div>
       </CardHeader>
-      {previewUrl ? (
-        <div className="aspect-[4/3] overflow-hidden bg-muted">
-          <img
-            alt={stringValue(
-              asset.title ?? asset.label ?? asset.fileName,
-              "Evidence preview"
-            )}
-            className="h-full w-full object-cover"
-            height={600}
-            loading="lazy"
-            src={previewUrl}
-            width={800}
-          />
-        </div>
-      ) : null}
       <CardPanel className="space-y-2 p-3 pt-0 text-xs">
         {asset.locationVerified === false || asset.verified === false ? (
           <p className="flex items-center gap-1 text-warning">
@@ -2048,9 +2029,6 @@ export function EvidenceAssetCard({
           </p>
         ) : null}
       </CardPanel>
-      {footer ? (
-        <CardFooter className="border-t bg-muted/30 p-3">{footer}</CardFooter>
-      ) : null}
     </Card>
   );
 }

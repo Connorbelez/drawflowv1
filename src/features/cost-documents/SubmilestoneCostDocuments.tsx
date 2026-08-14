@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -12,12 +12,9 @@ export interface SubmilestoneCostDocument {
   kind: "invoice" | "receipt";
   pages: Array<{
     assetId: string;
-    downloadUrl?: string;
     fileName: string;
     mimeType: string;
   }>;
-  subtotalCents?: number;
-  taxCents?: number;
   title: string;
 }
 
@@ -61,11 +58,9 @@ export function DocumentedCostCoverage({
 export function CostDocumentFileList({
   documents,
   onOpenCostDocument,
-  onOpenPage,
 }: {
   documents: SubmilestoneCostDocument[];
   onOpenCostDocument?: (costDocumentId: string) => void;
-  onOpenPage?: (page: SubmilestoneCostDocument["pages"][number]) => void;
 }) {
   if (documents.length === 0) {
     return (
@@ -80,84 +75,23 @@ export function CostDocumentFileList({
       {documents.flatMap((document) =>
         document.pages.map((page) => (
           <li
-            className="flex min-w-0 flex-col gap-2 py-1 sm:flex-row sm:items-center"
+            className="flex min-w-0 items-center gap-2"
             key={`${document._id}:${page.assetId}`}
           >
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <FileText aria-hidden="true" className="size-4 shrink-0" />
-              {onOpenCostDocument ? (
-                <Button
-                  className="h-auto min-w-0 justify-start p-0 text-left"
-                  onClick={() => onOpenCostDocument(document._id)}
-                  title={`Open ${document.title}`}
-                  type="button"
-                  variant="link"
-                >
-                  <span className="truncate">{page.fileName}</span>
-                </Button>
-              ) : onOpenPage ? (
-                <Button
-                  className="h-auto p-0"
-                  onClick={() => onOpenPage(page)}
-                  size="sm"
-                  title={`Open or download ${document.title}`}
-                  type="button"
-                  variant="link"
-                >
-                  Open / download <ExternalLink aria-hidden="true" />
-                </Button>
-              ) : (
-                <span className="truncate text-sm">{page.fileName}</span>
-              )}
-              <Badge className="shrink-0" size="sm" variant="outline">
-                {humanizeStatus(document.kind)}
-              </Badge>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-6 text-xs tabular-nums sm:justify-end sm:pl-0">
-              <span className="text-muted-foreground">
-                Subtotal{" "}
-                <strong className="font-medium text-foreground">
-                  {formatCents(document.subtotalCents, 2)}
-                </strong>
-              </span>
-              <span className="text-muted-foreground">
-                Tax{" "}
-                <strong className="font-medium text-foreground">
-                  {formatCents(document.taxCents, 2)}
-                </strong>
-              </span>
-              {page.downloadUrl ? (
-                <Button
-                  className="h-auto p-0"
-                  render={
-                    <a
-                      aria-label={`Open or download ${document.title}`}
-                      download={page.fileName}
-                      href={page.downloadUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open / download <ExternalLink aria-hidden="true" />
-                    </a>
-                  }
-                  size="sm"
-                  title={`Open or download ${document.title}`}
-                  variant="link"
-                />
-              ) : (
-                <Button
-                  className="h-auto p-0"
-                  disabled={!onOpenCostDocument}
-                  onClick={() => onOpenCostDocument?.(document._id)}
-                  size="sm"
-                  title={`Open or download ${document.title}`}
-                  type="button"
-                  variant="link"
-                >
-                  Open / download <ExternalLink aria-hidden="true" />
-                </Button>
-              )}
-            </div>
+            <FileText aria-hidden="true" className="size-4 shrink-0" />
+            <Button
+              className="h-auto min-w-0 justify-start p-0 text-left"
+              disabled={!onOpenCostDocument}
+              onClick={() => onOpenCostDocument?.(document._id)}
+              title={`Open ${document.title}`}
+              type="button"
+              variant="link"
+            >
+              <span className="truncate">{page.fileName}</span>
+            </Button>
+            <Badge className="shrink-0" size="sm" variant="outline">
+              {humanizeStatus(document.kind)}
+            </Badge>
           </li>
         ))
       )}
@@ -165,14 +99,13 @@ export function CostDocumentFileList({
   );
 }
 
-function formatCents(value?: number, fractionDigits = 0) {
+function formatCents(value?: number) {
   if (value === undefined) {
     return "Not available";
   }
   return new Intl.NumberFormat("en-CA", {
     currency: "CAD",
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: 0,
     style: "currency",
   }).format(value / 100);
 }

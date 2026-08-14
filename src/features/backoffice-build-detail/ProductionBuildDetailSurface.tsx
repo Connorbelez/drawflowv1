@@ -32,7 +32,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -112,7 +111,6 @@ import type {
   MaterialPlanningActions,
   MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
-import { useBuildCollaborationReadMutation } from "#/features/build-collaboration/BuildCollaborationMutationGate.tsx";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
   convertHeicEvidenceBlobToJpeg,
@@ -121,7 +119,6 @@ import {
 } from "#/lib/evidence-image-normalization.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
-import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ActiveBuildTimelineWorkspaceProps } from "./ActiveBuildTimelineWorkspace";
 import {
@@ -148,8 +145,6 @@ const LazyFieldRichTextPreview = lazy(() =>
 import { ContractorsCard } from "./ContractorsCard";
 import { EventRailSheet } from "./EventRail";
 import { formatCents, formatDate, initialsFor } from "./format";
-import { MilestoneCollaborationAggregate } from "./MilestoneCollaborationAggregate.tsx";
-import { MilestoneReviewMenuItems } from "./MilestoneReviewMenuItems.tsx";
 import {
   MilestoneDetailSheet,
   type MilestoneSheetData,
@@ -590,21 +585,11 @@ interface ProductionSubmilestone {
   completedAt?: number;
   completedByWorkosUserId?: string;
   durationDays?: number;
-  evidenceReviewState?:
-    | "approved"
-    | "changes_requested"
-    | "in_review"
-    | "not_ready";
   fieldNote?: string;
   key: string;
   milestoneKey: string;
   name: string;
   order: number;
-  reviewDecisionState?:
-    | "approved"
-    | "changes_requested"
-    | "in_review"
-    | "reopened";
   startDay?: number;
   startEventId?: string;
   startedByWorkosUserId?: string;
@@ -956,9 +941,6 @@ export function ProductionBuildDetailSurface({
     () => buildProductionBuildProjection(detail),
     [detail]
   );
-  const authorizeCostDocumentPage = useBuildCollaborationReadMutation(
-    api.build_collaboration_assets.authorizeBuildCollaborationAssetDownload
-  );
   const currentDay = resolveProductionCurrentDay(detail, timelineWorkspace);
   const eventsOpen = rail === "open";
   const eventCount =
@@ -1090,47 +1072,6 @@ export function ProductionBuildDetailSurface({
     projection,
     viewerRole,
   ]);
-  const openSubmilestoneReview = useCallback(
-    (submilestoneKey: string) => {
-      const submilestone = detail.submilestones.find(
-        (candidate) => candidate.key === submilestoneKey
-      );
-      if (!(submilestone && onOpenCanonicalTarget)) {
-        return;
-      }
-      onOpenCanonicalTarget(
-        { kind: "submilestone", submilestoneId: submilestone._id },
-        { selectedTab: "review" }
-      );
-    },
-    [detail.submilestones, onOpenCanonicalTarget]
-  );
-  const openCostDocumentPage = useCallback(
-    async (page: { assetId: string }) => {
-      if (!workosOrganizationId) {
-        toast.error("The source file is unavailable without Build access.");
-        return;
-      }
-      try {
-        const url = await authorizeCostDocumentPage({
-          assetId: page.assetId as Id<"buildCollaborationAssets">,
-          buildId: detail.build._id as Id<"activeBuilds">,
-          organizationId: workosOrganizationId,
-        });
-        window.open(url, "_blank", "noopener,noreferrer");
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "The source file is no longer available."
-        );
-      }
-    }, [
-      authorizeCostDocumentPage,
-      detail.build._id,
-      workosOrganizationId,
-    ]
-  );
   const openCanonicalReference = useCallback(
     (reference: { entityId: string; entityKind: string; href: string }) => {
       if (reference.entityKind === "milestone") {
@@ -1656,18 +1597,6 @@ export function ProductionBuildDetailSurface({
       ) : null}
       <MilestoneDetailSheet
         assignmentsSourceLabel="buildContractorAssignments"
-        collaboration={
-          workosOrganizationId ? (
-            <MilestoneCollaborationAggregate
-              buildId={detail.build._id as Id<"activeBuilds">}
-              onOpenCanonicalTarget={onOpenCanonicalTarget}
-              organizationId={workosOrganizationId}
-              readOnly
-              rows={sheetData?.submilestones ?? []}
-              viewerCapacity={viewerCapacity}
-            />
-          ) : undefined
-        }
         data={sheetData}
         eventsSourceLabel="activeBuildAuditEvents"
         focusedSubmilestoneId={focusedSubmilestoneId}
@@ -1703,7 +1632,6 @@ export function ProductionBuildDetailSurface({
         onClose={() => setActiveMilestoneKey(null)}
         onOpenCanonicalTarget={onOpenCanonicalTarget}
         onOpenCostDocument={onOpenCostDocument}
-        onOpenCostDocumentPage={openCostDocumentPage}
         onReject={
           viewerRole === "lender" && actions?.rejectMilestone
             ? (milestoneKey) => actions.rejectMilestone?.({ milestoneKey })
@@ -1747,21 +1675,7 @@ export function ProductionBuildDetailSurface({
                   });
                 });
               }
-            : undefined
-        }
-        renderSubmilestoneReviewItems={
-          viewerRole === "lender" && workosOrganizationId
-            ? (row) => (
-                <MilestoneReviewMenuItems
-                  buildId={detail.build._id as Id<"activeBuilds">}
-                  onOpenReview={openSubmilestoneReview}
-                  organizationId={workosOrganizationId}
-                  readOnly={false}
-                  row={row}
-                  viewerCapacity={viewerCapacity}
-                />
-              )
-            : undefined
+              : undefined
         }
         siteVisits={milestoneSiteVisits}
       />
@@ -6821,12 +6735,6 @@ function buildMilestoneSheetData(
             fileName: page.fileName,
             mimeType: page.mimeType,
           })),
-          subtotalCents: document.financialComponents
-            ?.filter((component) => component.kind === "subtotal")
-            .reduce((sum, component) => sum + component.amountCents, 0),
-          taxCents: document.financialComponents
-            ?.filter((component) => component.kind === "tax")
-            .reduce((sum, component) => sum + component.amountCents, 0),
           title: document.title,
         }));
       return {
@@ -6850,25 +6758,6 @@ function buildMilestoneSheetData(
         materials,
         name: submilestone.name,
         order: submilestone.order,
-        review:
-          submilestone.reviewDecisionState || submilestone.evidenceReviewState
-            ? {
-                backOfficeApproved:
-                  submilestone.reviewDecisionState === "approved",
-                backOfficeRequired: false,
-                lenderApprovals: 0,
-                lenderQuorumRequired: false,
-                lenderQuorumSize: 0,
-                state:
-                  submilestone.reviewDecisionState === "approved"
-                    ? "approved"
-                    : submilestone.reviewDecisionState ===
-                          "changes_requested" ||
-                        submilestone.evidenceReviewState === "changes_requested"
-                      ? "rejected"
-                      : "pending_review",
-              }
-            : undefined,
         scheduleHealth,
         siteVisits,
         startDate: addDaysSafe(detail.build.startDate, startDay),

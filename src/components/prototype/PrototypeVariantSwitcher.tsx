@@ -65,7 +65,7 @@ export function PrototypeVariantSwitcher({
   };
 
   return (
-    <Frame className="fixed bottom-5 left-1/2 z-[80] w-[min(92vw,28rem)] -translate-x-1/2 bg-foreground/90 shadow-2xl backdrop-blur">
+    <Frame className="fixed bottom-5 left-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 bg-foreground/90 shadow-2xl backdrop-blur">
       <FramePanel className="flex items-center justify-between gap-2 border-white/10 bg-foreground p-1.5 text-background">
         <Button
           aria-label="Previous prototype variant"
@@ -80,7 +80,7 @@ export function PrototypeVariantSwitcher({
           <p className="truncate font-semibold text-sm">
             {active?.key} — {active?.name}
           </p>
-          <p className="text-background/60 text-xs">
+          <p className="text-[11px] text-background/60">
             Prototype only · use ← and →
           </p>
         </div>

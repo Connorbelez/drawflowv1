@@ -222,9 +222,6 @@ const costDocumentRoadmapReconciliationSummaryValidator = v.object({
   currency: v.literal("CAD"),
   documentDate: v.string(),
   duplicateWarning: v.boolean(),
-  financialComponents: v.array(
-    costDocumentFinancialComponentProjectionValidator
-  ),
   grossTotalCents: v.number(),
   integrity: v.optional(
     v.object({
@@ -1374,7 +1371,7 @@ async function projectCostDocumentRoadmapReconciliationSummary(
   document: Doc<"costDocuments">
 ) {
   const isHomeownerView = authorization.effectiveRole.role === "homeowner";
-  const [allocations, builderReview, financialComponents, brokerageReview, pages] =
+  const [allocations, builderReview, brokerageReview, pages] =
     await Promise.all([
       ctx.db
         .query("costDocumentAllocations")
@@ -1390,13 +1387,6 @@ async function projectCostDocumentRoadmapReconciliationSummary(
         )
         .order("desc")
         .first(),
-      ctx.db
-        .query("costDocumentFinancialComponents")
-        .withIndex("by_costDocumentId_and_order", (query) =>
-          query.eq("costDocumentId", document._id)
-        )
-        .order("asc")
-        .take(MAX_FINANCIAL_COMPONENTS + 1),
       ctx.db
         .query("costDocumentReviewAnnotations")
         .withIndex("by_costDocumentId_and_reviewType_and_revision", (query) =>
@@ -1418,7 +1408,6 @@ async function projectCostDocumentRoadmapReconciliationSummary(
     allocations,
     brokerageReview,
     builderReview,
-    financialComponents,
     integrityExceptions,
   });
   const openIntegrityExceptions = integrityExceptions;
@@ -1436,12 +1425,6 @@ async function projectCostDocumentRoadmapReconciliationSummary(
     documentDate: document.documentDate,
     duplicateWarning:
       !isHomeownerView && document.duplicateOverrideReason !== undefined,
-    financialComponents: financialComponents.map((component) => ({
-      amountCents: component.amountCents,
-      kind: component.kind,
-      label: component.label,
-      order: component.order,
-    })),
     grossTotalCents: document.grossTotalCents,
     ...(isHomeownerView
       ? {}
@@ -5408,24 +5391,20 @@ async function assertReadableCostDocumentRoadmapProjectionGraph(
     allocations: Doc<"costDocumentAllocations">[];
     brokerageReview: Doc<"costDocumentReviewAnnotations"> | null;
     builderReview: Doc<"costDocumentReviewAnnotations"> | null;
-    financialComponents: Doc<"costDocumentFinancialComponents">[];
     integrityExceptions: Doc<"costDocumentIntegrityExceptions">[];
   }
 ) {
   if (
     graph.allocations.length < 1 ||
     graph.allocations.length > MAX_ALLOCATIONS ||
-    graph.financialComponents.length > MAX_FINANCIAL_COMPONENTS ||
     graph.integrityExceptions.length >
       MAX_ROADMAP_RECONCILIATION_INTEGRITY_EXCEPTIONS ||
-    !hasSequentialCostDocumentOrders(graph.allocations) ||
-    !hasSequentialCostDocumentOrders(graph.financialComponents)
+    !hasSequentialCostDocumentOrders(graph.allocations)
   ) {
     throwCostDocumentProjectionGraphUnavailable();
   }
   const scopedChildren = [
     ...graph.allocations,
-    ...graph.financialComponents,
     ...graph.integrityExceptions,
     ...(graph.builderReview ? [graph.builderReview] : []),
     ...(graph.brokerageReview ? [graph.brokerageReview] : []),
