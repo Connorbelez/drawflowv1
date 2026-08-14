@@ -51,37 +51,37 @@ const lenderResourceInput = {
 export const requireAuthenticated = authenticatedQuery
   .returns(viewerReturn)
   .handler(async (ctx) => ctx.viewer)
-  .public();
+  .internal();
 
 export const requireAdmin = adminQuery
   .returns(viewerReturn)
   .handler(async (ctx) => ctx.viewer)
-  .public();
+  .internal();
 
 export const requireBackoffice = backofficeQuery
   .returns(viewerReturn)
   .handler(async (ctx) => ctx.viewer)
-  .public();
+  .internal();
 
 export const requireBuilder = builderQuery
   .returns(viewerReturn)
   .handler(async (ctx) => ctx.viewer)
-  .public();
+  .internal();
 
 export const requireUserManagementWrite = userManagementWriteMutation
   .returns(viewerReturn)
   .handler(async (ctx) => ctx.viewer)
-  .public();
+  .internal();
 
 export const requireNonDestructiveWrite = nonDestructiveWriteMutation
   .returns(viewerReturn)
   .handler(async (ctx) => ctx.viewer)
-  .public();
+  .internal();
 
 export const requireDestructiveWrite = destructiveWriteMutation
   .returns(viewerReturn)
   .handler(async (ctx) => ctx.viewer)
-  .public();
+  .internal();
 
 export const requireLenderOrganizationQuery = lenderOrganizationQuery
   .input(lenderResourceInput)
@@ -97,7 +97,7 @@ export const requireLenderOrganizationQuery = lenderOrganizationQuery
     }
     return ctx.activeOrganization;
   })
-  .public();
+  .internal();
 
 export const requireLenderOrganizationMutation = lenderOrganizationMutation
   .input(lenderResourceInput)
@@ -113,9 +113,9 @@ export const requireLenderOrganizationMutation = lenderOrganizationMutation
     }
     return ctx.activeOrganization;
   })
-  .public();
+  .internal();
 
 export const requireLenderUserManagement = lenderUserManagementMutation
   .returns(activeOrganizationReturn)
   .handler(async (ctx) => ctx.activeOrganization)
-  .public();
+  .internal();

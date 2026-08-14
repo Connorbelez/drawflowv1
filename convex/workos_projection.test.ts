@@ -229,13 +229,6 @@ describe("WorkOS webhook projections", () => {
     const t = convexTest(schema, modules);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("users", {
-        authId: "user_builder",
-        email: "builder@example.com",
-        name: "Builder",
-        status: "active",
-        workosUserId: "user_builder",
-      });
       await ctx.db.insert("workosOrganizations", {
         domains: [],
         name: "FairLend",
@@ -396,6 +389,15 @@ describe("WorkOS webhook projections", () => {
           workosOrganizationId: "org_oakline",
         },
       ],
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "user_builder",
+        email: "builder@example.com",
+        name: "Builder",
+        status: "active",
+        workosUserId: "user_builder",
+      });
     });
     await expect(
       asBuilderInOrganization(t, "org_fairlend").query(

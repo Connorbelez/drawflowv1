@@ -7,7 +7,6 @@ import {
   authenticatedQuery,
   backofficeQuery,
   lenderOrganizationQuery,
-  requireActiveWorkosUser,
 } from "./authz";
 import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import { fluent } from "./fluent";
@@ -256,7 +255,6 @@ export const listCurrentUserOrganizations = authenticatedQuery
     })
   )
   .handler(async (ctx) => {
-    await requireActiveWorkosUser(ctx, ctx.viewer.subject);
     const memberships = await ctx.db
       .query("workosOrganizationMemberships")
       .withIndex("by_user", (q) => q.eq("workosUserId", ctx.viewer.subject))

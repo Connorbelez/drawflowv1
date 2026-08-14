@@ -82,6 +82,8 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   destructiveWrite: ["admin", "principle-broker"],
 };
 
+const MAX_LENDER_ORGANIZATION_MEMBERSHIPS = 100;
+
 export interface AuthorizedViewer {
   actorKind?: ActorKind;
   capability: Capability;
@@ -245,7 +247,7 @@ export async function requireActiveWorkosUser(
     .withIndex("by_workos_user_id", (query) =>
       query.eq("workosUserId", workosUserId)
     )
-    .collect();
+    .take(2);
   if (projectedUsers.length !== 1) {
     throw new Error(
       projectedUsers.length === 0
@@ -278,7 +280,10 @@ export async function resolveActiveLenderOrganizationContext(
   const memberships = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user", (query) => query.eq("workosUserId", workosUserId))
-    .collect();
+    .take(MAX_LENDER_ORGANIZATION_MEMBERSHIPS + 1);
+  if (memberships.length > MAX_LENDER_ORGANIZATION_MEMBERSHIPS) {
+    throw new Error("Forbidden: organization membership context exceeds limit");
+  }
   const activeOrganizationIds = [
     ...new Set(
       memberships
@@ -338,7 +343,7 @@ export async function resolveActiveLenderOrganizationContext(
     .withIndex("by_workos_organization", (query) =>
       query.eq("workosOrganizationId", workosOrganizationId)
     )
-    .collect();
+    .take(2);
   if (brokerages.length !== 1) {
     throw new Error(
       brokerages.length === 0
