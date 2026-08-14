@@ -253,12 +253,12 @@ export interface MilestoneDetailSheetProps {
     note?: string;
   }) => Promise<unknown> | unknown;
   pending?: boolean;
-  /** Optional route-specific review facts composed into the shared Overview. */
-  reviewLayer?: ReactNode;
   /** Canonical route adapter for capability-aware child decision menu items. */
   renderSubmilestoneReviewItems?: (
     row: MilestoneSheetSubmilestone
   ) => ReactNode;
+  /** Optional route-specific review facts composed into the shared Overview. */
+  reviewLayer?: ReactNode;
   siteVisits?: BrokerageSiteVisitsResult;
   /** Governed reviewer entrypoints. Omit for Builder and read-only routes. */
   submilestoneReviewActions?: {
@@ -453,8 +453,8 @@ export function MilestoneDetailSheet({
                 onOpenCanonicalTarget={onOpenCanonicalTarget}
                 onOpenCostDocument={onOpenCostDocument}
                 openCanonicalForRow={openCanonicalForRow}
-                reviewLayer={reviewLayer}
                 renderSubmilestoneReviewItems={renderSubmilestoneReviewItems}
+                reviewLayer={reviewLayer}
                 rows={rows}
                 siteVisits={siteVisits}
                 submilestoneReviewActions={submilestoneReviewActions}
@@ -629,8 +629,8 @@ function MilestoneOverviewContent({
                   key={row.key}
                   onOpen={(tab) => openCanonicalForRow(row, tab)}
                   onOpenCostDocument={onOpenCostDocument}
-                  row={row}
                   reviewItems={renderSubmilestoneReviewItems?.(row)}
+                  row={row}
                   submilestoneReviewActions={submilestoneReviewActions}
                 />
               ))}
@@ -859,7 +859,6 @@ function ParentScopeRow({
                       aria-label={siteVisitLabel}
                       className="inline-flex size-7 items-center justify-center rounded-md border text-muted-foreground"
                       role="img"
-                      tabIndex={0}
                     />
                   }
                 >
@@ -893,8 +892,8 @@ function ParentScopeRow({
                   ? () => submilestoneReviewActions.onReject?.(row.key)
                   : undefined
               }
-              reviewState={row.review?.state}
               reviewItems={reviewItems}
+              reviewState={row.review?.state}
               submilestoneName={row.name}
             />
           </CardAction>
