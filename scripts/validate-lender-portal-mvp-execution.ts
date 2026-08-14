@@ -16,6 +16,13 @@ const NUMBERED_HEADING_ORDINAL_PATTERN = /^###\s+(\d+)\./;
 const E2E_HEADING_ORDINAL_PATTERN = /^###\s+E2E-(\d+)\s/;
 const RANGE_ENDPOINT_PATTERN = /^(.*?)(\d+)$/;
 const PACKET_SELECTOR_PATTERN = /^[-*]\s+`?([^`]+?)`?\s*$/;
+const INDEPENDENT_ACCEPTANCE_HEADING_PATTERN =
+  /^## Independent acceptance\s*$/im;
+const NEXT_SECTION_HEADING_PATTERN = /^##\s+/m;
+const ACCEPTANCE_DECISION_PATTERN =
+  /^-\s*Decision:\s*`?(?:accepted|verified)`?(?:\s|$)/im;
+const HUMAN_ACCEPTANCE_OVERRIDE_PATTERN =
+  /^-\s*Human acceptance override:\s*`?(?:accepted|approved|true)`?\b/im;
 
 const generatedCatalogSchema = z.object({
   count: z.number().int().positive(),
@@ -274,7 +281,7 @@ function assertCommitAncestor(args: {
 function validateEvidence(
   workPackage: z.infer<typeof ledgerSchema>["workPackages"][number],
   currentHead: string,
-  requireExactAcceptedSha = false,
+  requireExactAcceptedSha = false
 ) {
   const evidence = workPackage.evidence;
   if (!evidence) {
@@ -286,24 +293,29 @@ function validateEvidence(
   }
   const evidenceText = readFileSync(evidencePath, "utf8");
   if (workPackage.status === "verified") {
-    const headingMatch = /^## Independent acceptance\s*$/im.exec(evidenceText);
+    const headingMatch =
+      INDEPENDENT_ACCEPTANCE_HEADING_PATTERN.exec(evidenceText);
     const acceptanceSection = headingMatch
       ? (() => {
           const section = evidenceText.slice(headingMatch.index);
-          const nextHeading = /^##\s+/m.exec(section.slice(2));
+          const nextHeading = NEXT_SECTION_HEADING_PATTERN.exec(
+            section.slice(2)
+          );
           return nextHeading
             ? section.slice(0, nextHeading.index + 2)
             : section;
         })()
       : "";
     const hasAcceptanceDecision =
-      /^-\s*Decision:\s*`?(?:accepted|verified)`?(?:\s|$)/im.test(
-        acceptanceSection,
-      ) ||
-      /^-\s*Decision:[^\n]*\b(?:human (?:acceptance )?override|acceptance authority|explicit human override)\b/im.test(
-        acceptanceSection,
-      );
-    if (!acceptanceSection || !hasAcceptanceDecision) {
+      ACCEPTANCE_DECISION_PATTERN.test(acceptanceSection);
+    const hasHumanAcceptanceOverride =
+      HUMAN_ACCEPTANCE_OVERRIDE_PATTERN.test(acceptanceSection);
+    if (
+      !(
+        acceptanceSection &&
+        (hasAcceptanceDecision || hasHumanAcceptanceOverride)
+      )
+    ) {
       fail(
         `${workPackage.id}: verified packets require independent acceptance evidence or a documented human acceptance override`
       );

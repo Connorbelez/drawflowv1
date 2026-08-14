@@ -16,6 +16,7 @@
 - Independent verifier:
 - Verified at:
 - Evidence status: `implementation-complete` or `verified`
+- Human acceptance override: `accepted` or `approved` when applicable
 
 ## Canonical ownership
 

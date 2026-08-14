@@ -3266,32 +3266,24 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
       { lenderOrganizationName: string } | null
     >();
     const activeLenderUserCache = new Map<string, boolean>();
-    let membershipCursor: string | null = null;
     let scannedMemberships = 0;
-    while (
-      eligibleOrganizations.size < ELIGIBLE_LENDER_ORGANIZATION_LIMIT &&
-      scannedOrganizationIds.size < ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT &&
-      scannedMemberships < ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT
-    ) {
-      const membershipPage = await ctx.db
-        .query("workosOrganizationMemberships")
-        .withIndex("by_status", (query) => query.eq("status", "active"))
-        .paginate({
-          cursor: membershipCursor,
-          numItems: LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE,
-        });
+    const activeMemberships = await ctx.db
+      .query("workosOrganizationMemberships")
+      .withIndex("by_status", (query) => query.eq("status", "active"))
+      .take(ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT);
 
-      for (const membership of membershipPage.page) {
-        scannedMemberships += 1;
-        if (scannedMemberships > ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT) {
+    for (const membership of activeMemberships) {
+        if (scannedMemberships >= ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT) {
           break;
         }
-        scannedOrganizationIds.add(membership.workosOrganizationId);
         if (
-          scannedOrganizationIds.size > ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
+          !scannedOrganizationIds.has(membership.workosOrganizationId) &&
+          scannedOrganizationIds.size >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
         ) {
           break;
         }
+        scannedMemberships += 1;
+        scannedOrganizationIds.add(membership.workosOrganizationId);
         const roles = normalizeRoleSlugs([
           membership.roleSlug,
           ...membership.roleSlugs,
@@ -3379,15 +3371,6 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
         if (eligibleOrganizations.size >= ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
           break;
         }
-      }
-      if (
-        membershipPage.isDone ||
-        scannedOrganizationIds.size >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT ||
-        scannedMemberships >= ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT
-      ) {
-        break;
-      }
-      membershipCursor = membershipPage.continueCursor;
     }
     const sortedOrganizations = [...eligibleOrganizations.values()];
     sortedOrganizations.sort((left, right) =>
