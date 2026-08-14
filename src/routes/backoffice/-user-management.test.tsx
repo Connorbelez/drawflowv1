@@ -344,13 +344,13 @@ describe("UserDetailSheet role editor", () => {
           builderProfile: null,
           hasBrokerageProfile: true,
           hasBuilderProfile: true,
-          name: organization.name,
+          name: organization.name ?? organization.workosOrganizationId,
           needsBrokerageProfile: false,
           needsBuilderProfile: false,
-          status: organization.status,
+          status: organization.status ?? "unknown",
           workosOrganizationId: organization.workosOrganizationId,
         },
-      ])
+      ] satisfies [string, OrganizationProvisioning])
     );
 
     renderSheet(user, noopHandlers(), provisioning);

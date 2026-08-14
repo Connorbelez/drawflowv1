@@ -401,6 +401,7 @@ function LenderOrganizationManagementPrototype() {
         organizationsById={prototypeOrganizationsById}
         provisioningByOrg={prototypeProvisioningByOrg}
         readOnly
+        readOnlyBadgeLabel="Operations prototype"
         readOnlySupplement={
           selectedDirectoryUser ? (
             <MemberAdministrationDetails

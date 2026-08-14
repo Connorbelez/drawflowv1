@@ -69,7 +69,7 @@ export const Route = createFileRoute("/lender/proposal-confirmation-prototype")(
       variant: isPrototypeVariant(search.variant) ? search.variant : "D",
     }),
     component: LenderProposalConfirmationPrototype,
-  },
+  }
 );
 
 const checkpoints = [
@@ -329,7 +329,7 @@ function VariantA() {
               <div
                 className={cn(
                   "flex items-start gap-3 rounded-lg px-3 py-3",
-                  index === 0 ? "bg-primary/10" : "text-muted-foreground",
+                  index === 0 ? "bg-primary/10" : "text-muted-foreground"
                 )}
                 key={checkpoint.key}
               >
@@ -419,6 +419,12 @@ function VariantD() {
       ) : null}
     </>
   );
+}
+
+// TODO(lender-portal): replace packet fixture data and local acknowledgement
+// state with the canonical proposal revision, audit, and decision commands.
+export function LenderProposalReviewVariantD() {
+  return <VariantD />;
 }
 
 function BackOfficeProposalPacketHost({
@@ -594,7 +600,7 @@ function LenderReviewSheet({ onClose }: { onClose: () => void }) {
     AcknowledgementAuditRecord[]
   >([]);
   const [decisionMode, setDecisionMode] = useState<"confirm" | "decline">(
-    "confirm",
+    "confirm"
   );
   const [declineReason, setDeclineReason] = useState("");
   const confirmationReady =
@@ -611,12 +617,12 @@ function LenderReviewSheet({ onClose }: { onClose: () => void }) {
 
   const recordAcknowledgement = (
     card: AcceptedReviewCard,
-    acknowledged: boolean,
+    acknowledged: boolean
   ) => {
     setAcknowledgedKeys((current) =>
       acknowledged
         ? [...current.filter((key) => key !== card.key), card.key]
-        : current.filter((key) => key !== card.key),
+        : current.filter((key) => key !== card.key)
     );
     setAuditRecords((current) => [
       ...current,
@@ -719,7 +725,7 @@ function LenderReviewSheet({ onClose }: { onClose: () => void }) {
               }
               onToggle={() =>
                 setExpandedCard((current) =>
-                  current === card.key ? null : card.key,
+                  current === card.key ? null : card.key
                 )
               }
             />
@@ -1039,7 +1045,7 @@ function ProgressiveReviewCard({
           <ChevronDown
             className={cn(
               "size-4 text-muted-foreground transition-transform",
-              expanded && "rotate-180",
+              expanded && "rotate-180"
             )}
           />
         </div>
@@ -1120,7 +1126,7 @@ function ReviewFacts({
     <div
       className={cn(
         "rounded-lg border bg-background p-4",
-        muted && "text-muted-foreground",
+        muted && "text-muted-foreground"
       )}
     >
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1245,7 +1251,7 @@ function TimelineItem({
       <div
         className={cn(
           "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border",
-          complete && "bg-muted",
+          complete && "bg-muted"
         )}
       >
         {complete ? (
@@ -1287,14 +1293,14 @@ function PolicyFacts({ compact = false }: { compact?: boolean }) {
     <dl
       className={cn(
         "grid gap-3",
-        compact && "mt-3 border-t pt-3 sm:grid-cols-2",
+        compact && "mt-3 border-t pt-3 sm:grid-cols-2"
       )}
     >
       {policyFacts.map(([label, value]) => (
         <div
           className={cn(
             !compact &&
-              "flex items-start justify-between gap-4 border-b pb-3 last:border-0 last:pb-0",
+              "flex items-start justify-between gap-4 border-b pb-3 last:border-0 last:pb-0"
           )}
           key={label}
         >
@@ -1314,7 +1320,7 @@ function ReadOnlyActions({ horizontal = false }: { horizontal?: boolean }) {
       className={cn(
         "rounded-lg border border-dashed bg-muted/20 p-4",
         horizontal &&
-          "flex flex-col justify-between gap-4 sm:flex-row sm:items-center",
+          "flex flex-col justify-between gap-4 sm:flex-row sm:items-center"
       )}
     >
       <div>
@@ -1353,7 +1359,7 @@ function HistoryEvent({
     <div
       className={cn(
         "rounded-lg border p-4",
-        active && "border-primary/40 bg-primary/5",
+        active && "border-primary/40 bg-primary/5"
       )}
     >
       <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

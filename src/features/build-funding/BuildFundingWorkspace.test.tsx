@@ -582,7 +582,7 @@ describe("BuildFundingWorkspace", () => {
     fireEvent.click(screen.getByTestId("draw-review-request-approved"));
     expect(
       screen.getByRole("heading", {
-        name: "DR-1021 Draw approval and release",
+        name: /DR-1021/,
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByTestId("draw-approval-release-approved"));
@@ -734,10 +734,10 @@ describe("BuildFundingWorkspace", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "DR-1043 Draw approval and release",
+        name: /DR-1043/,
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Operations review")).toBeTruthy();
+    expect(screen.getByText("Approval policy")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Approve for release" }),
     );
@@ -746,7 +746,7 @@ describe("BuildFundingWorkspace", () => {
     );
   });
 
-  test("does not leak the lender review entrypoint into Builder cards", () => {
+  test("opens the shared role-aware Draw sheet from Builder cards", () => {
     render(
       <BuildFundingWorkspace
         model={projectBuildFunding({
@@ -771,8 +771,13 @@ describe("BuildFundingWorkspace", () => {
       />,
     );
 
-    expect(screen.queryByTestId("draw-review-request-builder-request")).toBeNull();
-    expect(screen.queryByText("Review request")).toBeNull();
+    const openDraw = screen.getByTestId("draw-review-request-builder-request");
+    expect(openDraw).toBeTruthy();
+    fireEvent.click(openDraw);
+    expect(screen.getByRole("heading", { name: /DR-1042/ })).toBeTruthy();
+    expect(screen.getByText("Review status")).toBeTruthy();
+    expect(screen.queryByText("Private review note")).toBeNull();
+    expect(screen.queryByText("Attributed reimbursement sources")).toBeNull();
   });
 
   test("opens lender Draw history cards in the approval flow", () => {
@@ -846,7 +851,7 @@ describe("BuildFundingWorkspace", () => {
       fireEvent.click(button);
       expect(
         screen.getByRole("heading", {
-          name: `${request.displayId} Draw approval and release`,
+          name: new RegExp(request.displayId),
         }),
       ).toBeTruthy();
       fireEvent.click(screen.getByText("Close"));
@@ -864,7 +869,7 @@ describe("BuildFundingWorkspace", () => {
       fireEvent.click(button);
       expect(
         screen.getByRole("heading", {
-          name: `${request.displayId} Draw approval and release`,
+          name: new RegExp(request.displayId),
         }),
       ).toBeTruthy();
       fireEvent.click(screen.getByText("Close"));

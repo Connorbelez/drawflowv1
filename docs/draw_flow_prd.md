@@ -5,9 +5,33 @@
 **Document type:** Product Requirements Document  
 **Status:** Revised product draft  
 **Primary audience:** Product, engineering, lender operations, builder operations, executive stakeholders, future implementation agents  
-**Last updated:** May 25, 2026
+**Last updated:** August 13, 2026
 
 **Productionization companion:** `docs/draw_flow_production_prd.md` is authoritative for the May 25 production model covering WorkOS auth, brokerage tenancy, Principal Broker/Broker/Backoffice/Builder/Contractor roles, RBAC, contractor profile/account separation, production schema, and organization/workflow management. Where this older PRD uses generic lender-side role language, the production companion defines the current target model.
+
+**External Lender Portal authority:**
+`docs/lender_portal_mvp_feature_brief.md` controls the external-lender feature
+slice on conflict, `docs/lender_portal_mvp_spec.md` is its ready-for-agent
+specification, and `docs/lender-portal-prototype-promotion.md` records selected
+prototype contracts. Lender Build Detail Variant C, the Precision console at
+`/lender/build-detail-overview-prototype?variant=C`, is approved and locked.
+Future authorized implementation must directly promote that selected narrow,
+read-only projection; it must not start from this broad PRD and construct a
+requirements-equivalent surface. The selection does not itself authorize
+production work.
+
+**Locked Lender Portal Builder Milestone revision contract:** Variant A of
+`src/routes/builder.milestone-revision-detail-prototype.tsx` is the selected
+interaction. Future implementation must directly promote its inline
+`Needs revision` state inside the canonical `MilestoneDetailSheet`; it must not
+create a detached correction workspace. The same durable Milestone request
+returns to draft-like editing, shows explicitly Builder-visible free-text
+revision instructions, preserves locked requirements and authorized history,
+and resubmits as decision cycle N+1 with every required approval reset. Reviewer
+identity and any separate private rationale remain excluded. This selection is
+Milestone-specific; no Builder Draw presentation is selected by inference. See
+`docs/lender-portal-prototype-promotion.md` and the controlling Lender Portal
+feature brief/specification before implementation.
 
 ---
 
@@ -454,7 +478,6 @@ A Draw includes:
 - associated Build,
 - associated Loan,
 - Draw Release Work Order key,
-- immutable Milestone and Draw Group source allocations,
 - planned amount,
 - requested reimbursement amount,
 - approved reimbursement amount,
@@ -466,11 +489,14 @@ A Draw includes:
 - release date,
 - interest accrual start date.
 
-In v1, a Draw cannot be released before the relevant work is completed and approved.
+In v1, a Draw cannot be released before enough work has been completed and
+approved to unlock its requested value. A Draw Request consumes pooled Build
+availability; it is not assigned to a source Milestone or Draw Group.
 
 ## 7.9 Draw Group
 
-A Draw Group is the planned grouping of milestones that are expected to be reimbursed together through a Draw.
+A Draw Group is a proposal and forecast grouping of milestones that are
+expected to make a planned reimbursement cadence feasible.
 
 Draw Groups are visualized in the Build Workspace as bounded regions over the Gantt schedule.
 
@@ -485,6 +511,11 @@ A Draw Group includes:
 - interest estimate,
 - status,
 - warnings.
+
+Draw Groups do not own executed Draw Requests. They do not create a required
+relationship between an actual request and a Milestone, its evidence, or a
+release decision. Actual requests use the pooled Build availability unlocked
+to date.
 
 ## 7.10 Borrower Starting Cash
 
@@ -625,15 +656,21 @@ Rules:
 - Lender staff reviews evidence.
 - Site visit occurs where required or requested.
 - Lender admin approves milestone completion.
-- Each approved Milestone contributes its approved reimbursement amount to an organization-scoped availability source bucket.
+- Each approved Milestone increases the organization-scoped pooled Build
+  availability, subject to the facility cap.
 - Builder may request a partial or full reimbursement from the pooled available balance.
-- System creates one Draw Release Work Order for the request and deterministically attributes its exact amount across approved Milestone / Draw Group source buckets.
+- System creates one Draw Release Work Order for the Build-level request and
+  reserves its amount from the pooled balance.
 - Lender operations reviews the work order and submits a recommendation.
 - Lender admin approves draw release.
 - Funds are released after approval.
 - Interest begins only after release.
 
-No v1 workflow should allow proactive advance funding before work completion. A partial draw means a partial request against fully approved Milestone value; it never means reimbursement for partially completed or unapproved work.
+No v1 workflow should allow proactive advance funding before work completion. A
+partial draw means a partial request against the availability unlocked by fully
+approved Milestone value; it never means reimbursement for partially completed
+or unapproved work and it does not assign the request back to a Milestone or
+Draw Group.
 
 ## 8.2 Interest Accrual
 
@@ -1088,8 +1125,10 @@ The product should avoid splitting roadmap, draw, evidence, and approval state i
 17. Builder selects preferred plan or accepts system recommendation.
 18. Builder submits Build Proposal.
 19. Lender admin reviews and approves/rejects/requests changes.
-20. Approved proposal becomes an active Build with proposal capital events and
-    secondary facilities preserved.
+20. An approved proposal remains approved while Back Office completes the
+    Closing workspace, including the Review Requirements in Section 23.7.
+21. Recording offline closing locks those requirements and creates the active
+    Build with proposal capital events and secondary facilities preserved.
 
 ## 11.2 Lender Admin Proposal Review Flow
 
@@ -1103,7 +1142,12 @@ The product should avoid splitting roadmap, draw, evidence, and approval state i
 8. Admin reviews warnings and infeasibility flags.
 9. Admin accepts, rejects, or requests changes.
 10. Admin may override warnings with audited reason.
-11. Approved proposal becomes active Build.
+11. An approved proposal remains approved until offline closing is recorded.
+12. In the existing proposal Closing workspace, Back Office authors the locked
+    Milestone and Draw Review Requirements defined in Section 23.7.
+13. Back Office reviews the pre-closing summary of the policy that will govern
+    the active Build.
+14. Recording closing locks that policy and creates the active Build.
 
 ## 11.3 Active Build Update Flow
 
@@ -1159,11 +1203,13 @@ The product should avoid splitting roadmap, draw, evidence, and approval state i
 4. Admin reviews staff report/recommendation.
 5. Admin reviews site visit report if applicable.
 6. Admin approves or rejects milestone completion.
-7. Approved Milestone value enters the pooled reimbursement balance with its Draw Group source attribution.
-8. Builder submits a partial or full request; system creates the Draw Release Work Order and deterministic allocations.
+7. Approved Milestone value increases the pooled reimbursement balance.
+8. Builder submits a partial or full Build-level request; system creates the
+   Draw Release Work Order and reserves the requested pooled amount.
 9. Lender operations reviews the request and submits it for admin decision.
 10. Admin opens the `ready_for_admin` Draw Release Work Order.
-11. Admin reviews amount, allocations, fee treatment, loan availability, and interest implications.
+11. Admin reviews the submitted request, request-linked evidence, approval
+    gates, fee treatment, loan availability, and interest implications.
 12. Admin approves the work order for release.
 13. System records draw release, draw fee, and interest accrual start date.
 14. Webhook events are emitted where configured.
@@ -1249,6 +1295,7 @@ approval, or audit records. The normative implementation contract is
 8. Mobile Proof Upload.
 9. Draw Status View.
 10. Budget Revision Request.
+11. Canonical Draw Review Sheet in Builder-safe mode.
 
 ## 12.3 Lender Admin Interfaces
 
@@ -1260,6 +1307,52 @@ approval, or audit records. The normative implementation contract is
 6. Budget Revision Review.
 7. Policy Configuration.
 8. Audit History.
+9. Canonical Draw Review Sheet with authorized decision controls.
+10. Lender Organization Management.
+
+### 12.3.1 Lender Organization Management
+
+The organization-management surface is an operational interface for an
+authorized Lender Admin or Principal Broker. It must let that user understand
+the active brokerage organization, search and filter its members, inspect a
+member's organization memberships and roles, and start the supported invitation,
+role-change, and deactivation workflows.
+
+The accepted interface is
+`/lender/organization-management-prototype?variant=E`. Production must directly
+promote its shared User Management table and detail-sheet composition according
+to `docs/lender-portal-prototype-promotion.md`. This is a selected implementation
+contract, not a request to redesign the surface from these requirements.
+
+Organization administration and review-policy administration are separate:
+
+- organization administration manages WorkOS-owned identity, membership, and
+  role access through the canonical WorkOS-first management boundary;
+- membership changes surface their effects on lender review assignment, quorum
+  re-evaluation, recipient routing, work queues, and audit history;
+- Back Office owns pre-closing review-requirements setup and the policy handed
+  to the active Build; the organization-management surface may explain that
+  relationship but cannot edit or own the approval policy.
+
+### 12.3.2 Lender Draw Queue
+
+The approved lender Draw Queue interface is
+`/lender/draws-prototype?variant=D`, **Build packets**, locked on 2026-08-13.
+Production must directly promote the selected interface according to
+`docs/lender-portal-prototype-promotion.md`; it must not redesign the queue from
+requirements alone.
+
+The locked interface groups assigned Draw requests by canonical Build and
+preserves a large color-and-symbol decision-status signal at the lower left of
+each request card. It shows peer approval-group progress, focused current-cycle
+Evidence Package context, and a reconciled pooled funding position. It defaults
+to Needs my action while retaining an All assigned view.
+
+The queue is a permission-shaped projection over canonical Build, Draw request,
+policy, decision-cycle, evidence, funding, and audit records. It does not own a
+parallel Draw model. Draw-level receipt coverage, Draw-level Site Visit gates,
+and Milestone or Draw Group funding attribution are excluded from this accepted
+contract. Variants A, B, and C are rejected comparison history.
 
 ## 12.4 Lender Staff Interfaces
 
@@ -1268,6 +1361,7 @@ approval, or audit records. The normative implementation contract is
 3. Missing Information Request.
 4. Site Visit Request.
 5. Staff Recommendation Form.
+6. Canonical Draw Review Sheet with authorized review controls.
 
 ## 12.5 Site Visit Interfaces
 
@@ -1288,6 +1382,20 @@ approval, or audit records. The normative implementation contract is
 - Users may belong to multiple organizations.
 - Cross-tenant data access must be impossible through normal application paths.
 - External API keys/webhook configs must be tenant-scoped.
+- WorkOS remains authoritative for users, organizations, organization
+  memberships, roles, and permissions. Product commands must use the canonical
+  WorkOS management boundary and accept webhook/sync projection state instead
+  of directly mutating projection tables.
+- Authorized Lender Admin and Principal Broker users can invite brokerage
+  brokers or backoffice staff, change supported member roles, and deactivate
+  future access while retaining historical membership and decision records.
+- Removing or deactivating the active Principal Broker is a protected
+  transfer-of-control workflow. Normal member management cannot create a second
+  active Principal Broker or leave the brokerage without one.
+- A completed membership change must trigger or enqueue the required access,
+  lender-review assignment/quorum, recipient-routing, work-queue, and audit
+  re-evaluation. Organization role labels alone do not prove quorum eligibility
+  or policy satisfaction.
 
 ## 13.2 Proposal Intake
 
@@ -1429,6 +1537,9 @@ Minimum roles:
 - Lender staff can review, report, inspect, and recommend.
 - Lender admin has final approval authority.
 - Policy configuration is admin-only.
+- Brokerage membership administration uses the WorkOS-first organization
+  management boundary and remains separate from Back Office pre-closing
+  review-policy configuration.
 - Sensitive override actions require audited reason.
 - Tenant boundaries must be enforced everywhere.
 
@@ -1485,14 +1596,24 @@ Recommended milestone statuses:
 Canonical Draw Release Work Order statuses:
 
 1. `requested` — builder submitted; availability is reserved.
-2. `in_review` — lender operations is reviewing evidence, attribution, policy, and availability.
+2. `in_review` — an authorized reviewer is reviewing the submitted request,
+   request-linked evidence, policy gates, and pooled availability.
 3. `ready_for_admin` — operations recommendation is complete.
 4. `approved_for_release` — lender admin approved the final release decision.
 5. `released` — funds were released; interest starts according to lender configuration.
-6. `rejected` — lender admin rejected the work order; its allocations no longer reserve availability.
-7. `withdrawn` — builder withdrew before review; its allocations no longer reserve availability.
+6. `rejected` — an authorized final reviewer rejected the request with a
+   private reason; its reservation is released and the same record returns for
+   Builder correction/resubmission with retained history. Resubmission starts a
+   new decision cycle and resets every required approval.
+7. `withdrawn` — builder withdrew while lifecycle policy allowed it; its pooled
+   availability reservation is released.
 
 `planned` belongs to mutable draw schedule forecasts, not the Draw Release Work Order lifecycle.
+
+These lifecycle statuses do not impose an order between configured Back Office
+and lender quorum gates. Required groups are peers and may satisfy the same
+submission in either order. No per-review deadline or SLA is inferred from a
+status transition.
 
 ## 15.3 Site Visit Statuses
 
@@ -1699,11 +1820,13 @@ The core operational flow is:
 6. Staff submit recommendation.
 7. Lender admin reviews the complete approval package.
 8. Admin approves milestone completion.
-9. Approved Milestone value enters the pooled reimbursement balance with its Draw Group attribution.
+9. Approved Milestone value increases the Build's pooled reimbursement availability.
 10. Builder submits a partial or full reimbursement request.
-11. System creates the Draw Release Work Order and exact source allocations.
-12. Lender operations reviews the work order and submits a recommendation.
-13. Lender admin approves and releases the draw.
+11. System creates the Draw Release Work Order against the pooled availability.
+12. Required Back Office and lender approval groups review the same Draw Request;
+    when both are required, either group may complete first.
+13. An authorized final approver records the release decision after every required
+    group is satisfied.
 14. Builder confirms receipt of funds.
 15. System closes the draw workflow or routes exceptions if receipt is disputed/missing.
 
@@ -1774,20 +1897,24 @@ Contains:
 
 #### Draw Release Work Order
 
-Created when a builder submits a reimbursement request against available value from one or more fully approved Milestones.
+Created when a builder submits a reimbursement request against the Build's
+pooled availability unlocked by approved work.
 
 Reviewed by lender operations; final decision and release are owned by lender admin.
 
 Purpose:
 
 - preserve the builder's exact requested amount,
-- preserve deterministic source allocations back to approved Milestones and Draw Groups,
 - review draw amount,
+- review the Builder's submission note and context,
+- review only evidence explicitly linked to the current Draw Request submission,
+- show every required approval group and its satisfied or pending state,
 - review draw fee treatment,
 - verify loan availability,
-- confirm included milestones,
 - approve release,
 - record release event.
+
+The work order does not assign the request to a source Milestone or Draw Group.
 
 #### Draw Receipt Confirmation
 
@@ -1902,10 +2029,12 @@ Recommended columns:
 
 1. **Requested**
    - Builder submitted a Draw Release Work Order.
-   - Exact source allocations reserve approved availability.
+   - The request reserves the submitted amount from pooled Build availability.
 
 2. **In Review**
-   - Lender operations is reviewing evidence, source attribution, policy, and loan availability.
+   - Required reviewer groups are evaluating the same request, explicitly linked
+     evidence, policy gates, and loan availability.
+   - Back Office and lender quorum gates are peers and may complete in either order.
 
 3. **Ready for Admin**
    - Operations recommendation is complete.
@@ -2133,40 +2262,51 @@ System actions:
 - Update milestone status.
 - Close or route operational work orders.
 - Update Build Workspace.
-- If milestone approved, recompute the facility-capped reimbursement source ledger while retaining its Draw Group attribution.
+- If milestone approved, recompute facility-capped pooled reimbursement availability.
 
 Acceptance criteria:
 
 - Only lender admin can final approve or reject milestone completion.
 - Admin cannot approve without satisfying required policy gates unless using explicit override.
 - Overrides require audited reason.
-- Milestone approval immediately updates associated Draw Group eligibility.
+- Milestone approval immediately updates pooled reimbursement availability and
+  may update planning projections without assigning a later Draw Request to this
+  Milestone or its Draw Group.
 
 ### 18.3.9 Flow 6 — Draw Release Work Order Is Requested and Reviewed
 
 Trigger:
 
-- Builder submits an amount no greater than the current pooled balance from lender-admin-approved Milestones.
+- Builder submits an amount no greater than current facility-capped pooled
+  availability unlocked by approved work.
 
 System actions:
 
-1. Recalculate source-bucket availability in deterministic Milestone order.
-2. Create one organization-scoped Draw Release Work Order in `requested`.
-3. Persist immutable source allocations whose sum exactly equals the requested amount.
+1. Recalculate facility-capped pooled availability.
+2. Create or resubmit the same organization-scoped Draw Release Work Order for
+   the new decision cycle.
+3. Reserve the requested amount from the pooled balance without assigning it to
+   a Milestone or Draw Group.
 4. Place the work order in the Draw Release Board.
-5. Lender operations transitions it to `in_review`, reviews the package, and submits a recommendation.
-6. Transition the work order to `ready_for_admin`.
+5. Evaluate every configured Back Office and lender approval group against the
+   same submission. Required groups may complete in either order.
+6. Show each required group's satisfied or pending state and lender quorum
+   progress when canonical policy data exists.
 7. Calculate draw fee according to lender configuration.
-8. Show interest accrual implications.
-9. Notify lender admin.
+8. Show interest accrual implications without starting interest before release.
+9. Notify authorized reviewers and the final approver as policy requires.
 
 Acceptance criteria:
 
 - Unapproved, rejected, or under-review Milestones contribute no availability.
 - The request cannot exceed current availability or consume the facility beyond its principal cap.
-- Source ordering and allocation are deterministic for the same committed ledger state.
-- The Draw Release Work Order links to every contributing approved Milestone and Draw Group.
-- The Build Workspace shows pooled totals and the exact persisted source attribution.
+- The Draw Release Work Order remains a Build-level request and has no semantic
+  source Milestone or Draw Group allocation.
+- Only evidence explicitly linked to the Draw Request's current submission is
+  presented as Attached Evidence.
+- The shared role-aware Draw Review Sheet shows pooled totals, the submitted
+  request, Builder contact, policy gates, collaboration, and Action Items.
+- The workflow has no implied approval priority or per-review deadline.
 
 ### 18.3.10 Flow 7 — Admin Approves and Releases Draw
 
@@ -2177,8 +2317,8 @@ Trigger:
 Admin actions:
 
 1. Open Draw Release Work Order.
-2. Review included milestones.
-3. Review approved evidence package summary.
+2. Review the submitted request amount, note, and submission context.
+3. Review evidence explicitly linked to the current Draw Request submission.
 4. Review approved draw amount.
 5. Review draw fee treatment.
 6. Review loan available balance.
@@ -2440,7 +2580,8 @@ The MVP is complete when:
 11. Site staff can complete a mobile/tablet site visit report with camera evidence and offline save/sync.
 12. Lender admin has final milestone approval authority.
 13. Lender admin can override site visit requirements or staff recommendations only with audited reason.
-14. Draw release is blocked until included milestones satisfy approval requirements.
+14. A Draw Request cannot exceed pooled availability unlocked by approved work,
+    and release is blocked until every required Draw approval group is satisfied.
 15. Lender admin can approve draw release.
 16. System records release date, draw fee treatment, and interest accrual start date.
 17. RBAC and tenant scoping prevent unauthorized access.
@@ -2496,9 +2637,13 @@ Resolved:
 
 - Milestones are atomic for reimbursement eligibility: only lender-admin-approved Milestone value enters availability.
 - Builders may submit a partial or full Draw Release Work Order against the pooled approved balance.
-- Every request is attributed FIFO across approved Milestone source buckets ordered by Milestone order, key, and ID; the facility cap is applied in the same order.
-- Each allocation records the source Milestone, Draw Group, amount, and order. Allocation amounts must sum exactly to the request amount.
-- Request and allocation records are organization-scoped and remain the source of truth through operations review, admin decision, and release.
+- An executed Draw Request is a Build-level reimbursement record. It consumes
+  pooled availability and is not attributed to a source Milestone or Draw Group.
+- Internal ledger rows may reconcile the pooled balance, but they are not a
+  product relationship and must not be presented as Draw-to-Milestone or
+  Draw-to-Draw-Group attribution.
+- The organization-scoped Draw Request remains the source of truth through
+  review, decision, correction/resubmission, and release.
 - Subtask-based or partially completed-work reimbursement is out of v1 scope.
 
 ## 23.2 Geofence Strictness
@@ -2568,6 +2713,94 @@ Decision:
   requires a human-in-the-loop approval. The approving human is the author.
 - Material publication, moderation, acknowledgement, Action Item, migration,
   and system-event changes are auditable and organization-scoped.
+
+## 23.7 Back Office Review Requirements Setup
+
+Decision:
+
+- Variant A of the Back Office Review Requirements Setup prototype is approved
+  and locked as the production interaction contract.
+- The setup is part of the existing Back Office proposal detail Closing
+  workspace. It is not a standalone route, editor, or parallel policy system.
+- Draw review requirements support exactly three reviewer modes: Back Office
+  only, lender quorum only, or both.
+- Milestone review requirements support the same three reviewer modes and add
+  separate Site Visit required and receipt / invoice required controls.
+- Back Office approval means one authorized approval. When both Back Office and
+  a lender quorum are required, the two groups may complete in either order.
+- Lender quorum is selectable from one through the count of active assigned
+  lender members. A fixed member count shown by the prototype is representative
+  local data only.
+- Before closing, the summary must clearly show the Review Requirements policy
+  that will govern the active Build.
+- Recording closing locks the policy. This decision does not authorize a
+  post-closing policy editor.
+- The prototype is a read-only, throwaway interaction artifact with local state
+  only. It does not define a persistence schema, deadlines, SLAs, generic
+  comments, additional roles, or new production closing behavior.
+
+Implementation authority:
+
+- Start from Variant A at
+  `/backoffice/proposals/review-requirements-prototype?variant=A` and
+  `src/components/prototypes/BackOfficeReviewRequirementsSetupPrototype.tsx`.
+- The complete prototype contract and verification record live under **Back
+  Office Review Requirements Setup** in
+  `src/components/prototypes/README.md`.
+- The promotion gate lives in
+  `docs/lender-portal-prototype-promotion.md`.
+- Production work replaces representative membership data and local state with
+  canonical integrations while preserving the selected structure and closing
+  boundary. Agents must not redesign the surface from prose. Material
+  divergence requires a new product decision and aligned documentation first.
+
+## 23.8 Canonical Draw Review Sheet
+
+Decision:
+
+- Variant A at `/lender/draw-review-sheet-prototype?variant=A` is approved and
+  locked as the Draw Request review interaction contract.
+- Builder, Back Office, and lender routes use one role-aware production
+  component: `src/features/draw-workflow/DrawReviewSheet.tsx`. A persona may
+  change visibility and authorized commands; it does not get a separate Draw
+  review implementation.
+- The sheet leads with the submitted Draw Request, requested amount, note and
+  submission context, pooled funding metrics, prominent Builder contact, and
+  evidence explicitly linked to the current request submission.
+- Funding metrics include Total approved, Drawn amount, Draw availability, This
+  request, After this request, and receipt/invoice coverage against Total
+  approved. Missing canonical coverage or request-evidence relationships render
+  explicit unavailable states; the UI must not infer them from all Build
+  documents, Milestones, or Draw Groups.
+- Approved work unlocks pooled Build availability. An executed Draw Request is
+  loosely coupled to that work and is not assigned to a Milestone or Draw Group.
+- The policy view shows each required Back Office and lender quorum group as a
+  peer gate. Required groups may approve in either order. The UI does not invent
+  a priority, per-review deadline, SLA, or overdue state.
+- Rejection requires a private reason, returns the same Draw Request to Builder
+  correction/resubmission, retains history, and resets all required approvals
+  for the next decision cycle.
+- Builder views show requirements and high-level state but hide reviewer
+  identity, private rejection rationale, individual votes, and internal review
+  notes.
+- Collaboration is the Draw System Post comments projection. Action Items are
+  canonical coordination records associated through that post and are never
+  lifecycle or approval gates.
+- The sheet does not add payment execution, a broad document library, generic
+  comments, local persistence, undocumented actors, or persona-specific Draw
+  Request copies.
+
+Implementation authority:
+
+- Read `docs/specs/lender-portal-draw-review.md` before changing any Builder,
+  Back Office, or lender Draw Request detail, review, decision, correction, or
+  resubmission surface.
+- The locked prototype evidence and promotion notes live in
+  `src/components/prototypes/README.md` and
+  `docs/lender-portal-prototype-promotion.md`.
+- Material divergence requires a new product decision and aligned updates to
+  this PRD, the implementation specification, and the prototype record before
+  code work begins.
 
 ---
 

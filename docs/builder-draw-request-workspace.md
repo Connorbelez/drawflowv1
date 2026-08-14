@@ -2,9 +2,17 @@
 
 ## Purpose
 
-The builder Draws workspace presents approved, reimbursement-eligible milestone value as one pooled available balance. Builders may request any amount up to that balance, but the pool is only a presentation: every request is deterministically attributed to specific approved Milestone and Draw Group source buckets. Planned draw dates remain planning context and never become request records by implication.
+The builder Draws workspace presents approved reimbursement value as one pooled
+available balance. Builders may request any amount up to that balance. The pool
+is the product relationship: an executed Draw Request is a Build-level record
+and is not assigned to a Milestone or Draw Group. Planned draw dates remain
+planning context and never become request records by implication.
 
 The production surface lives in `Details → Draws` on `/builder/builds/$buildId`. Builder staff share the same route and receive either full or read-only behavior from the existing draw permission.
+
+Before changing the Draw Request detail, review, decision, correction, or
+resubmission surface, read `docs/specs/lender-portal-draw-review.md`. Builder,
+Back Office, and lender routes use the same role-aware `DrawReviewSheet`.
 
 ## Domain separation
 
@@ -12,7 +20,10 @@ Three records intentionally represent different facts:
 
 - `plannedDrawScheduleRows` are mutable forecasts. They describe expected timing and amount, do not reserve availability, and remain `planned`.
 - `activeBuildDrawRequests` are actual builder requests and the authoritative Draw Release Work Orders. Each has an immutable request key, `workOrderKey`, idempotency key, amount, audit trail, and review/release lifecycle.
-- `activeBuildDrawRequestAllocations` are the immutable source ledger for a request. Each row attributes whole Canadian cents to one approved Milestone and its Draw Group.
+- `activeBuildDrawRequestAllocations` are an implementation-era reconciliation
+  ledger. They may support availability integrity and migration, but they do not
+  establish a product-level Draw-to-Milestone or Draw-to-Draw-Group
+  relationship and must not be shown as one.
 
 The UI can temporarily project legacy planned rows as forecast data during cutover, but new writes never mutate a forecast row into a request.
 
@@ -21,24 +32,27 @@ The UI can temporarily project legacy planned rows as forecast data during cutov
 All values use whole Canadian cents.
 
 ```text
-eligible source buckets
-  = approved milestones ordered by milestone.order, milestone.key, milestone._id
-
-approved milestone value
-  = sum(eligible source bucket drawAvailabilityCents)
+approved/unlocked value
+  = sum(approved work drawAvailabilityCents)
 
 unlocked value
-  = min(approved milestone value, facility principal) when a facility exists
+  = min(approved/unlocked value, facility principal) when a facility exists
 
 reserved value
-  = sum(allocation amounts for requests with status requested, in_review,
+  = sum(request amounts with status requested, in_review,
         ready_for_admin, approved_for_release, or released)
 
 available now
   = max(0, unlocked value - reserved value)
 ```
 
-The facility cap is applied to source buckets in the same deterministic order. A request consumes each bucket's remaining amount FIFO until its exact amount is attributed. The allocation sum must equal the request amount or the mutation fails without creating a request. Rejected and withdrawn requests do not reserve money. Planned draw rows never reserve money. Released requests remain part of the historical money-out total so previously disbursed capital cannot become requestable again.
+The facility cap applies to the pooled unlocked value. A request reserves its
+amount from that pool. Rejected and withdrawn requests do not reserve money.
+Planned draw rows never reserve money. Released requests remain part of the
+historical money-out total so previously disbursed capital cannot become
+requestable again. Any current FIFO allocation implementation is an internal
+ledger detail only and does not authorize source attribution in product UI,
+evidence selection, review policy, or release ownership.
 
 This supports partial draw requests against fully approved Milestones; it does not make partially completed work reimbursement-eligible. v1 remains reimbursement-only.
 
@@ -57,8 +71,14 @@ requested ── start review ──> in_review ── recommend ──> ready_f
 - Requests can be partial or for the full current balance.
 - A client operation ID makes retries idempotent. The same operation ID cannot be reused for a different amount.
 - Only `requested` records can be withdrawn or moved into operations review.
-- Lender operations can move `requested → in_review → ready_for_admin` and must record a recommendation.
-- Only lender admins can move `ready_for_admin → approved_for_release | rejected`.
+- The locked Draw policy may require Back Office, a lender quorum, or both.
+  Required groups are peer gates and may complete in either order.
+- An authorized final approver can move a request to
+  `approved_for_release | rejected` only after every required group is
+  satisfied.
+- Rejection requires a private reason and returns the same request record for
+  Builder correction/resubmission. History is retained and all required
+  approvals reset for the new submission cycle.
 - Only `approved_for_release` records can be released by a lender admin.
 - Release creates the capital event once and retains the request history.
 - Every transition writes an organization-scoped audit event with actor, roles, timestamp, prior/new state, reason where required, and warnings.
@@ -66,17 +86,31 @@ requested ── start review ──> in_review ── recommend ──> ready_f
 ## UI behavior
 
 - The first value is `Available now`, with exact cents.
-- Expandable statement groups reconcile approved milestone money in against submitted and completed money out.
+- Expandable statement groups reconcile total approved/unlocked value against
+  submitted and completed money out without assigning requests back to source
+  Milestones or Draw Groups.
 - Expanded records use the shared Card primitive; the surrounding statement remains flat.
 - Pending milestone verification and behind-plan values are summarized and also shown against dated milestone rows.
 - Past planned draw dates are removed from `Future planned draws`.
 - Mobile order is balance, request/status controls, then the milestone schedule.
 - A request uses amount → review → receipt steps. A failed retry preserves the input and reuses the same operation ID.
-- Receipts, request cards, lender review queues, and release history show the Draw Release Work Order key and exact Milestone / Draw Group source allocations.
+- Receipts, request cards, lender review queues, and release history show the
+  canonical Draw Request and Work Order identity. They do not show or infer
+  Milestone or Draw Group source allocations.
+- Attached Evidence contains only evidence explicitly linked to the current
+  Draw Request submission. Missing links render an unavailable state rather
+  than falling back to all Build or Milestone evidence.
+- Builder views show high-level requirements and state but hide reviewer
+  identity, private rejection rationale, internal votes, and review notes.
 - Before approval, a request can be withdrawn. Successful withdrawal closes the confirmation and announces that the amount is available again.
 - Blocked users receive a reason and a native email/phone handoff to Fairlend. The application does not send messages itself.
 
-## Legacy data migration
+## Legacy implementation data migration (not product semantics)
+
+This section documents an implementation-era availability-reconciliation
+migration. Its allocation rows are not a product relationship and must never be
+used to present a Draw as attached to a Milestone or Draw Group. The canonical
+surface contract remains `docs/specs/lender-portal-draw-review.md`.
 
 `migrateActiveBuildDrawRequests` is an explicit, per-build,
 backoffice-only mutation. It:
@@ -102,7 +136,7 @@ visible without overstating availability. Partial attribution is still treated
 as corruption. Draw-request mutations remain strict and reject new requests
 until the build is migrated.
 
-### Exact production execution
+### Exact production execution for the historical reconciliation ledger
 
 Complete these steps once for every active build that reports
 `requiresAttributionMigration: true`.

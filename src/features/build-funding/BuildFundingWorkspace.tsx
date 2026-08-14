@@ -60,7 +60,7 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { DrawRejectionDialog } from "#/features/build-funding/DrawRejectionDialog.tsx";
-import { DrawApprovalFlowSheet } from "#/features/draw-workflow/DrawApprovalFlowSheet.tsx";
+import { DrawReviewSheet } from "#/features/draw-workflow/DrawReviewSheet.tsx";
 import {
   type DrawWorkflowCapabilities,
   getDrawWorkflowActions,
@@ -162,15 +162,26 @@ export interface BuildFundingModel {
   approvedMilestoneCents: number;
   availableCents: number;
   backlogMilestoneCents: number;
+  builder?: {
+    contactName?: string;
+    displayName: string;
+    email?: string;
+    phone?: string;
+    role?: string;
+  };
   buildLabel: string;
+  drawnCents: number;
   facilityCents: number;
   forecastDraws: FundingForecastRecord[];
   historicalPlannedDraws: FundingForecastRecord[];
+  location?: string;
   milestones: FundingMilestoneRecord[];
   pendingMilestoneCents: number;
+  receiptCoverageCents?: number;
   requests: FundingRequestRecord[];
   reservedCents: number;
   startDate: string;
+  unlockedCents: number;
 }
 
 export interface DrawRequestReceipt {
@@ -203,13 +214,17 @@ export function projectBuildFunding(input: {
     availableCents: number;
     facilityCents: number;
     reservedCents: number;
+    unlockedCents?: number;
   };
+  builder?: BuildFundingModel["builder"];
   canRequest: boolean;
   buildLabel?: string;
   facilityCents?: number;
+  location?: string;
   milestones: FundingMilestoneRecord[];
   plannedDraws?: FundingForecastRecord[];
   requests: FundingRequestRecord[];
+  receiptCoverageCents?: number;
   startDate: string;
 }): BuildFundingModel {
   const today = todayIso();
@@ -263,12 +278,23 @@ export function projectBuildFunding(input: {
   const availableCents =
     input.availability?.availableCents ??
     Math.max(0, projectedUnlockedCents - projectedReservedCents);
+  const unlockedCents =
+    input.availability?.unlockedCents ?? projectedUnlockedCents;
+  const drawnCents = input.requests.reduce(
+    (total, request) =>
+      request.status === "released"
+        ? total + positiveCents(request.amountCents)
+        : total,
+    0
+  );
   return {
     access: input.canRequest ? "full" : "read-only",
+    builder: input.builder,
     buildLabel: input.buildLabel?.trim() || "this Build",
     approvedMilestoneCents,
     availableCents,
     backlogMilestoneCents,
+    drawnCents,
     facilityCents,
     forecastDraws: (input.plannedDraws ?? [])
       .filter((draw) => addDays(input.startDate, draw.timingDay) >= today)
@@ -277,10 +303,13 @@ export function projectBuildFunding(input: {
       .filter((draw) => addDays(input.startDate, draw.timingDay) < today)
       .sort(byOrder),
     milestones: input.milestones.slice().sort(byOrder),
+    location: input.location,
     pendingMilestoneCents,
     requests: input.requests.slice().sort(mostRecentRequestFirst),
+    receiptCoverageCents: input.receiptCoverageCents,
     reservedCents,
     startDate: input.startDate,
+    unlockedCents,
   };
 }
 
@@ -289,6 +318,7 @@ export function BuildFundingWorkspace({
   model,
   onApproveDraw,
   onOpenMilestone,
+  onOpenDrawCollaboration,
   onRejectDraw,
   onReleaseDraw,
   onRequestDraw,
@@ -301,6 +331,7 @@ export function BuildFundingWorkspace({
   model: BuildFundingModel;
   onApproveDraw?: FundingRequestAction;
   onOpenMilestone: (milestoneKey: string) => void;
+  onOpenDrawCollaboration?: (request: FundingRequestRecord) => void;
   onRejectDraw?: FundingRejectAction;
   onReleaseDraw?: FundingRequestAction;
   onRequestDraw?: (input: {
@@ -343,13 +374,11 @@ export function BuildFundingWorkspace({
   const selectedDraw = model.requests.find(
     (request) => request.drawKey === selectedDrawKey
   );
-  const openDrawApproval = lenderDrawApprovalOpener(
-    lenderView,
-    setSelectedDrawKey
-  );
+  const openDrawApproval = (request: FundingRequestRecord) =>
+    setSelectedDrawKey(request.drawKey);
   const workflowCapabilities = drawCapabilities ?? {
     canApprove: Boolean(onApproveDraw),
-    canOpenCanonical: lenderView,
+    canOpenCanonical: true,
     canOpenReview: lenderView,
     canReject: Boolean(onRejectDraw),
     canRelease: Boolean(onReleaseDraw),
@@ -508,6 +537,7 @@ export function BuildFundingWorkspace({
             forecastDraws={model.forecastDraws}
             historicalPlannedDraws={model.historicalPlannedDraws}
             modelAccess={model.access}
+            onOpenDraw={openDrawApproval}
             onRequestDraw={onRequestDraw}
             onWithdrawDraw={onWithdrawDraw}
             startDate={model.startDate}
@@ -529,15 +559,18 @@ export function BuildFundingWorkspace({
       </div>
 
       <FundingDrawApprovalSheet
-        buildLabel={model.buildLabel}
         capabilities={workflowCapabilities}
+        model={model}
         onApproveDraw={onApproveDraw}
         onClose={() => setSelectedDrawKey(null)}
+        onOpenCollaboration={onOpenDrawCollaboration}
         onRejectDraw={onRejectDraw}
         onReleaseDraw={onReleaseDraw}
         onStartDrawReview={onStartDrawReview}
         onSubmitDrawForAdmin={onSubmitDrawForAdmin}
+        onWithdrawDraw={onWithdrawDraw}
         request={selectedDraw}
+        viewerRole={viewerRole}
       />
     </div>
   );
@@ -545,16 +578,6 @@ export function BuildFundingWorkspace({
 
 const FUNDING_ASIDE_CLASS =
   "order-2 min-w-0 border-t pt-5 xl:sticky xl:top-4 xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6";
-
-function lenderDrawApprovalOpener(
-  lenderView: boolean,
-  selectDraw: (drawKey: string) => void
-) {
-  if (!lenderView) {
-    return;
-  }
-  return (request: FundingRequestRecord) => selectDraw(request.drawKey);
-}
 
 function FundingWorkspaceHeader({
   density,
@@ -609,6 +632,7 @@ function BuilderRequestSidebar({
   forecastDraws,
   historicalPlannedDraws,
   modelAccess,
+  onOpenDraw,
   onRequestDraw,
   onWithdrawDraw,
   startDate,
@@ -620,6 +644,7 @@ function BuilderRequestSidebar({
   forecastDraws: FundingForecastRecord[];
   historicalPlannedDraws: FundingForecastRecord[];
   modelAccess: BuildFundingModel["access"];
+  onOpenDraw: (request: FundingRequestRecord) => void;
   onRequestDraw?: (input: {
     amountCents: number;
     clientOperationId: string;
@@ -684,6 +709,13 @@ function BuilderRequestSidebar({
               it is approved.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                onClick={() => onOpenDraw(request)}
+                size="sm"
+                variant="outline"
+              >
+                Open draw
+              </Button>
               <ContactAdminDialog />
               {onWithdrawDraw ? (
                 <WithdrawRequestDialog
@@ -711,34 +743,40 @@ function BuilderRequestSidebar({
 }
 
 function FundingDrawApprovalSheet({
-  buildLabel,
   capabilities,
+  model,
   onApproveDraw,
   onClose,
+  onOpenCollaboration,
   onRejectDraw,
   onReleaseDraw,
   onStartDrawReview,
   onSubmitDrawForAdmin,
+  onWithdrawDraw,
   request,
+  viewerRole,
 }: {
-  buildLabel: string;
   capabilities: DrawWorkflowCapabilities;
+  model: BuildFundingModel;
   onApproveDraw?: FundingRequestAction;
   onClose: () => void;
+  onOpenCollaboration?: (request: FundingRequestRecord) => void;
   onRejectDraw?: FundingRejectAction;
   onReleaseDraw?: FundingRequestAction;
   onStartDrawReview?: FundingRequestAction;
   onSubmitDrawForAdmin?: FundingRequestAction;
+  onWithdrawDraw?: (requestKey: string) => Promise<unknown>;
   request?: FundingRequestRecord;
+  viewerRole: "builder" | "lender";
 }) {
   if (!request) {
     return null;
   }
   return (
-    <DrawApprovalFlowSheet
+    <DrawReviewSheet
       actions={
         <FundingDrawApprovalActions
-          buildLabel={buildLabel}
+          buildLabel={model.buildLabel}
           capabilities={capabilities}
           onApproveDraw={onApproveDraw}
           onClose={onClose}
@@ -746,18 +784,53 @@ function FundingDrawApprovalSheet({
           onReleaseDraw={onReleaseDraw}
           onStartDrawReview={onStartDrawReview}
           onSubmitDrawForAdmin={onSubmitDrawForAdmin}
+          onWithdrawDraw={onWithdrawDraw}
           request={request}
+          viewerRole={viewerRole}
         />
       }
       amountCents={request.amountCents}
-      contextBadge={<Badge variant="outline">{buildLabel}</Badge>}
+      builder={model.builder}
+      buildLabel={model.buildLabel}
+      collaborationAction={
+        onOpenCollaboration ? (
+          <Button
+            onClick={() => onOpenCollaboration(request)}
+            variant="outline"
+          >
+            Open Draw System Post
+          </Button>
+        ) : undefined
+      }
+      contextBadge={<Badge variant="outline">{model.buildLabel}</Badge>}
       details={drawApprovalDetails(request)}
       displayId={request.displayId ?? request.drawKey}
       drawLabel={request.label}
+      funding={{
+        availableAfterRequestCents: model.availableCents,
+        drawAvailabilityCents: Math.max(
+          0,
+          model.availableCents +
+            (request.status === "released" ||
+            request.status === "rejected" ||
+            request.status === "withdrawn"
+              ? 0
+              : request.amountCents)
+        ),
+        drawnCents: model.drawnCents,
+        receiptCoverageCents: model.receiptCoverageCents,
+        totalApprovedCents: model.unlockedCents,
+      }}
+      location={model.location}
       onClose={onClose}
       open
-      sourceAllocations={request.sourceAllocations}
+      privateDetails={drawDecisionDetails(request)}
+      requestNote={request.requestNote}
       status={request.status}
+      submittedAt={
+        request.requestedAt ? formatDateTime(request.requestedAt) : undefined
+      }
+      viewerRole={viewerRole === "builder" ? "builder" : "backoffice"}
     />
   );
 }
@@ -771,7 +844,9 @@ function FundingDrawApprovalActions({
   onReleaseDraw,
   onStartDrawReview,
   onSubmitDrawForAdmin,
+  onWithdrawDraw,
   request,
+  viewerRole,
 }: {
   buildLabel: string;
   capabilities: DrawWorkflowCapabilities;
@@ -781,7 +856,9 @@ function FundingDrawApprovalActions({
   onReleaseDraw?: FundingRequestAction;
   onStartDrawReview?: FundingRequestAction;
   onSubmitDrawForAdmin?: FundingRequestAction;
+  onWithdrawDraw?: (requestKey: string) => Promise<unknown>;
   request: FundingRequestRecord;
+  viewerRole: "builder" | "lender";
 }) {
   const { pendingAction, reviewError, runRejectAction, runReviewAction } =
     useFundingDrawReviewActions(onRejectDraw);
@@ -798,6 +875,10 @@ function FundingDrawApprovalActions({
     onSubmitDrawForAdmin,
     workflow,
   });
+  const canWithdraw =
+    viewerRole === "builder" &&
+    request.status === "requested" &&
+    Boolean(onWithdrawDraw);
 
   return (
     <>
@@ -806,7 +887,7 @@ function FundingDrawApprovalActions({
           {reviewError}
         </p>
       ) : null}
-      {hasAvailableAction ? null : (
+      {hasAvailableAction || canWithdraw ? null : (
         <p className="text-muted-foreground text-xs" role="status">
           Your current role can view this Draw, but it cannot perform the next
           workflow action.
@@ -816,6 +897,11 @@ function FundingDrawApprovalActions({
         <Button className="flex-1" onClick={onClose} variant="outline">
           Close
         </Button>
+        {canWithdraw && onWithdrawDraw ? (
+          <WithdrawRequestDialog
+            onWithdraw={() => onWithdrawDraw(request.drawKey)}
+          />
+        ) : null}
         {workflow.secondary?.operation === "reject" && onRejectDraw ? (
           <DrawRejectionDialog
             amountCents={request.amountCents}
@@ -985,9 +1071,13 @@ function drawApprovalDetails(
     ...(request.releasedAt
       ? [{ label: "Released", value: formatDateTime(request.releasedAt) }]
       : []),
-    ...(request.requestNote
-      ? [{ label: "Request note", value: request.requestNote }]
-      : []),
+  ];
+}
+
+function drawDecisionDetails(
+  request: FundingRequestRecord
+): Array<{ label: string; value: string }> {
+  return [
     ...(request.operationsRecommendationNote
       ? [
           {

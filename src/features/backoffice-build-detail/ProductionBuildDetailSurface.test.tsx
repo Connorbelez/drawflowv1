@@ -1922,7 +1922,7 @@ describe("ProductionBuildDetailSurface", () => {
     );
     expect(
       screen.getByRole("heading", {
-        name: /Draw approval and release$/,
+        name: /draw-requested-b4/,
       }),
     ).toBeTruthy();
     expect(onOpenCanonicalTarget).not.toHaveBeenCalled();

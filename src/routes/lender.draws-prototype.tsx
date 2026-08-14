@@ -783,6 +783,12 @@ function VariantD({ requests }: { requests: readonly DrawRequest[] }) {
   );
 }
 
+// TODO(lender-portal): supply the lender-authorized Draw queue projection.
+// This exports the selected Variant D composition without the prototype switcher.
+export function LenderDrawQueueVariantD() {
+  return <VariantD requests={drawRequests} />;
+}
+
 function ApprovalGroups({
   compact = false,
   groups,

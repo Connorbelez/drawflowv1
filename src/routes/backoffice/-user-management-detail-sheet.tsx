@@ -85,6 +85,7 @@ export function UserDetailSheet({
   organizationsById,
   provisioningByOrg,
   readOnly = false,
+  readOnlyBadgeLabel = "Read-only",
   readOnlySupplement,
   roleOptionsByOrganization,
   workspaceOrganizations,
@@ -95,6 +96,7 @@ export function UserDetailSheet({
   organizationsById: Map<string, WorkosOrganizationRow>;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
   readOnly?: boolean;
+  readOnlyBadgeLabel?: string;
   readOnlySupplement?: ReactNode;
   roleOptionsByOrganization: Map<string, string[]>;
   workspaceOrganizations: WorkosOrganizationRow[];
@@ -109,6 +111,7 @@ export function UserDetailSheet({
             organizationsById={organizationsById}
             provisioningByOrg={provisioningByOrg}
             readOnly={readOnly}
+            readOnlyBadgeLabel={readOnlyBadgeLabel}
             readOnlySupplement={readOnlySupplement}
             roleOptionsByOrganization={roleOptionsByOrganization}
             workspaceOrganizations={workspaceOrganizations}
@@ -125,6 +128,7 @@ function UserDetailBody({
   organizationsById,
   provisioningByOrg,
   readOnly,
+  readOnlyBadgeLabel,
   readOnlySupplement,
   roleOptionsByOrganization,
   workspaceOrganizations,
@@ -134,6 +138,7 @@ function UserDetailBody({
   organizationsById: Map<string, WorkosOrganizationRow>;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
   readOnly: boolean;
+  readOnlyBadgeLabel: string;
   readOnlySupplement?: ReactNode;
   roleOptionsByOrganization: Map<string, string[]>;
   workspaceOrganizations: WorkosOrganizationRow[];
@@ -174,7 +179,9 @@ function UserDetailBody({
             </SheetDescription>
           </div>
           <div className="flex items-center gap-1.5">
-            {readOnly ? <Badge variant="outline">Read-only</Badge> : null}
+            {readOnly ? (
+              <Badge variant="outline">{readOnlyBadgeLabel}</Badge>
+            ) : null}
             <Badge variant={status === "active" ? "success" : "outline"}>
               {status}
             </Badge>

@@ -7080,7 +7080,15 @@ describe("production proposal foundation", () => {
       expect.arrayContaining([
         expect.objectContaining({
           buildId: closing.buildId,
+          builderContact: expect.objectContaining({
+            displayName: expect.any(String),
+          }),
           drawKey: drawReceipt.requestKey,
+          funding: expect.objectContaining({
+            availableCents: expect.any(Number),
+            drawnCents: expect.any(Number),
+            totalApprovedCents: expect.any(Number),
+          }),
           status: "released",
         }),
       ]),
@@ -7104,6 +7112,10 @@ describe("production proposal foundation", () => {
     const workspace = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+
+    expect(workspace.builderContact).toEqual(
+      expect.objectContaining({ displayName: expect.any(String) }),
     );
 
     expect(workspace.sitePhotos).toEqual(

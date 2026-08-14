@@ -37,6 +37,87 @@ records.
 **Prototype:** `../../routes/lender.prototype.tsx` at
 `/lender/prototype?variant=D`, composed with `LenderPrototypeShell.tsx`.
 
+## Lender Organization Management
+
+**Purpose:** Define the lender administrator's operational surface for
+understanding and managing the active WorkOS brokerage organization, its
+memberships, and the effect of membership operations on lender review work.
+
+**Selected status:** Variant E, **Approved · Shared user management
+operations**. Variants A, B, C, and D remain rejected comparison history and
+must not be promoted as competing production layouts.
+
+**Locked information architecture:**
+
+- The existing Back Office User Management directory table is the canonical
+  table structure. The lender surface reuses that shadcn Table with its
+  TanStack Table model instead of creating a second member directory.
+- The directory toolbar contains member search, membership-status filters, and
+  the organization-level Invite member operation.
+- Selecting a member opens the shared User Management detail sheet. The sheet
+  retains membership, role, organization, profile, and current-status context,
+  then adds Access, Administration, Review relationship, and History tabs.
+- Administration exposes three operational workflows: invite a member, stage a
+  role change, and review deactivation. Each workflow validates a local draft,
+  shows current and proposed state, previews downstream effects, and requires a
+  review step before execution.
+- Principal Broker removal or deactivation is a protected workflow. The UI must
+  block execution until canonical transfer-of-control requirements are
+  satisfied; it must not infer or simulate a second active Principal Broker.
+- Membership changes show their relationship to lender-quorum re-evaluation,
+  recipient routing, work queues, and audit history. They do not determine
+  quorum eligibility or claim that a review requirement is satisfied.
+- Back Office continues to own pre-closing review-requirements setup and the
+  policy handed to the active Build. Organization administrators cannot edit
+  that policy from this surface.
+
+**Role and ownership contract:**
+
+- WorkOS remains authoritative for users, organizations, memberships, roles,
+  and permissions. Production operations must call the existing WorkOS-first
+  management boundary and wait for webhook/sync projection updates; they must
+  not write directly to WorkOS projection tables.
+- The verified organization-management role slugs are `admin`,
+  `principle-broker`, `broker`, and `broker-staff`. Product copy may display
+  `Principal Broker`, but persisted policy and projection data keep the
+  canonical `principle-broker` slug.
+- Admin and Principal Broker are the current organization-wide
+  user-management roles. The inspected canonical sources define no separate
+  `manager` role, so the approved interface and production contract do not
+  invent an alias or application-only manager capability.
+
+**Prototype safety boundary:** The approved prototype is an operations
+simulation, not a read-only information page. Its controls are interactive and
+its draft/review states are visible, but all state remains in memory. It sends
+no invitation, performs no WorkOS mutation, assigns no real role, deactivates no
+membership, changes no permission or approval policy, and creates no audit
+event. The final execution control stays unavailable in the prototype.
+
+**Evidence:** Organization tenancy and Principal Broker capabilities come from
+`docs/draw_flow_production_prd.md` §§3.1–3.4, 4.2, 8.2, and 9.2. WorkOS
+ownership, recognized role slugs, and WorkOS-first user-management actions come
+from `docs/auth-rbac-foundation.md` sections Source of Truth, Role Slugs, and
+User Management plus `src/lib/auth/rbac.ts`. The displayed organization and
+member fixture comes from `../../routes/backoffice/user-management.tsx`. The
+review-policy ownership boundary comes from this README's Back Office Review
+Requirements Setup contract, and the representative two-active-member lender
+quorum comes from `../../routes/lender.proposal-confirmation-prototype.tsx`.
+
+**Prototype:** `../../routes/lender.organization-management-prototype.tsx` at
+`/lender/organization-management-prototype?variant=E`, composed with
+`LenderPrototypeShell.tsx`, `PrototypeVariantSwitcher.tsx`, the shared
+`UserManagementDirectoryTable`, and the shared `UserDetailSheet`.
+
+**Production implementation contract:**
+`../../../docs/lender-portal-prototype-promotion.md`, section **Lender
+Organization Management — locked implementation contract**. Future
+implementation must start from Variant E and satisfy that section's command,
+authority, downstream-effect, and verification criteria. The same decision is
+recorded in `../../../docs/lender_portal_mvp_feature_brief.md` §Confirmed MVP
+scope, `../../../docs/lender_portal_mvp_spec.md` §Domain ownership and identity
+and §Participant projections and UI, and
+`../../../docs/lender_portal_mvp_implementation_plan.md` Phase 1.
+
 ## Proposal Review
 
 **Purpose:** Define how a lender reviews and records a complete proposal
@@ -109,11 +190,209 @@ Button primitives.
 `/backoffice/proposals/review-requirements-prototype?variant=A`, composed with
 `BackOfficeReviewRequirementsSetupPrototype.tsx`.
 
+**Implementation handoff:** Future agents must start from the selected Variant
+A route and component structure. Do not redesign or reconstruct this surface
+from the written requirements. Replace only the representative membership
+fixture and local interaction state with canonical production integrations.
+Any material structural divergence requires a new product decision and aligned
+updates to this registry, the promotion contract, and the relevant PRDs before
+implementation begins.
+
 **Verification:** Focused Biome checks passed. The authenticated route was
 verified across Variants A–D for local controls, guided navigation, URL and
 keyboard switching, refresh reset, console errors, and desktop overflow. A
 full-build rerun remains limited by unrelated missing `fairlend-*` output
 assets.
+
+## Back Office Approval and Lender Assignment
+
+**Purpose:** Compare three ways to embed an external Lender Organization
+assignment trigger into the existing production proposal detail and complete
+the assignment in a focused modal. This is not a replacement proposal screen.
+
+**Selection status:** No variant is accepted or locked. Variants A, B, and C are
+local comparison hypotheses pending explicit human selection. Product
+implementation is blocked pending that selected prototype variant; no variant
+may be selected, promoted, or replaced by inference from requirements.
+
+**Variant hypotheses:**
+
+- Variant A adds a compact header action and opens one focused assignment form.
+- Variant B adds an External lender panel to the Review context column and uses
+  a two-step choose-then-confirm flow.
+- Variant C places lender assignment beside the Closing prerequisite and uses a
+  split selection-and-impact dialog.
+
+**Interaction and data constraints:**
+
+- All variants render the real `ProductionProposalReviewSurface` with its
+  approved visual-parity fixture. The trigger and modal are prototype-only
+  additions injected without changing the production component.
+- A successful assignment changes local in-memory state only. Refresh or
+  variant change restores the unassigned fixture. No proposal, assignment,
+  policy, confirmation, closing, activation, or audit record is persisted.
+- The modal assigns exactly one canonical brokerage-scoped WorkOS organization
+  through the existing DrawFlow assignment boundary. It does not expose user
+  administration or imply that an organization role carries approval weight.
+- The assignment impact is limited to current-revision lender access, lender
+  confirmation before external closing, and confirmation of the configured
+  review policy.
+- Every assignment modal shows the current representative review-policy state
+  and links to **Edit review policy**; the lender lists in Variants B and C use
+  bounded vertical scrolling for larger eligible-organization sets.
+
+**Canonical reuse boundary:** The production Back Office proposal detail is the
+visible host and proposal source of truth. The existing Back Office Review
+Requirements Setup remains the policy authoring surface. The locked lender
+Proposal Review remains the confirmation contract. This prototype adds no
+parallel proposal, policy, identity, assignment, audit, or authorization
+system.
+
+**Prototype:**
+`../../routes/backoffice/proposals/lender-assignment-prototype.tsx` at
+`/backoffice/proposals/lender-assignment-prototype?variant=A|B|C`, composed with
+`BackOfficeLenderAssignmentPrototype.tsx` and the shared
+`PrototypeVariantSwitcher.tsx`.
+
+## Lender Build Detail Overview
+
+**Purpose:** Compare three throwaway structures for the narrow, read-only
+Lender Build detail projection. The surface helps an eligible external lender
+user understand one assigned live Build without exposing the canonical Builder
+or Back Office Build Workspace.
+
+**Selected status:** Variant C, **Approved and locked · Precision console**.
+This lock records the winning prototype contract only; it does not promote the
+route or make it production-ready. Variants A and B remain comparison history.
+Production implementation remains outside this task; a future implementation
+must directly promote this locked prototype rather than reimplement a
+requirements-equivalent surface.
+
+**Variant hypotheses:**
+
+- Variant A adapts the current DrawFlow Build detail composition into a dense,
+  lender-safe operational overview.
+- Variant B uses a calm, plain-language stakeholder brief with the narrowest
+  non-technical hierarchy.
+- Variant C is the locked compact precision console. Iteration removes
+  internal contract narration and decorative wrapper surfaces while retaining
+  its local section index, sharp information density, DrawFlow facts, and
+  accessibility.
+
+**Information, interaction, and authorization constraints:**
+
+- Every variant exposes overview facts, Milestone records, Draw records, and
+  evidence attached to the relevant Milestone or Draw review. Selected Variant
+  C also includes the explicit public Collaboration projection described below.
+- The canonical Build Workspace remains the source of truth. This surface is a
+  permission-shaped participant projection and owns no Build, Milestone, Draw,
+  Evidence Package, Site Visit, policy, or audit data.
+- Build identity, location, high-level construction state, recorded Milestone
+  progress, relevant review evidence, and reviewer-safe pooled funding position
+  are representative local data only.
+- Locked Variant C now shows each Milestone's canonical budget and planned
+  date range, preferring actual start/completion timestamps when the fixture
+  supplies them. Rows expand into their canonical Sub-milestone records, and
+  the Milestone name opens a prototype-local read-only review sheet with no
+  decision controls.
+- Receipt/invoice coverage is present as a column and review fact, but renders
+  `Not recorded` because the representative Build fixture supplies no canonical
+  cost-document input. The prototype does not infer coverage from Draw evidence
+  or reimbursement amounts.
+- At the user's explicit direction, locked Variant C adds a read-only
+  Collaboration section after Review evidence. It projects only the fixture's
+  participant-visible public Build update; the internal note is excluded and
+  there is no composer, generic comment model, or persistent mutation. This is
+  part of the locked contract confirmed in the controlling feature brief,
+  consolidated specification, implementation plan, and promotion contract.
+- Draw funding does not infer a Milestone or Draw Group allocation. The overview
+  adds no receipt gate or Draw-specific Site Visit gate.
+- The only outbound actions navigate to the existing focused Milestone and Draw
+  review prototypes. They do not record a decision or release funds.
+- The prototype has no lender editing, Builder/Budget/schedule changes, policy
+  controls, evidence upload, review decision, Draw release, persistent mutation,
+  deadline, SLA, generic comments, private reviewer rationale, internal reviewer
+  identity, contractors, timeline/Gantt, Draw Group visualization, internal
+  notes, broad document library, or detached documents.
+- Back Office Admin remains the internal owner. Builder and Builder Staff appear
+  only as the source of submitted work or evidence. Withdrawal is not a normal
+  live-Build detail state because it removes live Build access.
+- Variant switching and in-page navigation are local only. Refresh preserves no
+  product decision or domain state.
+
+**Controlling evidence:** The canonical main-checkout contracts are the
+`Locked Lender Build Detail decision` in
+`../../../docs/lender_portal_mvp_feature_brief.md`, the matching participant
+projection and user-story contract in
+`../../../docs/lender_portal_mvp_spec.md`, the `Locked Lender Build Detail
+implementation contract` and Phase 7 acceptance gates in
+`../../../docs/lender_portal_mvp_implementation_plan.md`, and the locked
+promotion boundary in `../../../docs/lender-portal-prototype-promotion.md`.
+Together they require direct promotion of selected Variant C and prohibit a
+requirements-equivalent redesign. They do not authorize promotion in this
+prototype task.
+
+**Representative source and reuse boundary:** Build identity, Draw state,
+review-attached Draw evidence, and pooled funding facts reuse
+`lenderDrawQueueContract.ts`. Milestone status/progress and relevant Milestone
+evidence/Site Visit facts reuse
+  `../../features/production-proposals/visualParityFixtures.ts`. The selected
+  Variant C budget, planned/actual date fallback, Sub-milestone breakdown, and
+  public collaboration update come from that same fixture. These local fixtures
+  are composed only for prototype evaluation and are not asserted to be one
+  persisted Build. The route reuses `LenderPrototypeShell.tsx`,
+  `PrototypeVariantSwitcher.tsx`, and the existing Frame, Card, Button, Badge,
+  Progress, Separator, Table, and Sheet primitives. It adds no loader, mutation,
+  domain model, authorization rule, or production component.
+
+**Verification evidence and limits:**
+
+- Final validation used the main checkout on branch
+  `08-13-lenderdashboard-prod` at HEAD
+  `d253f4c56d5ec5ebbd9a5cf38238269d8fc97b07`. The exact local URLs were
+  `http://127.0.0.1:3026/lender/build-detail-overview-prototype?variant=A`,
+  `?variant=B`, and `?variant=C` on the same route.
+- `bun test src/routes/-lender.build-detail-overview-prototype.test.tsx` passed
+  all 3 SSR cases with 70 assertions. The contract covers the requested finance
+  and schedule columns, disclosure controls, public Collaboration projection,
+  and internal-note exclusion while retaining the prohibited-workspace and
+  mutation checks.
+- Focused Biome passed. `bun run typecheck` passed its Convex TypeScript and Vite
+  build stages after one shared-output race was retried with the output idle.
+  The Impeccable detector returned no findings when run once after the selected
+  Variant C iteration.
+- The selected Variant C in-app desktop pass on port 3026 verified the
+  disclosure state, read-only Milestone sheet, public Collaboration update,
+  internal-note exclusion, and zero decision controls. The table has no
+  horizontal clipping at the supplied 1375px viewport. `bun run build`
+  completed successfully during the final verification window.
+- A later fresh direct-SSR probe returned HTTP 500 because a concurrent,
+  unrelated generated route imports the now-missing
+  `BackOfficeLenderAssignmentPrototype.tsx`. This Build Detail task does not own
+  that route or component and did not restore or modify it. Final fresh-process
+  SSR remains blocked by that shared-worktree condition, not by a diagnostic in
+  the Build Detail prototype route.
+- The exact in-app browser exposed no mobile viewport-emulation capability, so
+  this iteration does not claim a post-change mobile visual pass. Responsive
+  behavior remains covered by the route's breakpoint/overflow implementation
+  and SSR, not a mobile screenshot. This is also not an authenticated loader or
+  authorization integration test because the prototype uses representative
+  local data only.
+
+**Scope audit and restoration:** The final audit found no production route,
+production component, Convex/domain, loader, authorization, or shared
+production-test edit owned by this Build Detail task. Concurrent Draw Review and
+other dirty-worktree changes were preserved untouched. The coordinator-owned
+`../../../docs/lender-portal-prototype-promotion.md` remains unchanged. A
+task-created standalone handoff document was removed so the retained Build
+Detail surface is limited to this registry entry, the named prototype route,
+its focused test, and generated route registration.
+
+**Prototype:** `../../routes/lender.build-detail-overview-prototype.tsx` at
+`/lender/build-detail-overview-prototype?variant=A|B|C`, composed with
+`LenderPrototypeShell.tsx`, `PrototypeVariantSwitcher.tsx`, and existing UI
+primitives. Focused contract:
+`../../routes/-lender.build-detail-overview-prototype.test.tsx`.
 
 ## Lender Milestone Queue
 
@@ -184,9 +463,17 @@ approval, or audit state. The normative contract is
 next canonical Draw decision to open without duplicating Draw, Evidence Package,
 policy, approval, or audit records.
 
-**Selected status:** Variant D, **Locked · Build packets**. Variant A remains a
-dense decision-ledger comparison, Variant B remains a split-triage comparison,
-and Variant C remains a workflow-lane comparison. They are not selected.
+**Selected status:** Variant D, **Approved and locked · Build packets**.
+Approved by product on 2026-08-13. Variant A remains a dense decision-ledger
+comparison, Variant B remains a split-triage comparison, and Variant C remains
+a workflow-lane comparison. They are retained only as rejected comparison
+history and must not be promoted as competing production layouts.
+
+**Locked interface contract:** Production must preserve the Build-grouped packet
+hierarchy, the large color-and-symbol decision-status signal at the lower left
+of each request card, peer approval-group progress, focused current-cycle
+evidence context, and reconciled pooled funding position. Material changes need
+a new product decision and an updated prototype contract before implementation.
 
 **Interaction and data constraints:**
 
@@ -300,10 +587,137 @@ shared entity-sheet structure and role-aware command boundaries; it must not
 introduce payment execution, a generic comment system, a broad document
 library, per-review deadlines, or milestone-based Draw allocation semantics.
 
+**Production component:** Builder and Back Office Draw review entry points use
+`../../features/draw-workflow/DrawReviewSheet.tsx`. The lender portal must mount
+this same role-aware component and supply lender-authorized data and commands;
+it must not create a separate lender Draw review sheet.
+
+**Implementation authority:** Read
+`../../../docs/specs/lender-portal-draw-review.md` before changing this surface.
+The product decision is also recorded in `../../../docs/draw_flow_prd.md`
+§23.8. The README selects the interaction, the PRD owns the product rule, and
+the SPEC owns the implementation contract.
+
 **Prototype:** `../../routes/lender.draw-review-sheet-prototype.tsx` at
 `/lender/draw-review-sheet-prototype?variant=A`, composed with
 `LenderPrototypeShell.tsx` and the production sheet, tabs, Frame, Card, Badge,
 Button, Separator, and Textarea primitives.
+
+## Builder Correction and Resubmission
+
+**Purpose:** Compare three Builder-safe structures for correcting and
+resubmitting the same durable Milestone completion or Draw Request after a
+rejection.
+
+**Selection status:** Rejected direction. The dedicated correction surface was
+explicitly rejected in favor of returning the existing Milestone or Draw detail
+sheet to a draft-like `Needs revision` state. No variant was selected, accepted,
+locked, or promoted. This set remains throwaway comparison history only.
+
+**Variant hypotheses:**
+
+- Variant A directly adapts the current Builder workspace hierarchy with the
+  request, configured requirements, review-context evidence, resubmission
+  control, and permitted history on one page.
+- Variant B uses a mobile-conscious guided repair sequence that makes the
+  configured gate, missing evidence, and next resubmission explicit.
+- Variant C uses a stable-request cycle ledger, central correction bench, and
+  bounded cycle command for a compact operating surface.
+
+**Interaction and privacy constraints:**
+
+- Rejection returns the existing request to internal `correction_required`,
+  presented to the Builder as `Needs revision`; resubmission increments the
+  decision cycle on that same request identity and resets every policy-required
+  approval.
+- The Builder sees configured requirements, submission eligibility, published
+  Builder-visible revision instructions, current high-level state, relevant
+  evidence references, and permitted cycle history. Reviewer identity,
+  separate private reviewer rationale, internal votes, and private audit
+  content are excluded.
+- Required Milestone Site Visit and receipt/invoice gates are shown only when
+  configured. A qualifying Site Visit has a completed report and photo; the
+  documented receipt/invoice total must exactly equal entered actual cost.
+- The Draw example has no invented receipt/invoice or Site Visit gate, no
+  Milestone or Draw Group funding allocation, and no Draw release control.
+- Evidence is limited to the current request review context and cycle. The
+  prototype has no broad document library, generic comments, deadline or SLA,
+  policy editor, reviewer assignment, approval/rejection action, or access to
+  another Build.
+- Correction, evidence attachment, state preview, and resubmission actions use
+  in-memory representative state only. Refresh resets them. No loader, command,
+  upload, notification, audit, approval, or release is persisted.
+
+**Canonical reuse boundary:** This rejected set remains historical evidence
+only and must not be promoted. The locked Milestone contract is the integrated
+Variant A below. The Builder Draw presentation remains unselected. Both retain
+canonical Milestone/Draw Request, Evidence Package/review attachment, locked
+policy, decision-cycle, and audit ownership; neither may create Builder-owned
+request or evidence models.
+
+**Prototype:**
+`../../routes/builder.correction-resubmission-prototype.tsx` at
+`/builder/correction-resubmission-prototype?variant=A|B|C`, composed with the
+shared `PrototypeVariantSwitcher.tsx`, `FileUploader`, and existing Frame,
+Card, Alert, Progress, Badge, Button, and Separator primitives.
+
+## Builder Milestone Needs Revision Integration
+
+**Purpose:** Compare three ways to integrate Builder correction and
+resubmission directly into the existing Milestone detail sheet. The prototype
+tests a draft-like `Needs revision` state, not a separate correction page or a
+new request model.
+
+**Selection status:** Variant A — Inline revision notice was explicitly selected
+and locked by the user on August 13, 2026. Variants B and C remain comparison
+history. This records the prototype decision only; no production promotion or
+integration was authorized in this task.
+
+**Future implementation handoff:** Directly promote Variant A from
+`builder.milestone-revision-detail-prototype.tsx` into the canonical
+`MilestoneDetailSheet`; do not rebuild a requirements-equivalent surface or
+revive the rejected dedicated correction workspace. Replace representative
+local state and prototype-only DOM glue with typed canonical extension seams,
+loaders, authorization, commands, audit, and error/concurrency states while
+preserving the locked hierarchy and interaction gates. This selection does not
+choose a Builder Draw correction layout; record that decision separately.
+
+**Variant hypotheses:**
+
+- **Locked — Variant A** inserts one prominent revision notice into the
+  canonical Overview review layer while leaving the normal tab and section
+  model intact.
+- Variant B leads with a guided repair checklist that states the free-text
+  instruction, unaffected gates, missing evidence, and resubmission readiness.
+- Variant C uses an affected-section summary panel before the correction
+  fields, marking exactly where the requested change belongs.
+
+**Interaction and privacy constraints:**
+
+- The same Milestone and completion request enter `Needs revision`; existing
+  pre-submission inputs become editable without deleting prior decision cycles.
+- The shown free text is explicitly Builder-visible revision instructions, not
+  the raw private reviewer note. Reviewer identity, internal rationale, votes,
+  and private audit content remain excluded.
+- The existing Site Visit remains complete. The representative receipt/invoice
+  total must equal entered actual cost before resubmission becomes eligible.
+- Resubmission starts decision cycle N+1 on the same request and resets every
+  policy-required approval. Refresh resets all representative local state.
+- No loader, mutation, upload, notification, decision, approval, audit event,
+  or production workflow is connected.
+
+**Canonical reuse boundary:** The production target remains the existing
+Builder `ProductionBuildDetailSurface` and shared `MilestoneDetailSheet`. This
+prototype directly renders the unchanged shared `MilestoneDetailSheet` through
+its supported Overview review layer and Collaboration composition seams. It
+also reuses existing Frame, FileUploader, Input, Alert, Progress, Badge, Button,
+and Separator primitives. It does not modify the production sheet, Builder
+route, loaders, authorization, Convex/domain code, or shared production tests.
+
+**Prototype:**
+`../../routes/builder.milestone-revision-detail-prototype.tsx` at
+`/builder/milestone-revision-detail-prototype?variant=A|B|C`. Focused contract:
+`../../routes/-builder.milestone-revision-detail-prototype.test.tsx`.
 
 ## Coverage
 

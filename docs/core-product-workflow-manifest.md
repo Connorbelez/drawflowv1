@@ -441,54 +441,57 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
 3. **Persona:** Cross-persona parent workflow
 4. **Functional category:** Draw disbursement
 5. **Parent workflow ID:** Not applicable — this is the parent workflow.
-6. **Purpose and intended outcome:** Convert approved milestone value into an idempotent reimbursement request, obtain final release authority, record money-out/fees/interest only at release, and settle receipt exceptions.
+6. **Purpose and intended outcome:** Convert pooled Build availability unlocked by approved work into one idempotent Build-level reimbursement request, satisfy the locked Draw review policy, record money-out/fees/interest only at release, and settle receipt exceptions without assigning the request to a Milestone or Draw Group.
 7. **Preconditions:**
   - Active Build and loan/capital context exist.
   - Milestone completion value has been approved under `WF-MIL-001`.
   - Available-now balance is positive.
 8. **Trigger:** Builder requests any valid amount up to available-now balance, or configured planning logic exposes an eligible draw action.
 9. **Ordered workflow steps:**
-  1. `WF-DRW-001.PARENT.00.STEP-01` — Calculate facility-capped source-bucket availability in deterministic Milestone order, separately from planned forecast rows.
+  1. `WF-DRW-001.PARENT.00.STEP-01` — Calculate facility-capped pooled Build availability, separately from planned Draw Group and forecast rows.
   2. `WF-DRW-001.PARENT.00.STEP-02` — Builder enters amount, reviews, and submits with idempotent operation ID.
-  3. `WF-DRW-001.PARENT.00.STEP-03` — Create one Draw Release Work Order and immutable Milestone / Draw Group allocations whose sum equals the request.
-  4. `WF-DRW-001.PARENT.00.STEP-04` — Operations transitions requested → in_review → ready_for_admin and records its recommendation; builder may withdraw while requested.
-  5. `WF-DRW-001.PARENT.00.STEP-05` — Lender Admin transitions ready_for_admin → approved_for_release or rejected.
+  3. `WF-DRW-001.PARENT.00.STEP-03` — Create one Draw Release Work Order against pooled availability and associate only evidence explicitly linked to the current submission.
+  4. `WF-DRW-001.PARENT.00.STEP-04` — Required Back Office and lender quorum groups review the same request; either peer group may complete first, and Builder may withdraw when lifecycle policy permits.
+  5. `WF-DRW-001.PARENT.00.STEP-05` — After every required group is satisfied, an authorized final approver transitions the request to approved_for_release or rejects it with a private reason.
   6. `WF-DRW-001.PARENT.00.STEP-06` — Only approved_for_release is released/executed or recorded.
   7. `WF-DRW-001.PARENT.00.STEP-07` — Record release date/amount/fee treatment and start interest at funds_released.
   8. `WF-DRW-001.PARENT.00.STEP-08` — Notify builder and create receipt confirmation.
   9. `WF-DRW-001.PARENT.00.STEP-09` — Builder confirms, reports non-receipt, or reports discrepancy; operations resolves exceptions.
 10. **Inputs and required artifacts:**
-  - Approved Milestone drawAvailability source buckets, Draw Group attribution, facility principal/balance, persisted allocations.
-  - Requested amount/note/client operation ID.
-  - Evidence/milestone context, fees, interest implications, release result.
+  - Facility-capped pooled availability, total approved/unlocked amount, drawn amount, and current reservation.
+  - Requested amount, submission note/context, client operation ID, and Builder contact projection.
+  - Explicit current-submission evidence links, locked review policy, approval-group state, fees, interest implications, and release result.
 11. **Outputs and generated artifacts:**
   - Authoritative activeBuildDrawRequest / Draw Release Work Order and immutable work-order key/history.
-  - Organization-scoped activeBuildDrawRequestAllocations with exact Milestone, Draw Group, amount, and order.
+  - Organization-scoped pooled availability reservation without semantic Milestone or Draw Group attribution.
+  - Approval-group decisions and retained decision-cycle history.
   - Approval/rejection/withdrawal/release capital event.
   - Receipt confirmation/exception task.
   - Webhooks/audit/notifications.
 12. **System states and state transitions:**
   - requested → in_review → ready_for_admin → approved_for_release → released
-  - requested → withdrawn; ready_for_admin → rejected
+  - requested → withdrawn; review/final-decision state → rejected → correction/resubmission of the same request record
   - forecast plannedDrawScheduleRows remain planning-only
 13. **Decisions, validations, and approval gates:**
-  - Amount ≤ available now, uses whole cents, and allocation sum equals amount.
+  - Amount ≤ available now and uses whole cents.
   - Operation ID is idempotent and cannot be reused for a different amount.
-  - Only requested can withdraw/start review; only in_review can become ready_for_admin; only ready_for_admin can approve/reject; only approved_for_release can release.
-  - Operations prepares/recommends; Lender Admin decides/releases; interest starts only when funds released.
+  - Every policy-required Back Office and lender quorum group must be satisfied; required groups have no priority order or per-review deadline.
+  - Rejection requires a private reason; resubmission retains history and resets every required approval.
+  - Only approved_for_release can release; interest starts only when funds are released.
 14. **Exceptions, rejection paths, and recovery flows:**
-  - Over-limit/invalid amount, duplicate ID mismatch, loan availability block, rejection/withdrawal, payment execution failure, non-receipt, amount discrepancy.
+  - Over-limit/invalid amount, duplicate ID mismatch, loan availability block, missing canonical evidence/policy data, rejection/withdrawal, payment execution failure outside the review sheet, non-receipt, amount discrepancy.
 15. **Permissions and role constraints:**
   - Builder/authorized staff creates/withdraws own request.
-  - Operations prepares/recommends.
-  - Lender Admin approves/rejects/releases.
+  - Back Office and assigned lender reviewers act only when the locked policy and their authority permit.
+  - An authorized final approver approves/rejects/releases after required gates are satisfied.
+  - Builder views hide reviewer identity, private rejection reason, individual votes, and internal review notes.
   - Migration is explicit backoffice-only.
 16. **Upstream and downstream workflow dependencies:**
   - Upstream: `WF-MIL-001`, `WF-PRP-001`
   - Downstream: `WF-COM-001`, `WF-INT-001`, `WF-OPS-001`
 17. **Cross-persona handoffs:**
-  - `WF-DRW-001.HO-01` — **Builder → Lender Operations / Backoffice Staff.** Trigger: Idempotent Draw Release Work Order is submitted. Artifacts: Request/work-order keys, amount, note, available/reserved/unlocked reconciliation, immutable Milestone / Draw Group source allocations. Required acknowledgement/next action: Operations claims/reviews and prepares recommendation or requests correction.
-  - `WF-DRW-001.HO-02` — **Lender Operations / Backoffice Staff → Lender Admin / Principal Broker.** Trigger: Work order is ready_for_admin. Artifacts: Work order, source allocations, approved milestones/evidence summary, amount, fee treatment, facility availability, interest implications, recommendation/warnings. Required acknowledgement/next action: Lender Admin approves, rejects, or leaves blocked with reason.
+  - `WF-DRW-001.HO-01` — **Builder → Required Draw Review Groups.** Trigger: Idempotent Draw Release Work Order is submitted. Artifacts: Request/work-order keys, amount, note/context, available/reserved/unlocked reconciliation, Builder contact, explicit request-evidence links, and locked policy. Required acknowledgement/next action: Authorized Back Office and/or lender reviewers evaluate the same submission in either order.
+  - `WF-DRW-001.HO-02` — **Required Draw Review Groups → Authorized Final Approver.** Trigger: Every configured group is satisfied. Artifacts: Work order, policy-group state, explicitly linked evidence, amount, fee treatment, facility availability, interest implications, and authorized recommendations/warnings. Required acknowledgement/next action: Final approver approves, rejects with a private reason, or leaves the request blocked by an explicit requirement.
   - `WF-DRW-001.HO-03` — **Lender Admin / Principal Broker → DrawFlow System.** Trigger: Release is authorized or rejection is recorded. Artifacts: Decision, actor/reason, approved amount, fee treatment, execution/recording instruction. Required acknowledgement/next action: System records final state/capital event or returns execution failure without duplicate money-out.
   - `WF-DRW-001.HO-04` — **DrawFlow System → Builder.** Trigger: Funds release is recorded. Artifacts: Released amount/date, fee treatment, request/reference, receipt-confirmation task; interest-start fact (not pre-release interest). Required acknowledgement/next action: Builder confirms receipt or reports non-receipt/discrepancy.
   - `WF-DRW-001.HO-05` — **Builder → Lender Operations / Backoffice Staff.** Trigger: Builder reports non-receipt or amount discrepancy. Artifacts: Request/release reference, expected/received amount, receipt status, notes/supporting proof. Required acknowledgement/next action: Operations claims settlement exception, investigates, and records resolution/escalation.
@@ -502,10 +505,11 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Success:
     - Released reimbursement is recorded once, interest starts on release, and receipt is confirmed.
   - Failure:
-    - Request is rejected/withdrawn/blocked or settlement exception remains assigned; balance/history remain correct.
+  - Request is rejected/withdrawn/blocked or settlement exception remains assigned; pooled balance and history remain correct. Rejection returns the same request for correction/resubmission and resets required approvals.
 20. **Source references:**
   - `docs/builder-draw-request-workspace.md §Domain separation–§Request lifecycle`
   - `docs/draw_flow_prd.md §8.1–8.3, §18.3.9–18.3.12, §23.1`
+  - `docs/specs/lender-portal-draw-review.md`
   - `docs/notification-system-prd.md §8`
 **Support status:** `SUPPORTED`
 
@@ -1104,13 +1108,14 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Target identity is not the active Principal Broker being transferred through a different authority workflow.
 8. **Trigger:** Principal Broker invites a broker/backoffice user, changes a member role, or deactivates future access.
 9. **Ordered workflow steps:**
-  1. `WF-TEN-004.PARENT.00.STEP-01` — Open Brokerage Management and review staff/roles/assignments/work.
-  2. `WF-TEN-004.PARENT.00.STEP-02` — Invite broker or backoffice staff, or select an existing member.
-  3. `WF-TEN-004.PARENT.00.STEP-03` — Assign/change role or deactivate with required audit context.
-  4. `WF-TEN-004.PARENT.00.STEP-04` — Invitee accepts when applicable.
-  5. `WF-TEN-004.PARENT.00.STEP-05` — System projects WorkOS membership/role state.
-  6. `WF-TEN-004.PARENT.00.STEP-06` — Update navigation/query/write access immediately while preserving history.
-  7. `WF-TEN-004.PARENT.00.STEP-07` — Review affected builder assignments/work queues and reroute explicitly if needed.
+  1. `WF-TEN-004.PARENT.00.STEP-01` — Open Lender Organization Management and review the active organization directory through the approved Variant E hierarchy.
+  2. `WF-TEN-004.PARENT.00.STEP-02` — Search/filter members, start an organization-level invitation, or select an existing member to open the shared membership sheet.
+  3. `WF-TEN-004.PARENT.00.STEP-03` — Review Access, Administration, Review relationship, and History context for the selected member.
+  4. `WF-TEN-004.PARENT.00.STEP-04` — Stage invitation, supported role change, or deactivation input; validate required email, role, reason, history acknowledgement, and protected-member conditions.
+  5. `WF-TEN-004.PARENT.00.STEP-05` — Review current/proposed state plus affected access, lender-review assignment/quorum context, recipients, work queues, and audit effects.
+  6. `WF-TEN-004.PARENT.00.STEP-06` — Execute through the authorized WorkOS-first action, or fail closed into Principal Broker transfer-of-control when the normal command cannot proceed.
+  7. `WF-TEN-004.PARENT.00.STEP-07` — Invitee accepts when applicable; system projects WorkOS membership/role state and reports pending sync, success, or failure.
+  8. `WF-TEN-004.PARENT.00.STEP-08` — Update navigation/query/write access while preserving history, then reconcile or visibly queue affected assignments, lender-review quorum context, recipients, work queues, audit, and notifications.
 10. **Inputs and required artifacts:**
   - Target identity, WorkOS organization, role, activation/deactivation intent.
   - Affected assignments/work queues and audit actor/timestamp/reason where applicable.
@@ -1126,6 +1131,9 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Principal Broker organization authority.
   - Role changes require audit.
   - Webhook-owned WorkOS projection tables are not directly mutated.
+  - Active Principal Broker removal or deactivation uses protected transfer-of-control and cannot execute as a normal member operation.
+  - Back Office owns pre-closing Review Requirements Setup. Organization Management cannot edit required reviewer groups, quorum count, evidence/Site Visit requirements, approval order, or policy satisfaction.
+  - Active membership and role labels are inputs to downstream review evaluation, not proof of quorum eligibility or satisfaction.
 14. **Exceptions, rejection paths, and recovery flows:**
   - Expired/revoked/mismatched invite.
   - Attempt to create a second Principal Broker is rejected/routed to `WF-TEN-001`.
@@ -1153,6 +1161,8 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
 20. **Source references:**
   - `docs/draw_flow_production_prd.md §8.2`
   - `docs/auth-rbac-foundation.md`
+  - `docs/lender-portal-prototype-promotion.md §Lender Organization Management — locked implementation contract`
+  - `src/components/prototypes/README.md §Lender Organization Management`
 **Support status:** `SUPPORTED`
 
 # Persona-indexed workflow segments
@@ -1514,18 +1524,18 @@ Organization-scoped final authority for proposal closing, milestone decisions, p
   - The actor is authenticated in the correct WorkOS organization and the target record is organization-scoped.
 8. **Trigger:** Request/release package is ready.
 9. **Ordered workflow steps:**
-  1. `WF-DRW-001.LADM.01.STEP-01` — Review request/milestones/evidence/amount/fees/facility/interest.
-  2. `WF-DRW-001.LADM.01.STEP-02` — Approve or reject with required reason.
+  1. `WF-DRW-001.LADM.01.STEP-01` — Review the submitted request, explicit request-evidence links, approval-group state, amount, fees, facility, and interest implications.
+  2. `WF-DRW-001.LADM.01.STEP-02` — Approve or reject with the required private reason.
   3. `WF-DRW-001.LADM.01.STEP-03` — Authorize release of approved request.
   4. `WF-DRW-001.LADM.01.STEP-04` — Review execution result.
 10. **Inputs and required artifacts:**
-  - Ready-for-admin work order, source allocations, and decision/release instruction.
+  - Ready-for-admin work order, pooled funding snapshot, policy-group state, explicit request-evidence links, and decision/release instruction.
 11. **Outputs and generated artifacts:**
   - Approval/rejection/release authorization.
 12. **System states and state transitions:**
   - ready_for_admin → approved_for_release/rejected; approved_for_release → released
 13. **Decisions, validations, and approval gates:**
-  - Lender Admin only; facility/eligibility; only legal state transitions.
+  - Lender Admin only; facility/eligibility; every required policy group is satisfied; only legal state transitions.
 14. **Exceptions, rejection paths, and recovery flows:**
   - Availability block, policy concern, execution failure.
 15. **Permissions and role constraints:**
@@ -2183,24 +2193,24 @@ Brokerage operators who claim queues, review evidence, request information or vi
 3. **Persona:** Lender Operations / Backoffice Staff (`LOPS`)
 4. **Functional category:** Draw operations
 5. **Parent workflow ID:** `WF-DRW-001`
-6. **Purpose and intended outcome:** Prepare a complete release package and own non-receipt/discrepancy operations without final release authority.
+6. **Purpose and intended outcome:** Perform the Back Office peer-group review when required by the locked policy, prepare authorized release context, and own non-receipt/discrepancy operations without inventing priority over a lender quorum or final release authority.
 7. **Preconditions:**
   - The actor is authenticated in the correct WorkOS organization and the target record is organization-scoped.
 8. **Trigger:** Request or receipt exception enters queue.
 9. **Ordered workflow steps:**
   1. `WF-DRW-001.LOPS.01.STEP-01` — Claim.
-  2. `WF-DRW-001.LOPS.01.STEP-02` — Review eligibility/amount/evidence/facility/fees.
-  3. `WF-DRW-001.LOPS.01.STEP-03` — Request correction or recommend decision.
-  4. `WF-DRW-001.LOPS.01.STEP-04` — Send to authority.
+  2. `WF-DRW-001.LOPS.01.STEP-02` — Review the submitted request, pooled availability, explicit current-submission evidence links, policy state, facility, and fees.
+  3. `WF-DRW-001.LOPS.01.STEP-03` — Record the authorized Back Office group decision or request correction with a private reason.
+  4. `WF-DRW-001.LOPS.01.STEP-04` — Re-evaluate all required peer groups and route to final authority only when policy is satisfied; lender quorum may complete before or after Back Office.
   5. `WF-DRW-001.LOPS.01.STEP-05` — Investigate receipt exception and record resolution/escalation.
 10. **Inputs and required artifacts:**
-  - Request/release/receipt package.
+  - Draw Request, pooled funding snapshot, Builder contact, explicit request-evidence links, locked policy/group state, and release/receipt package.
 11. **Outputs and generated artifacts:**
-  - Recommendation/release package or settlement resolution.
+  - Back Office group decision, role-safe correction state, authorized release package, or settlement resolution.
 12. **System states and state transitions:**
-  - requested → in_review → ready_for_admin; exception open → resolved/escalated
+  - requested → in_review; all required peer groups satisfied → ready_for_admin; rejection → correction/resubmission of the same record; exception open → resolved/escalated
 13. **Decisions, validations, and approval gates:**
-  - Cannot final release; request state/amount revalidated.
+  - Cannot final release; request state/amount revalidated; Back Office acts only when required; lender quorum is an unordered peer gate; no review deadline is inferred.
 14. **Exceptions, rejection paths, and recovery flows:**
   - Loan availability, execution failure, discrepancy/non-receipt.
 15. **Permissions and role constraints:**
@@ -2222,6 +2232,7 @@ Brokerage operators who claim queues, review evidence, request information or vi
 20. **Source references:**
   - `docs/draw_flow_production_prd.md §8.9`
   - `docs/draw_flow_prd.md §18.3.9–18.3.12`
+  - `docs/specs/lender-portal-draw-review.md`
 **Support status:** `SUPPORTED`
 
 ### Functional category: Evidence review
@@ -2641,13 +2652,13 @@ Builder/developer principal and permissioned builder staff. Role constraints wit
 10. **Inputs and required artifacts:**
   - Amount/note/idempotency ID and receipt result.
 11. **Outputs and generated artifacts:**
-  - Request/work-order key, exact source allocations, withdrawal/receipt response.
+  - Request/work-order key, pooled availability reservation, retained history, and withdrawal/receipt response.
 12. **System states and state transitions:**
   - requested → withdrawn or operations review; approved_for_release → released → receipt confirmed/exception
 13. **Decisions, validations, and approval gates:**
-  - Draw permission, whole cents, within facility-capped approved Milestone availability.
+  - Draw permission, whole cents, within facility-capped pooled availability unlocked by approved work.
 14. **Exceptions, rejection paths, and recovery flows:**
-  - Over-limit, attribution mismatch, retry failure preserves input/ID, blocked user receives reason, non-receipt/discrepancy.
+  - Over-limit, retry failure preserves input/ID, rejected request returns as the same record for correction/resubmission, blocked user receives role-safe requirements, non-receipt/discrepancy.
 15. **Permissions and role constraints:**
   - Builder Lead/authorized Builder Staff on own Build.
 16. **Upstream and downstream workflow dependencies:**
@@ -3763,28 +3774,28 @@ Automated actor for validation, optimization, state projection, notification, au
 3. **Persona:** DrawFlow System (`SYS`)
 4. **Functional category:** Draw ledger orchestration
 5. **Parent workflow ID:** `WF-DRW-001`
-6. **Purpose and intended outcome:** Maintain separate forecast and request/allocation ledgers, enforce idempotency and deterministic availability, record capital once, and drive receipt/webhook events.
+6. **Purpose and intended outcome:** Maintain separate forecast and Draw Request ledgers, enforce idempotency and deterministic pooled availability, record capital once, and drive receipt/webhook events without creating semantic Milestone or Draw Group attribution.
 7. **Preconditions:**
   - The actor is authenticated in the correct WorkOS organization and the target record is organization-scoped.
 8. **Trigger:** Availability query, request/review/decision/release/receipt command.
 9. **Ordered workflow steps:**
-  1. `WF-DRW-001.SYS.01.STEP-01` — Order approved Milestone source buckets and apply the facility cap.
-  2. `WF-DRW-001.SYS.01.STEP-02` — Subtract persisted allocations for reserving states.
-  3. `WF-DRW-001.SYS.01.STEP-03` — Validate/idempotently create the Draw Release Work Order and exact FIFO allocations.
-  4. `WF-DRW-001.SYS.01.STEP-04` — Apply legal review/decision transitions.
+  1. `WF-DRW-001.SYS.01.STEP-01` — Sum approved work unlocks and apply the facility cap to pooled availability.
+  2. `WF-DRW-001.SYS.01.STEP-02` — Subtract Draw Request amounts in reserving or released states.
+  3. `WF-DRW-001.SYS.01.STEP-03` — Validate and idempotently create the Draw Release Work Order reservation without semantic Milestone or Draw Group attribution.
+  4. `WF-DRW-001.SYS.01.STEP-04` — Apply legal policy-group, review, correction/resubmission, and decision transitions.
   5. `WF-DRW-001.SYS.01.STEP-05` — Execute/record release once.
   6. `WF-DRW-001.SYS.01.STEP-06` — Record fee/date/interest start.
   7. `WF-DRW-001.SYS.01.STEP-07` — Create receipt task and emit events.
 10. **Inputs and required artifacts:**
-  - Organization-scoped Milestone/Draw Group/facility/request/allocation ledgers and authorized commands.
+  - Organization-scoped approved-work unlocks, facility, pooled availability, Draw Request, policy-group, and authorized command records.
 11. **Outputs and generated artifacts:**
-  - Work-order/allocation/capital/receipt records and events.
+  - Work-order/reservation/policy-decision/capital/receipt records and events.
 12. **System states and state transitions:**
-  - requested → in_review → ready_for_admin → approved_for_release → released; requested → withdrawn; ready_for_admin → rejected
+  - requested → in_review → ready_for_admin → approved_for_release → released; requested → withdrawn; review/final-decision state → rejected → correction/resubmission of the same request
 13. **Decisions, validations, and approval gates:**
-  - Forecast never mutates into request; allocations sum exactly to request; released remains reserved; no duplicate capital event.
+  - Forecast never mutates into request; request does not attach to a Milestone or Draw Group; all required peer groups are satisfied before release; released value remains consumed; no duplicate capital event.
 14. **Exceptions, rejection paths, and recovery flows:**
-  - ID mismatch, over-limit, attribution invariant failure, concurrent reservation, execution failure.
+  - ID mismatch, over-limit, pooled-balance invariant failure, concurrent reservation, missing policy snapshot, execution failure.
 15. **Permissions and role constraints:**
   - System under scoped authorized actor.
 16. **Upstream and downstream workflow dependencies:**

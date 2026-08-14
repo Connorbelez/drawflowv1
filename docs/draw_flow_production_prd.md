@@ -6,6 +6,7 @@
 **Status:** Draft for product review
 **Primary audience:** Product, engineering, operations, brokerage leadership, implementation agents
 **Created:** May 25, 2026
+**Last updated:** August 13, 2026
 
 ---
 
@@ -21,6 +22,17 @@ DrawFlow is moving from demo surfaces into a coherent, production-ready multi-te
 - proposal, live build, evidence, site visit, milestone approval, and draw release workflows.
 
 This document extends `docs/draw_flow_prd.md`. Where the older PRD uses generic lender roles, this document is authoritative for the brokerage-scoped production model.
+
+For the external Lender Portal feature slice,
+`docs/lender_portal_mvp_feature_brief.md` controls on conflict,
+`docs/lender_portal_mvp_spec.md` is the ready-for-agent specification, and
+`docs/lender-portal-prototype-promotion.md` records selected prototype
+contracts. Lender Build Detail Variant C, the Precision console at
+`/lender/build-detail-overview-prototype?variant=C`, is approved and locked.
+Future authorized implementation must directly promote that selected narrow,
+read-only projection and must not build a requirements-equivalent replacement
+from this production PRD. The selection does not itself authorize production
+work.
 
 DrawFlow remains reimbursement-only in v1. No workflow may release proactive advance funding before work is completed, evidenced, reviewed, and approved by an authorized final approver.
 
@@ -353,7 +365,7 @@ Hierarchy is not enough. A Principal Broker can see all brokerage builds; a Brok
 - Global tables are limited to platform identity, canonical contractor dedupe, and controlled lookup data.
 - Every material entity includes status, timestamps, actor references, and audit hooks.
 - Budget records are versioned, never overwritten.
-- Role and relationship tables are explicit.
+- WorkOS webhook-owned identity projections are explicit and remain read-only to product flows. Product relationship tables reference them; they do not duplicate organization membership or role ownership.
 - Contractor profile dedupe is global, but brokerage access is relationship-scoped.
 - Work orders model operations. Chat/comments do not replace workflow state.
 
@@ -361,12 +373,18 @@ Hierarchy is not enough. A Principal Broker can see all brokerage builds; a Brok
 
 | Table | Scope | Purpose | Required fields |
 |---|---|---|---|
-| `users` | Global | Authenticated human identity | `workosUserId`, `email`, `name`, `status`, timestamps |
-| `brokerages` | Tenant root | Brokerage organization | `workosOrganizationId`, `name`, `slug`, `status`, `principalBrokerUserId`, policy refs |
-| `organizationMemberships` | Tenant | User membership and role grants | `organizationId`, `userId`, `role`, `status`, `invitedBy`, timestamps |
-| `organizationInvitations` | Tenant | Pending invites | `organizationId`, `email`, `role`, `invitedBy`, `expiresAt`, `status` |
-| `roleGrantOverrides` | Tenant | Exceptional grants | `organizationId`, `userId`, `grant`, `reason`, `expiresAt`, `createdBy` |
+| `users` | Global WorkOS projection | Authenticated human identity | `workosUserId`, `email`, `name`, `status`, source event fields, timestamps |
+| `workosOrganizations` | Global WorkOS projection | Authoritative organization identity projected for product reads | `workosOrganizationId`, `name`, `status`, domains, source event fields, timestamps |
+| `brokerages` | Tenant mapping | DrawFlow brokerage domain mapped one-to-one to a WorkOS organization | `workosOrganizationId`, names, `status`, Principal Broker references, timestamps |
+| `workosOrganizationMemberships` | WorkOS projection | User membership status and canonical role slugs | `workosMembershipId`, `workosUserId`, `workosOrganizationId`, `status`, `roleSlug`, `roleSlugs`, source event fields, timestamps |
+| `workosRoles` and `workosOrganizationRoles` | WorkOS projections | Canonical global and organization-specific role definitions | organization where applicable, `slug`, `name`, permission slugs, `status`, source event fields, timestamps |
+| `workosPermissions` | WorkOS projection | Canonical permission definitions | WorkOS permission id, `slug`, `name`, `status`, source event fields, timestamps |
 | `supportAccessSessions` | Global | Audited platform support access | `adminUserId`, `organizationId`, `reason`, `startsAt`, `endsAt`, `status` |
+
+Invitations, membership changes, and role assignments execute through the
+authorized WorkOS Management API boundary. Webhook/sync handling alone updates
+the projection tables above. Product flows and tests must not insert or mutate
+those projections directly.
 
 ### 7.3 Builder Tables
 
@@ -639,18 +657,37 @@ Staff cannot by default:
 5. Site visit occurs if required.
 6. Principal Broker or final approver reviews package.
 7. Milestone is approved or rejected.
-8. When all milestones in draw group are approved, draw becomes ready.
-9. Final approver reviews draw amount, fee treatment, loan availability, and interest implications.
-10. Draw is approved and released.
-11. Interest begins only after release.
-12. Builder confirms receipt or reports exception.
+8. Approved Milestone value increases the Build's facility-capped pooled draw
+   availability; Draw Groups remain planning and forecast records.
+9. Builder submits a Build-level Draw Request against pooled availability. The
+   request is not assigned to a Milestone or Draw Group.
+10. Required Back Office and lender quorum groups review the same request,
+    request-linked evidence, and policy state. When both groups are required,
+    either may complete first.
+11. An authorized final approver records the release decision after all required
+    groups are satisfied.
+12. Draw is approved and released.
+13. Interest begins only after release.
+14. Builder confirms receipt or reports exception.
 
 Acceptance criteria:
 
 - geofence failure never discards evidence,
 - location-unverified evidence routes for review,
-- draw release is impossible before required milestone approval,
+- a Draw Request cannot exceed facility-capped pooled availability unlocked by
+  approved work,
+- review does not invent a Draw-to-Milestone or Draw-to-Draw-Group allocation,
+- only evidence explicitly linked to the current Draw Request submission is
+  presented as Attached Evidence,
+- all required Draw approval groups are satisfied before release, with no
+  implied priority or per-review deadline,
+- rejection requires a private reason, preserves the same request and history,
+  returns it for correction/resubmission, and resets required approvals,
 - every override records actor, role, reason, warnings, prior state, and new state.
+
+The canonical review interaction, ownership boundaries, persona visibility, and
+integration acceptance criteria are defined in
+`docs/specs/lender-portal-draw-review.md`.
 
 ---
 
@@ -684,6 +721,53 @@ Capabilities:
 - proposal and work queue overview,
 - policy and integration settings,
 - audit history.
+
+#### 9.2.1 Accepted Lender Organization Management Interface
+
+Variant E at
+`/lender/organization-management-prototype?variant=E` is the approved
+organization-management interface contract. Production implementation must
+start from that route and directly promote its component structure; it must not
+replace it with a newly designed member-management surface.
+
+The locked interface composition is:
+
+1. the lender workspace shell and Organization navigation context;
+2. the existing Back Office `UserManagementDirectoryTable`, using the shared
+   shadcn Table and TanStack Table model;
+3. organization-level member search, membership-status filters, and Invite
+   member entry point;
+4. the existing `UserDetailSheet` for membership, role, organization, profile,
+   and current-status context;
+5. Access, Administration, Review relationship, and History tabs in the member
+   sheet;
+6. staged invitation, role-change, and deactivation workflows with validation,
+   current/proposed state, downstream-impact preview, and review-before-execute;
+7. protected blocking for Principal Broker removal or deactivation until the
+   canonical transfer-of-control workflow is satisfied.
+
+Production replaces only local fixture state and the prototype's unavailable
+execution control with permission-shaped canonical projections and authorized
+WorkOS-first commands. It must preserve the selected information hierarchy,
+interaction gates, and component reuse. Every completed command must expose
+pending webhook/sync state, success or failure, and the affected access,
+assignment, lender-review quorum, recipient-routing, work-queue, and audit
+effects.
+
+This surface does not own Back Office pre-closing review requirements. It may
+show the operating relationship between active membership and lender quorum,
+but it cannot configure the required review groups, quorum count, or approval
+policy and cannot infer quorum eligibility or satisfaction from role labels.
+
+The recognized organization-management role slugs remain `admin`,
+`principle-broker`, `broker`, and `broker-staff`. No canonical `manager` role is
+defined. A future manager capability requires a separate product and WorkOS
+role decision; implementation must not introduce a manager alias or parallel
+role system.
+
+The complete promotion and acceptance contract is in
+`docs/lender-portal-prototype-promotion.md`; the approval record and evidence map
+are in `src/components/prototypes/README.md`.
 
 ### 9.3 Broker Dashboard
 
@@ -720,6 +804,12 @@ Capabilities:
 - contractor assignment,
 - draw request readiness,
 - role-aware actions for builder, broker, staff, and approver.
+
+All Builder, Back Office, and lender Draw Request detail and decision routes
+must render the shared role-aware `DrawReviewSheet`. The approved interaction is
+Variant A at `/lender/draw-review-sheet-prototype?variant=A`; future lender
+portal integration must import the same production component rather than create
+a parallel review surface. See `docs/specs/lender-portal-draw-review.md`.
 
 ### 9.6 Backoffice Work Queues
 
@@ -769,6 +859,18 @@ The production MVP is ready when:
 13. Material actions write audit events.
 14. Budget versions are preserved.
 15. Draw release remains reimbursement-only and starts interest only after release.
+16. Lender Organization Management directly promotes approved Variant E,
+    reuses the canonical User Management table and detail sheet, and executes
+    supported member operations only through authorized WorkOS-first commands
+    with protected Principal Broker transfer, downstream re-evaluation, and
+    audit behavior.
+17. Builder, Back Office, and lender Draw Request routes use one role-aware
+    `DrawReviewSheet` over the same canonical request, pooled funding snapshot,
+    explicit request-evidence relationships, policy groups, Draw System Post,
+    and Action Items.
+18. Builder views hide reviewer identity, private rejection rationale, internal
+    votes, and review notes; rejected requests retain history and reset required
+    approvals when the same record is resubmitted.
 
 ---
 

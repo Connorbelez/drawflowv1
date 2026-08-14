@@ -12949,6 +12949,12 @@ const brokerageDrawRowValidator = v.object({
   buildHref: v.string(),
   buildId: v.id("activeBuilds"),
   buildName: v.string(),
+  builderContact: v.object({
+    contactName: v.optional(v.string()),
+    displayName: v.string(),
+    email: v.optional(v.string()),
+    role: v.optional(v.string()),
+  }),
   builderName: v.string(),
   drawId: v.union(
     v.id("plannedDrawScheduleRows"),
@@ -12957,6 +12963,11 @@ const brokerageDrawRowValidator = v.object({
   drawKey: v.string(),
   label: v.string(),
   location: v.string(),
+  funding: v.object({
+    availableCents: v.number(),
+    drawnCents: v.number(),
+    totalApprovedCents: v.number(),
+  }),
   milestoneKey: v.optional(v.string()),
   milestoneName: v.optional(v.string()),
   requestNote: v.optional(v.string()),
@@ -13073,11 +13084,22 @@ export const listBrokerageDraws = authenticatedQuery
       buildHref: string;
       buildId: Id<"activeBuilds">;
       buildName: string;
+      builderContact: {
+        contactName?: string;
+        displayName: string;
+        email?: string;
+        role?: string;
+      };
       builderName: string;
       drawId: Id<"plannedDrawScheduleRows"> | Id<"activeBuildDrawRequests">;
       drawKey: string;
       label: string;
       location: string;
+      funding: {
+        availableCents: number;
+        drawnCents: number;
+        totalApprovedCents: number;
+      };
       milestoneKey?: string;
       milestoneName?: string;
       requestNote?: string;
@@ -13124,6 +13146,26 @@ export const listBrokerageDraws = authenticatedQuery
         .query("activeBuildDrawRequests")
         .withIndex("by_build", (q) => q.eq("buildId", build._id))
         .collect();
+      const builderContact = await drawReviewBuilderContact(
+        ctx,
+        build.builderProfileId,
+        builder?.displayName ?? "Builder",
+      );
+      const fundingSnapshot = await activeBuildDrawFundingSnapshot(
+        ctx,
+        build._id,
+        { allowLegacyUnattributedRequests: true },
+      );
+      const funding = {
+        availableCents: fundingSnapshot.availableCents,
+        drawnCents: requestRows
+          .filter(
+            (request) =>
+              activeBuildDrawCanonicalStatus(request.status) === "released",
+          )
+          .reduce((sum, request) => sum + request.amountCents, 0),
+        totalApprovedCents: fundingSnapshot.unlockedCents,
+      };
       const plannedByKey = new Map(
         drawRows.map((draw) => [draw.drawKey, draw]),
       );
@@ -13151,11 +13193,13 @@ export const listBrokerageDraws = authenticatedQuery
           buildHref: `/backoffice/builds/${String(build._id)}?tab=timeline&draw=${draw.drawKey}`,
           buildId: build._id,
           buildName: build.buildName,
+          builderContact,
           builderName: builder?.displayName ?? "Builder",
           drawId: draw._id,
           drawKey: draw.drawKey,
           label: draw.label,
           location: build.location,
+          funding,
           milestoneKey,
           milestoneName: milestone?.name,
           scheduledDateIso,
@@ -13183,11 +13227,13 @@ export const listBrokerageDraws = authenticatedQuery
           buildHref: `/backoffice/builds/${String(build._id)}?tab=details`,
           buildId: build._id,
           buildName: build.buildName,
+          builderContact,
           builderName: builder?.displayName ?? "Builder",
           drawId: request._id,
           drawKey: request.requestKey,
           label: `${request.displayId} · ${request.label}`,
           location: build.location,
+          funding,
           milestoneKey: planned?.milestoneKey,
           milestoneName: planned?.milestoneKey
             ? milestones.get(`${String(build._id)}:${planned.milestoneKey}`)
@@ -16790,6 +16836,12 @@ export const getActiveBuildDetailByString = authenticatedQuery
         };
       });
     const canViewLenderDrawNotes = isBackoffice(auth.roles);
+    const builderProfile = await ctx.db.get(build.builderProfileId);
+    const builderContact = await drawReviewBuilderContact(
+      ctx,
+      build.builderProfileId,
+      builderProfile?.displayName ?? "Builder",
+    );
     const quickActionEvents = isBackoffice(auth.roles)
       ? [
           ...(drawRequests as Doc<"activeBuildDrawRequests">[])
@@ -16838,6 +16890,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
     return {
       appPermissions,
       build,
+      builderContact,
       capitalPlan: (() => {
         const capitalPlan = latestBuildCapitalPlan(capitalPlans);
         return capitalPlan
@@ -28983,6 +29036,32 @@ async function builderAccountSummaries(
     });
   }
   return summaries;
+}
+
+async function drawReviewBuilderContact(
+  ctx: QueryCtx | MutationCtx,
+  builderProfileId: Id<"builderProfiles">,
+  displayName: string,
+) {
+  const accounts = await builderAccountSummaries(ctx, builderProfileId);
+  const contact = accounts
+    .slice()
+    .sort(
+      (left, right) =>
+        builderAccountRoleRank(left.role) -
+        builderAccountRoleRank(right.role),
+    )[0];
+  return {
+    ...(contact?.name ? { contactName: contact.name } : {}),
+    displayName,
+    ...(contact?.email ? { email: contact.email } : {}),
+    ...(contact?.role
+      ? {
+          role:
+            contact.role === "owner" ? "Builder owner" : "Builder staff",
+        }
+      : {}),
+  };
 }
 
 function preferredBuilderAccountEmail(

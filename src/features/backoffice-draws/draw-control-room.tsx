@@ -39,7 +39,7 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
-import { DrawApprovalFlowSheet } from "#/features/draw-workflow/DrawApprovalFlowSheet.tsx";
+import { DrawReviewSheet } from "#/features/draw-workflow/DrawReviewSheet.tsx";
 import {
   type DrawWorkflowCapabilities,
   type DrawWorkflowRouteContext,
@@ -916,7 +916,7 @@ function DrawDetailSheet({
   workflow?: ReturnType<typeof getDrawWorkflowActions>;
 }) {
   return (
-    <DrawApprovalFlowSheet
+    <DrawReviewSheet
       actions={drawControlRoomSheetActions({
         canReview,
         draw,
@@ -927,6 +927,28 @@ function DrawDetailSheet({
         workflow,
       })}
       amountCents={draw?.amountCents ?? 0}
+      builder={draw?.builderContact}
+      buildLabel={draw?.buildName ?? "Draw details"}
+      collaborationAction={
+        draw ? (
+          <Button
+            render={
+              <Link
+                params={{ buildId: String(draw.buildId) }}
+                search={{
+                  focus: `draw:${String(draw.drawId)}`,
+                  tab: "collaboration",
+                }}
+                to="/backoffice/builds/$buildId"
+              />
+            }
+            variant="outline"
+          >
+            Open Draw System Post
+            <ExternalLink className="size-3.5" />
+          </Button>
+        ) : undefined
+      }
       contextBadge={
         draw ? (
           <Badge variant="outline">{draw.buildDisplayId}</Badge>
@@ -935,8 +957,28 @@ function DrawDetailSheet({
       details={drawDetailRows(draw)}
       displayId={draw?.label ?? "Draw"}
       drawLabel={draw?.buildName ?? "Draw details"}
+      funding={
+        draw?.funding
+          ? {
+              availableAfterRequestCents: draw.funding.availableCents,
+              drawAvailabilityCents:
+                draw.funding.availableCents +
+                (draw.status === "requested" ||
+                draw.status === "in_review" ||
+                draw.status === "ready_for_admin" ||
+                draw.status === "approved_for_release"
+                  ? draw.amountCents
+                  : 0),
+              drawnCents: draw.funding.drawnCents,
+              totalApprovedCents: draw.funding.totalApprovedCents,
+            }
+          : undefined
+      }
+      location={draw?.location}
       onClose={onClose}
       open={open}
+      privateDetails={drawPrivateDetailRows(draw)}
+      requestNote={draw?.requestNote}
       reviewNote={
         canReview
           ? {
@@ -946,8 +988,9 @@ function DrawDetailSheet({
             }
           : undefined
       }
-      sourceAllocations={draw?.sourceAllocations}
       status={draw?.status ?? "planned"}
+      submittedAt={draw?.requestedAt}
+      viewerRole="backoffice"
     />
   );
 }
@@ -1021,22 +1064,16 @@ function drawDetailRows(draw: BrokerageDrawRow | null) {
   if (!draw) {
     return [];
   }
-  const details = [
-    { label: "Builder", value: draw.builderName },
-    { label: "Location", value: draw.location },
-    { label: "Scheduled", value: draw.scheduledDateLabel },
-  ];
-  if (draw.milestoneName) {
-    details.push({ label: "Milestone", value: draw.milestoneName });
-  }
-  if (draw.requestNote) {
-    details.push({ label: "Request note", value: draw.requestNote });
-  }
-  if (draw.requestReviewNote) {
-    details.push({ label: "Review note", value: draw.requestReviewNote });
-  }
+  const details = [{ label: "Scheduled", value: draw.scheduledDateLabel }];
   if (draw.workOrderKey) {
     details.push({ label: "Work order", value: draw.workOrderKey });
   }
   return details;
+}
+
+function drawPrivateDetailRows(draw: BrokerageDrawRow | null) {
+  if (!draw?.requestReviewNote) {
+    return [];
+  }
+  return [{ label: "Recorded review note", value: draw.requestReviewNote }];
 }

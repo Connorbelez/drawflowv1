@@ -507,6 +507,12 @@ export interface ProductionBuildDetail {
     createdAt?: number;
     updatedAt?: number;
   };
+  builderContact?: {
+    contactName?: string;
+    displayName: string;
+    email?: string;
+    role?: string;
+  };
   capitalPlan?: {
     borrowerStartingCashCents: number;
     borrowerCoPayBps: number;
@@ -2324,9 +2330,11 @@ function ProductionBuildDetailsCard({
                   drawCapabilities={drawCapabilities}
                   model={projectBuildFunding({
                     availability: detail.drawFunding,
+                    builder: detail.builderContact,
                     canRequest: Boolean(actions?.requestDrawAmount),
                     buildLabel: detail.build.buildName,
                     facilityCents: detail.loanFacility?.principalCents,
+                    location: detail.build.location,
                     milestones: detail.milestones,
                     plannedDraws:
                       detail.plannedDraws ??
@@ -2344,6 +2352,12 @@ function ProductionBuildDetailsCard({
                     detail.draws,
                     actions?.approveDraw
                   )}
+                  onOpenDrawCollaboration={(request) =>
+                    onChangeTab(
+                      "collaboration",
+                      `draw:${request._id ?? request.drawKey}`
+                    )
+                  }
                   onOpenMilestone={onOpenMilestone}
                   onRejectDraw={fundingRejectAction(
                     detail.draws,

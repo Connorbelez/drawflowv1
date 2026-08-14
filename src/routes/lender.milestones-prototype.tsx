@@ -459,7 +459,7 @@ function VariantB({ requests }: { requests: readonly MilestoneRequest[] }) {
       (groups[request.build] ??= []).push(request);
       return groups;
     },
-    {},
+    {}
   );
 
   return (
@@ -588,7 +588,7 @@ function VariantC({
         {lanes.map((lane) => {
           const LaneIcon = lane.icon;
           const laneRequests = requests.filter(
-            (request) => request.state === lane.key,
+            (request) => request.state === lane.key
           );
 
           return (
@@ -611,7 +611,7 @@ function VariantC({
               <div
                 className={cn(
                   "grid gap-3 p-3",
-                  scope === "action" && "xl:grid-cols-2",
+                  scope === "action" && "xl:grid-cols-2"
                 )}
               >
                 {laneRequests.map((request) => (
@@ -631,6 +631,22 @@ function VariantC({
         })}
       </div>
     </div>
+  );
+}
+
+// TODO(lender-portal): replace the representative request array with the
+// canonical lender current-cycle Milestone projection without changing Variant C.
+export function LenderMilestoneQueueVariantC() {
+  const [scope, setScope] = useState<QueueScope>("action");
+  const requests =
+    scope === "action"
+      ? milestoneRequests.filter((request) => request.state === "needs-action")
+      : milestoneRequests;
+  return (
+    <>
+      <QueueHeader scope={scope} setScope={setScope} />
+      <VariantC requests={requests} scope={scope} />
+    </>
   );
 }
 
@@ -853,7 +869,7 @@ function SubMilestoneSignal({
           "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200",
         active &&
           tone === "evidence" &&
-          "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+          "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
       )}
       title={active ? label : `${label}: no`}
     >
@@ -874,7 +890,7 @@ function StateBadge({
       className={cn(
         state === "needs-action" && "bg-primary text-primary-foreground",
         state === "correction" &&
-          "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100",
+          "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100"
       )}
       variant={state === "approved" ? "secondary" : "outline"}
     >
