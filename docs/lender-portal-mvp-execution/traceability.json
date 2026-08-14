@@ -788,7 +788,7 @@
     {
       "id": "LP-P2-02",
       "phase": 2,
-      "status": "ready",
+      "status": "in-progress",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P2-02-external-assignment-history-and-withdrawal.md",
       "dependsOn": [
         "LP-P2-01"

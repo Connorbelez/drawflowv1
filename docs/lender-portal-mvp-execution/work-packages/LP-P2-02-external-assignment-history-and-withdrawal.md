@@ -1,6 +1,8 @@
 # LP-P2-02 — External assignment history and withdrawal
 
-Status: ready
+Status: in-progress
+
+Package-start SHA: `7205486ef9d9eb2c7fce132a9cfe424734f51456`.
 
 Depends on: LP-P2-01
 
