@@ -6,9 +6,13 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CircleX,
   ClipboardCheck,
+  Ellipsis,
+  Eye,
   ListChecks,
   MapPinOff,
+  MessageCircle,
   Paperclip,
   Play,
 } from "lucide-react";
@@ -29,6 +33,15 @@ import {
   CollapsiblePanel,
   CollapsibleTrigger,
 } from "#/components/ui/collapsible.tsx";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import {
@@ -71,6 +84,16 @@ import { formatDate, formatRelative } from "./format";
 import type { ScheduleHealthResult } from "./scheduleHealth";
 
 type WorkState = "planned" | "in_progress" | "complete";
+type SubmilestoneReviewState = "approved" | "pending_review" | "rejected";
+
+export interface SubmilestoneReviewSummary {
+  backOfficeApproved: boolean;
+  backOfficeRequired: boolean;
+  lenderApprovals: number;
+  lenderQuorumRequired: boolean;
+  lenderQuorumSize: number;
+  state: SubmilestoneReviewState;
+}
 
 export interface MilestoneSheetSubmilestone {
   actualCostCents?: number;
@@ -132,6 +155,7 @@ export interface MilestoneSheetSubmilestone {
   }>;
   name: string;
   order: number;
+  review?: SubmilestoneReviewSummary;
   scheduleHealth?: ScheduleHealthResult;
   siteVisits: Array<{
     completedAt?: string;
@@ -225,6 +249,11 @@ export interface MilestoneDetailSheetProps {
   };
   /** Throwaway prototype-only slot for comparing role-specific review layers. */
   prototypeReviewLayer?: ReactNode;
+  /** Throwaway prototype-only actions; production must derive these from active route and role capabilities. */
+  prototypeSubmilestoneReviewActions?: {
+    onApprove: (submilestoneKey: string) => void;
+    onReject: (submilestoneKey: string) => void;
+  };
   siteVisits?: BrokerageSiteVisitsResult;
 }
 
@@ -248,6 +277,7 @@ export function MilestoneDetailSheet({
   pending: externalPending,
   prototypeAggregateTabs,
   prototypeReviewLayer,
+  prototypeSubmilestoneReviewActions,
   siteVisits,
 }: MilestoneDetailSheetProps) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
@@ -413,6 +443,9 @@ export function MilestoneDetailSheet({
                   onOpenCostDocument={onOpenCostDocument}
                   openCanonicalForRow={openCanonicalForRow}
                   prototypeReviewLayer={prototypeReviewLayer}
+                  prototypeSubmilestoneReviewActions={
+                    prototypeSubmilestoneReviewActions
+                  }
                   rows={rows}
                   siteVisits={siteVisits}
                 />
@@ -438,6 +471,9 @@ export function MilestoneDetailSheet({
               onOpenCostDocument={onOpenCostDocument}
               openCanonicalForRow={openCanonicalForRow}
               prototypeReviewLayer={prototypeReviewLayer}
+              prototypeSubmilestoneReviewActions={
+                prototypeSubmilestoneReviewActions
+              }
               rows={rows}
               siteVisits={siteVisits}
             />
@@ -540,6 +576,7 @@ function MilestoneOverviewContent({
   onOpenCostDocument,
   openCanonicalForRow,
   prototypeReviewLayer,
+  prototypeSubmilestoneReviewActions,
   rows,
   siteVisits,
 }: {
@@ -553,6 +590,7 @@ function MilestoneOverviewContent({
     selectedTab: BuildSubmilestoneDetailTab
   ) => boolean;
   prototypeReviewLayer?: ReactNode;
+  prototypeSubmilestoneReviewActions?: MilestoneDetailSheetProps["prototypeSubmilestoneReviewActions"];
   rows: MilestoneSheetSubmilestone[];
   siteVisits?: BrokerageSiteVisitsResult;
 }) {
@@ -584,6 +622,7 @@ function MilestoneOverviewContent({
                   key={row.key}
                   onOpen={(tab) => openCanonicalForRow(row, tab)}
                   onOpenCostDocument={onOpenCostDocument}
+                  prototypeReviewActions={prototypeSubmilestoneReviewActions}
                   row={row}
                 />
               ))}
@@ -749,15 +788,18 @@ function MilestoneSiteVisits({
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This canonical card composes schedule, evidence, site-visit, cost, and optional prototype review state.
 function ParentScopeRow({
   canOpenCanonicalTarget,
   onOpen,
   onOpenCostDocument,
+  prototypeReviewActions,
   row,
 }: {
   canOpenCanonicalTarget: boolean;
   onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
   onOpenCostDocument?: (costDocumentId: string) => void;
+  prototypeReviewActions?: MilestoneDetailSheetProps["prototypeSubmilestoneReviewActions"];
   row: MilestoneSheetSubmilestone;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -828,17 +870,29 @@ function ParentScopeRow({
             </CardDescription>
           </div>
           <CardAction>
-            <Button
-              disabled={!hasCanonicalTarget}
-              onClick={() => onOpen("overview")}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Open Sub-milestone <ChevronRight />
-            </Button>
+            {prototypeReviewActions ? (
+              <SubmilestoneActionsMenu
+                hasCanonicalTarget={hasCanonicalTarget}
+                onApprove={() => prototypeReviewActions.onApprove(row.key)}
+                onOpen={onOpen}
+                onReject={() => prototypeReviewActions.onReject(row.key)}
+                reviewState={row.review?.state}
+                submilestoneName={row.name}
+              />
+            ) : (
+              <Button
+                disabled={!hasCanonicalTarget}
+                onClick={() => onOpen("overview")}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Open Sub-milestone <ChevronRight />
+              </Button>
+            )}
           </CardAction>
         </CardHeader>
+        {row.review ? <SubmilestoneReviewStrip review={row.review} /> : null}
         <CardPanel className="space-y-4 pt-0">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
             <OperationalFact
@@ -1003,6 +1057,141 @@ function ParentScopeRow({
         </CardPanel>
       </Card>
     </Collapsible>
+  );
+}
+
+function SubmilestoneActionsMenu({
+  hasCanonicalTarget,
+  onApprove,
+  onOpen,
+  onReject,
+  reviewState,
+  submilestoneName,
+}: {
+  hasCanonicalTarget: boolean;
+  onApprove: () => void;
+  onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
+  onReject: () => void;
+  reviewState?: SubmilestoneReviewState;
+  submilestoneName: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            aria-label={`${submilestoneName} actions`}
+            size="icon-sm"
+            type="button"
+            variant="outline"
+          />
+        }
+      >
+        <Ellipsis aria-hidden="true" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Sub-milestone</DropdownMenuLabel>
+          <DropdownMenuItem
+            disabled={!hasCanonicalTarget}
+            onClick={() => onOpen("overview")}
+          >
+            <Eye aria-hidden="true" />
+            Open full detail
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!hasCanonicalTarget}
+            onClick={() => onOpen("evidence")}
+          >
+            <Paperclip aria-hidden="true" />
+            Review evidence
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!hasCanonicalTarget}
+            onClick={() => onOpen("collaboration")}
+          >
+            <MessageCircle aria-hidden="true" />
+            Open collaboration thread
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Reviewer actions</DropdownMenuLabel>
+          <DropdownMenuItem
+            disabled={reviewState === "approved"}
+            onClick={onApprove}
+          >
+            <CheckCircle2 aria-hidden="true" />
+            Approve Sub-milestone
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={reviewState === "rejected"}
+            onClick={onReject}
+            variant="destructive"
+          >
+            <CircleX aria-hidden="true" />
+            <span>
+              Reject Sub-milestone
+              <span className="block text-[0.68rem] text-muted-foreground">
+                Return for correction and reset approvals
+              </span>
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function SubmilestoneReviewStrip({
+  review,
+}: {
+  review: SubmilestoneReviewSummary;
+}) {
+  const label =
+    review.state === "approved"
+      ? "Approved"
+      : review.state === "rejected"
+        ? "Rejected"
+        : "Pending Review";
+  const badgeVariant =
+    review.state === "approved"
+      ? "success"
+      : review.state === "rejected"
+        ? "error"
+        : "warning";
+  const lenderQuorumMet = review.lenderApprovals >= review.lenderQuorumSize;
+
+  return (
+    <section
+      className="flex flex-wrap items-center justify-between gap-3 border-y bg-muted/24 px-6 py-3"
+      data-review-state={review.state}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs">Review state</span>
+        <Badge size="sm" variant={badgeVariant}>
+          {review.state === "approved" ? (
+            <CheckCircle2 aria-hidden="true" />
+          ) : review.state === "rejected" ? (
+            <CircleX aria-hidden="true" />
+          ) : null}
+          {label}
+        </Badge>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {review.backOfficeRequired ? (
+          <Badge
+            size="sm"
+            variant={review.backOfficeApproved ? "success" : "warning"}
+          >
+            Back Office · {review.backOfficeApproved ? "Approved" : "Pending"}
+          </Badge>
+        ) : null}
+        {review.lenderQuorumRequired ? (
+          <Badge size="sm" variant={lenderQuorumMet ? "success" : "warning"}>
+            Lender quorum · {review.lenderApprovals}/{review.lenderQuorumSize}
+          </Badge>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

@@ -20,7 +20,7 @@ import {
   UserRoundCheck,
   X,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ComponentProps, type ReactNode, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -28,7 +28,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
@@ -40,9 +39,12 @@ import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   MilestoneDetailSheet,
   type MilestoneSheetData,
+  type SubmilestoneReviewSummary,
 } from "#/features/backoffice-build-detail/MilestoneDetailSheet.tsx";
+import { SubmilestoneDiscussionThread } from "#/features/build-submilestone-detail/SubmilestoneCollaborationPanel.tsx";
 import { EvidenceAssetCard } from "#/features/build-submilestone-detail/SubmilestoneDetailCanonical.tsx";
 import { CostDocumentFileList } from "#/features/cost-documents/SubmilestoneCostDocuments.tsx";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 export const LENDER_MILESTONE_REVIEW_VARIANTS = [
   { key: "A", name: "Canonical sheet + lender layer" },
@@ -180,6 +182,14 @@ const milestone: MilestoneSheetData = {
       materials: [],
       name: "Structural framing",
       order: 1,
+      review: {
+        backOfficeApproved: true,
+        backOfficeRequired: true,
+        lenderApprovals: 2,
+        lenderQuorumRequired: true,
+        lenderQuorumSize: 2,
+        state: "approved",
+      },
       siteVisits: [
         {
           completedAt: "2026-08-11T16:05:00-04:00",
@@ -191,6 +201,8 @@ const milestone: MilestoneSheetData = {
       ],
       startDate: "2026-07-17",
       status: "complete",
+      submilestoneId:
+        "prototype-structural-framing" as Id<"buildSubmilestones">,
       workflowRevision: 7,
     },
     {
@@ -249,12 +261,110 @@ const milestone: MilestoneSheetData = {
       materials: [],
       name: "Roof framing & sheathing",
       order: 2,
+      review: {
+        backOfficeApproved: true,
+        backOfficeRequired: true,
+        lenderApprovals: 1,
+        lenderQuorumRequired: true,
+        lenderQuorumSize: 2,
+        state: "pending_review",
+      },
       siteVisits: [],
       startDate: "2026-07-28",
       status: "complete",
+      submilestoneId: "prototype-roof-framing" as Id<"buildSubmilestones">,
       workflowRevision: 7,
     },
   ],
+};
+
+type SubmilestoneReviewMap = Record<string, SubmilestoneReviewSummary>;
+
+function initialSubmilestoneReviews(): SubmilestoneReviewMap {
+  return Object.fromEntries(
+    (milestone.submilestones ?? []).flatMap((submilestone) =>
+      submilestone.review
+        ? [[submilestone.key, { ...submilestone.review }]]
+        : []
+    )
+  );
+}
+
+type PrototypeDiscussionComments = ComponentProps<
+  typeof SubmilestoneDiscussionThread
+>["comments"];
+
+function commentDocument(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
+
+const prototypeCommentsBySubmilestone: Record<
+  string,
+  PrototypeDiscussionComments
+> = {
+  "sub-04-01": [
+    {
+      attachments: [],
+      authorDisplayName: "Builder team",
+      authorRole: "builder",
+      commentId:
+        "prototype-comment-structural-builder" as Id<"buildActionItemComments">,
+      createdAt: Date.parse("2026-08-12T13:42:00-04:00"),
+      plainText:
+        "The corrected framing invoice now matches actual cost. North elevation and bearing-wall photos are linked in Evidence.",
+      reactions: [
+        {
+          count: 1,
+          reaction: "acknowledged",
+          viewerHasReacted: false,
+        },
+      ],
+      references: [],
+      tiptapJson: commentDocument(
+        "The corrected framing invoice now matches actual cost. North elevation and bearing-wall photos are linked in Evidence."
+      ),
+    },
+    {
+      attachments: [],
+      authorDisplayName: "Back Office team",
+      authorRole: "broker-staff",
+      commentId:
+        "prototype-comment-structural-backoffice" as Id<"buildActionItemComments">,
+      createdAt: Date.parse("2026-08-12T14:02:00-04:00"),
+      plainText:
+        "Site Visit SV-0142 is complete. Its report and three photos cover this Sub-milestone.",
+      reactions: [],
+      references: [],
+      tiptapJson: commentDocument(
+        "Site Visit SV-0142 is complete. Its report and three photos cover this Sub-milestone."
+      ),
+    },
+  ] as PrototypeDiscussionComments,
+  "sub-04-02": [
+    {
+      attachments: [],
+      authorDisplayName: "Builder team",
+      authorRole: "builder",
+      commentId:
+        "prototype-comment-roof-builder" as Id<"buildActionItemComments">,
+      createdAt: Date.parse("2026-08-12T14:08:00-04:00"),
+      plainText:
+        "The roof sheathing receipt and completion photo are attached to this Sub-milestone.",
+      reactions: [],
+      references: [],
+      tiptapJson: commentDocument(
+        "The roof sheathing receipt and completion photo are attached to this Sub-milestone."
+      ),
+    },
+  ] as PrototypeDiscussionComments,
 };
 
 const decisionFacts = {
@@ -344,6 +454,68 @@ function PrototypeNotice() {
 
 export function VariantA() {
   const [sheetOpen, setSheetOpen] = useState(true);
+  const [lastAction, setLastAction] = useState(
+    "Representative review state loaded. No action is saved."
+  );
+  const [reviews, setReviews] = useState<SubmilestoneReviewMap>(
+    initialSubmilestoneReviews
+  );
+  const milestoneWithReviews: MilestoneSheetData = {
+    ...milestone,
+    submilestones: (milestone.submilestones ?? []).map((submilestone) => ({
+      ...submilestone,
+      review: reviews[submilestone.key] ?? submilestone.review,
+    })),
+  };
+
+  const approveSubmilestone = (submilestoneKey: string) => {
+    setReviews((current) => {
+      const review = current[submilestoneKey];
+      if (!review) {
+        return current;
+      }
+      const lenderApprovals = Math.min(
+        review.lenderQuorumSize,
+        review.lenderApprovals + 1
+      );
+      const approved =
+        (!review.backOfficeRequired || review.backOfficeApproved) &&
+        (!review.lenderQuorumRequired ||
+          lenderApprovals >= review.lenderQuorumSize);
+      return {
+        ...current,
+        [submilestoneKey]: {
+          ...review,
+          lenderApprovals,
+          state: approved ? "approved" : "pending_review",
+        },
+      };
+    });
+    setLastAction(
+      "Lender approval recorded in prototype memory. Required policy gates were recalculated."
+    );
+  };
+
+  const rejectSubmilestone = (submilestoneKey: string) => {
+    setReviews((current) => {
+      const review = current[submilestoneKey];
+      if (!review) {
+        return current;
+      }
+      return {
+        ...current,
+        [submilestoneKey]: {
+          ...review,
+          backOfficeApproved: false,
+          lenderApprovals: 0,
+          state: "rejected",
+        },
+      };
+    });
+    setLastAction(
+      "Sub-milestone rejected in prototype memory. The same request returns for correction and all required approvals reset."
+    );
+  };
 
   return (
     <main className="mx-auto max-w-[1440px] space-y-5 p-4 sm:p-6">
@@ -368,21 +540,32 @@ export function VariantA() {
       </Frame>
       {sheetOpen ? (
         <MilestoneDetailSheet
-          data={milestone}
+          data={milestoneWithReviews}
           onClose={() => setSheetOpen(false)}
+          onOpenCanonicalTarget={(_target, context) =>
+            setLastAction(
+              `Canonical Sub-milestone ${context?.selectedTab ?? "overview"} tab selected in prototype.`
+            )
+          }
           prototypeAggregateTabs={{
             collaboration: <AggregateCollaborationTab />,
             evidence: <AggregateEvidenceTab />,
             receiptsInvoices: <AggregateCostDocumentsTab />,
           }}
-          prototypeReviewLayer={<CanonicalLenderReviewLayer />}
+          prototypeReviewLayer={
+            <CanonicalLenderReviewLayer activity={lastAction} />
+          }
+          prototypeSubmilestoneReviewActions={{
+            onApprove: approveSubmilestone,
+            onReject: rejectSubmilestone,
+          }}
         />
       ) : null}
     </main>
   );
 }
 
-function CanonicalLenderReviewLayer() {
+function CanonicalLenderReviewLayer({ activity }: { activity: string }) {
   return (
     <Frame>
       <FramePanel className="space-y-4 p-4">
@@ -415,6 +598,9 @@ function CanonicalLenderReviewLayer() {
         </div>
         <Separator />
         <DecisionComposer compact />
+        <p aria-live="polite" className="text-muted-foreground text-xs">
+          {activity}
+        </p>
       </FramePanel>
     </Frame>
   );
@@ -538,70 +724,51 @@ function AggregateCollaborationTab() {
           <div>
             <h2 className="font-semibold text-base">Collaboration</h2>
             <p className="text-muted-foreground text-sm">
-              Read-only canonical system activity across all Sub-milestones. No
-              general comment stream is added.
+              Canonical comment threads aggregated across every Sub-milestone.
+              This lender prototype is read-only.
             </p>
           </div>
           <Badge variant="outline">{rows.length} Sub-milestones</Badge>
         </div>
-        <div className="grid gap-3">
-          {rows.map((submilestone) => {
-            const evidenceCount = submilestone.evidence.filter(
-              (asset) => asset.source !== "site_visit"
-            ).length;
-            const costDocumentCount = submilestone.costDocuments?.length ?? 0;
-            return (
-              <Card key={submilestone.key}>
-                <CardHeader className="p-4 pb-3">
-                  <CardTitle className="text-sm">{submilestone.name}</CardTitle>
-                  <CardDescription>
-                    Canonical collaboration projection
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2 px-4 pb-3 text-sm">
-                  <p className="flex items-center gap-2">
-                    <CheckCircle2
-                      aria-hidden="true"
-                      className="size-4 text-emerald-600"
-                    />
-                    Completion recorded
+        <div className="space-y-5">
+          {rows.map((submilestone, index) => (
+            <section className="space-y-3" key={submilestone.key}>
+              {index > 0 ? <Separator /> : null}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold text-sm">{submilestone.name}</h3>
+                  <p className="text-muted-foreground text-xs">
+                    Canonical Sub-milestone comment thread
                   </p>
-                  <p className="flex items-center gap-2 text-muted-foreground">
-                    <ImageIcon aria-hidden="true" className="size-4" />
-                    Builder evidence submission · {evidenceCount} asset
-                    {evidenceCount === 1 ? "" : "s"}
-                  </p>
-                  <p className="flex items-center gap-2 text-muted-foreground">
-                    <FileText aria-hidden="true" className="size-4" />
-                    Cost document linked · {costDocumentCount} file
-                    {costDocumentCount === 1 ? "" : "s"}
-                  </p>
-                  {submilestone.siteVisits.length > 0 ? (
-                    <p className="flex items-center gap-2 text-muted-foreground">
-                      <MapPinCheck aria-hidden="true" className="size-4" />
-                      Site Visit report linked
-                    </p>
-                  ) : null}
-                </CardContent>
-                <CardFooter className="border-t bg-muted/30 p-3">
-                  <Button
-                    className="h-auto p-0"
-                    onClick={() => setOpenedSubmilestone(submilestone.name)}
-                    size="sm"
-                    variant="link"
-                  >
-                    <Link2 aria-hidden="true" /> Open Sub-milestone
-                    collaboration
-                  </Button>
-                </CardFooter>
-              </Card>
-            );
-          })}
+                </div>
+                <Button
+                  className="h-auto p-0"
+                  onClick={() => setOpenedSubmilestone(submilestone.name)}
+                  size="sm"
+                  variant="link"
+                >
+                  <Link2 aria-hidden="true" /> Open full collaboration
+                </Button>
+              </div>
+              <SubmilestoneDiscussionThread
+                buildId={"prototype-build" as Id<"activeBuilds">}
+                comments={
+                  prototypeCommentsBySubmilestone[submilestone.key] ?? []
+                }
+                onReact={async () => undefined}
+                onReferenceOpen={() => undefined}
+                onReply={() => undefined}
+                organizationId="prototype-organization"
+                readOnly
+                tagOptions={[]}
+              />
+            </section>
+          ))}
         </div>
         <p aria-live="polite" className="min-h-4 text-muted-foreground text-xs">
           {openedSubmilestone
             ? `${openedSubmilestone} selected · canonical Collaboration tab preview.`
-            : "Each activity group stays linked to its canonical Sub-milestone."}
+            : "Each comment thread stays linked to its canonical Sub-milestone."}
         </p>
       </FramePanel>
     </Frame>

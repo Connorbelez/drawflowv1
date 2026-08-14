@@ -3,12 +3,7 @@
 import type { JSONContent } from "@tiptap/react";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import {
-  FileUp,
-  History,
-  MessageCircle,
-  ShieldAlert,
-} from "lucide-react";
+import { FileUp, History, MessageCircle, ShieldAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -25,13 +20,13 @@ import { Separator } from "#/components/ui/separator.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
+  type BuildActionItemDetail,
   ActionItemCommentCard,
   ActionItemStructurePanel,
   ActivityHistory,
   BuildActionItemDetailSheet,
   type BuildActionItemStructureCapabilities,
   RevisionHistory,
-  type BuildActionItemDetail,
   type VisibleBuildActionItemDetail,
 } from "../build-collaboration/BuildActionItemDetailSheet.tsx";
 import {
@@ -95,12 +90,89 @@ interface SubmilestoneCollaborationPanelProps {
   }) => void;
   onOpenCanonicalTarget?: (
     target: BuildDetailTarget,
-    context?: { selectedTab?: string },
+    context?: { selectedTab?: string }
   ) => void;
   readOnly: boolean;
   submilestoneKey: string;
   superseded: boolean;
   promoteEvidenceAllowed?: boolean;
+}
+
+export interface SubmilestoneDiscussionThreadProps {
+  buildId: Id<"activeBuilds">;
+  comments: VisibleBuildActionItemDetail["comments"];
+  onReact: (
+    commentId: Id<"buildActionItemComments">,
+    reaction: "acknowledged" | "agree" | "question"
+  ) => Promise<void>;
+  onReferenceOpen: (reference: CollaborationTagReference) => void;
+  onReply: (commentId: Id<"buildActionItemComments">) => void;
+  organizationId: string;
+  readOnly: boolean;
+  tagOptions: CollaborationTagOption[];
+}
+
+/** Shared comment-thread renderer used by canonical and aggregate surfaces. */
+export function SubmilestoneDiscussionThread({
+  buildId,
+  comments,
+  onReact,
+  onReferenceOpen,
+  onReply,
+  organizationId,
+  readOnly,
+  tagOptions,
+}: SubmilestoneDiscussionThreadProps) {
+  const parentComments = comments.filter((entry) => !entry.parentCommentId);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <MessageCircle aria-hidden="true" className="size-4 text-primary" />
+        <h3 className="font-semibold text-base leading-snug">Discussion</h3>
+        <Badge className="ml-auto" variant="outline">
+          {comments.length}
+        </Badge>
+      </div>
+      {parentComments.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          No discussion yet. Add the field context that should travel with this
+          Sub-milestone.
+        </p>
+      ) : (
+        parentComments.map((entry) => (
+          <div className="space-y-2" key={entry.commentId}>
+            <ActionItemCommentCard
+              buildId={buildId}
+              entry={entry}
+              onReact={(reaction) => onReact(entry.commentId, reaction)}
+              onReferenceOpen={onReferenceOpen}
+              onReply={() => onReply(entry.commentId)}
+              organizationId={organizationId}
+              readOnly={readOnly}
+              tagOptions={tagOptions}
+            />
+            {comments
+              .filter((reply) => reply.parentCommentId === entry.commentId)
+              .map((reply) => (
+                <div className="ml-5 border-l pl-3" key={reply.commentId}>
+                  <ActionItemCommentCard
+                    buildId={buildId}
+                    entry={reply}
+                    onReact={(reaction) => onReact(reply.commentId, reaction)}
+                    onReferenceOpen={onReferenceOpen}
+                    onReply={() => onReply(entry.commentId)}
+                    organizationId={organizationId}
+                    readOnly={readOnly}
+                    tagOptions={tagOptions}
+                  />
+                </div>
+              ))}
+          </div>
+        ))
+      )}
+    </div>
+  );
 }
 
 export function SubmilestoneCollaborationPanel({
@@ -129,15 +201,15 @@ export function SubmilestoneCollaborationPanel({
     api.build_action_item_details.getBuildActionItemDetail,
     collaboration.state === "available" && companionActionItemId
       ? { actionItemId: companionActionItemId, buildId, organizationId }
-      : "skip",
+      : "skip"
   ) as BuildActionItemDetail | undefined;
   const rawTagOptions = useQuery(
     api.build_collaboration_references.listBuildCollaborationTagOptions,
-    collaboration.state === "available" ? { buildId, organizationId } : "skip",
+    collaboration.state === "available" ? { buildId, organizationId } : "skip"
   ) as RawCollaborationTagOption[] | undefined;
   const tagOptions = useMemo<CollaborationTagOption[]>(
     () => (rawTagOptions ?? []).map(toCollaborationTagOption),
-    [rawTagOptions],
+    [rawTagOptions]
   );
 
   if (collaboration.state === "degraded") {
@@ -217,7 +289,7 @@ function VisibleSubmilestoneCollaboration({
   }) => void;
   onOpenCanonicalTarget?: (
     target: BuildDetailTarget,
-    context?: { selectedTab?: string },
+    context?: { selectedTab?: string }
   ) => void;
   promoteEvidenceAllowed: boolean;
   readOnly: boolean;
@@ -231,31 +303,31 @@ function VisibleSubmilestoneCollaboration({
     collaborationCapabilities?.addAttachment ?? canComment;
   const collaborationReadOnly = readOnly || !canComment;
   const addComment = useBuildCollaborationMutation(
-    api.build_action_item_details.addBuildActionItemComment,
+    api.build_action_item_details.addBuildActionItemComment
   );
   const toggleCommentReaction = useBuildCollaborationMutation(
-    api.build_action_item_details.toggleBuildActionItemCommentReaction,
+    api.build_action_item_details.toggleBuildActionItemCommentReaction
   );
   const beginUpload = useBuildCollaborationMutation(
-    api.build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
   const registerUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
-      .registerBuildCollaborationAssetUploadedStorage,
+      .registerBuildCollaborationAssetUploadedStorage
   );
   const finalizeAndScan = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
-      .finalizeAndScanBuildCollaborationAssetUpload,
+      .finalizeAndScanBuildCollaborationAssetUpload
   );
   const abandonAssets = useBuildCollaborationMutation(
-    api.build_collaboration_assets.abandonMyBuildCollaborationAssets,
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const promoteEvidence = useBuildCollaborationMutation(
-    api.production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+    api.production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence
   );
   const [commentHtml, setCommentHtml] = useState("");
   const [commentDocument, setCommentDocument] = useState<JSONContent>(
-    emptyDocument(),
+    emptyDocument()
   );
   const [commentReferences, setCommentReferences] = useState<
     CollaborationTagReference[]
@@ -268,12 +340,12 @@ function VisibleSubmilestoneCollaboration({
   const [promotionBusy, setPromotionBusy] = useState<string | null>(null);
   const [promotionRequirementKey, setPromotionRequirementKey] = useState(
     evidenceRequirements.length === 1
-      ? evidenceRequirements[0]?.requirementKey ?? ""
-      : "",
+      ? (evidenceRequirements[0]?.requirementKey ?? "")
+      : ""
   );
-  const [childHistory, setChildHistory] = useState<
-    Id<"buildActionItems">[]
-  >([]);
+  const [childHistory, setChildHistory] = useState<Id<"buildActionItems">[]>(
+    []
+  );
   const commandKeys = useRef(new Map<string, string>());
 
   useEffect(() => {
@@ -300,7 +372,7 @@ function VisibleSubmilestoneCollaboration({
         return evidenceRequirements[0]?.requirementKey ?? "";
       }
       return evidenceRequirements.some(
-        (requirement) => requirement.requirementKey === current,
+        (requirement) => requirement.requirementKey === current
       )
         ? current
         : "";
@@ -312,14 +384,12 @@ function VisibleSubmilestoneCollaboration({
   ]);
 
   const childTarget = childHistory.at(-1);
-  const childIndex = childTarget
-    ? childHistory.length - 1
-    : -1;
+  const childIndex = childTarget ? childHistory.length - 1 : -1;
   const openChild = (actionItemId: Id<"buildActionItems">) => {
     setChildHistory((current) =>
       current.at(-1) === actionItemId
         ? current
-        : [...current.slice(0, childIndex + 1), actionItemId],
+        : [...current.slice(0, childIndex + 1), actionItemId]
     );
   };
   const closeChild = () => setChildHistory([]);
@@ -402,7 +472,7 @@ function VisibleSubmilestoneCollaboration({
         reason: "Sub-milestone companion comment failed after asset upload.",
       });
       toast.error(
-        error instanceof Error ? error.message : "Unable to add comment.",
+        error instanceof Error ? error.message : "Unable to add comment."
       );
     } finally {
       setCommentBusy(false);
@@ -435,7 +505,7 @@ function VisibleSubmilestoneCollaboration({
         expectedRevision: canonicalWorkflowRevision,
         expectedReviewRound: expectedReviewRound ?? 0,
         idempotencyKey: commandKey(
-          `promote:${asset.assetId}:${asset.version}:${selectedRequirementKey}`,
+          `promote:${asset.assetId}:${asset.version}:${selectedRequirementKey}`
         ),
         label: asset.fileName,
         milestoneKey,
@@ -449,23 +519,20 @@ function VisibleSubmilestoneCollaboration({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to promote this attachment to Evidence.",
+          : "Unable to promote this attachment to Evidence."
       );
     } finally {
       setPromotionBusy(null);
     }
   };
 
-  const parentComments = detail.comments.filter(
-    (entry) => !entry.parentCommentId,
-  );
   const promotionAssets = Array.from(
     new Map(
       [
         ...detail.attachments,
         ...detail.comments.flatMap((entry) => entry.attachments),
-      ].map((asset) => [asset.assetId, asset] as const),
-    ).values(),
+      ].map((asset) => [asset.assetId, asset] as const)
+    ).values()
   ) as BuildCollaborationAssetSummary[];
 
   return (
@@ -504,8 +571,8 @@ function VisibleSubmilestoneCollaboration({
                 Companion attachments
               </h3>
               <p className="text-muted-foreground text-xs">
-                Governed collaboration files stay here until explicitly
-                promoted to canonical Evidence.
+                Governed collaboration files stay here until explicitly promoted
+                to canonical Evidence.
               </p>
             </div>
           </div>
@@ -583,71 +650,24 @@ function VisibleSubmilestoneCollaboration({
 
       <Frame>
         <FramePanel className="space-y-4 p-4">
-          <div className="flex items-center gap-2">
-            <MessageCircle
-              aria-hidden="true"
-              className="size-4 text-primary"
-            />
-            <h3 className="font-semibold text-base leading-snug">
-              Discussion
-            </h3>
-            <Badge className="ml-auto" variant="outline">
-              {detail.comments.length}
-            </Badge>
-          </div>
-          {parentComments.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No discussion yet. Add the field context that should travel with
-              this Sub-milestone.
-            </p>
-          ) : (
-            parentComments.map((entry) => (
-              <div className="space-y-2" key={entry.commentId}>
-                <ActionItemCommentCard
-                  buildId={buildId}
-                  entry={entry}
-                  onReact={async (reaction) => {
-                    await toggleCommentReaction({
-                      actionItemId: detail.item.actionItemId,
-                      buildId,
-                      commentId: entry.commentId,
-                      organizationId,
-                      reaction,
-                    });
-                  }}
-                  onReferenceOpen={openReference}
-                  onReply={() => setReplyingTo(entry.commentId)}
-                  organizationId={organizationId}
-                  readOnly={collaborationReadOnly}
-                  tagOptions={tagOptions}
-                />
-                {detail.comments
-                  .filter((reply) => reply.parentCommentId === entry.commentId)
-                  .map((reply) => (
-                    <div className="ml-5 border-l pl-3" key={reply.commentId}>
-                      <ActionItemCommentCard
-                        buildId={buildId}
-                        entry={reply}
-                        onReact={async (reaction) => {
-                          await toggleCommentReaction({
-                            actionItemId: detail.item.actionItemId,
-                            buildId,
-                            commentId: reply.commentId,
-                            organizationId,
-                            reaction,
-                          });
-                        }}
-                        onReferenceOpen={openReference}
-                        onReply={() => setReplyingTo(entry.commentId)}
-                        organizationId={organizationId}
-                        readOnly={collaborationReadOnly}
-                        tagOptions={tagOptions}
-                      />
-                    </div>
-                  ))}
-              </div>
-            ))
-          )}
+          <SubmilestoneDiscussionThread
+            buildId={buildId}
+            comments={detail.comments}
+            onReact={async (commentId, reaction) => {
+              await toggleCommentReaction({
+                actionItemId: detail.item.actionItemId,
+                buildId,
+                commentId,
+                organizationId,
+                reaction,
+              });
+            }}
+            onReferenceOpen={openReference}
+            onReply={setReplyingTo}
+            organizationId={organizationId}
+            readOnly={collaborationReadOnly}
+            tagOptions={tagOptions}
+          />
           {replyingTo ? (
             <div className="flex items-center justify-between bg-muted px-3 py-2 text-xs">
               <span>Replying in thread</span>
@@ -687,7 +707,11 @@ function VisibleSubmilestoneCollaboration({
             />
           )}
           {collaborationReadOnly ? null : (
-            <Button disabled={commentBusy} onClick={() => void comment()} size="sm">
+            <Button
+              disabled={commentBusy}
+              onClick={() => void comment()}
+              size="sm"
+            >
               {commentBusy
                 ? "Publishing…"
                 : replyingTo
@@ -740,7 +764,9 @@ function VisibleSubmilestoneCollaboration({
         organizationId={organizationId}
         readOnly={readOnly}
         tagOptions={tagOptions}
-        target={childTarget ? { actionItemId: childTarget, kind: "detail" } : null}
+        target={
+          childTarget ? { actionItemId: childTarget, kind: "detail" } : null
+        }
       />
     </div>
   );
