@@ -54,7 +54,7 @@
 | Current assignment details, policy link, history, and withdrawal | Back Office Admin | Passed; policy editing remains separate, history is visible, withdrawal requires a reason and acknowledgement, and the canonical withdrawal callback receives the assignment ID | focused assignment-surface test |
 | Builder/private projection boundary | Builder, Back Office | Passed in Convex tests; Builder receives lifecycle state but no lender assignment identity/history, while Back Office receives bounded projections | `convex/production_proposals.test.ts` |
 | Lender current/withdrawn projection boundary | Active/former lender organization | Passed in Convex tests; current organization can see current state, former organization receives sanitized read-only history, unrelated organization is forbidden | `convex/production_proposals.test.ts` |
-| Authenticated browser journey | n/a | Full in-app browser acceptance remains reserved for LP-P2-05; no browser result is self-certified here | LP-P2-05 |
+| Read-only in-app browser route sanity check | Back Office route | Blocked before DOM inspection: the in-app browser rejected both local URLs with `ERR_BLOCKED_BY_CLIENT`; the local Vite process also logged an undefined Convex deployment address. No mutation occurred. Full browser acceptance remains reserved for LP-P2-05. | browser attempt on 2026-08-14 |
 
 ## Negative proof
 
