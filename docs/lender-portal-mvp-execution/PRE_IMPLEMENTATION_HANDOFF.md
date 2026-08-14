@@ -2,8 +2,10 @@
 
 ## State
 
-Phase 1 is integrated and verified. Phase 2–9 handoff preparation is complete,
-and no Phase 2–9 product implementation has started.
+Phase 1 is integrated and verified. The opening status below is the historical
+preparation snapshot at source HEAD `7837a1cd5409be895020adf406947938333a66fa`.
+Phase 2–9 handoff preparation was complete at that snapshot; later execution
+state is recorded separately below.
 
 - Prepared: 2026-08-14
 - Branch: `08-13-lenderdashboard-prod`
@@ -37,9 +39,13 @@ dirty preparation checkout:
 - source-to-accepted-code delta: documentation and evidence only;
 - preparation checkout: preserved and not used for implementation.
 
-The transferred Phase 2–9 execution artifacts are setup inputs. Product
-implementation remains stopped until the target preflight passes and only
-`LP-P2-01` is marked `in-progress`.
+The transferred Phase 2–9 execution artifacts were setup inputs. The target
+preflight then passed and Phase 2 implementation proceeded only in this
+dedicated checkout. The preparation checkout remained untouched.
+
+Current Phase 2 execution state: `LP-P2-01` through `LP-P2-04` are
+`implementation-complete`; `LP-P2-05` remains `ready` for independent
+certification.
 
 ## Preparation proof
 

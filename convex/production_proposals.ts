@@ -3660,28 +3660,36 @@ export const listProposalLenderAssignmentHistory = authenticatedQuery
       lenderOrganizationId = authorization.activeOrganization.workosOrganizationId;
     }
 
-    const assignments = lenderOrganizationId
-      ? await ctx.db
-          .query("proposalLenderAssignments")
-          .withIndex("by_proposal_lender_organization", (query) =>
-            query
-              .eq("proposalId", args.proposalId)
-              .eq("lenderOrganizationId", lenderOrganizationId),
-          )
-          .order("desc")
-          .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT)
-      : await ctx.db
-          .query("proposalLenderAssignments")
-          .withIndex("by_proposal", (query) =>
-            query.eq("proposalId", args.proposalId),
-          )
-          .order("desc")
-          .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT);
+    let assignments: Doc<"proposalLenderAssignments">[];
+    if (lenderOrganizationId) {
+      const scopedLenderOrganizationId = lenderOrganizationId;
+      assignments = await ctx.db
+        .query("proposalLenderAssignments")
+        .withIndex("by_proposal_lender_organization", (query) =>
+          query
+            .eq("proposalId", args.proposalId)
+            .eq("lenderOrganizationId", scopedLenderOrganizationId),
+        )
+        .order("desc")
+        .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT);
+    } else {
+      assignments = await ctx.db
+        .query("proposalLenderAssignments")
+        .withIndex("by_proposal", (query) =>
+          query.eq("proposalId", args.proposalId),
+        )
+        .order("desc")
+        .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT);
+    }
     if (lenderOrganizationId && assignments.length === 0) {
       throw new Error("Forbidden: lender assignment history");
     }
     return {
-      assignments: assignments.map(projectProposalLenderAssignment),
+      assignments: assignments.map(
+        lenderOrganizationId
+          ? projectLenderVisibleProposalAssignment
+          : projectProposalLenderAssignment,
+      ),
     };
   })
   .public();
@@ -34272,6 +34280,18 @@ function projectProposalLenderAssignment(
       ? {}
       : { withdrawnByWorkosUserId: assignment.withdrawnByWorkosUserId }),
   };
+}
+
+function projectLenderVisibleProposalAssignment(
+  assignment: Doc<"proposalLenderAssignments">,
+) {
+  const projection = projectProposalLenderAssignment(assignment);
+  const {
+    withdrawalReason: _withdrawalReason,
+    withdrawnByWorkosUserId: _withdrawnByWorkosUserId,
+    ...visibleProjection
+  } = projection;
+  return visibleProjection;
 }
 
 function projectProposalLenderApproval(

@@ -15,13 +15,13 @@
     "openPackages": []
   },
   "phaseTwoImplementationCheckout": {
-    "worktree": "/Users/connor/.codex/worktrees/lp-p2-02/drawflowv1",
+    "worktree": "lp-p2-02",
     "branch": "codex/lp-phase-2-proposal-lifecycle",
     "sourceBranch": "codex/lp-phase-1-completion",
     "sourceHeadBeforeSetup": "7837a1cd5409be895020adf406947938333a66fa",
     "acceptedPhaseOneProductSha": "6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9",
     "sourceToAcceptedCodeDelta": "documentation-and-evidence-only",
-    "preparationCheckout": "/Users/connor/Dev/drawFlow/v1/drawflowv1"
+    "preparationCheckout": "drawflowv1-preparation-checkout"
   },
   "sources": [
     {
@@ -782,7 +782,7 @@
       "evidence": {
         "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-01-1b9f4f42.md",
         "acceptedSha": "1b9f4f421968fa194750cf0f50e4739419c7cab1",
-        "sha256": "61cfc3276eb553a3b1de39cc4ba8a2bb5055bf1200688a576562ae0a45c0a04f"
+        "sha256": "bb93d6badf172bd36d389f8a2fb7b94612faf66af20df226390d76ea0d09cc29"
       }
     },
     {

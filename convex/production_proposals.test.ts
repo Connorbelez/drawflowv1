@@ -1088,7 +1088,7 @@ describe("production proposal foundation", () => {
         (api as any).production_proposals.listProposalLenderAssignmentHistory,
         { proposalId, workosOrganizationId: unrelated.organizationId },
       ),
-    ).rejects.toThrow(/foreign organization|proposal organization|proposal scope|tenant/);
+    ).rejects.toThrow("Forbidden: proposal scope");
   });
 
   test("withdrawal closes the assignment interval without deleting history", async () => {
@@ -1147,26 +1147,29 @@ describe("production proposal foundation", () => {
       externalAssignment: "withdrawn",
       lenderConfirmation: "pending",
     });
+    // Keep the selected external funding path so another lender can be assigned;
+    // withdrawal restores internal closing eligibility without rewriting it.
+    expect(detail.proposal.capitalSource).toBe("external");
     const formerLender = withIdentity(
       base,
       ["admin"],
       lender.userId,
       lender.organizationId,
     );
-    await expect(
-      formerLender.query(
-        (api as any).production_proposals.listProposalLenderAssignmentHistory,
-        { proposalId },
-      ),
-    ).resolves.toMatchObject({
+    const formerHistory = await formerLender.query(
+      (api as any).production_proposals.listProposalLenderAssignmentHistory,
+      { proposalId },
+    );
+    expect(formerHistory).toMatchObject({
       assignments: [
         expect.objectContaining({
           assignmentId: assigned.assignmentId,
           status: "withdrawn",
-          withdrawalReason: "Borrower returned to the internal path before closing.",
         }),
       ],
     });
+    expect(formerHistory.assignments[0]?.withdrawalReason).toBeUndefined();
+    expect(formerHistory.assignments[0]?.withdrawnByWorkosUserId).toBeUndefined();
     const formerLenderProjection = await formerLender.query(
       (api as any).production_proposals.getLenderProposalLifecycleProjection,
       { proposalId },
@@ -1292,8 +1295,8 @@ describe("production proposal foundation", () => {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
-          interestAnnualBps: 925.4,
-          principalCents: 55_000_000.4,
+          interestAnnualBps: 925.6,
+          principalCents: 55_000_000.6,
         },
         proposalId,
         reason: "Record the loan closing before activation.",
@@ -1321,8 +1324,8 @@ describe("production proposal foundation", () => {
     );
     expect(persistedClosing?._id).toBe(closing.closingId);
     expect(persistedClosing?.loanFacility).toEqual({
-      interestAnnualBps: 925,
-      principalCents: 55_000_000,
+      interestAnnualBps: 926,
+      principalCents: 55_000_001,
     });
 
     const activated = await t.mutation(

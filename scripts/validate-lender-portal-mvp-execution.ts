@@ -273,7 +273,8 @@ function assertCommitAncestor(args: {
 
 function validateEvidence(
   workPackage: z.infer<typeof ledgerSchema>["workPackages"][number],
-  currentHead: string
+  currentHead: string,
+  requireExactAcceptedSha = false,
 ) {
   const evidence = workPackage.evidence;
   if (!evidence) {
@@ -285,15 +286,24 @@ function validateEvidence(
   }
   const evidenceText = readFileSync(evidencePath, "utf8");
   if (workPackage.status === "verified") {
-    const hasIndependentAcceptanceSection = /^## Independent acceptance\b/im.test(
-      evidenceText
-    );
+    const headingMatch = /^## Independent acceptance\s*$/im.exec(evidenceText);
+    const acceptanceSection = headingMatch
+      ? (() => {
+          const section = evidenceText.slice(headingMatch.index);
+          const nextHeading = /^##\s+/m.exec(section.slice(2));
+          return nextHeading
+            ? section.slice(0, nextHeading.index + 2)
+            : section;
+        })()
+      : "";
     const hasAcceptanceDecision =
-      /^-\s*Decision:\s*(?:accepted|verified)\b/im.test(evidenceText) ||
-      /(?:explicit )?human acceptance (?:authority|override)/i.test(
-        evidenceText
+      /^-\s*Decision:\s*(?:accepted|verified)(?:\s|$)/im.test(
+        acceptanceSection,
+      ) ||
+      /^-\s*Decision:[^\n]*\baccepted\b[^\n]*\b(?:human (?:acceptance )?override|acceptance authority)\b/im.test(
+        acceptanceSection,
       );
-    if (!hasIndependentAcceptanceSection || !hasAcceptanceDecision) {
+    if (!acceptanceSection || !hasAcceptanceDecision) {
       fail(
         `${workPackage.id}: verified packets require independent acceptance evidence or a documented human acceptance override`
       );
@@ -305,6 +315,11 @@ function validateEvidence(
   }
   if (!evidenceText.includes(evidence.acceptedSha)) {
     fail(`${workPackage.id}: evidence does not name accepted SHA`);
+  }
+  if (requireExactAcceptedSha && evidence.acceptedSha !== currentHead) {
+    fail(
+      `${workPackage.id}: release evidence must be attached to current HEAD ${currentHead}`
+    );
   }
   assertCommitAncestor({
     ancestorSha: evidence.acceptedSha,
@@ -563,7 +578,7 @@ if (mode === "prep") {
     );
   }
   for (const workPackage of ledger.workPackages) {
-    validateEvidence(workPackage, currentHead);
+    validateEvidence(workPackage, currentHead, true);
   }
 }
 

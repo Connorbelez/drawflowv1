@@ -15,6 +15,7 @@
 - Implementer:
 - Independent verifier:
 - Verified at:
+- Evidence status: `implementation-complete` or `verified`
 
 ## Canonical ownership
 
@@ -60,5 +61,5 @@
 - Automated evidence rerun or independently checked:
 - Prototype parity accepted:
 - Unplanned dependencies:
-- Decision: accepted or rejected
+- Decision: `implementation-complete`, `accepted`, or `rejected`
 - Rejection reasons, if any:
