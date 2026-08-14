@@ -2,6 +2,13 @@
 
 Status: in-progress
 
+Review candidate: `4fb59b5743be08936705cad2bb3ccda3ca3dabad`
+
+Review status: CodeRabbit CLI completed five committed-range review passes and
+every actionable finding from those passes was resolved. The exact-candidate
+closure retry was refused by CodeRabbit's review rate limit. Independent
+acceptance evidence remains unattached until that read-only retry completes.
+
 Depends on: current-checkout preflight
 
 ## Objective

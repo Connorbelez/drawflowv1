@@ -96,6 +96,11 @@ evidence attached before verification.
 
 ## Current stop point
 
-`LP-P1-01` is in progress on branch `codex/lp-p1-01`, based on source-branch
-HEAD `1b6b33b58c13fa22db150bc0f16203c853d9e0e1`. The other Phase 1 work packages
-remain ready and have no implementation evidence attached.
+`LP-P1-01` remains in progress on branch `codex/lp-p1-01`, based on
+source-branch HEAD `1b6b33b58c13fa22db150bc0f16203c853d9e0e1`. Candidate commit
+`4fb59b5743be08936705cad2bb3ccda3ca3dabad` passes the packet's required
+codegen, typecheck, focused tests, and execution validator. CodeRabbit CLI
+completed five review passes and all actionable findings were resolved, but its
+exact-candidate closure retry was rate-limited. Evidence therefore remains null,
+`LP-P1-02` is not authorized to start, and the other Phase 1 work packages
+remain ready.
