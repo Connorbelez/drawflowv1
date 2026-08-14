@@ -43,7 +43,7 @@
 | `bun x tsc -p convex/tsconfig.json --noEmit` | Passed | `LP-QG-01..LP-QG-04` |
 | `bun run build` | Passed; Vite/Nitro production build completed | `LP-QG-05..LP-QG-09` |
 | `git diff --check` | Passed for the accepted range | package hygiene |
-| `coderabbit review --committed --base-commit c9d67318ea436c7117388086c908b1ec749b4730 --agent` | Completed through `98fbf66e` with five findings across the Phase 2 range; all valid findings were fixed in `05efeb44`. Final whole-Phase-2 closure is recorded on the candidate handoff. | package review record |
+| `coderabbit review --committed --base-commit c9d67318ea436c7117388086c908b1ec749b4730 --agent` | The last completed review reached `01fadbde` with one validator finding; fixes landed in `7d44627e`, `6c8b47d9`, and `d6d155ab`. The final closure request was rate-limited; no clean result is claimed until it completes. | package review record |
 
 ## Multi-actor and browser verification
 
@@ -69,6 +69,6 @@
 - Diff inspected at accepted SHA: yes, committed range `77145bfb0a6d51a5e8030f17e90b24b7104485fd..f6c2cda897048f597f6b4e827597ed8d474bbe89`.
 - Automated evidence rerun or independently checked: implementer reran Convex tests, the focused UI tests, Convex TypeScript, build, and diff hygiene.
 - Prototype parity accepted: implementation follows the selected Variant A directly; independent visual/browser parity is reserved for LP-P2-05.
-- Unplanned dependencies: Convex codegen requires an absent deployment context in this isolated checkout; final whole-Phase-2 CodeRabbit closure is recorded on the candidate handoff.
+- Unplanned dependencies: Convex codegen requires an absent deployment context in this isolated checkout; the final CodeRabbit closure request is rate-limited and remains pending.
 - Decision: implementation-complete with exact-SHA evidence; independent acceptance remains pending LP-P2-05.
 - Rejection reasons, if any: none recorded for the implementation packet.

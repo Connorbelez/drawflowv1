@@ -796,7 +796,7 @@
       "evidence": {
         "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-02-c9d67318.md",
         "acceptedSha": "c9d67318ea436c7117388086c908b1ec749b4730",
-        "sha256": "63cbabdb105b452cc09b88feaf0dcc7291b297905891380f8d7d558131d21e0d"
+        "sha256": "99c7afaa3c7b680897e752cc74ec81d9ed98384f8a889abbd093839a6826410a"
       }
     },
     {
@@ -811,7 +811,7 @@
       "evidence": {
         "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-03-77145bfb.md",
         "acceptedSha": "77145bfb0a6d51a5e8030f17e90b24b7104485fd",
-        "sha256": "e173eb407ae8cef31f2fece02b8206847254a3c2d38a7c55ba06208c247bf558"
+        "sha256": "ed6471087286d2fd43770566b1437b2162ace9297f8dde7485a1ff4d45e1fb18"
       }
     },
     {
@@ -827,7 +827,7 @@
       "evidence": {
         "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-04-f6c2cda8.md",
         "acceptedSha": "f6c2cda897048f597f6b4e827597ed8d474bbe89",
-        "sha256": "c52645b2f6eb7fa89a1c81d3c74c6dde7631396b18d7dacf0a6868c6f680a5bf"
+        "sha256": "294e3f1d47a4684c8734a0412144fd256bc158838779f8fad6c56d3199ed580b"
       }
     },
     {

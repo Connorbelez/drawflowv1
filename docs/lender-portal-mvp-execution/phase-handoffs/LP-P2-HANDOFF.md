@@ -107,6 +107,31 @@ Evidence is stale after any behavior-bearing change to the accepted SHA.
 `LP-P2-05` is read-only and must reject the phase when a required result is
 missing, qualified, or bound to another checkout.
 
+## Implementation-complete candidate handoff
+
+This is an implementation handoff, not independent Phase 2 certification.
+
+- Worktree: `/Users/connor/.codex/worktrees/lp-p2-02/drawflowv1`
+- Branch: `codex/lp-phase-2-proposal-lifecycle`
+- Accepted Phase 1 product SHA: `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`
+- Implementation-complete candidate SHA:
+  `d6d155ab679c4cdc8f22df300b7ebad370a90a38`
+- `LP-P2-01` through `LP-P2-04`: implementation-complete with exact package
+  evidence and no behavior-bearing uncommitted changes.
+- `LP-P2-05`: ready; a fresh verifier owns read-only browser/E2E checks,
+  exact-candidate comparison, and the binary Phase 2 decision.
+- Last completed targeted CodeRabbit review: base
+  `c9d67318ea436c7117388086c908b1ec749b4730` through `01fadbde`; its one
+  validator finding was fixed in `7d44627e`, `6c8b47d9`, and `d6d155ab`.
+- Final targeted CodeRabbit closure request: rate-limited by the service; no
+  clean result is claimed until that exact candidate review completes.
+
+The candidate preserves the separate closing and activation commands, the
+canonical WorkOS/organization owners, append-only assignment history, and the
+directly promoted assignment surface. Convex codegen remains deployment-context
+dependent in this isolated checkout and must be rerun by the certifier when a
+`CONVEX_DEPLOYMENT` is available.
+
 ## Rollback and escalation
 
 Keep proposal revisions, assignment intervals, decisions, and audit events
