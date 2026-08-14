@@ -505,6 +505,7 @@ const proposalLenderOrganizationOptionValidator = v.object({
 
 const PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT = 50;
 const ELIGIBLE_LENDER_ORGANIZATION_LIMIT = 100;
+const ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT = 1_000;
 const LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE = 100;
 
 const proposalDraftDrawInput = v.object({
@@ -3256,7 +3257,11 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
 
     const eligibleOrganizations = [];
     let organizationCursor: string | null = null;
-    while (eligibleOrganizations.length < ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
+    let scannedOrganizations = 0;
+    while (
+      eligibleOrganizations.length < ELIGIBLE_LENDER_ORGANIZATION_LIMIT &&
+      scannedOrganizations < ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
+    ) {
       const organizationPage = await ctx.db
         .query("workosOrganizations")
         .withIndex("by_status_and_name", (query) =>
@@ -3265,9 +3270,13 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
         .paginate({
           cursor: organizationCursor,
           numItems: ELIGIBLE_LENDER_ORGANIZATION_LIMIT,
-        });
+      });
 
       for (const organization of organizationPage.page) {
+        if (scannedOrganizations >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT) {
+          break;
+        }
+        scannedOrganizations += 1;
         const brokerages = await ctx.db
           .query("brokerages")
           .withIndex("by_workos_organization", (query) =>
@@ -3331,7 +3340,10 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
           break;
         }
       }
-      if (organizationPage.isDone) {
+      if (
+        organizationPage.isDone ||
+        scannedOrganizations >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
+      ) {
         break;
       }
       organizationCursor = organizationPage.continueCursor;
@@ -12518,7 +12530,10 @@ export const getLenderProposalLifecycleProjection = authenticatedQuery
           : { withdrawnAt: visibleAssignment.withdrawnAt }),
       },
       canApproveClosing: Boolean(
-        currentAssignment && !currentApproval && proposal.status === "approved",
+        currentAssignment &&
+          !currentApproval &&
+          proposal.status === "approved" &&
+          (proposal.capitalSource ?? "internal") === "external",
       ),
       lifecycle: projectProposalLifecycle(proposal, lenderAssignmentState),
       proposal: {

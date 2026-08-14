@@ -108,6 +108,7 @@ export function ProposalLenderAssignmentSection({
 
   const currentAssignment =
     assignment?.status === "current" ? assignment : null;
+  const visibleAssignment = assignment ?? assignmentHistory[0] ?? null;
   const selectedOrganization = lenderOrganizations.find(
     (organization) =>
       organization.lenderOrganizationId === selectedOrganizationId
@@ -128,7 +129,7 @@ export function ProposalLenderAssignmentSection({
     setAssignmentAcknowledged(false);
     setWithdrawalReason("");
     setWithdrawalAcknowledged(false);
-    setDialogView(currentAssignment ? "details" : "assign");
+    setDialogView(visibleAssignment ? "details" : "assign");
     setDialogOpen(true);
     onDialogOpenChange?.(true);
   };
@@ -209,7 +210,7 @@ export function ProposalLenderAssignmentSection({
       approval?.status === "approved"
         ? `${currentAssignment.lenderOrganizationName} · confirmed for closing`
         : `${currentAssignment.lenderOrganizationName} · awaiting confirmation`;
-  } else if (assignment?.status === "withdrawn") {
+  } else if (visibleAssignment?.status === "withdrawn") {
     supportingText =
       "Previous assignment withdrawn · internal closing restored";
   }
@@ -241,13 +242,13 @@ export function ProposalLenderAssignmentSection({
         </div>
         <Button
           className="w-full sm:w-auto"
-          disabled={!(canAssign || canWithdraw || currentAssignment)}
+          disabled={!(canAssign || canWithdraw || visibleAssignment)}
           onClick={openDialog}
           ref={triggerRef}
           size="sm"
-          variant={currentAssignment ? "outline" : "default"}
+          variant={visibleAssignment ? "outline" : "default"}
         >
-          {currentAssignment ? "View assignment" : "Assign lender"}
+          {visibleAssignment ? "View assignment" : "Assign lender"}
           <ArrowRight />
         </Button>
       </div>
@@ -255,7 +256,7 @@ export function ProposalLenderAssignmentSection({
       <AssignmentDialog
         acknowledged={assignmentAcknowledged}
         approval={approval}
-        assigned={currentAssignment}
+        assigned={visibleAssignment}
         assignmentHistory={assignmentHistory}
         assignmentReason={assignmentReason}
         canAssign={canAssign}
@@ -368,13 +369,14 @@ function AssignmentDialog({
     );
   }
 
-  if (assigned) {
+  if (assigned && view === "details") {
     return (
       <AssignedLenderDialog
         approval={approval}
         assigned={assigned}
         assignmentHistory={assignmentHistory}
         canWithdraw={canWithdraw}
+        onAssign={() => onViewChange("assign")}
         onEditReviewPolicy={onEditReviewPolicy}
         onOpenChange={onOpenChange}
         onWithdraw={() => onViewChange("withdraw")}
@@ -570,6 +572,7 @@ function AssignedLenderDialog({
   assignmentHistory,
   approval,
   canWithdraw,
+  onAssign,
   onEditReviewPolicy,
   onOpenChange,
   onWithdraw,
@@ -580,6 +583,7 @@ function AssignedLenderDialog({
   assignmentHistory: readonly ProposalLenderAssignmentRecord[];
   approval?: ProposalLenderApprovalSummary | null;
   canWithdraw: boolean;
+  onAssign?: () => void;
   onEditReviewPolicy?: () => void;
   onOpenChange: (open: boolean) => void;
   onWithdraw: () => void;
@@ -587,6 +591,7 @@ function AssignedLenderDialog({
   pending: boolean;
 }) {
   const confirmed = approval?.status === "approved";
+  const withdrawn = assigned.status === "withdrawn";
   const priorAssignments = assignmentHistory.filter(
     (candidate) => candidate.assignmentId !== assigned.assignmentId
   );
@@ -596,7 +601,9 @@ function AssignedLenderDialog({
         <DialogHeader>
           <DialogTitle>External lender assignment</DialogTitle>
           <DialogDescription>
-            Current assignment for this proposal.
+            {withdrawn
+              ? "Historical assignment for this proposal."
+              : "Current assignment for this proposal."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
@@ -607,7 +614,9 @@ function AssignedLenderDialog({
                 {assigned.lenderOrganizationName}
               </p>
               <p className="mt-1 text-muted-foreground text-sm">
-                {confirmed
+                {withdrawn
+                  ? "Assignment withdrawn"
+                  : confirmed
                   ? "Lender confirmation recorded"
                   : "Awaiting guided lender confirmation"}
               </p>
@@ -619,15 +628,19 @@ function AssignedLenderDialog({
               <dd className="mt-1 font-semibold">
                 {confirmed
                   ? "Back Office or eligible lender user"
-                  : "Eligible lender user"}
+                  : withdrawn
+                    ? "Back Office"
+                    : "Eligible lender user"}
               </dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Closing eligibility</dt>
               <dd className="mt-1 font-semibold">
-                {confirmed
-                  ? "Confirmation gate passed"
-                  : "Blocked until confirmation"}
+                {withdrawn
+                  ? "Internal closing restored"
+                  : confirmed
+                    ? "Confirmation gate passed"
+                    : "Blocked until confirmation"}
               </dd>
             </div>
           </dl>
@@ -664,13 +677,20 @@ function AssignedLenderDialog({
           </p>
         </DialogPanel>
         <DialogFooter className="sm:justify-between">
-          <Button
-            disabled={pending || !canWithdraw}
-            onClick={onWithdraw}
-            variant="destructive-outline"
-          >
-            Withdraw assignment
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {withdrawn && onAssign ? (
+              <Button onClick={onAssign}>Assign another lender</Button>
+            ) : null}
+            {!withdrawn ? (
+              <Button
+                disabled={pending || !canWithdraw}
+                onClick={onWithdraw}
+                variant="destructive-outline"
+              >
+                Withdraw assignment
+              </Button>
+            ) : null}
+          </div>
           <DialogClose render={<Button disabled={pending}>Done</Button>} />
         </DialogFooter>
       </DialogContent>

@@ -141,4 +141,58 @@ describe("ProposalLenderAssignmentSection", () => {
       ),
     );
   });
+
+  test("keeps a withdrawn assignment available as read-only history", () => {
+    const onAssign = vi.fn();
+
+    render(
+      <ProposalLenderAssignmentSection
+        assignment={{
+          assignedAt: 2,
+          assignmentId: "assignment_withdrawn",
+          lenderOrganizationId: "org_northstar",
+          lenderOrganizationName: "Northstar Lending Organization",
+          status: "withdrawn",
+          withdrawalReason: "Lender declined the proposal.",
+          withdrawnAt: 3,
+        }}
+        assignmentHistory={[
+          {
+            assignedAt: 2,
+            assignmentId: "assignment_withdrawn",
+            lenderOrganizationId: "org_northstar",
+            lenderOrganizationName: "Northstar Lending Organization",
+            status: "withdrawn",
+            withdrawalReason: "Lender declined the proposal.",
+            withdrawnAt: 3,
+          },
+          {
+            assignedAt: 1,
+            assignmentId: "assignment_previous",
+            lenderOrganizationId: "org_previous",
+            lenderOrganizationName: "Previous Lender",
+            status: "withdrawn",
+            withdrawalReason: "Previous assignment replaced.",
+          },
+        ]}
+        lenderOrganizations={lenderOrganizations}
+        onAssign={onAssign}
+        proposal={proposal}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View assignment" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Assignment withdrawn")).toBeTruthy();
+    expect(within(dialog).getByText("Previous Lender")).toBeTruthy();
+    expect(
+      within(dialog).queryByRole("button", { name: "Withdraw assignment" }),
+    ).toBeNull();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Assign another lender" }),
+    );
+    expect(
+      within(screen.getByRole("dialog")).getByText("Assign external lender"),
+    ).toBeTruthy();
+  });
 });
