@@ -86,6 +86,9 @@ evidence attached before verification.
   verification.
 - Locked prototypes are promoted directly from their selected route and shared
   components.
+- Verified packet attachments store the evidence path, accepted commit SHA,
+  and evidence-file SHA-256. The validator checks the file bytes and confirms
+  that the accepted commit remains in the current branch history.
 - Completion evidence belongs to one exact commit. A later code change makes
   behavioral evidence stale until the affected checks run again.
 - Product code, tests, or UI without a source requirement is unscoped work and

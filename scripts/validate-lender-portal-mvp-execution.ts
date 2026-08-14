@@ -40,6 +40,11 @@ const explicitCatalogSchema = z.object({
 });
 
 const statusSchema = z.enum(["planned", "ready", "in-progress", "verified"]);
+const evidenceSchema = z.object({
+  acceptedSha: z.string().regex(/^[a-f0-9]{40}$/),
+  path: z.string().min(1),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
 
 const ledgerSchema = z.object({
   schemaVersion: z.literal("lender-portal-mvp-traceability/v1"),
@@ -78,7 +83,7 @@ const ledgerSchema = z.object({
     .array(
       z.object({
         dependsOn: z.array(z.string().min(1)),
-        evidence: z.string().min(1).nullable(),
+        evidence: evidenceSchema.nullable(),
         id: z.string().min(1),
         path: z.string().min(1),
         phase: z.number().int().min(1).max(9),
@@ -237,6 +242,38 @@ function assertNoDependencyCycle(
   }
 }
 
+function validateEvidence(
+  workPackage: z.infer<typeof ledgerSchema>["workPackages"][number],
+  currentHead: string
+) {
+  const evidence = workPackage.evidence;
+  if (!evidence) {
+    fail(`${workPackage.id}: verified packets require evidence`);
+  }
+  const evidencePath = resolve(repositoryRoot, evidence.path);
+  if (!existsSync(evidencePath)) {
+    fail(`${workPackage.id}: missing evidence ${evidence.path}`);
+  }
+  const evidenceText = readFileSync(evidencePath, "utf8");
+  const evidenceHash = createHash("sha256").update(evidenceText).digest("hex");
+  if (evidenceHash !== evidence.sha256) {
+    fail(`${workPackage.id}: evidence hash does not match ${evidence.path}`);
+  }
+  if (!evidenceText.includes(evidence.acceptedSha)) {
+    fail(`${workPackage.id}: evidence does not name accepted SHA`);
+  }
+  const acceptedCommitIsAncestor = spawnSync(
+    "git",
+    ["merge-base", "--is-ancestor", evidence.acceptedSha, currentHead],
+    { cwd: repositoryRoot, encoding: "utf8" }
+  );
+  if (acceptedCommitIsAncestor.status !== 0) {
+    fail(
+      `${workPackage.id}: accepted SHA ${evidence.acceptedSha} is not an ancestor of ${currentHead}`
+    );
+  }
+}
+
 const rawLedger = JSON.parse(readFileSync(ledgerPath, "utf8"));
 const ledger = ledgerSchema.parse(rawLedger);
 const mode = process.argv.includes("--release")
@@ -279,6 +316,13 @@ for (const catalog of ledger.catalogs) {
   }
 }
 
+const workPackageIds = new Set<string>();
+for (const workPackage of ledger.workPackages) {
+  if (workPackageIds.has(workPackage.id)) {
+    fail(`Duplicate work-package id: ${workPackage.id}`);
+  }
+  workPackageIds.add(workPackage.id);
+}
 const workPackages = new Map(
   ledger.workPackages.map((workPackage) => [workPackage.id, workPackage])
 );
@@ -443,12 +487,7 @@ if (mode === "prep") {
       );
     }
     if (workPackage.status === "verified") {
-      if (workPackage.evidence === null) {
-        fail(`${workPackage.id}: verified packets require evidence`);
-      }
-      if (!existsSync(resolve(repositoryRoot, workPackage.evidence))) {
-        fail(`${workPackage.id}: missing evidence ${workPackage.evidence}`);
-      }
+      validateEvidence(workPackage, currentHead);
     }
     if (
       workPackage.status === "in-progress" ||
@@ -475,6 +514,9 @@ if (mode === "prep") {
     fail(
       "Release mode requires verified coverage groups and exact-commit evidence"
     );
+  }
+  for (const workPackage of ledger.workPackages) {
+    validateEvidence(workPackage, currentHead);
   }
 }
 
