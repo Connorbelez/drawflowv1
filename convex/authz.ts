@@ -17,7 +17,7 @@ export const roleSlugs = [
 
 export type RoleSlug = (typeof roleSlugs)[number];
 
-export const lenderRoleSlugs = [
+const lenderRoleSlugs = [
   "admin",
   "principle-broker",
   "broker",
@@ -262,7 +262,7 @@ export async function requireActiveWorkosUser(
   return user;
 }
 
-export async function resolveActiveLenderOrganizationContext(
+async function resolveActiveLenderOrganizationContext(
   ctx: Pick<QueryCtx | MutationCtx, "db">,
   identity: UserIdentity,
   capability: Capability = "lenderOrganization"
@@ -507,3 +507,5 @@ function createLenderOrganizationMiddleware(
 function toArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
+
+export { lenderRoleSlugs, resolveActiveLenderOrganizationContext };
