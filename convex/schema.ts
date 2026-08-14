@@ -3517,6 +3517,29 @@ export default defineSchema({
     ])
     .index("by_builder", ["builderProfileId"])
     .index("by_active_build", ["activeBuildId"]),
+  proposalLenderAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    lenderBrokerageId: v.id("brokerages"),
+    lenderOrganizationId: v.string(),
+    lenderOrganizationName: v.string(),
+    status: v.union(v.literal("current"), v.literal("withdrawn")),
+    assignedAt: v.number(),
+    assignedByWorkosUserId: v.string(),
+    assignedByRole: v.string(),
+    withdrawnAt: v.optional(v.number()),
+    withdrawnByWorkosUserId: v.optional(v.string()),
+    withdrawalReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_status", ["proposalId", "status"])
+    .index("by_proposal_lender_organization", [
+      "proposalId",
+      "lenderOrganizationId",
+    ])
+    .index("by_lender_organization", ["lenderOrganizationId"]),
   proposalDocuments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

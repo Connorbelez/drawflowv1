@@ -3,22 +3,26 @@ export type ProposalCapitalSource = (typeof proposalCapitalSources)[number];
 
 export type ProposalLifecycleCommand =
   | "activate"
+  | "assign"
   | "approve"
   | "close"
   | "reject"
   | "request_changes"
-  | "submit";
+  | "submit"
+  | "withdraw";
 
 const allowedProposalStates: Record<
   ProposalLifecycleCommand,
   readonly ProposalLifecycleProjection["proposalState"][]
 > = {
   activate: ["closed"],
+  assign: ["approved"],
   approve: ["submitted"],
   close: ["approved"],
   reject: ["submitted"],
   request_changes: ["submitted"],
   submit: ["draft"],
+  withdraw: ["approved"],
 };
 
 export type ProposalLifecycleProjection = {
@@ -74,8 +78,13 @@ export function assertProposalLifecycleTransition(input: {
       "Proposal command submit requires review outcome none or requested_changes.",
     );
   }
-  if (input.command === "activate" && input.reviewOutcome !== "approved") {
-    throw new Error("Proposal command activate requires review outcome approved.");
+  if (
+    ["activate", "assign", "close", "withdraw"].includes(input.command) &&
+    input.reviewOutcome !== "approved"
+  ) {
+    throw new Error(
+      `Proposal command ${input.command} requires review outcome approved.`,
+    );
   }
 }
 

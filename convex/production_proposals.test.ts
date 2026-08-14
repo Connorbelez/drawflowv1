@@ -242,6 +242,66 @@ async function grantOrgMembership(
   });
 }
 
+async function seedExternalLenderOrganization(
+  t: any,
+  options: {
+    organizationId?: string;
+    organizationName?: string;
+    userId?: string;
+    role?: string;
+  } = {},
+) {
+  const organizationId = options.organizationId ?? "org_external_lender";
+  const organizationName =
+    options.organizationName ?? "Northstar Lending Organization";
+  const userId = options.userId ?? "user_external_lender_admin";
+  const role = options.role ?? "admin";
+  return await t.run(async (ctx: any) => {
+    const now = Date.now();
+    const brokerageId = await ctx.db.insert("brokerages", {
+      createdAt: now,
+      displayName: organizationName,
+      legalName: `${organizationName} Inc.`,
+      status: "active",
+      updatedAt: now,
+      workosOrganizationId: organizationId,
+    });
+    await ctx.db.insert("workosOrganizations", {
+      domains: [],
+      name: organizationName,
+      sourceEventId: `test_${organizationId}_created`,
+      sourceEventType: "organization.created",
+      status: "active",
+      workosOrganizationId: organizationId,
+    });
+    await ctx.db.insert("users", {
+      authId: userId,
+      createdAt: now,
+      email: `${userId}@example.com`,
+      name: "External Lender Admin",
+      sourceEventId: `test_${userId}_created`,
+      sourceEventType: "user.created",
+      status: "active",
+      updatedAt: now,
+      workosUserId: userId,
+    });
+    await ctx.db.insert("workosOrganizationMemberships", {
+      createdAt: now,
+      directoryManaged: false,
+      roleSlug: role,
+      roleSlugs: [role],
+      sourceEventId: `test_${userId}_membership`,
+      sourceEventType: "organization_membership.created",
+      status: "active",
+      updatedAt: now,
+      workosMembershipId: `om_${userId}`,
+      workosOrganizationId: organizationId,
+      workosUserId: userId,
+    });
+    return { brokerageId, organizationId, userId };
+  });
+}
+
 async function runAuditEventBuildIdBackfill(t: any) {
   let cursor: string | null = null;
   let isDone = false;
@@ -328,6 +388,57 @@ async function submitProposalForTest(
     proposalId,
     workosOrganizationId,
   });
+}
+
+async function createSubmittedProposal(
+  t: any,
+  seed: any,
+  options: {
+    buildName?: string;
+    capitalSource?: "external" | "internal";
+  } = {},
+) {
+  const proposalId = await t.mutation(
+    (api as any).production_proposals.createDraftProposal,
+    {
+      brokerageId: seed.brokerageId,
+      builderProfileId: seed.builderProfileId,
+      buildName: options.buildName ?? "Assignment lifecycle proposal",
+      location: "18 Assignment History Road",
+      workosOrganizationId: ORG,
+    },
+  );
+  await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+    borrowerCoPayBps: 2_000,
+    borrowerWorkingCapitalLimitCents: 35_000_000,
+    capitalSource: options.capitalSource,
+    documents: [
+      {
+        documentType: "permit",
+        fileName: "assignment-permit.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 512,
+      },
+    ],
+    lenderDrawPolicyLimitCents: 55_000_000,
+    milestones: [
+      {
+        budgetCents: 50_000_000,
+        dayEnd: 20,
+        dayStart: 0,
+        dependencyKeys: [],
+        durationDays: 20,
+        key: "foundation",
+        name: "Foundation",
+        order: 1,
+        submilestones: [],
+      },
+    ],
+    proposalId,
+    workosOrganizationId: ORG,
+  });
+  await submitProposalForTest(t, proposalId);
+  return proposalId;
 }
 
 async function createClosedSingleMilestoneBuild(
@@ -792,6 +903,259 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       }),
     ).rejects.toThrow("requires review outcome none");
+  });
+
+  test("assigns one eligible external lender and exposes bounded history", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t);
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "External assignment proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the proposal for external lender assignment.",
+      workosOrganizationId: ORG,
+    });
+
+    const assigned = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.organizationId,
+        proposalId,
+        reason: "Assign the eligible external lender for review.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(assigned.assignmentId).toBeDefined();
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.assignExternalLenderOrganization,
+        {
+          lenderOrganizationId: lender.organizationId,
+          proposalId,
+          reason: "Do not overlap a current assignment.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("current external lender assignment already exists");
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.lifecycle).toMatchObject({
+      closing: "pending_closing",
+      externalAssignment: "assigned",
+      lenderConfirmation: "pending",
+    });
+    const history = await t.query(
+      (api as any).production_proposals.listProposalLenderAssignmentHistory,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(history.assignments).toEqual([
+      expect.objectContaining({
+        assignmentId: assigned.assignmentId,
+        lenderOrganizationId: lender.organizationId,
+        status: "current",
+      }),
+    ]);
+
+    const concurrentProposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Concurrent external assignment proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId: concurrentProposalId,
+      reason: "Approve the concurrent assignment proposal.",
+      workosOrganizationId: ORG,
+    });
+    const concurrentResults = await Promise.allSettled([
+      t.mutation(
+        (api as any).production_proposals.assignExternalLenderOrganization,
+        {
+          lenderOrganizationId: lender.organizationId,
+          proposalId: concurrentProposalId,
+          reason: "Competing assignment attempt one.",
+          workosOrganizationId: ORG,
+        },
+      ),
+      t.mutation(
+        (api as any).production_proposals.assignExternalLenderOrganization,
+        {
+          lenderOrganizationId: lender.organizationId,
+          proposalId: concurrentProposalId,
+          reason: "Competing assignment attempt two.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ]);
+    expect(
+      concurrentResults.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const concurrentHistory = await t.query(
+      (api as any).production_proposals.listProposalLenderAssignmentHistory,
+      { proposalId: concurrentProposalId, workosOrganizationId: ORG },
+    );
+    expect(concurrentHistory.assignments).toHaveLength(1);
+
+    const lenderViewer = withIdentity(
+      base,
+      ["admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await expect(
+      lenderViewer.query(
+        (api as any).production_proposals.listProposalLenderAssignmentHistory,
+        { proposalId },
+      ),
+    ).resolves.toMatchObject({
+      assignments: [
+        expect.objectContaining({
+          assignmentId: assigned.assignmentId,
+          status: "current",
+        }),
+      ],
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await expect(
+      builder.query(
+        (api as any).production_proposals.listProposalLenderAssignmentHistory,
+        { proposalId, workosOrganizationId: ORG },
+      ),
+    ).rejects.toThrow("Forbidden: role");
+  });
+
+  test("withdrawal closes the assignment interval without deleting history", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_withdrawal_lender",
+      organizationName: "Withdrawal Lender Organization",
+      userId: "user_withdrawal_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Withdrawal assignment proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before assigning the withdrawal test lender.",
+      workosOrganizationId: ORG,
+    });
+    const assigned = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.organizationId,
+        proposalId,
+        reason: "Assign lender before withdrawal.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.withdrawExternalLenderAssignment,
+      {
+        assignmentId: assigned.assignmentId,
+        proposalId,
+        reason: "Borrower returned to the internal path before closing.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.withdrawExternalLenderAssignment,
+        {
+          assignmentId: assigned.assignmentId,
+          proposalId,
+          reason: "Do not replay withdrawal.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("already withdrawn");
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.lifecycle).toMatchObject({
+      backOfficeApproval: "approved",
+      closing: "pending_closing",
+      externalAssignment: "withdrawn",
+      lenderConfirmation: "pending",
+    });
+    const formerLender = withIdentity(
+      base,
+      ["admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await expect(
+      formerLender.query(
+        (api as any).production_proposals.listProposalLenderAssignmentHistory,
+        { proposalId },
+      ),
+    ).resolves.toMatchObject({
+      assignments: [
+        expect.objectContaining({
+          assignmentId: assigned.assignmentId,
+          status: "withdrawn",
+          withdrawalReason: "Borrower returned to the internal path before closing.",
+        }),
+      ],
+    });
+  });
+
+  test("rejects internal-capital and ineligible-organization assignments", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const eligibleLender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_internal_assignment_lender",
+      userId: "user_internal_assignment_lender",
+    });
+    const internalProposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Internal capital assignment proposal",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId: internalProposalId,
+      reason: "Approve the internal-capital proposal.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.assignExternalLenderOrganization,
+        {
+          lenderOrganizationId: eligibleLender.organizationId,
+          proposalId: internalProposalId,
+          reason: "Reject assignment on internal capital.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("requires external capital");
+
+    const ineligibleLender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_ineligible_assignment_lender",
+      role: "member",
+      userId: "user_ineligible_assignment_lender",
+    });
+    const externalProposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Ineligible lender assignment proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId: externalProposalId,
+      reason: "Approve the external-capital proposal.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.assignExternalLenderOrganization,
+        {
+          lenderOrganizationId: ineligibleLender.organizationId,
+          proposalId: externalProposalId,
+          reason: "Reject organization without an eligible lender role.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("no eligible active lender user");
   });
 
   test("persists an explicit Build IANA timezone and rejects invalid closing input", async () => {

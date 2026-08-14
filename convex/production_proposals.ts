@@ -17,7 +17,9 @@ import {
   authenticatedAction,
   authenticatedMutation,
   authenticatedQuery,
+  lenderRoleSlugs,
   normalizeRoleSlugs,
+  resolveActiveLenderOrganizationContext,
   type RoleSlug,
 } from "./authz";
 import {
@@ -481,6 +483,23 @@ const proposalCapitalSourceInput = v.union(
   v.literal(proposalCapitalSources[0]),
   v.literal(proposalCapitalSources[1]),
 );
+
+const proposalLenderAssignmentProjectionValidator = v.object({
+  assignmentId: v.id("proposalLenderAssignments"),
+  assignedAt: v.number(),
+  assignedByRole: v.string(),
+  assignedByWorkosUserId: v.string(),
+  lenderBrokerageId: v.id("brokerages"),
+  lenderOrganizationId: v.string(),
+  lenderOrganizationName: v.string(),
+  status: v.union(v.literal("current"), v.literal("withdrawn")),
+  withdrawalReason: v.optional(v.string()),
+  withdrawnAt: v.optional(v.number()),
+  withdrawnByWorkosUserId: v.optional(v.string()),
+});
+
+const PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT = 50;
+const LENDER_ORGANIZATION_MEMBERSHIP_SCAN_LIMIT = 100;
 
 const proposalDraftDrawInput = v.object({
   amountCents: v.number(),
@@ -3202,6 +3221,210 @@ export const approveProposal = authenticatedMutation
       warnings: waiverId ? ["permit-waived"] : [],
     });
     return null;
+  })
+  .public();
+
+export const assignExternalLenderOrganization = authenticatedMutation
+  .input({
+    lenderOrganizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      assignmentId: v.id("proposalLenderAssignments"),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    assertProposalLifecycleTransition({
+      command: "assign",
+      reviewOutcome: auth.proposal.reviewOutcome,
+      state: auth.proposal.status,
+    });
+    requireReason(args.reason);
+    if ((auth.proposal.capitalSource ?? "internal") !== "external") {
+      throw new Error("External lender assignment requires external capital.");
+    }
+    const lenderOrganizationId = args.lenderOrganizationId.trim();
+    if (!lenderOrganizationId) {
+      throw new Error("Lender organization is required.");
+    }
+    if (lenderOrganizationId === args.workosOrganizationId) {
+      throw new Error("External lender assignment must use another organization.");
+    }
+    const currentAssignment = await getCurrentProposalLenderAssignment(
+      ctx,
+      args.proposalId,
+    );
+    if (currentAssignment) {
+      throw new Error("A current external lender assignment already exists.");
+    }
+    const lenderOrganization = await resolveEligibleExternalLenderOrganization(
+      ctx,
+      lenderOrganizationId,
+      auth.brokerage._id,
+    );
+    const assignedByRole = auth.roles.find((role) =>
+      APPROVER_ROLES.includes(role as (typeof APPROVER_ROLES)[number]),
+    );
+    if (!assignedByRole) {
+      throw new Error("Forbidden: proposal assignment authority");
+    }
+    const now = Date.now();
+    const assignmentId = await ctx.db.insert("proposalLenderAssignments", {
+      assignedAt: now,
+      assignedByRole,
+      assignedByWorkosUserId: auth.subject,
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      lenderBrokerageId: lenderOrganization.brokerageId,
+      lenderOrganizationId: lenderOrganization.workosOrganizationId,
+      lenderOrganizationName: lenderOrganization.name,
+      organizationId: args.workosOrganizationId,
+      proposalId: args.proposalId,
+      status: "current",
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "assignExternalLenderOrganization",
+      eventType: "proposal.lender_assignment.created",
+      newState: JSON.stringify({
+        assignmentId,
+        lenderOrganizationId: lenderOrganization.workosOrganizationId,
+        status: "current",
+      }),
+      priorState: JSON.stringify({ externalAssignment: "unassigned" }),
+      proposalId: args.proposalId,
+      reason: args.reason,
+    });
+    return { assignmentId };
+  })
+  .public();
+
+export const withdrawExternalLenderAssignment = authenticatedMutation
+  .input({
+    assignmentId: v.id("proposalLenderAssignments"),
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    assertProposalLifecycleTransition({
+      command: "withdraw",
+      reviewOutcome: auth.proposal.reviewOutcome,
+      state: auth.proposal.status,
+    });
+    requireReason(args.reason);
+    const assignment = await ctx.db.get(args.assignmentId);
+    if (
+      !assignment ||
+      assignment.proposalId !== args.proposalId ||
+      assignment.brokerageId !== auth.brokerage._id ||
+      assignment.organizationId !== args.workosOrganizationId
+    ) {
+      throw new Error("Forbidden: assignment scope");
+    }
+    if (assignment.status !== "current") {
+      throw new Error("External lender assignment is already withdrawn.");
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.assignmentId, {
+      status: "withdrawn",
+      withdrawalReason: args.reason.trim(),
+      withdrawnAt: now,
+      withdrawnByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "withdrawExternalLenderAssignment",
+      eventType: "proposal.lender_assignment.withdrawn",
+      newState: JSON.stringify({
+        assignmentId: args.assignmentId,
+        lenderOrganizationId: assignment.lenderOrganizationId,
+        status: "withdrawn",
+      }),
+      priorState: JSON.stringify({
+        assignmentId: args.assignmentId,
+        status: "current",
+      }),
+      proposalId: args.proposalId,
+      reason: args.reason,
+    });
+    return null;
+  })
+  .public();
+
+export const listProposalLenderAssignmentHistory = authenticatedQuery
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.optional(v.string()),
+  })
+  .returns(
+    v.object({
+      assignments: v.array(proposalLenderAssignmentProjectionValidator),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    let lenderOrganizationId: string | undefined;
+    if (args.workosOrganizationId) {
+      const auth = await authorizeProposal(
+        ctx,
+        args.proposalId,
+        args.workosOrganizationId,
+      );
+      requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    } else {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) {
+        throw new Error("Unauthorized");
+      }
+      const authorization = await resolveActiveLenderOrganizationContext(
+        ctx,
+        identity,
+        "lenderOrganization",
+      );
+      lenderOrganizationId = authorization.activeOrganization.workosOrganizationId;
+    }
+
+    const assignments = lenderOrganizationId
+      ? await ctx.db
+          .query("proposalLenderAssignments")
+          .withIndex("by_proposal_lender_organization", (query) =>
+            query
+              .eq("proposalId", args.proposalId)
+              .eq("lenderOrganizationId", lenderOrganizationId),
+          )
+          .order("desc")
+          .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT)
+      : await ctx.db
+          .query("proposalLenderAssignments")
+          .withIndex("by_proposal", (query) =>
+            query.eq("proposalId", args.proposalId),
+          )
+          .order("desc")
+          .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT);
+    if (lenderOrganizationId && assignments.length === 0) {
+      throw new Error("Forbidden: lender assignment history");
+    }
+    return {
+      assignments: assignments.map(projectProposalLenderAssignment),
+    };
   })
   .public();
 
@@ -8322,6 +8545,30 @@ export const getProposalDetail = authenticatedQuery
         )
       : [];
 
+    const currentLenderAssignment = await getCurrentProposalLenderAssignment(
+      ctx,
+      args.proposalId,
+    );
+    const latestLenderAssignment = await ctx.db
+      .query("proposalLenderAssignments")
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", args.proposalId),
+      )
+      .order("desc")
+      .take(1);
+    const lenderAssignmentState =
+      currentLenderAssignment !== null
+        ? { state: "assigned" as const, lenderConfirmation: "pending" as const }
+        : latestLenderAssignment[0]?.status === "withdrawn"
+          ? {
+              state: "withdrawn" as const,
+              lenderConfirmation: "pending" as const,
+            }
+          : {
+              state: "unassigned" as const,
+              lenderConfirmation: "pending" as const,
+            };
+
     const appPermissions = await proposalAppPermissionProjection(ctx, auth);
 
     return {
@@ -8340,7 +8587,7 @@ export const getProposalDetail = authenticatedQuery
         : [],
       documents: await withDocumentStorageUrls(ctx, documents),
       events,
-      lifecycle: projectProposalLifecycle(auth.proposal),
+      lifecycle: projectProposalLifecycle(auth.proposal, lenderAssignmentState),
       milestones: canUseAppPermission(appPermissions, "milestone", "view")
         ? milestones
         : [],
@@ -33140,6 +33387,118 @@ function requireState(
   if (proposal.status !== expected) {
     throw new Error(`Expected proposal state ${expected}.`);
   }
+}
+
+async function getCurrentProposalLenderAssignment(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+) {
+  const assignments = await ctx.db
+    .query("proposalLenderAssignments")
+    .withIndex("by_proposal_status", (query) =>
+      query.eq("proposalId", proposalId).eq("status", "current"),
+    )
+    .take(2);
+  if (assignments.length > 1) {
+    throw new Error("Proposal has multiple current lender assignments.");
+  }
+  return assignments[0] ?? null;
+}
+
+async function resolveEligibleExternalLenderOrganization(
+  ctx: QueryCtx | MutationCtx,
+  workosOrganizationId: string,
+  borrowerBrokerageId: Id<"brokerages">,
+) {
+  const organization = await ctx.db
+    .query("workosOrganizations")
+    .withIndex("by_workos_organization_id", (query) =>
+      query.eq("workosOrganizationId", workosOrganizationId),
+    )
+    .unique();
+  if (!organization || organization.status !== "active") {
+    throw new Error("External lender organization projection is unavailable.");
+  }
+  const lenderBrokerages = await ctx.db
+    .query("brokerages")
+    .withIndex("by_workos_organization", (query) =>
+      query.eq("workosOrganizationId", workosOrganizationId),
+    )
+    .take(2);
+  if (lenderBrokerages.length !== 1 || !lenderBrokerages[0]) {
+    throw new Error("External lender organization tenant is unavailable.");
+  }
+  const lenderBrokerage = lenderBrokerages[0];
+  if (
+    lenderBrokerage._id === borrowerBrokerageId ||
+    lenderBrokerage.status !== "active"
+  ) {
+    throw new Error("External lender organization must be a separate active tenant.");
+  }
+
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization", (query) =>
+      query.eq("workosOrganizationId", workosOrganizationId),
+    )
+    .take(LENDER_ORGANIZATION_MEMBERSHIP_SCAN_LIMIT + 1);
+  if (memberships.length > LENDER_ORGANIZATION_MEMBERSHIP_SCAN_LIMIT) {
+    throw new Error("External lender organization membership scope exceeds limit.");
+  }
+  for (const membership of memberships) {
+    if (membership.status !== "active") {
+      continue;
+    }
+    const roles = normalizeRoleSlugs([
+      membership.roleSlug,
+      ...membership.roleSlugs,
+    ]);
+    if (
+      !roles.some((role) =>
+        lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+      )
+    ) {
+      continue;
+    }
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_workos_user_id", (query) =>
+        query.eq("workosUserId", membership.workosUserId),
+      )
+      .unique();
+    if (user && user.status !== "deleted") {
+      return {
+        brokerageId: lenderBrokerage._id,
+        name: organization.name,
+        workosOrganizationId,
+      };
+    }
+  }
+  throw new Error("External lender organization has no eligible active lender user.");
+}
+
+function projectProposalLenderAssignment(
+  assignment: Doc<"proposalLenderAssignments">,
+) {
+  return {
+    assignmentId: assignment._id,
+    assignedAt: assignment.assignedAt,
+    assignedByRole: assignment.assignedByRole,
+    assignedByWorkosUserId: assignment.assignedByWorkosUserId,
+    lenderBrokerageId: assignment.lenderBrokerageId,
+    lenderOrganizationId: assignment.lenderOrganizationId,
+    lenderOrganizationName: assignment.lenderOrganizationName,
+    status: assignment.status,
+    ...(assignment.withdrawalReason === undefined
+      ? {}
+      : { withdrawalReason: assignment.withdrawalReason }),
+    ...(assignment.withdrawnAt === undefined
+      ? {}
+      : { withdrawnAt: assignment.withdrawnAt }),
+    ...(assignment.withdrawnByWorkosUserId === undefined
+      ? {}
+      : { withdrawnByWorkosUserId: assignment.withdrawnByWorkosUserId }),
+  };
 }
 
 function requireReason(reason: string) {
