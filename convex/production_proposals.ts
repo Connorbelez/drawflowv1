@@ -2973,6 +2973,7 @@ export const submitProposal = authenticatedMutation
     );
     assertProposalLifecycleTransition({
       command: "submit",
+      reviewOutcome: auth.proposal.reviewOutcome,
       state: auth.proposal.status,
     });
     if (!isBackoffice(auth.roles)) {
@@ -3068,6 +3069,7 @@ export const requestChanges = authenticatedMutation
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     assertProposalLifecycleTransition({
       command: "request_changes",
+      reviewOutcome: auth.proposal.reviewOutcome,
       state: auth.proposal.status,
     });
     requireReason(args.reason);
@@ -3108,6 +3110,7 @@ export const rejectProposal = authenticatedMutation
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     assertProposalLifecycleTransition({
       command: "reject",
+      reviewOutcome: auth.proposal.reviewOutcome,
       state: auth.proposal.status,
     });
     requireReason(args.reason);
@@ -3147,6 +3150,7 @@ export const approveProposal = authenticatedMutation
     requireAnyRole(auth.roles, APPROVER_ROLES);
     assertProposalLifecycleTransition({
       command: "approve",
+      reviewOutcome: auth.proposal.reviewOutcome,
       state: auth.proposal.status,
     });
     requireReason(args.reason);

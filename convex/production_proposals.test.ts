@@ -764,6 +764,36 @@ describe("production proposal foundation", () => {
     expect(detail.activeBuild).toBeNull();
   });
 
+  test("reject is terminal for the current review attempt", async () => {
+    const base = convexTest(schema, modules);
+    const t = withIdentity(base, ["admin"], "user_admin", ORG);
+    const seed = await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+    const proposalId = seed.proposals.submitted;
+
+    await t.mutation((api as any).production_proposals.rejectProposal, {
+      proposalId,
+      reason: "Reject this review attempt.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.rejectProposal, {
+        proposalId,
+        reason: "Do not replay the rejection.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("requires review outcome none");
+    await expect(
+      t.mutation((api as any).production_proposals.approveProposal, {
+        proposalId,
+        reason: "Do not approve a rejected review attempt.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("requires review outcome none");
+  });
+
   test("persists an explicit Build IANA timezone and rejects invalid closing input", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const valid = await createClosedSingleMilestoneBuild(t, seed, {

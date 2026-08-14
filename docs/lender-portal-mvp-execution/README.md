@@ -146,7 +146,7 @@ passed. Only the next dependency-unblocked Phase 2 packet may move to
 
 The repository is also prepared through all 45 Phase 1–9 work-package
 definitions and eight Phase 2–9 handoffs. Those handoffs are reconciled to the
-accepted Phase 1 product SHA above. No Phase 2–9 work package is in progress,
+accepted Phase 1 product SHA above. No Phase 3–9 work package is in progress,
 and no product-code change is authorized by this execution pack alone. The
 dedicated Phase 2 checkout now has `LP-P2-01` in progress; its immutable
 package-start SHA is `d3d75341fb662242a4d18c92337975f5d637a31e`.

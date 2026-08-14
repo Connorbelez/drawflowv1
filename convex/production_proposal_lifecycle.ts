@@ -45,8 +45,11 @@ type ProposalLifecycleRecord = {
   status: ProposalLifecycleProjection["proposalState"];
 };
 
+type ProposalReviewOutcome = ProposalLifecycleRecord["reviewOutcome"];
+
 export function assertProposalLifecycleTransition(input: {
   command: ProposalLifecycleCommand;
+  reviewOutcome: ProposalReviewOutcome;
   state: ProposalLifecycleProjection["proposalState"];
 }) {
   const allowedStates = allowedProposalStates[input.command];
@@ -54,6 +57,25 @@ export function assertProposalLifecycleTransition(input: {
     throw new Error(
       `Proposal command ${input.command} requires state ${allowedStates.join(" or ")}.`,
     );
+  }
+  if (
+    ["approve", "reject", "request_changes"].includes(input.command) &&
+    input.reviewOutcome !== "none"
+  ) {
+    throw new Error(
+      `Proposal command ${input.command} requires review outcome none.`,
+    );
+  }
+  if (
+    input.command === "submit" &&
+    !["none", "requested_changes"].includes(input.reviewOutcome)
+  ) {
+    throw new Error(
+      "Proposal command submit requires review outcome none or requested_changes.",
+    );
+  }
+  if (input.command === "activate" && input.reviewOutcome !== "approved") {
+    throw new Error("Proposal command activate requires review outcome approved.");
   }
 }
 
