@@ -506,6 +506,7 @@ const proposalLenderOrganizationOptionValidator = v.object({
 const PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT = 50;
 const ELIGIBLE_LENDER_ORGANIZATION_LIMIT = 100;
 const ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT = 1_000;
+const ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT = 10_000;
 const LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE = 100;
 
 const proposalDraftDrawInput = v.object({
@@ -3255,28 +3256,63 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
       return { organizations: [] };
     }
 
-    const eligibleOrganizations = [];
-    let organizationCursor: string | null = null;
-    let scannedOrganizations = 0;
+    const eligibleOrganizations = new Map<
+      string,
+      { lenderOrganizationId: string; lenderOrganizationName: string }
+    >();
+    const scannedOrganizationIds = new Set<string>();
+    let membershipCursor: string | null = null;
+    let scannedMemberships = 0;
     while (
-      eligibleOrganizations.length < ELIGIBLE_LENDER_ORGANIZATION_LIMIT &&
-      scannedOrganizations < ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
+      eligibleOrganizations.size < ELIGIBLE_LENDER_ORGANIZATION_LIMIT &&
+      scannedOrganizationIds.size < ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT &&
+      scannedMemberships < ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT
     ) {
-      const organizationPage = await ctx.db
-        .query("workosOrganizations")
-        .withIndex("by_status_and_name", (query) =>
-          query.eq("status", "active"),
-        )
+      const membershipPage = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_status", (query) => query.eq("status", "active"))
         .paginate({
-          cursor: organizationCursor,
-          numItems: ELIGIBLE_LENDER_ORGANIZATION_LIMIT,
-      });
+          cursor: membershipCursor,
+          numItems: LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE,
+        });
 
-      for (const organization of organizationPage.page) {
-        if (scannedOrganizations >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT) {
+      for (const membership of membershipPage.page) {
+        scannedMemberships += 1;
+        if (scannedMemberships > ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT) {
           break;
         }
-        scannedOrganizations += 1;
+        scannedOrganizationIds.add(membership.workosOrganizationId);
+        if (
+          scannedOrganizationIds.size > ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
+        ) {
+          break;
+        }
+        const roles = normalizeRoleSlugs([
+          membership.roleSlug,
+          ...membership.roleSlugs,
+        ]);
+        if (
+          !roles.some((role) =>
+            lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+          )
+        ) {
+          continue;
+        }
+        if (eligibleOrganizations.has(membership.workosOrganizationId)) {
+          continue;
+        }
+        const organization = await ctx.db
+          .query("workosOrganizations")
+          .withIndex("by_workos_organization_id", (query) =>
+            query.eq(
+              "workosOrganizationId",
+              membership.workosOrganizationId,
+            ),
+          )
+          .unique();
+        if (!organization || organization.status !== "active") {
+          continue;
+        }
         const brokerages = await ctx.db
           .query("brokerages")
           .withIndex("by_workos_organization", (query) =>
@@ -3284,75 +3320,44 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
           )
           .take(2);
         const brokerage = brokerages.length === 1 ? brokerages[0] : null;
-        if (!brokerage || brokerage._id === auth.brokerage._id || brokerage.status !== "active") {
+        if (
+          !brokerage ||
+          brokerage._id === auth.brokerage._id ||
+          brokerage.status !== "active"
+        ) {
           continue;
         }
-
-        let membershipCursor: string | null = null;
-        let eligible = false;
-        while (!eligible) {
-          const membershipPage = await ctx.db
-            .query("workosOrganizationMemberships")
-            .withIndex("by_organization_and_status_and_roleSlug", (query) =>
-              query
-                .eq("workosOrganizationId", organization.workosOrganizationId)
-                .eq("status", "active"),
-            )
-            .paginate({
-              cursor: membershipCursor,
-              numItems: LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE,
-            });
-          for (const membership of membershipPage.page) {
-            const roles = normalizeRoleSlugs([
-              membership.roleSlug,
-              ...membership.roleSlugs,
-            ]);
-            if (
-              !roles.some((role) =>
-                lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
-              )
-            ) {
-              continue;
-            }
-            const user = await ctx.db
-              .query("users")
-              .withIndex("by_workos_user_id", (query) =>
-                query.eq("workosUserId", membership.workosUserId),
-              )
-              .unique();
-            if (user?.status === "active") {
-              eligible = true;
-              break;
-            }
-          }
-          if (eligible || membershipPage.isDone) {
-            break;
-          }
-          membershipCursor = membershipPage.continueCursor;
-        }
-        if (eligible) {
-          eligibleOrganizations.push({
-            lenderOrganizationId: organization.workosOrganizationId,
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_workos_user_id", (query) =>
+            query.eq("workosUserId", membership.workosUserId),
+          )
+          .unique();
+        if (user?.status === "active") {
+          eligibleOrganizations.set(membership.workosOrganizationId, {
+            lenderOrganizationId: membership.workosOrganizationId,
             lenderOrganizationName: organization.name,
           });
         }
-        if (eligibleOrganizations.length >= ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
+        if (eligibleOrganizations.size >= ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
           break;
         }
       }
       if (
-        organizationPage.isDone ||
-        scannedOrganizations >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
+        membershipPage.isDone ||
+        scannedOrganizationIds.size >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT ||
+        scannedMemberships >= ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT
       ) {
         break;
       }
-      organizationCursor = organizationPage.continueCursor;
+      membershipCursor = membershipPage.continueCursor;
     }
-    eligibleOrganizations.sort((left, right) =>
+    const sortedOrganizations = [...eligibleOrganizations.values()];
+    sortedOrganizations.sort((left, right) =>
       left.lenderOrganizationName.localeCompare(right.lenderOrganizationName),
     );
     return {
-      organizations: eligibleOrganizations.slice(
+      organizations: sortedOrganizations.slice(
         0,
         ELIGIBLE_LENDER_ORGANIZATION_LIMIT,
       ),
@@ -6483,6 +6488,10 @@ export const recordProposalClosing = authenticatedMutation
     ) {
       throw new Error("Closing loan facility values must be non-negative numbers.");
     }
+    const loanFacility = {
+      interestAnnualBps: Math.round(args.loanFacility.interestAnnualBps),
+      principalCents: Math.round(args.loanFacility.principalCents),
+    };
     const existingClosings = await ctx.db
       .query("proposalClosings")
       .withIndex("by_proposal", (query) =>
@@ -6526,10 +6535,7 @@ export const recordProposalClosing = authenticatedMutation
       closedByWorkosUserId: auth.subject,
       createdAt: now,
       ianaTimezone: timezone,
-      loanFacility: {
-        interestAnnualBps: args.loanFacility.interestAnnualBps,
-        principalCents: args.loanFacility.principalCents,
-      },
+      loanFacility,
       organizationId: auth.organizationId,
       proposalId: args.proposalId,
       reason: args.reason.trim(),
@@ -34082,6 +34088,24 @@ async function evaluateProposalClosingEligibility(
   }
   if (!proposal.builderProfileId) {
     reasons.push("Closing requires an assigned builder.");
+  }
+
+  const withdrawnAssignments = currentLenderAssignment
+    ? []
+    : await ctx.db
+        .query("proposalLenderAssignments")
+        .withIndex("by_proposal_status", (query) =>
+          query.eq("proposalId", proposal._id).eq("status", "withdrawn"),
+        )
+        .take(1);
+  const requiresLenderAssignment =
+    (proposal.capitalSource ?? "internal") === "external" &&
+    !currentLenderAssignment &&
+    withdrawnAssignments.length === 0;
+  if (requiresLenderAssignment) {
+    reasons.push(
+      "External-capital proposals require a current lender assignment before closing.",
+    );
   }
 
   let lenderApproval: Doc<"proposalLenderApprovals"> | null = null;

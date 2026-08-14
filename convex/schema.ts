@@ -8553,6 +8553,7 @@ export default defineSchema({
     .index("by_user", ["workosUserId"])
     .index("by_user_and_organization", ["workosUserId", "workosOrganizationId"])
     .index("by_organization", ["workosOrganizationId"])
+    .index("by_status", ["status"])
     .index("by_organization_and_status_and_roleSlug", [
       "workosOrganizationId",
       "status",

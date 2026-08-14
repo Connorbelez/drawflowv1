@@ -438,17 +438,26 @@ function RouteComponent() {
       onRecordClosing={async (proposal, input) => {
         const proposalId = (proposal.proposalId ??
           proposal.id) as Id<"buildProposals">;
-        await recordClosing({
-          buildStartDate: input.buildStartDate,
-          ianaTimezone: input.ianaTimezone,
-          loanFacility: {
-            interestAnnualBps: proposal.interestAnnualBps ?? 925,
-            principalCents: proposal.lenderDrawPolicyLimitCents ?? 0,
-          },
-          proposalId,
-          reason: input.reason,
-          workosOrganizationId,
-        });
+        try {
+          await recordClosing({
+            buildStartDate: input.buildStartDate,
+            ianaTimezone: input.ianaTimezone,
+            loanFacility: {
+              interestAnnualBps: proposal.interestAnnualBps ?? 925,
+              principalCents: proposal.lenderDrawPolicyLimitCents ?? 0,
+            },
+            proposalId,
+            reason: input.reason,
+            workosOrganizationId,
+          });
+        } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            !error.message.includes("Proposal closing is already recorded")
+          ) {
+            throw error;
+          }
+        }
         await activateClosedProposal({
           proposalId,
           reason: input.reason,
