@@ -7,6 +7,7 @@ import {
   authenticatedQuery,
   backofficeQuery,
   lenderOrganizationQuery,
+  lenderUserManagementQuery,
 } from "./authz";
 import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import { fluent } from "./fluent";
@@ -45,6 +46,61 @@ type CurrentUserOrganizationCandidate = CurrentUserOrganization & {
   sourcePriority: number;
   updatedAt: number;
 };
+
+const MAX_LENDER_ORGANIZATION_MEMBERS = 500;
+const MAX_LENDER_ORGANIZATION_HISTORY = 200;
+
+export const LENDER_MEMBERSHIP_CONSUMER_HANDOFFS = [
+  {
+    consumer: "authorization-and-access",
+    inputContract:
+      "active organization id + canonical WorkOS membership status + canonical lender role slugs",
+    owner: "Phase 1",
+    state: "implemented",
+  },
+  {
+    consumer: "collaboration-search-authority",
+    inputContract:
+      "canonical WorkOS membership id + organization id + user id + status + role slugs",
+    owner: "Phase 1",
+    state: "implemented",
+  },
+  {
+    consumer: "proposal-assignment",
+    inputContract:
+      "active organization id + current canonical membership eligibility + persisted proposal assignment",
+    owner: "Phase 2",
+    state: "unavailable",
+  },
+  {
+    consumer: "review-quorum-and-policy-eligibility",
+    inputContract:
+      "immutable review-policy snapshot + current canonical membership eligibility + persisted review assignment",
+    owner: "Phase 4",
+    state: "unavailable",
+  },
+  {
+    consumer: "participant-queues-and-counts",
+    inputContract:
+      "canonical request or review-cycle state + current canonical membership eligibility",
+    owner: "Phase 7",
+    state: "unavailable",
+  },
+  {
+    consumer: "transactional-recipients-and-notification-intent",
+    inputContract:
+      "durable domain event + resource and cycle scope + current canonical membership eligibility and access",
+    owner: "Phase 8",
+    state: "unavailable",
+  },
+  {
+    consumer: "external-api-analytics-reporting-and-support",
+    inputContract:
+      "versioned external contract + canonical organization and membership identifiers",
+    owner: "Phase 9",
+    state: "unknown",
+  },
+] as const;
 
 const userRow = v.object({
   _id: v.id("users"),
@@ -371,6 +427,165 @@ export const listCurrentUserOrganizations = authenticatedQuery
 export const getActiveLenderOrganizationContext = lenderOrganizationQuery
   .returns(activeLenderOrganizationRow)
   .handler(async (ctx) => ctx.activeOrganization)
+  .public();
+
+/**
+ * Canonical post-reconciliation membership-effect boundary for lender
+ * organization management. This query is deliberately write-free: every
+ * value is rebuilt from the current WorkOS projections and canonical audit
+ * history, so retries cannot fabricate later-phase workflow state or duplicate
+ * downstream effects.
+ */
+export const getLenderOrganizationManagement = lenderUserManagementQuery
+  .returns(
+    v.object({
+      consumerHandoffs: v.array(
+        v.object({
+          consumer: v.string(),
+          inputContract: v.string(),
+          owner: v.string(),
+          state: v.union(
+            v.literal("implemented"),
+            v.literal("unavailable"),
+            v.literal("unknown")
+          ),
+        })
+      ),
+      history: v.array(v.any()),
+      members: v.array(
+        v.object({
+          accessState: v.union(
+            v.literal("active"),
+            v.literal("pending"),
+            v.literal("removed"),
+            v.literal("unsupported")
+          ),
+          canManageMembers: v.boolean(),
+          email: v.optional(v.string()),
+          membership: v.any(),
+          name: v.optional(v.string()),
+          roleSlugs: v.array(v.string()),
+          user: v.union(v.null(), v.any()),
+        })
+      ),
+      organization: v.any(),
+      summary: v.object({
+        active: v.number(),
+        administrators: v.number(),
+        pending: v.number(),
+        principalBrokers: v.number(),
+        removed: v.number(),
+        total: v.number(),
+        unsupported: v.number(),
+      }),
+    })
+  )
+  .handler(async (ctx) => {
+    const { brokerageId, workosOrganizationId } = ctx.activeOrganization;
+    const memberships = await ctx.db
+      .query("workosOrganizationMemberships")
+      .withIndex("by_organization", (query) =>
+        query.eq("workosOrganizationId", workosOrganizationId)
+      )
+      .take(MAX_LENDER_ORGANIZATION_MEMBERS + 1);
+    if (memberships.length > MAX_LENDER_ORGANIZATION_MEMBERS) {
+      throw new Error("Organization member directory exceeds safe read limit");
+    }
+
+    const organization = await ctx.db
+      .query("workosOrganizations")
+      .withIndex("by_workos_organization_id", (query) =>
+        query.eq("workosOrganizationId", workosOrganizationId)
+      )
+      .unique();
+    if (!organization || organization.status !== "active") {
+      throw new Error("Organization projection unavailable");
+    }
+
+    const members = await Promise.all(
+      memberships.map(async (membership) => {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_workos_user_id", (query) =>
+            query.eq("workosUserId", membership.workosUserId)
+          )
+          .unique();
+        const roleSlugs = [
+          ...new Set(
+            [membership.roleSlug, ...membership.roleSlugs].filter(
+              (role): role is string => Boolean(role)
+            )
+          ),
+        ].sort();
+        const hasLenderRole = roleSlugs.some((role) =>
+          ["admin", "principle-broker", "broker", "broker-staff"].includes(role)
+        );
+        const accessState =
+          membership.status === "pending"
+            ? ("pending" as const)
+            : membership.status === "active"
+              ? hasLenderRole && user?.status !== "deleted"
+                ? ("active" as const)
+                : ("unsupported" as const)
+              : ("removed" as const);
+        return {
+          accessState,
+          canManageMembers:
+            accessState === "active" &&
+            roleSlugs.some((role) =>
+              ["admin", "principle-broker"].includes(role)
+            ),
+          email: user?.email,
+          membership,
+          name: user?.name,
+          roleSlugs,
+          user,
+        };
+      })
+    );
+    members.sort((left, right) =>
+      (left.name ?? left.email ?? left.membership.workosUserId).localeCompare(
+        right.name ?? right.email ?? right.membership.workosUserId
+      )
+    );
+
+    const history = await ctx.db
+      .query("auditEvents")
+      .withIndex("by_organizationId_and_createdAt", (query) =>
+        query.eq("organizationId", workosOrganizationId)
+      )
+      .order("desc")
+      .take(MAX_LENDER_ORGANIZATION_HISTORY);
+    const count = (state: (typeof members)[number]["accessState"]) =>
+      members.filter((member) => member.accessState === state).length;
+
+    return {
+      consumerHandoffs: [...LENDER_MEMBERSHIP_CONSUMER_HANDOFFS],
+      history,
+      members,
+      organization: {
+        ...organization,
+        brokerageId,
+      },
+      summary: {
+        active: count("active"),
+        administrators: members.filter(
+          (member) =>
+            member.accessState === "active" &&
+            member.roleSlugs.includes("admin")
+        ).length,
+        pending: count("pending"),
+        principalBrokers: members.filter(
+          (member) =>
+            member.accessState === "active" &&
+            member.roleSlugs.includes("principle-broker")
+        ).length,
+        removed: count("removed"),
+        total: members.length,
+        unsupported: count("unsupported"),
+      },
+    };
+  })
   .public();
 
 function uniqueCurrentUserOrganizationSwitchTargets(
