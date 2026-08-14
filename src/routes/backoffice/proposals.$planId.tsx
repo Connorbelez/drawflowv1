@@ -54,6 +54,7 @@ import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-
 import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
+import { ProposalLenderAssignmentSection } from "#/features/production-proposals/ProposalLenderAssignmentSection.tsx";
 import {
   createVisualParityCostItem,
   getVisualParityProposalDetail,
@@ -319,6 +320,19 @@ function ProposalReviewRoute() {
   const productionDetail = visualFixtureEnabled
     ? { ...visualProposalDetail, costItems: visualCostItems }
     : productionDetailQuery;
+  const lenderOrganizationsQuery = useQuery(
+    api.production_proposals.listEligibleExternalLenderOrganizations,
+    visualFixtureEnabled ||
+      !productionDetail ||
+      !canManageBrokerAssignment ||
+      productionDetail.proposal.status !== "approved" ||
+      productionDetail.proposal.capitalSource !== "external"
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        },
+  );
   const productionWorkspaceQuery = useQuery(
     api.production_proposals.getProductionTimelineWorkspace,
     visualFixtureEnabled || !productionDetail
@@ -402,6 +416,12 @@ function ProposalReviewRoute() {
   );
   const recordProductionClosing = useMutation(
     api.production_proposals.recordProposalClosing
+  );
+  const assignExternalLender = useMutation(
+    api.production_proposals.assignExternalLenderOrganization,
+  );
+  const withdrawExternalLender = useMutation(
+    api.production_proposals.withdrawExternalLenderAssignment,
   );
   const activateClosedProposal = useMutation(
     api.production_proposals.activateClosedProposal
@@ -630,6 +650,51 @@ function ProposalReviewRoute() {
           />
         }
         initialActiveTab={search.tab}
+        lenderAssignmentSurface={
+          canManageBrokerAssignment &&
+          productionDetail.proposal.status === "approved" &&
+          productionDetail.proposal.capitalSource === "external" ? (
+            <ProposalLenderAssignmentSection
+              assignment={productionDetail.lenderAssignment}
+              assignmentHistory={productionDetail.lenderAssignmentHistory}
+              approval={productionDetail.lenderApproval}
+              lenderOrganizations={
+                lenderOrganizationsQuery?.organizations ?? []
+              }
+              lenderOrganizationsPending={lenderOrganizationsQuery === undefined}
+              onAssign={(lenderOrganizationId, reason) =>
+                assignExternalLender({
+                  lenderOrganizationId,
+                  proposalId,
+                  reason,
+                  workosOrganizationId,
+                })
+              }
+              onEditReviewPolicy={() =>
+                void navigate({
+                  params: { planId },
+                  replace: true,
+                  search: { ...search, tab: "closing" },
+                  to: "/backoffice/proposals/$planId",
+                })
+              }
+              onWithdraw={(assignmentId, reason) =>
+                withdrawExternalLender({
+                  assignmentId: assignmentId as Id<"proposalLenderAssignments">,
+                  proposalId,
+                  reason,
+                  workosOrganizationId,
+                })
+              }
+              proposal={{
+                buildName: productionDetail.proposal.buildName,
+                capitalSource: productionDetail.proposal.capitalSource,
+                location: productionDetail.proposal.location,
+                status: productionDetail.proposal.status,
+              }}
+            />
+          ) : undefined
+        }
         materialPlanningActions={materialPlanningActions}
         milestones={
           <ProductionProposalMilestoneWorksheetContainer

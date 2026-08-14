@@ -195,6 +195,10 @@ import {
   dateFromProposalDayOffset,
   isValidIsoDateOnly,
 } from "./proposalScheduleDates.ts";
+import type {
+  ProposalLenderApprovalSummary,
+  ProposalLenderAssignmentRecord,
+} from "./ProposalLenderAssignmentSection.tsx";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -208,6 +212,7 @@ interface ProductionProposal {
   borrowerCoPayCents?: number;
   borrowerStartingCashCents: number;
   buildName: string;
+  capitalSource?: "internal" | "external";
   interestAnnualBps?: number;
   lenderDrawPolicyLimitCents: number;
   location: string;
@@ -310,6 +315,23 @@ export interface ProductionProposalDetail {
   costItems?: MaterialPlanningItem[];
   documents?: ProductionDocument[];
   draws?: ProductionDraw[];
+  lenderApproval?: ProposalLenderApprovalSummary | null;
+  lenderAssignment?: ProposalLenderAssignmentRecord | null;
+  lenderAssignmentHistory?: ProposalLenderAssignmentRecord[];
+  lifecycle?: {
+    activation: "active" | "inactive";
+    backOfficeApproval:
+      | "approved"
+      | "changes_requested"
+      | "not_submitted"
+      | "pending"
+      | "rejected";
+    capitalSource: "external" | "internal";
+    closing: "closed" | "not_ready" | "pending_closing";
+    externalAssignment: "assigned" | "not_required" | "unassigned" | "withdrawn";
+    lenderConfirmation: "approved" | "declined" | "not_required" | "pending";
+    proposalState: "approved" | "closed" | "draft" | "submitted";
+  };
   loanFacility?: { interestAnnualBps?: number; principalCents?: number } | null;
   milestones?: ProductionMilestone[];
   permitWaiver?: { reason: string } | null;
@@ -1839,6 +1861,7 @@ export function ProductionProposalReviewSurface({
   calendarWorkspace,
   detail,
   initialActiveTab,
+  lenderAssignmentSurface,
   materialPlanningActions,
   onChangeCalendarTimeframe,
   onChangeReviewTab,
@@ -1974,6 +1997,7 @@ export function ProductionProposalReviewSurface({
   staff?: ReactNode;
   timeline?: ReactNode;
   initialActiveTab?: ProductionReviewTab;
+  lenderAssignmentSurface?: ReactNode;
 }) {
   const [reason, setReason] = useState("");
   const [closingReason, setClosingReason] = useState("");
@@ -2288,6 +2312,10 @@ export function ProductionProposalReviewSurface({
           </Section>
         )}
 
+        {detail.lifecycle ? (
+          <ProposalLifecycleSummary lifecycle={detail.lifecycle} />
+        ) : null}
+
         <Section title="Readiness">
           <ProposalReadinessList
             canRecordPermitWaiverReason={canRunReviewDecision}
@@ -2408,6 +2436,7 @@ export function ProductionProposalReviewSurface({
               onUpdateInterestRate={onUpdateInterestRate}
               proposal={proposal}
             />
+            {lenderAssignmentSurface}
           </FramePanel>
         </Frame>
 
@@ -2844,6 +2873,49 @@ function ProposalDrawScheduleSnapshot({ draws }: { draws: ProductionDraw[] }) {
       </TableBody>
     </Table>
   );
+}
+
+function ProposalLifecycleSummary({
+  lifecycle,
+}: {
+  lifecycle: NonNullable<ProductionProposalDetail["lifecycle"]>;
+}) {
+  return (
+    <Section title="Proposal lifecycle">
+      <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <dt className="text-muted-foreground">Back Office approval</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.backOfficeApproval)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Lender confirmation</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.lenderConfirmation)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Closing</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.closing)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Build activation</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.activation)}
+          </dd>
+        </div>
+      </dl>
+    </Section>
+  );
+}
+
+function proposalLifecycleLabel(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function ProposalReviewHeaderSummary({

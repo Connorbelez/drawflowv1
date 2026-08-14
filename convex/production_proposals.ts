@@ -498,19 +498,13 @@ const proposalLenderAssignmentProjectionValidator = v.object({
   withdrawnByWorkosUserId: v.optional(v.string()),
 });
 
-const proposalLenderApprovalProjectionValidator = v.object({
-  approvalId: v.id("proposalLenderApprovals"),
-  approverRole: v.string(),
-  approverWorkosUserId: v.string(),
-  assignmentId: v.id("proposalLenderAssignments"),
-  approvedAt: v.optional(v.number()),
-  declinedAt: v.optional(v.number()),
+const proposalLenderOrganizationOptionValidator = v.object({
   lenderOrganizationId: v.string(),
-  reason: v.optional(v.string()),
-  status: v.union(v.literal("approved"), v.literal("declined")),
+  lenderOrganizationName: v.string(),
 });
 
 const PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT = 50;
+const ELIGIBLE_LENDER_ORGANIZATION_LIMIT = 100;
 const LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE = 100;
 
 const proposalDraftDrawInput = v.object({
@@ -3233,6 +3227,104 @@ export const approveProposal = authenticatedMutation
       warnings: waiverId ? ["permit-waived"] : [],
     });
     return null;
+  })
+  .public();
+
+export const listEligibleExternalLenderOrganizations = authenticatedQuery
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      organizations: v.array(proposalLenderOrganizationOptionValidator),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    if (
+      auth.proposal.status !== "approved" ||
+      (auth.proposal.capitalSource ?? "internal") !== "external"
+    ) {
+      return { organizations: [] };
+    }
+
+    const activeBrokerages = await ctx.db
+      .query("brokerages")
+      .withIndex("by_status", (query) => query.eq("status", "active"))
+      .collect();
+    const organizations = await ctx.db.query("workosOrganizations").collect();
+    const organizationById = new Map(
+      organizations
+        .filter((organization) => organization.status === "active")
+        .map((organization) => [
+          organization.workosOrganizationId,
+          organization,
+        ]),
+    );
+    const eligibleOrganizations = [];
+    for (const brokerage of activeBrokerages) {
+      if (brokerage._id === auth.brokerage._id) {
+        continue;
+      }
+      const organization = organizationById.get(brokerage.workosOrganizationId);
+      if (!organization) {
+        continue;
+      }
+      const memberships = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_organization", (query) =>
+          query.eq("workosOrganizationId", brokerage.workosOrganizationId),
+        )
+        .collect();
+      let eligible = false;
+      for (const membership of memberships) {
+        if (membership.status !== "active") {
+          continue;
+        }
+        const roles = normalizeRoleSlugs([
+          membership.roleSlug,
+          ...membership.roleSlugs,
+        ]);
+        if (
+          !roles.some((role) =>
+            lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+          )
+        ) {
+          continue;
+        }
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_workos_user_id", (query) =>
+            query.eq("workosUserId", membership.workosUserId),
+          )
+          .unique();
+        if (user?.status === "active") {
+          eligible = true;
+          break;
+        }
+      }
+      if (eligible) {
+        eligibleOrganizations.push({
+          lenderOrganizationId: brokerage.workosOrganizationId,
+          lenderOrganizationName: organization.name,
+        });
+      }
+    }
+    eligibleOrganizations.sort((left, right) =>
+      left.lenderOrganizationName.localeCompare(right.lenderOrganizationName),
+    );
+    return {
+      organizations: eligibleOrganizations.slice(
+        0,
+        ELIGIBLE_LENDER_ORGANIZATION_LIMIT,
+      ),
+    };
   })
   .public();
 
@@ -8776,6 +8868,15 @@ export const getProposalDetail = authenticatedQuery
       )
       .order("desc")
       .take(1);
+    const lenderAssignmentHistory = isBackoffice(auth.roles)
+      ? await ctx.db
+          .query("proposalLenderAssignments")
+          .withIndex("by_proposal", (query) =>
+            query.eq("proposalId", args.proposalId),
+          )
+          .order("desc")
+          .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT)
+      : [];
     const lenderAssignmentState =
       currentLenderAssignment !== null
         ? {
@@ -8813,6 +8914,16 @@ export const getProposalDetail = authenticatedQuery
       documents: await withDocumentStorageUrls(ctx, documents),
       events,
       lifecycle: projectProposalLifecycle(auth.proposal, lenderAssignmentState),
+      lenderApproval: currentLenderApproval
+        ? projectProposalLenderApproval(currentLenderApproval)
+        : null,
+      lenderAssignment:
+        isBackoffice(auth.roles) && latestLenderAssignment[0]
+          ? projectProposalLenderAssignment(latestLenderAssignment[0])
+          : null,
+      lenderAssignmentHistory: isBackoffice(auth.roles)
+        ? lenderAssignmentHistory.map(projectProposalLenderAssignment)
+        : [],
       milestones: canUseAppPermission(appPermissions, "milestone", "view")
         ? milestones
         : [],
@@ -12239,6 +12350,48 @@ export const getProposalDetailByString = authenticatedQuery
           activeBuild._id,
         )
       : [];
+    const currentLenderAssignment = await getCurrentProposalLenderAssignment(
+      ctx,
+      proposalId,
+    );
+    const currentLenderApproval = currentLenderAssignment
+      ? await getCurrentProposalLenderApproval(
+          ctx,
+          proposalId,
+          currentLenderAssignment._id,
+        )
+      : null;
+    const latestLenderAssignment = await ctx.db
+      .query("proposalLenderAssignments")
+      .withIndex("by_proposal", (query) => query.eq("proposalId", proposalId))
+      .order("desc")
+      .take(1);
+    const lenderAssignmentHistory = isBackoffice(auth.roles)
+      ? await ctx.db
+          .query("proposalLenderAssignments")
+          .withIndex("by_proposal", (query) =>
+            query.eq("proposalId", proposalId),
+          )
+          .order("desc")
+          .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT)
+      : [];
+    const lenderAssignmentState =
+      currentLenderAssignment !== null
+        ? {
+            state: "assigned" as const,
+            lenderConfirmation: currentLenderApproval
+              ? ("approved" as const)
+              : ("pending" as const),
+          }
+        : latestLenderAssignment[0]?.status === "withdrawn"
+          ? {
+              state: "withdrawn" as const,
+              lenderConfirmation: "pending" as const,
+            }
+          : {
+              state: "unassigned" as const,
+              lenderConfirmation: "pending" as const,
+            };
 
     return {
       activeBuild,
@@ -12250,11 +12403,109 @@ export const getProposalDetailByString = authenticatedQuery
       costItems,
       documents: await withDocumentStorageUrls(ctx, documents),
       draws,
+      lifecycle: projectProposalLifecycle(auth.proposal, lenderAssignmentState),
+      lenderApproval: currentLenderApproval
+        ? projectProposalLenderApproval(currentLenderApproval)
+        : null,
+      lenderAssignment:
+        isBackoffice(auth.roles) && latestLenderAssignment[0]
+          ? projectProposalLenderAssignment(latestLenderAssignment[0])
+          : null,
+      lenderAssignmentHistory: isBackoffice(auth.roles)
+        ? lenderAssignmentHistory.map(projectProposalLenderAssignment)
+        : [],
       milestones,
       permitWaiver,
       plannedDraws,
       proposal: withBorrowerStartingCash(auth.proposal),
       submilestones,
+    };
+  })
+  .public();
+
+export const getLenderProposalLifecycleProjection = authenticatedQuery
+  .input({ proposalId: v.id("buildProposals") })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const authorization = await resolveActiveLenderOrganizationContext(
+      ctx,
+      identity,
+      "lenderOrganization",
+    );
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) {
+      throw new Error("Forbidden: lender proposal scope");
+    }
+    const brokerage = await ctx.db.get(proposal.brokerageId);
+    if (!brokerage || brokerage.status !== "active") {
+      throw new Error("Forbidden: lender proposal brokerage");
+    }
+    const assignments = await ctx.db
+      .query("proposalLenderAssignments")
+      .withIndex("by_proposal_lender_organization", (query) =>
+        query
+          .eq("proposalId", args.proposalId)
+          .eq(
+            "lenderOrganizationId",
+            authorization.activeOrganization.workosOrganizationId,
+          ),
+      )
+      .order("desc")
+      .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT);
+    if (assignments.length === 0) {
+      throw new Error("Forbidden: lender proposal assignment");
+    }
+    const currentAssignment = assignments.find(
+      (assignment) => assignment.status === "current",
+    );
+    const visibleAssignment = currentAssignment ?? assignments[0];
+    if (!visibleAssignment) {
+      throw new Error("Forbidden: lender proposal assignment");
+    }
+    const currentApproval = currentAssignment
+      ? await getCurrentProposalLenderApproval(
+          ctx,
+          args.proposalId,
+          currentAssignment._id,
+        )
+      : null;
+    const lenderAssignmentState = currentAssignment
+      ? {
+          state: "assigned" as const,
+          lenderConfirmation: currentApproval
+            ? ("approved" as const)
+            : ("pending" as const),
+        }
+      : {
+          state: "withdrawn" as const,
+          lenderConfirmation: "pending" as const,
+        };
+
+    return {
+      assignment: {
+        assignedAt: visibleAssignment.assignedAt,
+        assignmentId: visibleAssignment._id,
+        lenderOrganizationId: visibleAssignment.lenderOrganizationId,
+        lenderOrganizationName: visibleAssignment.lenderOrganizationName,
+        readOnly: !currentAssignment,
+        status: visibleAssignment.status,
+        ...(visibleAssignment.withdrawnAt === undefined
+          ? {}
+          : { withdrawnAt: visibleAssignment.withdrawnAt }),
+      },
+      canApproveClosing: Boolean(
+        currentAssignment && !currentApproval && proposal.status === "approved",
+      ),
+      lifecycle: projectProposalLifecycle(proposal, lenderAssignmentState),
+      proposal: {
+        buildName: proposal.buildName,
+        location: proposal.location,
+        status: proposal.status,
+      },
     };
   })
   .public();
@@ -33909,6 +34160,16 @@ function projectProposalLenderAssignment(
     ...(assignment.withdrawnByWorkosUserId === undefined
       ? {}
       : { withdrawnByWorkosUserId: assignment.withdrawnByWorkosUserId }),
+  };
+}
+
+function projectProposalLenderApproval(
+  approval: Doc<"proposalLenderApprovals">,
+) {
+  return {
+    approvalId: approval._id,
+    approvedAt: approval.approvedAt,
+    status: approval.status,
   };
 }
 

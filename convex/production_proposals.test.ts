@@ -1131,6 +1131,21 @@ describe("production proposal foundation", () => {
         }),
       ],
     });
+    const formerLenderProjection = await formerLender.query(
+      (api as any).production_proposals.getLenderProposalLifecycleProjection,
+      { proposalId },
+    );
+    expect(formerLenderProjection).toMatchObject({
+      assignment: {
+        assignmentId: assigned.assignmentId,
+        readOnly: true,
+        status: "withdrawn",
+      },
+      lifecycle: {
+        externalAssignment: "withdrawn",
+      },
+    });
+    expect(formerLenderProjection.assignment.withdrawalReason).toBeUndefined();
 
     const closing = await t.mutation(
       (api as any).production_proposals.recordProposalClosing,
@@ -1305,6 +1320,17 @@ describe("production proposal foundation", () => {
       reason: "Approve before external closing eligibility.",
       workosOrganizationId: ORG,
     });
+    const lenderOptions = await t.query(
+      (api as any).production_proposals
+        .listEligibleExternalLenderOrganizations,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(lenderOptions.organizations).toEqual([
+      {
+        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationName: "Northstar Lending Organization",
+      },
+    ]);
     const assignment = await t.mutation(
       (api as any).production_proposals.assignExternalLenderOrganization,
       {
@@ -1343,6 +1369,54 @@ describe("production proposal foundation", () => {
       },
     );
     expect(approval.approvalId).toBeDefined();
+    const lenderProjection = await lenderViewer.query(
+      (api as any).production_proposals.getLenderProposalLifecycleProjection,
+      { proposalId },
+    );
+    expect(lenderProjection).toMatchObject({
+      assignment: {
+        assignmentId: assignment.assignmentId,
+        lenderOrganizationId: lender.organizationId,
+        readOnly: false,
+        status: "current",
+      },
+      canApproveClosing: false,
+      lifecycle: {
+        externalAssignment: "assigned",
+        lenderConfirmation: "approved",
+      },
+    });
+    expect(lenderProjection.assignment.withdrawalReason).toBeUndefined();
+    const backofficeStringProjection = await t.query(
+      (api as any).production_proposals.getProposalDetailByString,
+      { proposalId: String(proposalId), workosOrganizationId: ORG },
+    );
+    expect(backofficeStringProjection).toMatchObject({
+      lenderApproval: {
+        approvalId: approval.approvalId,
+        status: "approved",
+      },
+      lenderAssignment: {
+        assignmentId: assignment.assignmentId,
+        lenderOrganizationId: lender.organizationId,
+        status: "current",
+      },
+      lenderAssignmentHistory: [
+        expect.objectContaining({ assignmentId: assignment.assignmentId }),
+      ],
+    });
+    expect(backofficeStringProjection.lenderApproval.approverWorkosUserId).toBeUndefined();
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const builderProjection = await builder.query(
+      (api as any).production_proposals.getProposalDetailByString,
+      { proposalId: String(proposalId), workosOrganizationId: ORG },
+    );
+    expect(builderProjection.lifecycle).toMatchObject({
+      externalAssignment: "assigned",
+      lenderConfirmation: "approved",
+    });
+    expect(builderProjection.lenderAssignment).toBeNull();
+    expect(builderProjection.lenderAssignmentHistory).toEqual([]);
     await expect(
       lenderViewer.mutation(
         (api as any).production_proposals.approveExternalProposalForClosing,
