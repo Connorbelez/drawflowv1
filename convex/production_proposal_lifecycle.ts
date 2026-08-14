@@ -6,6 +6,7 @@ export type ProposalLifecycleCommand =
   | "assign"
   | "approve"
   | "close"
+  | "confirm"
   | "reject"
   | "request_changes"
   | "submit"
@@ -19,6 +20,7 @@ const allowedProposalStates: Record<
   assign: ["approved"],
   approve: ["submitted"],
   close: ["approved"],
+  confirm: ["approved"],
   reject: ["submitted"],
   request_changes: ["submitted"],
   submit: ["draft"],
@@ -79,7 +81,9 @@ export function assertProposalLifecycleTransition(input: {
     );
   }
   if (
-    ["activate", "assign", "close", "withdraw"].includes(input.command) &&
+    ["activate", "assign", "close", "confirm", "withdraw"].includes(
+      input.command,
+    ) &&
     input.reviewOutcome !== "approved"
   ) {
     throw new Error(

@@ -321,7 +321,10 @@ function RouteComponent() {
     workosOrganizationId ? { workosOrganizationId } : "skip"
   );
   const recordClosing = useMutation(
-    api.production_proposals.recordOfflineClosing
+    api.production_proposals.recordProposalClosing
+  );
+  const activateClosedProposal = useMutation(
+    api.production_proposals.activateClosedProposal
   );
   const assignBuilder = useMutation(
     api.production_proposals.assignDraftBuilder
@@ -431,20 +434,26 @@ function RouteComponent() {
       onOpenUnassignedDrafts={() =>
         navigate({ to: "/backoffice/proposals/unassigned" })
       }
-      onRecordClosing={(proposal, input) =>
-        recordClosing({
+      onRecordClosing={async (proposal, input) => {
+        const proposalId = (proposal.proposalId ??
+          proposal.id) as Id<"buildProposals">;
+        await recordClosing({
           buildStartDate: input.buildStartDate,
           ianaTimezone: input.ianaTimezone,
           loanFacility: {
             interestAnnualBps: 925,
             principalCents: proposal.lenderDrawPolicyLimitCents ?? 0,
           },
-          proposalId: (proposal.proposalId ??
-            proposal.id) as Id<"buildProposals">,
+          proposalId,
           reason: input.reason,
           workosOrganizationId,
-        })
-      }
+        });
+        await activateClosedProposal({
+          proposalId,
+          reason: input.reason,
+          workosOrganizationId,
+        });
+      }}
       onReturnDecision={(handoffId, input) =>
         returnOperationsEscalationDecision({
           ...input,

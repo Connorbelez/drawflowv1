@@ -498,6 +498,18 @@ const proposalLenderAssignmentProjectionValidator = v.object({
   withdrawnByWorkosUserId: v.optional(v.string()),
 });
 
+const proposalLenderApprovalProjectionValidator = v.object({
+  approvalId: v.id("proposalLenderApprovals"),
+  approverRole: v.string(),
+  approverWorkosUserId: v.string(),
+  assignmentId: v.id("proposalLenderAssignments"),
+  approvedAt: v.optional(v.number()),
+  declinedAt: v.optional(v.number()),
+  lenderOrganizationId: v.string(),
+  reason: v.optional(v.string()),
+  status: v.union(v.literal("approved"), v.literal("declined")),
+});
+
 const PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT = 50;
 const LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE = 100;
 
@@ -3370,6 +3382,82 @@ export const withdrawExternalLenderAssignment = authenticatedMutation
   })
   .public();
 
+export const approveExternalProposalForClosing = authenticatedMutation
+  .input({
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      approvalId: v.id("proposalLenderApprovals"),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposalLifecycleActor(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    if (!auth.isCurrentLenderActor || !auth.currentLenderAssignment) {
+      throw new Error("Forbidden: lender proposal approval");
+    }
+    assertProposalLifecycleTransition({
+      command: "confirm",
+      reviewOutcome: auth.proposal.reviewOutcome,
+      state: auth.proposal.status,
+    });
+    requireReason(args.reason);
+    if ((auth.proposal.capitalSource ?? "internal") !== "external") {
+      throw new Error("Lender proposal approval requires external capital.");
+    }
+    const existingApproval = await getCurrentProposalLenderApproval(
+      ctx,
+      args.proposalId,
+      auth.currentLenderAssignment._id,
+    );
+    if (existingApproval) {
+      throw new Error("Lender proposal approval is already recorded.");
+    }
+    const approverRole = auth.roles.find((role) =>
+      lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+    );
+    if (!approverRole) {
+      throw new Error("Forbidden: lender proposal approval role");
+    }
+    const now = Date.now();
+    const approvalId = await ctx.db.insert("proposalLenderApprovals", {
+      approverRole,
+      approverWorkosUserId: auth.subject,
+      approvedAt: now,
+      assignmentId: auth.currentLenderAssignment._id,
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      lenderOrganizationId:
+        auth.currentLenderAssignment.lenderOrganizationId,
+      organizationId: auth.organizationId,
+      proposalId: args.proposalId,
+      reason: args.reason.trim(),
+      status: "approved",
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "approveExternalProposalForClosing",
+      eventType: "proposal.lender_confirmation.approved",
+      newState: JSON.stringify({
+        approvalId,
+        assignmentId: auth.currentLenderAssignment._id,
+        status: "approved",
+      }),
+      priorState: JSON.stringify({ lenderConfirmation: "pending" }),
+      proposalId: args.proposalId,
+      reason: args.reason,
+    });
+    return { approvalId };
+  })
+  .public();
+
 export const listProposalLenderAssignmentHistory = authenticatedQuery
   .input({
     proposalId: v.id("buildProposals"),
@@ -6226,7 +6314,7 @@ export const reviewProductionDrawRequest = authenticatedMutation
   })
   .public();
 
-export const recordOfflineClosing = authenticatedMutation
+export const recordProposalClosing = authenticatedMutation
   .input({
     buildStartDate: v.string(),
     ianaTimezone: v.string(),
@@ -6238,27 +6326,154 @@ export const recordOfflineClosing = authenticatedMutation
     reason: v.string(),
     workosOrganizationId: v.string(),
   })
-  .returns(v.object({ buildId: v.id("activeBuilds") }))
+  .returns(
+    v.object({
+      closingId: v.id("proposalClosings"),
+    }),
+  )
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(
+    const auth = await authorizeProposalLifecycleActor(
       ctx,
       args.proposalId,
       args.workosOrganizationId,
     );
-    requireAnyRole(auth.roles, APPROVER_ROLES);
-    requireState(auth.proposal, "approved");
+    if (!auth.isCurrentLenderActor) {
+      requireAnyRole(auth.roles, APPROVER_ROLES);
+      requireBackofficeProposalWrite(auth, auth.proposal);
+    }
     requireReason(args.reason);
     const timezone = validateBuildTimezone(args.ianaTimezone);
     if (!args.buildStartDate.trim()) {
       throw new Error("Closing requires a build start date.");
     }
-    if (!auth.proposal.workflowRuleSnapshotId) {
-      throw new Error("Approved proposal is missing workflow rule snapshot.");
+    if (
+      !Number.isFinite(args.loanFacility.interestAnnualBps) ||
+      !Number.isFinite(args.loanFacility.principalCents) ||
+      args.loanFacility.interestAnnualBps < 0 ||
+      args.loanFacility.principalCents < 0
+    ) {
+      throw new Error("Closing loan facility values must be non-negative numbers.");
     }
+    const existingClosings = await ctx.db
+      .query("proposalClosings")
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", args.proposalId),
+      )
+      .take(2);
+    if (existingClosings.length > 1) {
+      throw new Error("Proposal has multiple closing records.");
+    }
+    if (existingClosings[0] || auth.proposal.status === "closed") {
+      throw new Error("Proposal closing is already recorded.");
+    }
+    assertProposalLifecycleTransition({
+      command: "close",
+      reviewOutcome: auth.proposal.reviewOutcome,
+      state: auth.proposal.status,
+    });
+    const eligibility = await evaluateProposalClosingEligibility(
+      ctx,
+      auth.proposal,
+      auth.currentLenderAssignment,
+    );
+    if (!eligibility.eligible) {
+      throw new Error(eligibility.reasons.join(" "));
+    }
+    const closingAllowedRoles: readonly string[] = auth.isCurrentLenderActor
+      ? lenderRoleSlugs
+      : APPROVER_ROLES;
+    const closedByRole = auth.roles.find((role) =>
+      closingAllowedRoles.includes(role),
+    );
+    if (!closedByRole) {
+      throw new Error("Forbidden: closing authority");
+    }
+    const now = Date.now();
+    const closingId = await ctx.db.insert("proposalClosings", {
+      brokerageId: auth.brokerage._id,
+      buildStartDate: args.buildStartDate.trim(),
+      closedAt: now,
+      closedByRole,
+      closedByWorkosUserId: auth.subject,
+      createdAt: now,
+      ianaTimezone: timezone,
+      loanFacility: {
+        interestAnnualBps: args.loanFacility.interestAnnualBps,
+        principalCents: args.loanFacility.principalCents,
+      },
+      organizationId: auth.organizationId,
+      proposalId: args.proposalId,
+      reason: args.reason.trim(),
+    });
+    await ctx.db.patch(args.proposalId, {
+      closedAt: now,
+      status: "closed",
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "recordProposalClosing",
+      eventType: "proposal.closed",
+      newState: JSON.stringify({ closingId, status: "closed" }),
+      priorState: "approved",
+      proposalId: args.proposalId,
+      reason: args.reason,
+    });
+    return { closingId };
+  })
+  .public();
+
+export const activateClosedProposal = authenticatedMutation
+  .input({
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.object({ buildId: v.id("activeBuilds") }))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposalLifecycleActor(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    if (!auth.isCurrentLenderActor) {
+      requireAnyRole(auth.roles, APPROVER_ROLES);
+      requireBackofficeProposalWrite(auth, auth.proposal);
+    }
+    requireState(auth.proposal, "closed");
+    requireReason(args.reason);
+    const closings = await ctx.db
+      .query("proposalClosings")
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", args.proposalId),
+      )
+      .take(2);
+    if (closings.length > 1) {
+      throw new Error("Proposal has multiple closing records.");
+    }
+    const closing = closings[0];
+    if (!closing) {
+      throw new Error("Closed proposal is missing a closing record.");
+    }
+    if (auth.proposal.activeBuildId) {
+      const existingBuild = await ctx.db.get(auth.proposal.activeBuildId);
+      if (!existingBuild) {
+        throw new Error("Proposal activation record is inconsistent.");
+      }
+      return { buildId: existingBuild._id };
+    }
+    const timezone = validateBuildTimezone(closing.ianaTimezone);
+    const buildStartDate = closing.buildStartDate;
+    const loanFacility = closing.loanFacility;
     const assignedBuilderProfileId = assignedBuilderProfileIdOrThrow(
       auth.proposal,
-      "Closing requires an assigned builder.",
+      "Activation requires an assigned builder.",
     );
+    if (!auth.proposal.workflowRuleSnapshotId) {
+      throw new Error("Closed proposal is missing workflow rule snapshot.");
+    }
 
     const now = Date.now();
     const permit = await getPermitDocument(ctx, args.proposalId);
@@ -6276,13 +6491,13 @@ export const recordOfflineClosing = authenticatedMutation
       locationLatitude: auth.proposal.locationLatitude,
       locationLongitude: auth.proposal.locationLongitude,
       locationPlaceId: auth.proposal.locationPlaceId,
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
       permitDocumentId: permit?._id,
       permitWaiverId: permitWaiver?._id,
       proposalId: args.proposalId,
-      startDate: args.buildStartDate,
+      startDate: buildStartDate,
       status:
-        new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now
+        new Date(`${buildStartDate}T00:00:00Z`).getTime() > now
           ? "future_start"
           : "active",
       timezone,
@@ -6302,7 +6517,7 @@ export const recordOfflineClosing = authenticatedMutation
       brokerageId: auth.brokerage._id,
       buildId,
       createdAt: now,
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
       role: "primary",
     });
     await ctx.db.insert("loanFacilities", {
@@ -6310,15 +6525,15 @@ export const recordOfflineClosing = authenticatedMutation
       buildId,
       createdAt: now,
       facilityKind: "construction",
-      interestAnnualBps: args.loanFacility.interestAnnualBps,
-      interestAccrualStartDate: args.buildStartDate,
+      interestAnnualBps: loanFacility.interestAnnualBps,
+      interestAccrualStartDate: buildStartDate,
       interestStartsOn: "funds_released",
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
       paybackDate: addDaysIso(
-        args.buildStartDate,
+        buildStartDate,
         auth.proposal.timelineRangeMax ?? 365,
       ),
-      principalCents: args.loanFacility.principalCents,
+      principalCents: loanFacility.principalCents,
       proposalId: args.proposalId,
       status: "active",
       updatedAt: now,
@@ -6337,7 +6552,7 @@ export const recordOfflineClosing = authenticatedMutation
       buildId,
       createdAt: now,
       lenderDrawPolicyLimitCents: auth.proposal.lenderDrawPolicyLimitCents,
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
       proposalId: args.proposalId,
       source: "proposal_closing_copy",
       updatedAt: now,
@@ -6376,7 +6591,7 @@ export const recordOfflineClosing = authenticatedMutation
         key: milestone.key,
         name: milestone.name,
         order: milestone.order,
-        organizationId: args.workosOrganizationId,
+        organizationId: auth.organizationId,
         policyState: milestone.policyState,
         planningState: "active",
         proposalMilestoneId: milestone._id,
@@ -6418,7 +6633,7 @@ export const recordOfflineClosing = authenticatedMutation
         milestoneKey: submilestone.milestoneKey,
         name: submilestone.name,
         order: submilestone.order,
-        organizationId: args.workosOrganizationId,
+        organizationId: auth.organizationId,
         proposalSubmilestoneId: submilestone._id,
         planningState: "active",
         startDay: submilestone.startDay,
@@ -6429,7 +6644,7 @@ export const recordOfflineClosing = authenticatedMutation
         brokerageId: auth.brokerage._id,
         buildId,
         buildSubmilestoneId,
-        organizationId: args.workosOrganizationId,
+        organizationId: auth.organizationId,
         proposalId: args.proposalId,
         proposalSubmilestoneId: submilestone._id,
       });
@@ -6437,7 +6652,7 @@ export const recordOfflineClosing = authenticatedMutation
         brokerageId: auth.brokerage._id,
         buildId,
         buildSubmilestoneId,
-        organizationId: args.workosOrganizationId,
+        organizationId: auth.organizationId,
         proposalId: args.proposalId,
         proposalSubmilestoneId: submilestone._id,
       });
@@ -6467,7 +6682,7 @@ export const recordOfflineClosing = authenticatedMutation
         label: draw.label,
         milestoneKey: draw.milestoneKey,
         order: draw.order,
-        organizationId: args.workosOrganizationId,
+        organizationId: auth.organizationId,
         proposalDrawScheduleRowId: draw._id,
         requestNote: draw.requestNote,
         requestReviewNote: draw.requestReviewNote,
@@ -6517,9 +6732,9 @@ export const recordOfflineClosing = authenticatedMutation
           createdAt: now,
           endDate: undefined,
           notes: assignment.notes,
-          organizationId: args.workosOrganizationId,
+          organizationId: auth.organizationId,
           role: assignment.role,
-          startDate: args.buildStartDate,
+          startDate: buildStartDate,
           status: "active",
           updatedAt: now,
         },
@@ -6576,13 +6791,13 @@ export const recordOfflineClosing = authenticatedMutation
         estimatedHours: assignment.estimatedHours,
         milestoneKey: assignment.milestoneKey,
         note: assignment.note,
-        organizationId: args.workosOrganizationId,
+        organizationId: auth.organizationId,
         postHoc: false,
         role: assignment.role,
         status:
           assignment.status === "completed"
             ? "completed"
-            : new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now
+            : new Date(`${buildStartDate}T00:00:00Z`).getTime() > now
               ? "planned"
               : "active",
         submilestoneKey: assignment.submilestoneKey,
@@ -6596,16 +6811,16 @@ export const recordOfflineClosing = authenticatedMutation
         subject: auth.subject,
       },
       buildId,
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
       proposalId: args.proposalId,
       now,
     });
     await copyProposalCapitalEventsToActiveBuild(ctx, {
       brokerageId: auth.brokerage._id,
       buildId,
-      buildStartDate: args.buildStartDate,
+      buildStartDate,
       now,
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
       proposal: auth.proposal,
     });
     await ctx.db.insert("capitalEvents", {
@@ -6613,26 +6828,24 @@ export const recordOfflineClosing = authenticatedMutation
       brokerageId: auth.brokerage._id,
       buildId,
       createdAt: now,
-      eventDate: args.buildStartDate,
+      eventDate: buildStartDate,
       eventType: "borrower_copay",
       label: "Capital plan opened at loan closing",
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
     });
 
     await ctx.db.patch(args.proposalId, {
       activeBuildId: buildId,
-      closedAt: now,
-      status: "closed",
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     });
     await upsertKanbanCard(ctx, args.proposalId, now);
     await writeProposalEvent(ctx, {
       auth,
-      command: "recordOfflineClosing",
-      eventType: "proposal.closed",
-      newState: "closed",
-      priorState: "approved",
+      command: "activateClosedProposal",
+      eventType: "proposal.build_activated",
+      newState: JSON.stringify({ buildId, status: "active" }),
+      priorState: "closed",
       proposalId: args.proposalId,
       reason: args.reason,
     });
@@ -6659,7 +6872,7 @@ export const recordOfflineClosing = authenticatedMutation
           subject: auth.subject,
         },
         build,
-        command: "recordOfflineClosing",
+        command: "activateClosedProposal",
         eventType: "active_build.created",
         newState: JSON.stringify({ buildId, proposalId: args.proposalId }),
         reason: args.reason,
@@ -6669,11 +6882,11 @@ export const recordOfflineClosing = authenticatedMutation
       brokerageId: auth.brokerage._id,
       createdAt: now,
       eventType: "active_build.created",
-      organizationId: args.workosOrganizationId,
+      organizationId: auth.organizationId,
       payloadPreview: JSON.stringify({
         buildId,
         proposalId: args.proposalId,
-        startDate: args.buildStartDate,
+        startDate: buildStartDate,
       }),
       relatedEntityId: buildId,
       relatedEntityType: "activeBuild",
@@ -8549,6 +8762,13 @@ export const getProposalDetail = authenticatedQuery
       ctx,
       args.proposalId,
     );
+    const currentLenderApproval = currentLenderAssignment
+      ? await getCurrentProposalLenderApproval(
+          ctx,
+          args.proposalId,
+          currentLenderAssignment._id,
+        )
+      : null;
     const latestLenderAssignment = await ctx.db
       .query("proposalLenderAssignments")
       .withIndex("by_proposal", (query) =>
@@ -8558,7 +8778,12 @@ export const getProposalDetail = authenticatedQuery
       .take(1);
     const lenderAssignmentState =
       currentLenderAssignment !== null
-        ? { state: "assigned" as const, lenderConfirmation: "pending" as const }
+        ? {
+            state: "assigned" as const,
+            lenderConfirmation: currentLenderApproval
+              ? ("approved" as const)
+              : ("pending" as const),
+          }
         : latestLenderAssignment[0]?.status === "withdrawn"
           ? {
               state: "withdrawn" as const,
@@ -33403,6 +33628,185 @@ async function getCurrentProposalLenderAssignment(
     throw new Error("Proposal has multiple current lender assignments.");
   }
   return assignments[0] ?? null;
+}
+
+type ProposalLifecycleActorAuth = {
+  brokerage: Doc<"brokerages">;
+  currentLenderAssignment: Doc<"proposalLenderAssignments"> | null;
+  isCurrentLenderActor: boolean;
+  organizationId: string;
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+};
+
+async function authorizeProposalLifecycleActor(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  proposalId: Id<"buildProposals">,
+  workosOrganizationId: string,
+): Promise<ProposalLifecycleActorAuth> {
+  const proposal = await ctx.db.get(proposalId);
+  if (!proposal) {
+    throw new Error("Forbidden: proposal scope");
+  }
+
+  if (workosOrganizationId === proposal.organizationId) {
+    const auth = await authorizeProposal(
+      ctx,
+      proposalId,
+      workosOrganizationId,
+    );
+    return {
+      ...auth,
+      currentLenderAssignment: await getCurrentProposalLenderAssignment(
+        ctx,
+        proposalId,
+      ),
+      isCurrentLenderActor: false,
+      organizationId: proposal.organizationId,
+    };
+  }
+
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+  const authorization = await resolveActiveLenderOrganizationContext(
+    ctx,
+    identity,
+    "lenderOrganization",
+  );
+  if (
+    authorization.activeOrganization.workosOrganizationId !==
+    workosOrganizationId
+  ) {
+    throw new Error("Forbidden: active lender organization");
+  }
+  const currentLenderAssignment = await getCurrentProposalLenderAssignment(
+    ctx,
+    proposalId,
+  );
+  if (
+    !currentLenderAssignment ||
+    currentLenderAssignment.lenderOrganizationId !== workosOrganizationId
+  ) {
+    throw new Error("Forbidden: current lender assignment");
+  }
+  const brokerage = await ctx.db.get(proposal.brokerageId);
+  if (!brokerage || brokerage.status !== "active") {
+    throw new Error("Forbidden: proposal brokerage");
+  }
+  return {
+    brokerage,
+    currentLenderAssignment,
+    isCurrentLenderActor: true,
+    organizationId: proposal.organizationId,
+    proposal,
+    roles: normalizeRoleSlugs(authorization.viewer.roles),
+    subject: authorization.viewer.subject,
+  };
+}
+
+async function getCurrentProposalLenderApproval(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+  assignmentId: Id<"proposalLenderAssignments">,
+) {
+  const approvals = await ctx.db
+    .query("proposalLenderApprovals")
+    .withIndex("by_proposal_assignment_status", (query) =>
+      query
+        .eq("proposalId", proposalId)
+        .eq("assignmentId", assignmentId)
+        .eq("status", "approved"),
+    )
+    .take(2);
+  if (approvals.length > 1) {
+    throw new Error("Proposal has multiple current lender approvals.");
+  }
+  return approvals[0] ?? null;
+}
+
+async function isActiveEligibleLenderApproval(
+  ctx: QueryCtx | MutationCtx,
+  approval: Doc<"proposalLenderApprovals">,
+  assignment: Doc<"proposalLenderAssignments">,
+) {
+  if (approval.lenderOrganizationId !== assignment.lenderOrganizationId) {
+    return false;
+  }
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_workos_user_id", (query) =>
+      query.eq("workosUserId", approval.approverWorkosUserId),
+    )
+    .unique();
+  if (!user || user.status !== "active") {
+    return false;
+  }
+  const membership = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user_and_organization", (query) =>
+      query
+        .eq("workosUserId", approval.approverWorkosUserId)
+        .eq("workosOrganizationId", assignment.lenderOrganizationId),
+    )
+    .first();
+  if (!membership || membership.status !== "active") {
+    return false;
+  }
+  const roles = normalizeRoleSlugs([
+    membership.roleSlug,
+    ...membership.roleSlugs,
+  ]);
+  return roles.some((role) =>
+    lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+  );
+}
+
+async function evaluateProposalClosingEligibility(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">,
+  currentLenderAssignment: Doc<"proposalLenderAssignments"> | null,
+) {
+  const reasons: string[] = [];
+  if (proposal.status !== "approved") {
+    reasons.push("Proposal must be approved before closing.");
+  }
+  if (proposal.reviewOutcome !== "approved") {
+    reasons.push("Current Back Office approval is required before closing.");
+  }
+  if (!proposal.workflowRuleSnapshotId) {
+    reasons.push("Approved proposal is missing workflow rule snapshot.");
+  }
+  if (!proposal.builderProfileId) {
+    reasons.push("Closing requires an assigned builder.");
+  }
+
+  let lenderApproval: Doc<"proposalLenderApprovals"> | null = null;
+  if (currentLenderAssignment) {
+    lenderApproval = await getCurrentProposalLenderApproval(
+      ctx,
+      proposal._id,
+      currentLenderAssignment._id,
+    );
+    if (
+      !lenderApproval ||
+      !(await isActiveEligibleLenderApproval(
+        ctx,
+        lenderApproval,
+        currentLenderAssignment,
+      ))
+    ) {
+      reasons.push("One eligible active lender approval is required before closing.");
+    }
+  }
+
+  return {
+    eligible: reasons.length === 0,
+    lenderApproval,
+    reasons,
+  };
 }
 
 async function resolveEligibleExternalLenderOrganization(

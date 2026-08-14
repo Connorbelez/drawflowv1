@@ -4577,7 +4577,7 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "record_proposal_closing":
-      return await runDomainMutation(ctx, "recordOfflineClosing", {
+      return await runDomainMutation(ctx, "recordProposalClosing", {
         buildStartDate: requiredString(
           input.buildStartDate ?? input.startDate,
           "buildStartDate"

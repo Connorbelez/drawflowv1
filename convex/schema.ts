@@ -3540,6 +3540,44 @@ export default defineSchema({
       "lenderOrganizationId",
     ])
     .index("by_lender_organization", ["lenderOrganizationId"]),
+  proposalLenderApprovals: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    assignmentId: v.id("proposalLenderAssignments"),
+    lenderOrganizationId: v.string(),
+    approverWorkosUserId: v.string(),
+    approverRole: v.string(),
+    status: v.union(v.literal("approved"), v.literal("declined")),
+    reason: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    declinedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_assignment", ["proposalId", "assignmentId"])
+    .index("by_proposal_assignment_status", [
+      "proposalId",
+      "assignmentId",
+      "status",
+    ])
+    .index("by_assignment", ["assignmentId"]),
+  proposalClosings: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    buildStartDate: v.string(),
+    ianaTimezone: v.string(),
+    loanFacility: v.object({
+      interestAnnualBps: v.number(),
+      principalCents: v.number(),
+    }),
+    closedAt: v.number(),
+    closedByWorkosUserId: v.string(),
+    closedByRole: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  }).index("by_proposal", ["proposalId"]),
   proposalDocuments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

@@ -92,8 +92,8 @@ async function seedFixture() {
     reason: "Review fixture is ready to close.",
     workosOrganizationId: ORG,
   });
-  const closing = await admin.mutation(
-    (api as any).production_proposals.recordOfflineClosing,
+  await admin.mutation(
+    (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-05-01",
       ianaTimezone: "America/Toronto",
@@ -101,6 +101,14 @@ async function seedFixture() {
         interestAnnualBps: 925,
         principalCents: 55_000_000,
       },
+      proposalId,
+      reason: "Review fixture loan closed.",
+      workosOrganizationId: ORG,
+    },
+  );
+  const closing = await admin.mutation(
+    (api as any).production_proposals.activateClosedProposal,
+    {
       proposalId,
       reason: "Review fixture loan closed.",
       workosOrganizationId: ORG,

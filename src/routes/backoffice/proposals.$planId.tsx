@@ -401,7 +401,10 @@ function ProposalReviewRoute() {
     api.production_proposals.approveProposal
   );
   const recordProductionClosing = useMutation(
-    api.production_proposals.recordOfflineClosing
+    api.production_proposals.recordProposalClosing
+  );
+  const activateClosedProposal = useMutation(
+    api.production_proposals.activateClosedProposal
   );
   const createProposalCostItem = useMutation(
     api.production_proposals.createProposalCostItem
@@ -690,8 +693,8 @@ function ProposalReviewRoute() {
             to: "/backoffice/proposals/$planId",
           })
         }
-        onClose={(buildStartDate, reason, ianaTimezone) =>
-          recordProductionClosing({
+        onClose={async (buildStartDate, reason, ianaTimezone) => {
+          await recordProductionClosing({
             buildStartDate,
             ianaTimezone,
             loanFacility: {
@@ -703,14 +706,18 @@ function ProposalReviewRoute() {
             proposalId,
             reason,
             workosOrganizationId,
-          }).then((result) => {
-            toast.success("Closing recorded.");
-            void navigate({
-              params: { buildId: result.buildId },
-              to: "/backoffice/builds/$buildId",
-            });
-          })
-        }
+          });
+          const result = await activateClosedProposal({
+            proposalId,
+            reason,
+            workosOrganizationId,
+          });
+          toast.success("Closing recorded and Build activated.");
+          void navigate({
+            params: { buildId: result.buildId },
+            to: "/backoffice/builds/$buildId",
+          });
+        }}
         onCommitCalendarEdit={commitCalendarEdit}
         onCreateCalendarReminderEvent={
           canUseAppPermission(appPermissions, "reminder", "create")

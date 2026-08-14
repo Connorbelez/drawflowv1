@@ -390,6 +390,21 @@ async function submitProposalForTest(
   });
 }
 
+async function closeAndActivateProposal(t: any, input: any) {
+  await t.mutation(
+    (api as any).production_proposals.recordProposalClosing,
+    input,
+  );
+  return await t.mutation(
+    (api as any).production_proposals.activateClosedProposal,
+    {
+      proposalId: input.proposalId,
+      reason: input.reason,
+      workosOrganizationId: input.workosOrganizationId,
+    },
+  );
+}
+
 async function createSubmittedProposal(
   t: any,
   seed: any,
@@ -516,9 +531,7 @@ async function createClosedSingleMilestoneBuild(
     workosOrganizationId,
   });
 
-  return await t.mutation(
-    (api as any).production_proposals.recordOfflineClosing,
-    {
+  return await closeAndActivateProposal(t, {
       buildStartDate: "2026-05-01",
       ianaTimezone: options.ianaTimezone ?? "America/Toronto",
       loanFacility: {
@@ -528,8 +541,7 @@ async function createClosedSingleMilestoneBuild(
       proposalId,
       reason: "Loan closed offline.",
       workosOrganizationId,
-    },
-  );
+  });
 }
 
 async function seedCanonicalSiteVisitGuidanceForBuild(
@@ -1174,6 +1186,200 @@ describe("production proposal foundation", () => {
     ).rejects.toThrow("no eligible active lender user");
   });
 
+  test("records closing separately from activation and replays activation safely", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Separate closing proposal",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before separate closing.",
+      workosOrganizationId: ORG,
+    });
+
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordProposalClosing,
+      {
+        buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Record the loan closing before activation.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const afterClosing = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(closing.closingId).toBeDefined();
+    expect(afterClosing.proposal.status).toBe("closed");
+    expect(afterClosing.activeBuild).toBeNull();
+    expect(afterClosing.lifecycle).toMatchObject({
+      activation: "inactive",
+      closing: "closed",
+    });
+    const persistedClosing: any = await base.run((ctx: any) =>
+      ctx.db
+        .query("proposalClosings")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .unique(),
+    );
+    expect(persistedClosing?._id).toBe(closing.closingId);
+
+    const activated = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Activate the separately closed Build.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(activated.buildId).toBeDefined();
+    const replay = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Replay the activation safely.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toEqual(activated);
+    await expect(
+      t.mutation((api as any).production_proposals.recordProposalClosing, {
+        buildStartDate: "2026-08-02",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Reject a duplicate closing.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("already recorded");
+  });
+
+  test("requires current lender approval and permits the assigned lender to close and activate", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_closing_lender",
+      userId: "user_closing_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "External closing eligibility proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before external closing eligibility.",
+      workosOrganizationId: ORG,
+    });
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.organizationId,
+        proposalId,
+        reason: "Assign lender for closing eligibility.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const lenderViewer = withIdentity(
+      base,
+      ["admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await expect(
+      t.mutation((api as any).production_proposals.recordProposalClosing, {
+        buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Reject closing before lender approval.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("eligible active lender approval");
+
+    const approval = await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Confirm the current proposal for closing.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(approval.approvalId).toBeDefined();
+    await expect(
+      lenderViewer.mutation(
+        (api as any).production_proposals.approveExternalProposalForClosing,
+        {
+          proposalId,
+          reason: "Do not replay lender approval.",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("already recorded");
+
+    const closing = await lenderViewer.mutation(
+      (api as any).production_proposals.recordProposalClosing,
+      {
+        buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Lender records the eligible closing.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(closing.closingId).toBeDefined();
+    const activated = await lenderViewer.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Lender activates the closed Build.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(activated.buildId).toBeDefined();
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.lifecycle).toMatchObject({
+      activation: "active",
+      closing: "closed",
+      externalAssignment: "assigned",
+      lenderConfirmation: "approved",
+    });
+    const persistedApproval = await base.run((ctx: any) =>
+      ctx.db
+        .query("proposalLenderApprovals")
+        .withIndex("by_proposal_assignment", (query: any) =>
+          query
+            .eq("proposalId", proposalId)
+            .eq("assignmentId", assignment.assignmentId),
+        )
+        .unique(),
+    );
+    expect(persistedApproval).toMatchObject({
+      _id: approval.approvalId,
+      status: "approved",
+      approverWorkosUserId: lender.userId,
+    });
+  });
+
   test("persists an explicit Build IANA timezone and rejects invalid closing input", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const valid = await createClosedSingleMilestoneBuild(t, seed, {
@@ -1451,9 +1657,7 @@ describe("production proposal foundation", () => {
     expect(approved.proposal.status).toBe("approved");
     expect(approved.activeBuild).toBeNull();
 
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -1463,8 +1667,7 @@ describe("production proposal foundation", () => {
         proposalId,
         reason: "Loan closed offline.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
 
     const closed = await t.query(
       (api as any).production_proposals.getProposalDetail,
@@ -1594,9 +1797,7 @@ describe("production proposal foundation", () => {
       ),
     ).toBe(false);
 
-    const closing = await admin.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(admin, {
         buildStartDate: "2026-08-02",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -1606,8 +1807,7 @@ describe("production proposal foundation", () => {
         proposalId,
         reason: "Closed for activation scope test.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
 
     const blocked = withIdentity(base, ["builder"], "user_other_builder");
     const otherOrgAdmin = (
@@ -1808,9 +2008,7 @@ describe("production proposal foundation", () => {
       reason: "Material planning detail reviewed.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2026-08-15",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -1820,8 +2018,7 @@ describe("production proposal foundation", () => {
         proposalId,
         reason: "Loan closed offline.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
     const buildDetail = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
@@ -4510,9 +4707,7 @@ describe("production proposal foundation", () => {
       reason: "Schedule reviewed.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2025-05-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -4522,8 +4717,7 @@ describe("production proposal foundation", () => {
         proposalId,
         reason: "Loan closed with updated start date.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
     const closed = await t.query(
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
@@ -4715,9 +4909,7 @@ describe("production proposal foundation", () => {
       reason: "Adjusted draw schedule approved.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2026-08-15",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -4727,8 +4919,7 @@ describe("production proposal foundation", () => {
         proposalId,
         reason: "Loan closed offline.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
     const closed = await t.query(
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
@@ -7156,9 +7347,7 @@ describe("production proposal foundation", () => {
       reason: "Ready for active build workspace.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -7168,8 +7357,7 @@ describe("production proposal foundation", () => {
         proposalId,
         reason: "Loan closed offline.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
     await seedCanonicalSiteVisitGuidanceForBuild(t, closing.buildId);
 
     const principalRequestId = await builder.mutation(
@@ -10167,9 +10355,7 @@ describe("production proposal foundation", () => {
       reason: "Ready to close.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2026-05-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -10179,8 +10365,7 @@ describe("production proposal foundation", () => {
         proposalId,
         reason: "Loan closed offline.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
 
     const builder = withIdentity(base, ["builder"], "user_builder");
     const actualStartedAt = Date.parse("2026-05-03T14:30:00.000Z");
@@ -15442,9 +15627,7 @@ describe("Sub-milestone Scope and Field Guidance lineage", () => {
       reason: "Scope closing lineage is approved.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2026-08-20",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -15454,8 +15637,7 @@ describe("Sub-milestone Scope and Field Guidance lineage", () => {
         proposalId,
         reason: "Close the approved Scope package.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
 
     const after = await t.run(async (ctx: any) => {
       const contract = before.contract
@@ -18179,9 +18361,7 @@ describe("draft builder assignment and deletion", () => {
       reason: "Ready to close.",
       workosOrganizationId: ORG,
     });
-    const closing = await admin.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(admin, {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -18191,8 +18371,7 @@ describe("draft builder assignment and deletion", () => {
         proposalId,
         reason: "Closed for delete test.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
 
     await admin.mutation((api as any).production_proposals.deleteActiveBuild, {
       buildId: closing.buildId,
@@ -18861,9 +19040,7 @@ describe("integration operations", () => {
       reason: "Approved with documented secondary takeout.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
-      {
+    const closing = await closeAndActivateProposal(t, {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
         loanFacility: {
@@ -18873,8 +19050,7 @@ describe("integration operations", () => {
         proposalId,
         reason: "Closed with approved secondary facility.",
         workosOrganizationId: ORG,
-      },
-    );
+    });
 
     const closedState = await t.run(async (ctx: any) => ({
       capitalEvents: await ctx.db
