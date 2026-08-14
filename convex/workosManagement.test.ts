@@ -52,7 +52,7 @@ function lenderAdminTest() {
 const fixtureTime = "2026-05-01T00:00:00.000Z";
 
 async function projectWorkosFixture(
-  t: ReturnType<typeof convexTest>,
+  t: any,
   event: string,
   id: string,
   data: Record<string, unknown>,
@@ -86,6 +86,11 @@ async function seedScopedWorkosProjectionState(t: any) {
       email: "foreign@example.com",
       id: "user_foreign",
       name: "Foreign User",
+    },
+    {
+      email: "builder@example.com",
+      id: "user_builder_fixture",
+      name: "Builder Member",
     },
   ]) {
     await projectWorkosFixture(t, "user.created", `seed_${user.id}`, {
@@ -135,6 +140,12 @@ async function seedScopedWorkosProjectionState(t: any) {
       organizationId: "org_foreign",
       roleSlugs: ["builder"],
       userId: "user_foreign",
+    },
+    {
+      id: "om_builder_fixture",
+      organizationId: "org_fixture",
+      roleSlugs: ["builder"],
+      userId: "user_builder_fixture",
     },
   ]) {
     await projectWorkosFixture(
@@ -876,6 +887,14 @@ describe("WorkOS management actions", () => {
       reason: "principal-broker-transfer-required",
       status: "transfer-required",
     });
+    await expect(
+      admin.action(api.workosManagement.transferPrincipalBroker, {
+        idempotencyKey: "reject-builder-target",
+        reason: "This target is not a lender organization member.",
+        sourceMembershipId: "om_principal_fixture",
+        targetMembershipId: "om_builder_fixture",
+      }),
+    ).rejects.toThrow(/lender organization member/i);
 
     const principalProjection = await admin.run(async (ctx: any) =>
       ctx.db
@@ -1088,6 +1107,8 @@ describe("WorkOS management actions", () => {
         .unique(),
     );
     expect(command).toMatchObject({ status: "accepted" });
+    expect(command.failureStage).toBeUndefined();
+    expect(command.safeError).toBeUndefined();
   });
 
   test("retries from a target-promotion rejection without reporting false success", async () => {

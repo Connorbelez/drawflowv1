@@ -3,7 +3,7 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { ActionCtx, QueryCtx } from "./_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import {
   type AuthorizedViewer,
   adminAction,
@@ -732,13 +732,18 @@ export const updateMembershipRoles = userManagementWriteAction
       );
     }
     const adapter = getWorkosManagementAdapter();
+    const normalizedArgs = {
+      membershipId: args.membershipId,
+      primaryRoleSlug: roleSlugs[0],
+      roleSlugs,
+    };
     try {
-      const update = await adapter.updateMembershipRoles(args);
+      const update = await adapter.updateMembershipRoles(normalizedArgs);
       await auditMembershipCommandAccepted(ctx, context, {
         command: "updateMembershipRoles",
         membershipId: args.membershipId,
         newState: {
-          roleSlugs: orderedManagementRoleSlugs(args),
+          roleSlugs,
           status: "active",
         },
       });
@@ -1026,12 +1031,10 @@ export const beginPrincipalBrokerTransfer = publicMutation
       .order("desc")
       .first();
     if (acceptedAwaitingReconciliation) {
-      const activeMemberships = await ctx.db
-        .query("workosOrganizationMemberships")
-        .withIndex("by_organization", (query) =>
-          query.eq("workosOrganizationId", args.organizationId)
-        )
-        .take(501);
+      const activeMemberships = await listBoundedOrganizationMemberships(
+        ctx,
+        args.organizationId
+      );
       const activePrincipals = activeMemberships.filter(
         (membership) =>
           membership.status === "active" &&
@@ -1076,15 +1079,10 @@ export const beginPrincipalBrokerTransfer = publicMutation
     ) {
       throw new Error("Forbidden: active transfer membership scope");
     }
-    const activeMemberships = await ctx.db
-      .query("workosOrganizationMemberships")
-      .withIndex("by_organization", (query) =>
-        query.eq("workosOrganizationId", args.organizationId)
-      )
-      .take(501);
-    if (activeMemberships.length > 500) {
-      throw new Error("Forbidden: organization membership limit exceeded");
-    }
+    const activeMemberships = await listBoundedOrganizationMemberships(
+      ctx,
+      args.organizationId
+    );
     const activePrincipals = activeMemberships.filter(
       (membership) =>
         membership.status === "active" &&
@@ -1110,6 +1108,15 @@ export const beginPrincipalBrokerTransfer = publicMutation
         (role) => role !== "principle-broker"
       ),
     ];
+    if (
+      !targetRoleSlugs.every((role) =>
+        lenderRoleSlugs.includes(role as LenderRoleSlug)
+      )
+    ) {
+      throw new Error(
+        "Principal Broker transfer requires a lender organization member"
+      );
+    }
     const now = Date.now();
     const commandId = await ctx.db.insert("workosManagementOperations", {
       actorRoles: args.actorRoles,
@@ -1157,8 +1164,8 @@ export const updatePrincipalBrokerTransferState = publicMutation
       throw new Error("Principal Broker transfer command not found");
     }
     await ctx.db.patch(args.commandId, {
-      ...(args.failureStage ? { failureStage: args.failureStage } : {}),
-      ...(args.safeError ? { safeError: args.safeError } : {}),
+      failureStage: args.failureStage,
+      safeError: args.safeError,
       status: args.status,
       updatedAt: Date.now(),
     });
@@ -2009,6 +2016,22 @@ function projectedMembershipRoleSlugs(
     ...(membership.roleSlug ? [membership.roleSlug] : []),
     ...membership.roleSlugs,
   ]);
+}
+
+async function listBoundedOrganizationMemberships(
+  ctx: Pick<MutationCtx, "db">,
+  organizationId: string
+) {
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization", (query) =>
+      query.eq("workosOrganizationId", organizationId)
+    )
+    .take(501);
+  if (memberships.length > 500) {
+    throw new Error("Forbidden: organization membership limit exceeded");
+  }
+  return memberships;
 }
 
 function assertDifferentTransferMemberships(args: {
