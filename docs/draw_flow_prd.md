@@ -1201,6 +1201,42 @@ Must include:
 - warnings,
 - role-specific actions.
 
+### Canonical Milestone Detail and Review Sheet
+
+Builder, Back Office, and Lender personas use one canonical Milestone detail
+and review sheet over the same Milestone record. The accepted information
+architecture is the promoted Variant A Lender Milestone Review prototype:
+
+1. **Overview** contains canonical scope, lifecycle, Sub-milestones, Site
+   Visits, review state, approval-policy progress, and retained audit history.
+2. **Evidence** aggregates authorized evidence from the Milestone's canonical
+   Sub-milestones. Every asset remains linked to its owning Sub-milestone.
+3. **Receipts / invoices** aggregates canonical cost documents and exposes the
+   documented total, subtotal, tax, and authorized source-file actions.
+4. **Collaboration** aggregates canonical Sub-milestone discussion threads.
+   The sheet must not introduce a second comment store.
+
+The active route determines which persona-specific facts, tabs, and commands
+are presented; the actor's organization, assignment, role, permissions, and
+locked Build policy cap those commands. A user with several roles receives the
+active route's action set, not the union of every role's controls.
+
+- Builder routes show requirements, authorized evidence, high-level review
+  state, and permitted submission/correction actions. They do not show reviewer
+  identity, internal votes, or private rejection rationale.
+- Back Office routes may expose review, Site Visit, approval, rejection, and
+  correction commands only through the existing governed workflow.
+- Lender routes use the same sheet and may expose review, approval, and
+  rejection commands only when the locked Build policy and lender-quorum
+  authorization permit them.
+
+The canonical production component is `MilestoneDetailSheet`. New work must
+extend or compose that component and its existing route adapters. It must not
+rebuild the approved layout, create a persona-specific Milestone sheet, or own
+parallel Milestone, evidence, Site Visit, cost-document, collaboration,
+approval, or audit records. The normative implementation contract is
+`docs/specs/lender-milestone-review-and-decision.md`.
+
 ## 12.2 Builder Interfaces
 
 1. Build Proposal Start.
@@ -1330,6 +1366,21 @@ Must include:
 - Admin can request more information.
 - Admin can override staff/site visit recommendation with reason.
 - Approval history is audited.
+- Locked Build policy may require Back Office approval only, lender quorum only,
+  or both. When both are required, they are independent peer gates and may be
+  satisfied in either order.
+- A required completed Site Visit is satisfied only when its canonical package
+  contains a report and at least one photo. The satisfying visit may be
+  completed by an authorized Lender or Back Office actor.
+- When receipt/invoice matching is required, the documented total must equal
+  actual cost before the Builder submits the completion request.
+- Reviewers must receive the evidence relevant to every required gate.
+- Rejection requires a private reason, returns the same request record to the
+  Builder for correction and resubmission, retains history, and resets every
+  required approval for the next review cycle.
+- Builder-visible review state is limited to requirements and high-level
+  status. Reviewer identity, internal votes, and rejection rationale remain
+  private.
 
 ## 13.10 Draw Release
 

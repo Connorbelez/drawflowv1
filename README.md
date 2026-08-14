@@ -21,6 +21,26 @@ v1 uses a strict reimbursement model: builders complete work first, upload evide
 
 DrawFlow is a FairLend module first, but architecture must remain standalone-ready: WorkOS organization scoping, tenant-scoped domain entities, RBAC, API-first boundaries, external ID mapping, webhook events, and clean separation between FairLend-specific workflows and generic construction-lending workflows.
 
+## Canonical Milestone Detail and Review
+
+Builder, Back Office, and Lender routes must use the same canonical Milestone
+detail surface and Milestone record. The accepted interface is Variant A of the
+Lender Milestone Review prototype, promoted through the existing
+`MilestoneDetailSheet`; it is not a separate lender-owned implementation.
+
+The shared information architecture is Overview, Evidence, Receipts / invoices,
+and Collaboration. The active route selects the available actions, while the
+actor's permissions cap those actions. Builder routes must not expose reviewer
+identity or private rejection rationale. Back Office and Lender routes must use
+the existing governed review, revision, authorization, and audit boundaries.
+
+Future work must modify this shared sheet instead of rebuilding it or creating
+persona-specific Milestone, evidence, Site Visit, cost-document, collaboration,
+or approval state. Read the normative
+[Milestone Review and Decision specification](docs/specs/lender-milestone-review-and-decision.md)
+and the [accepted design decision](docs/lender_milestone_detail_sheet_default_decision.md)
+before changing any Milestone detail or review surface.
+
 ## Core Concepts
 
 - **Build**: top-level construction project financed by a construction loan.

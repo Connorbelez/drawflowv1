@@ -3,6 +3,9 @@
 Status: implemented for the existing Builder and Back Office production routes;
 locked as the shared surface contract for the external Lender route.
 
+Normative implementation specification:
+`docs/specs/lender-milestone-review-and-decision.md`.
+
 ## Decision
 
 The Milestone detail sheet demonstrated at

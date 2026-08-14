@@ -144,6 +144,40 @@ shared lender shell and existing UI primitives.
 `/lender/milestones-prototype?variant=C`, composed with
 `LenderPrototypeShell.tsx`.
 
+## Canonical Milestone Detail and Review Sheet
+
+**Purpose:** Define the one shared Milestone detail and decision surface used by
+Builder, Back Office, and Lender routes over the same canonical Milestone.
+
+**Selected status:** Variant A, **Approved, locked, and promoted to
+production**. Later A-D structural explorations were rejected as drift and must
+not be used as alternative implementation designs.
+
+**Locked contract:** Preserve Overview, Evidence, Receipts / invoices, and
+Collaboration. Evidence is an aggregated image-card gallery with owning
+Sub-milestone links. Cost-document rows show subtotal, tax, and the authorized
+open/download action. Collaboration aggregates canonical Sub-milestone
+discussion threads. Sub-milestone cards show Approved, Pending Review, or
+Rejected and separately show required Back Office and lender-quorum gates when
+verified policy facts are available.
+
+**Role and lifecycle boundary:** The active route selects Builder, Back Office,
+or Lender actions, and canonical permissions cap them. Builder views do not
+expose reviewer identity, internal votes, or private rejection rationale.
+Rejection requires a private reason, returns the same request record for
+correction and resubmission, retains history, and resets required approvals.
+Reviewer actions reuse the existing governed Review workflow.
+
+**Canonical reuse boundary:** Production must extend
+`../../features/backoffice-build-detail/MilestoneDetailSheet.tsx` through its existing route
+adapters. It must not create a parallel sheet or duplicate Milestone,
+Sub-milestone, evidence, Site Visit, cost-document, collaboration, review,
+approval, or audit state. The normative contract is
+`../../../docs/specs/lender-milestone-review-and-decision.md`.
+
+**Prototype:** `../../routes/lender.milestone-review-prototype.tsx` at
+`/lender/milestone-review-prototype?variant=A`.
+
 ## Lender Draw Queue
 
 **Purpose:** Explore how a lender scans assigned Draw requests and chooses the
