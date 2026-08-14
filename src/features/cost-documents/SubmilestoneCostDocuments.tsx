@@ -61,9 +61,11 @@ export function DocumentedCostCoverage({
 export function CostDocumentFileList({
   documents,
   onOpenCostDocument,
+  onOpenPage,
 }: {
   documents: SubmilestoneCostDocument[];
   onOpenCostDocument?: (costDocumentId: string) => void;
+  onOpenPage?: (page: SubmilestoneCostDocument["pages"][number]) => void;
 }) {
   if (documents.length === 0) {
     return (
@@ -92,6 +94,17 @@ export function CostDocumentFileList({
                   variant="link"
                 >
                   <span className="truncate">{page.fileName}</span>
+                </Button>
+              ) : onOpenPage ? (
+                <Button
+                  className="h-auto p-0"
+                  onClick={() => onOpenPage(page)}
+                  size="sm"
+                  title={`Open or download ${document.title}`}
+                  type="button"
+                  variant="link"
+                >
+                  Open / download <ExternalLink aria-hidden="true" />
                 </Button>
               ) : (
                 <span className="truncate text-sm">{page.fileName}</span>

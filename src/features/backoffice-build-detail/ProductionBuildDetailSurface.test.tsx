@@ -35,7 +35,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 });
 
 vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn(),
+  useMutation: () =>
+    vi.fn().mockResolvedValue("https://example.test/source-document.pdf"),
   usePaginatedQuery: () => {
     if (convexMocks.paginatedQueryError) {
       throw convexMocks.paginatedQueryError;
@@ -46,11 +47,32 @@ vi.mock("convex/react", () => ({
       status: "Exhausted",
     };
   },
-  useQuery: (reference: unknown) =>
-    getFunctionName(reference as Parameters<typeof getFunctionName>[0]) ===
-    "build_collaboration_rollout:getBuildCollaborationRolloutState"
-      ? convexMocks.collaborationRolloutState
-      : undefined,
+  useQuery: (reference: unknown) => {
+    const name = getFunctionName(
+      reference as Parameters<typeof getFunctionName>[0]
+    );
+    if (
+      name === "build_collaboration_rollout:getBuildCollaborationRolloutState"
+    ) {
+      return convexMocks.collaborationRolloutState;
+    }
+    if (
+      name ===
+      "build_submilestone_workspace:getBuildSubmilestoneWorkspaceBootstrap"
+    ) {
+      if (convexMocks.collaborationRolloutState.status !== "active") {
+        return undefined;
+      }
+      return {
+        capabilities: {
+          canonical: { approveChild: { allowed: true } },
+          review: { requestChanges: { allowed: true } },
+        },
+        submilestone: { buildSubmilestoneId: "sub-01" },
+      };
+    }
+    return undefined;
+  },
 }));
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
@@ -2345,6 +2367,7 @@ describe("ProductionBuildDetailSurface", () => {
         rail="closed"
         viewerCapacity="admin"
         viewerRole="lender"
+        workosOrganizationId="org_1"
       />,
     );
 

@@ -227,7 +227,12 @@ describe("MilestoneDetailSheet", () => {
   test("aggregates evidence and cost documents across canonical children", () => {
     const onOpenCanonicalTarget = vi.fn();
     const onOpenCostDocument = vi.fn();
-    renderSheet({ onOpenCanonicalTarget, onOpenCostDocument });
+    const onOpenCostDocumentPage = vi.fn();
+    renderSheet({
+      onOpenCanonicalTarget,
+      onOpenCostDocument,
+      onOpenCostDocumentPage,
+    });
 
     fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
     expect(screen.getByText("Builder evidence")).toBeTruthy();
@@ -239,8 +244,11 @@ describe("MilestoneDetailSheet", () => {
     );
 
     fireEvent.click(screen.getByRole("tab", { name: "Receipts / invoices" }));
-    fireEvent.click(screen.getByRole("button", { name: "footing-invoice.pdf" }));
-    expect(onOpenCostDocument).toHaveBeenCalledWith("cost-document-forms");
+    fireEvent.click(screen.getAllByRole("button", { name: /Open \/ download/ })[0]);
+    expect(onOpenCostDocumentPage).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: "cost-document-page-forms" })
+    );
+    expect(onOpenCostDocument).not.toHaveBeenCalled();
   });
 
   test("shows review gates and only exposes governed reviewer menu actions when supplied", () => {

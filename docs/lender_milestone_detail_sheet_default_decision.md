@@ -1,13 +1,13 @@
 # Canonical Milestone detail sheet direction
 
-Status: implemented as the shared production Milestone detail surface.
+Status: implemented for the existing Builder and Back Office production routes;
+locked as the shared surface contract for the external Lender route.
 
 ## Decision
 
 The Milestone detail sheet demonstrated at
 `/lender/milestone-review-prototype?variant=A` is the source design for the
-default Milestone detail surface used by Builder, Back Office, and Lender
-routes.
+default Milestone detail surface for Builder, Back Office, and Lender routes.
 
 There must be one canonical Milestone detail surface and one canonical
 Milestone record. Role-specific pages should compose role-aware tabs, facts,
@@ -57,10 +57,12 @@ decisions route into the existing governed Sub-milestone Review tab; they do
 not duplicate review mutations, authorization, revision checks, or audit
 history in the parent sheet.
 
-The current production review contract exposes the existing Back Office gate.
-The shared card model can display a distinct lender quorum gate, but a Lender
-route must populate and authorize that gate from the locked Build approval
-policy when the external Lender organization and quorum backend is introduced.
+The current production child-review contract exposes canonical review state
+and capability-aware Back Office decision entrypoints, but it does not expose
+the locked Build approval-policy gates. The sheet therefore omits Back Office
+and lender-quorum gate badges unless a route supplies verified policy facts.
+The external Lender route must populate and authorize those gates from its
+locked Build policy when its organization and quorum backend is introduced.
 The UI must not infer quorum from Back Office roles or manufacture a parallel
 approval record.
 

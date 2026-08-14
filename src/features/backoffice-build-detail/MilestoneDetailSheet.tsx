@@ -202,6 +202,13 @@ export interface MilestoneSheetData {
   submittedAt?: number;
 }
 
+export interface MilestoneCostDocumentPage {
+  assetId: string;
+  downloadUrl?: string;
+  fileName: string;
+  mimeType: string;
+}
+
 /**
  * Parent Milestone aggregate/detail surface.
  *
@@ -232,6 +239,7 @@ export interface MilestoneDetailSheetProps {
     context?: BuildDetailTargetContext
   ) => void;
   onOpenCostDocument?: (costDocumentId: string) => void;
+  onOpenCostDocumentPage?: (page: MilestoneCostDocumentPage) => void;
   onReject?: (milestoneKey: string) => void;
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
@@ -247,6 +255,10 @@ export interface MilestoneDetailSheetProps {
   pending?: boolean;
   /** Optional route-specific review facts composed into the shared Overview. */
   reviewLayer?: ReactNode;
+  /** Canonical route adapter for capability-aware child decision menu items. */
+  renderSubmilestoneReviewItems?: (
+    row: MilestoneSheetSubmilestone
+  ) => ReactNode;
   siteVisits?: BrokerageSiteVisitsResult;
   /** Governed reviewer entrypoints. Omit for Builder and read-only routes. */
   submilestoneReviewActions?: {
@@ -268,6 +280,7 @@ export function MilestoneDetailSheet({
   onClose,
   onOpenCanonicalTarget,
   onOpenCostDocument,
+  onOpenCostDocumentPage,
   onReject,
   onRequestInfo,
   onStartWork,
@@ -275,6 +288,7 @@ export function MilestoneDetailSheet({
   pending: externalPending,
   collaboration,
   reviewLayer,
+  renderSubmilestoneReviewItems,
   submilestoneReviewActions,
   siteVisits,
 }: MilestoneDetailSheetProps) {
@@ -440,6 +454,7 @@ export function MilestoneDetailSheet({
                 onOpenCostDocument={onOpenCostDocument}
                 openCanonicalForRow={openCanonicalForRow}
                 reviewLayer={reviewLayer}
+                renderSubmilestoneReviewItems={renderSubmilestoneReviewItems}
                 rows={rows}
                 siteVisits={siteVisits}
                 submilestoneReviewActions={submilestoneReviewActions}
@@ -455,6 +470,7 @@ export function MilestoneDetailSheet({
               <MilestoneCostDocumentAggregate
                 onOpen={openCanonicalForRow}
                 onOpenCostDocument={onOpenCostDocument}
+                onOpenCostDocumentPage={onOpenCostDocumentPage}
                 rows={rows}
               />
             </TabsPanel>
@@ -565,6 +581,7 @@ function MilestoneOverviewContent({
   onOpenCostDocument,
   openCanonicalForRow,
   reviewLayer,
+  renderSubmilestoneReviewItems,
   rows,
   siteVisits,
   submilestoneReviewActions,
@@ -579,6 +596,7 @@ function MilestoneOverviewContent({
     selectedTab: BuildSubmilestoneDetailTab
   ) => boolean;
   reviewLayer?: ReactNode;
+  renderSubmilestoneReviewItems?: MilestoneDetailSheetProps["renderSubmilestoneReviewItems"];
   rows: MilestoneSheetSubmilestone[];
   siteVisits?: BrokerageSiteVisitsResult;
   submilestoneReviewActions?: MilestoneDetailSheetProps["submilestoneReviewActions"];
@@ -612,6 +630,7 @@ function MilestoneOverviewContent({
                   onOpen={(tab) => openCanonicalForRow(row, tab)}
                   onOpenCostDocument={onOpenCostDocument}
                   row={row}
+                  reviewItems={renderSubmilestoneReviewItems?.(row)}
                   submilestoneReviewActions={submilestoneReviewActions}
                 />
               ))}
@@ -783,12 +802,14 @@ function ParentScopeRow({
   onOpen,
   onOpenCostDocument,
   row,
+  reviewItems,
   submilestoneReviewActions,
 }: {
   canOpenCanonicalTarget: boolean;
   onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
   onOpenCostDocument?: (costDocumentId: string) => void;
   row: MilestoneSheetSubmilestone;
+  reviewItems?: ReactNode;
   submilestoneReviewActions?: MilestoneDetailSheetProps["submilestoneReviewActions"];
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -873,6 +894,7 @@ function ParentScopeRow({
                   : undefined
               }
               reviewState={row.review?.state}
+              reviewItems={reviewItems}
               submilestoneName={row.name}
             />
           </CardAction>
@@ -1051,6 +1073,7 @@ function SubmilestoneActionsMenu({
   onOpen,
   onReject,
   reviewState,
+  reviewItems,
   submilestoneName,
 }: {
   hasCanonicalTarget: boolean;
@@ -1058,6 +1081,7 @@ function SubmilestoneActionsMenu({
   onOpen: (tab: BuildSubmilestoneDetailTab) => boolean;
   onReject?: () => void;
   reviewState?: SubmilestoneReviewState;
+  reviewItems?: ReactNode;
   submilestoneName: string;
 }) {
   return (
@@ -1126,6 +1150,7 @@ function SubmilestoneActionsMenu({
               </span>
             </DropdownMenuItem>
           ) : null}
+          {reviewItems}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1223,9 +1248,7 @@ function MilestoneEvidenceAggregate({
   rows: MilestoneSheetSubmilestone[];
 }) {
   const evidence = rows.flatMap((row) =>
-    row.evidence
-      .filter((asset) => asset.source !== "site_visit")
-      .map((asset) => ({ asset, row }))
+    row.evidence.map((asset) => ({ asset, row }))
   );
 
   return (
@@ -1277,6 +1300,7 @@ function MilestoneEvidenceAggregate({
 function MilestoneCostDocumentAggregate({
   onOpen,
   onOpenCostDocument,
+  onOpenCostDocumentPage,
   rows,
 }: {
   onOpen: (
@@ -1284,6 +1308,7 @@ function MilestoneCostDocumentAggregate({
     tab: BuildSubmilestoneDetailTab
   ) => boolean;
   onOpenCostDocument?: (costDocumentId: string) => void;
+  onOpenCostDocumentPage?: (page: MilestoneCostDocumentPage) => void;
   rows: MilestoneSheetSubmilestone[];
 }) {
   const documentedCents = rows.reduce(
@@ -1335,7 +1360,10 @@ function MilestoneCostDocumentAggregate({
               </div>
               <CostDocumentFileList
                 documents={row.costDocuments ?? []}
-                onOpenCostDocument={onOpenCostDocument}
+                onOpenCostDocument={
+                  onOpenCostDocumentPage ? undefined : onOpenCostDocument
+                }
+                onOpenPage={onOpenCostDocumentPage}
               />
             </section>
           ))}

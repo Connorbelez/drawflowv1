@@ -75,6 +75,12 @@ export interface CostDocumentSummary {
   currency: "CAD";
   documentDate: string;
   duplicateWarning?: boolean;
+  financialComponents?: Array<{
+    amountCents: number;
+    kind: "subtotal" | "tax" | "fee" | "discount";
+    label?: string;
+    order: number;
+  }>;
   grossTotalCents: number;
   integrity?: { healthy: boolean; openExceptionKinds: string[] };
   kind: "invoice" | "receipt";
