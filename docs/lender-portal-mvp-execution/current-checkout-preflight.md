@@ -262,12 +262,17 @@ producing a decision. The user explicitly superseded the pending independent
 gate so execution could continue. Evidence records state this override rather
 than representing the missing Pi decision as independent acceptance.
 
-All five Phase 1 packets are verified. Phase 2 remains out of scope until a new
-explicit implementation instruction confirms the target checkout and reruns
-the dependency and consumer preflight.
+All five Phase 1 packets are verified. The user then explicitly authorized
+Phase 2 implementation in the dedicated checkout above; the Phase 2 dependency
+and consumer preflight was rerun there before `LP-P2-01` started.
 
 The preparation checkout has canonical owners plus an explicit fresh-inventory
 step in every later packet whose concrete file owner can drift before its
 dependency is implemented. All 45 work packages and eight later-phase handoffs
 are bounded and dependency ordered. They are now reconciled to the accepted
-Phase 1 product SHA. No Phase 2–9 product implementation has started.
+Phase 1 product SHA. No Phase 3–9 product implementation has started.
+
+The Phase 2 implementation checkout subsequently completed `LP-P2-01` through
+`LP-P2-04` in dependency order. Their exact package evidence is recorded in
+the evidence directory, and `LP-P2-05` remains the independent certification
+owner. The preparation checkout remains untouched.
