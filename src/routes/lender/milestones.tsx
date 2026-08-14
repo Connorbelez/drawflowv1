@@ -8,9 +8,11 @@ export const Route = createFileRoute("/lender/milestones")({
 function LenderMilestoneQueue() {
   return (
     <LenderShell activeNavigation="Milestones" pageTitle="Milestone queue">
-      <main className="flex-1 p-4 sm:p-6">
-        <LenderMilestoneQueueVariantC />
-      </main>
+      <div className="min-h-[calc(100vh-3.5rem)] bg-muted/30">
+        <main className="mx-auto min-w-0 max-w-[1440px] p-4">
+          <LenderMilestoneQueueVariantC />
+        </main>
+      </div>
     </LenderShell>
   );
 }

@@ -206,40 +206,41 @@ assets.
 
 ## Back Office Approval and Lender Assignment
 
-**Purpose:** Compare three ways to embed an external Lender Organization
-assignment trigger into the existing production proposal detail and complete
-the assignment in a focused modal. This is not a replacement proposal screen.
+**Purpose:** Embed external Lender Organization assignment into the existing
+production proposal detail. This is not a replacement proposal screen.
 
-**Selection status:** No variant is accepted or locked. Variants A, B, and C are
-local comparison hypotheses pending explicit human selection. Product
-implementation is blocked pending that selected prototype variant; no variant
-may be selected, promoted, or replaced by inference from requirements.
+**Selection status:** Variant A was explicitly approved and locked on
+2026-08-13. The selected interaction is a compact **External lender** row in the
+existing proposal header that opens one focused assignment modal. Variants B
+and C were comparison hypotheses and are not part of the locked surface.
 
-**Variant hypotheses:**
-
-- Variant A adds a compact header action and opens one focused assignment form.
-- Variant B adds an External lender panel to the Review context column and uses
-  a two-step choose-then-confirm flow.
-- Variant C places lender assignment beside the Closing prerequisite and uses a
-  split selection-and-impact dialog.
+Selection records the future promotion contract only. It does not authorize
+production integration, loaders, persistence, authorization, or domain work in
+this prototype task.
 
 **Interaction and data constraints:**
 
-- All variants render the real `ProductionProposalReviewSurface` with its
-  approved visual-parity fixture. The trigger and modal are prototype-only
-  additions injected without changing the production component.
+- Variant A renders the real `ProductionProposalReviewSurface` with its approved
+  visual-parity fixture. The trigger and modal are prototype-only additions
+  injected without changing the production component.
 - A successful assignment changes local in-memory state only. Refresh or
-  variant change restores the unassigned fixture. No proposal, assignment,
-  policy, confirmation, closing, activation, or audit record is persisted.
-- The modal assigns exactly one canonical brokerage-scoped WorkOS organization
-  through the existing DrawFlow assignment boundary. It does not expose user
-  administration or imply that an organization role carries approval weight.
+  direct navigation restores the unassigned fixture. No proposal, assignment,
+  policy, confirmation, withdrawal, closing, activation, or audit record is
+  persisted.
+- The modal assigns exactly one application-owned external Lender Organization.
+  It does not expose user administration, model a Lender Organization as a
+  WorkOS organization, or imply that organization membership carries approval
+  weight.
 - The assignment impact is limited to current-revision lender access, lender
   confirmation before external closing, and confirmation of the configured
   review policy.
-- Every assignment modal shows the current representative review-policy state
-  and links to **Edit review policy**; the lender lists in Variants B and C use
-  bounded vertical scrolling for larger eligible-organization sets.
+- The focused modal shows the current representative review-policy state and
+  links to **Edit review policy**. Changing that policy creates a new proposal
+  revision and requires full lender reconfirmation.
+- The assigned state names the next actor and closing gate. Before closing, the
+  Back Office Admin can use the focused withdrawal confirmation to remove
+  current lender authority, restore internal closing, and preserve the former
+  lender's authorized read-only historical record.
 
 **Canonical reuse boundary:** The production Back Office proposal detail is the
 visible host and proposal source of truth. The existing Back Office Review
@@ -247,6 +248,15 @@ Requirements Setup remains the policy authoring surface. The locked lender
 Proposal Review remains the confirmation contract. This prototype adds no
 parallel proposal, policy, identity, assignment, audit, or authorization
 system.
+
+**Impeccable application-pipeline interaction contract:** The primary actor is
+the Back Office Admin. The primary job is to assign exactly one eligible
+external Lender Organization to an approved external-capital proposal while
+keeping the current revision, current review policy, next actor, and closing
+effect visible. Keyboard focus returns to the header trigger after dismissal,
+selection changes clear acknowledgement, completion is announced, long names
+wrap, and modal content remains scrollable on narrow viewports. Builder-facing
+lender identity and private lender rationale remain excluded.
 
 **Prototype:**
 `../../routes/backoffice/proposals/lender-assignment-prototype.tsx` at

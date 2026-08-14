@@ -56,6 +56,7 @@ The normal promotion order is:
 | Lender Organization Management | `lender.organization-management-prototype.tsx`, Variant E | Promote the shared user-management table/detail-sheet contract only through the canonical organization/membership authority boundary. |
 | Lender Proposal Review | `lender.proposal-confirmation-prototype.tsx`, Variant D | Promote the Back Office Proposal Packet host plus right-side lender confirmation sheet, five acknowledgements, audit evidence, confirmation gate, and decline-reason gate. |
 | Back Office Review Requirements Setup | `backoffice/proposals/review-requirements-prototype.tsx`, Variant A | Promote the Closing-workspace policy configuration/lock model; do not build a standalone policy system. |
+| Back Office Approval and Lender Assignment | `backoffice/proposals/lender-assignment-prototype.tsx`, Variant A, approved and locked 2026-08-13 | Preserve the compact External lender row in the canonical proposal header and its single focused assignment modal. Keep policy editing, guided lender confirmation, closing, and activation as separate existing transitions. |
 | Lender Build Detail Overview | `lender.build-detail-overview-prototype.tsx`, Variant C, approved and locked 2026-08-13 | Promote the compact Precision console: narrow Build overview, expandable Milestone ledger with canonical budget, receipt/invoice coverage, actual-or-planned date ranges and a focused read-only Milestone sheet; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration. Do not promote the full Build Workspace or add overview decisions. |
 | Lender Milestone Queue | `lender.milestones-prototype.tsx`, Variant C | Promote evidence-rich workflow lanes over canonical current-cycle Milestone projections. |
 | Canonical Milestone Detail and Review Sheet | `lender.milestone-review-prototype.tsx`, Variant A | Promoted through the shared `MilestoneDetailSheet`; preserve the four-tab hierarchy, role-aware actions, verified policy gates, canonical child records, privacy, correction/resubmission, and audit ownership. |
@@ -239,7 +240,6 @@ for an explicit selected/approved/locked result and a registry update.
 
 | Surface set | Prototype route/pending location | Status |
 | --- | --- | --- |
-| Back Office Approval and Lender Assignment | dedicated Back Office proposal prototype, Variants A-C | Awaiting decision |
 | Builder Draw Needs Revision | canonical Draw-detail integration not yet prototyped | Awaiting decision; the locked Milestone layout must not be inferred as the Draw layout |
 | Lender Proposal List | no prototype selected | Deferred placeholder |
 
