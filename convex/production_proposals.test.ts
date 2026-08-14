@@ -1131,6 +1131,31 @@ describe("production proposal foundation", () => {
         }),
       ],
     });
+
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordProposalClosing,
+      {
+        buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Close after the external assignment was withdrawn.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(closing.closingId).toBeDefined();
+    const activated = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Activate the internal closing path.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(activated.buildId).toBeDefined();
   });
 
   test("rejects internal-capital and ineligible-organization assignments", async () => {
@@ -1328,6 +1353,56 @@ describe("production proposal foundation", () => {
         },
       ),
     ).rejects.toThrow("already recorded");
+
+    await base.run(async (ctx: any) => {
+      const memberships = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user_and_organization", (query: any) =>
+          query
+            .eq("workosUserId", lender.userId)
+            .eq("workosOrganizationId", lender.organizationId),
+        )
+        .collect();
+      const membership = memberships[0];
+      if (!membership) {
+        throw new Error("Missing lender membership for deactivation test.");
+      }
+      await ctx.db.patch(membership._id, {
+        status: "inactive",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.recordProposalClosing, {
+        buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Reject close after lender membership deactivation.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("eligible active lender approval");
+    await base.run(async (ctx: any) => {
+      const memberships = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user_and_organization", (query: any) =>
+          query
+            .eq("workosUserId", lender.userId)
+            .eq("workosOrganizationId", lender.organizationId),
+        )
+        .collect();
+      const membership = memberships[0];
+      if (!membership) {
+        throw new Error("Missing lender membership after deactivation test.");
+      }
+      await ctx.db.patch(membership._id, {
+        status: "active",
+        updatedAt: Date.now(),
+      });
+    });
 
     const closing = await lenderViewer.mutation(
       (api as any).production_proposals.recordProposalClosing,
