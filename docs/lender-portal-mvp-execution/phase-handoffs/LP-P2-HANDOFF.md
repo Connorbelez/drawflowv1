@@ -2,8 +2,8 @@
 
 Handoff ID: LP-HO-P2
 
-Status: ready; no work package is authorized to start by this
-document alone.
+Status: in-progress; `LP-P2-01` is the sole active work package on the
+dedicated Phase 2 checkout.
 
 ## Phase 1 baseline
 

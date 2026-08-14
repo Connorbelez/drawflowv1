@@ -774,7 +774,7 @@
     {
       "id": "LP-P2-01",
       "phase": 2,
-      "status": "ready",
+      "status": "in-progress",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P2-01-proposal-lifecycle-state-machine.md",
       "dependsOn": [
         "LP-P1-05"

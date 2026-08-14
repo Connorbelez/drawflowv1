@@ -686,6 +686,84 @@ function findLegacyDrawOperationCollision(input: {
 }
 
 describe("production proposal foundation", () => {
+  test("projects explicit capital, approval, closing, and activation axes", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Explicit lifecycle proposal",
+        location: "12 State Machine Street",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 35_000_000,
+        capitalSource: "external",
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the external proposal for lender assignment.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.approveProposal, {
+        proposalId,
+        reason: "Do not replay the approval transition.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("requires state submitted");
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    expect(detail.proposal.capitalSource).toBe("external");
+    expect(detail.proposal.backOfficeApprovedByWorkosUserId).toBe("user_admin");
+    expect(detail.lifecycle).toEqual({
+      activation: "inactive",
+      backOfficeApproval: "approved",
+      capitalSource: "external",
+      closing: "pending_closing",
+      externalAssignment: "unassigned",
+      lenderConfirmation: "pending",
+      proposalState: "approved",
+    });
+    expect(detail.activeBuild).toBeNull();
+  });
+
   test("persists an explicit Build IANA timezone and rejects invalid closing input", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const valid = await createClosedSingleMilestoneBuild(t, seed, {

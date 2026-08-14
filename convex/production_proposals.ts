@@ -134,6 +134,11 @@ import {
   pushProposalPlanningSnapshot,
   shareTokenHash,
 } from "./proposal_collaboration_model";
+import {
+  assertProposalLifecycleTransition,
+  projectProposalLifecycle,
+  proposalCapitalSources,
+} from "./production_proposal_lifecycle";
 
 type ProductionSettingsSiteVisitGuidanceInput = Parameters<
   typeof coerceSiteVisitGuidanceInput
@@ -471,6 +476,11 @@ const documentInput = v.object({
   sizeBytes: v.number(),
   storageId: v.optional(v.id("_storage")),
 });
+
+const proposalCapitalSourceInput = v.union(
+  v.literal(proposalCapitalSources[0]),
+  v.literal(proposalCapitalSources[1]),
+);
 
 const proposalDraftDrawInput = v.object({
   amountCents: v.number(),
@@ -1344,6 +1354,7 @@ export const createDraftProposal = authenticatedMutation
   .input({
     assignedBrokerWorkosUserId: v.optional(v.string()),
     brokerageId: v.id("brokerages"),
+    capitalSource: v.optional(proposalCapitalSourceInput),
     builderProfileId: v.id("builderProfiles"),
     buildName: v.string(),
     location: v.string(),
@@ -1402,6 +1413,7 @@ export const createDraftProposal = authenticatedMutation
       borrowerWorkingCapitalLimitCents: 0,
       buildName: args.buildName,
       builderProfileId: args.builderProfileId,
+      capitalSource: args.capitalSource ?? "internal",
       createdAt: now,
       createdByWorkosUserId: auth.subject,
       interestAnnualBps: 925,
@@ -1449,6 +1461,7 @@ export const createDraftProposal = authenticatedMutation
 export const createBrokerDraftProposal = authenticatedMutation
   .input({
     assignedBrokerWorkosUserId: v.optional(v.string()),
+    capitalSource: v.optional(proposalCapitalSourceInput),
     buildName: v.optional(v.string()),
     location: v.optional(v.string()),
     locationLatitude: v.optional(v.number()),
@@ -1484,6 +1497,7 @@ export const createBrokerDraftProposal = authenticatedMutation
       borrowerStartingCashCents: 0,
       borrowerWorkingCapitalLimitCents: 0,
       buildName: args.buildName?.trim() || "Unassigned broker draft",
+      capitalSource: args.capitalSource ?? "internal",
       createdAt: now,
       createdByWorkosUserId: auth.subject,
       interestAnnualBps: 925,
@@ -1536,6 +1550,7 @@ export const saveDraftProposalPackage = authenticatedMutation
     // Deprecated compatibility input for clients deployed before the cutover.
     borrowerWorkingCapitalLimitCents: v.optional(v.number()),
     buildName: v.optional(v.string()),
+    capitalSource: v.optional(proposalCapitalSourceInput),
     contractorAssignments: v.optional(
       v.array(proposalDraftContractorAssignmentInput),
     ),
@@ -1746,6 +1761,9 @@ export const saveDraftProposalPackage = authenticatedMutation
       // Dual-write until the legacy field is narrowed out after backfill.
       borrowerWorkingCapitalLimitCents: normalizedBorrowerStartingCashCents,
       buildName: args.buildName?.trim() || auth.proposal.buildName,
+      ...(args.capitalSource === undefined
+        ? {}
+        : { capitalSource: args.capitalSource }),
       lenderDrawPolicyLimitCents: args.lenderDrawPolicyLimitCents,
       location: args.location?.trim() || auth.proposal.location,
       ...(args.proposedStartDate === undefined
@@ -2953,7 +2971,10 @@ export const submitProposal = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId,
     );
-    requireState(auth.proposal, "draft");
+    assertProposalLifecycleTransition({
+      command: "submit",
+      state: auth.proposal.status,
+    });
     if (!isBackoffice(auth.roles)) {
       const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
       await assertBuilderOwnership(ctx, builderProfileId, auth.subject);
@@ -3010,6 +3031,7 @@ export const submitProposal = authenticatedMutation
       workflowRuleId: workflowRule._id,
     });
     await ctx.db.patch(args.proposalId, {
+      backOfficeApprovedByWorkosUserId: undefined,
       reviewOutcome: "none",
       status: "submitted",
       submittedAt: now,
@@ -3044,7 +3066,10 @@ export const requestChanges = authenticatedMutation
       args.workosOrganizationId,
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
-    requireState(auth.proposal, "submitted");
+    assertProposalLifecycleTransition({
+      command: "request_changes",
+      state: auth.proposal.status,
+    });
     requireReason(args.reason);
     const now = Date.now();
     await ctx.db.patch(args.proposalId, {
@@ -3081,7 +3106,10 @@ export const rejectProposal = authenticatedMutation
       args.workosOrganizationId,
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
-    requireState(auth.proposal, "submitted");
+    assertProposalLifecycleTransition({
+      command: "reject",
+      state: auth.proposal.status,
+    });
     requireReason(args.reason);
     const now = Date.now();
     await ctx.db.patch(args.proposalId, {
@@ -3117,7 +3145,10 @@ export const approveProposal = authenticatedMutation
       args.workosOrganizationId,
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
-    requireState(auth.proposal, "submitted");
+    assertProposalLifecycleTransition({
+      command: "approve",
+      state: auth.proposal.status,
+    });
     requireReason(args.reason);
     const snapshot = await getWorkflowSnapshot(ctx, auth.proposal);
     const permit = await getPermitDocument(ctx, args.proposalId);
@@ -3149,6 +3180,7 @@ export const approveProposal = authenticatedMutation
     const now = Date.now();
     await ctx.db.patch(args.proposalId, {
       approvedAt: now,
+      backOfficeApprovedByWorkosUserId: auth.subject,
       reviewOutcome: "approved",
       status: "approved",
       updatedAt: now,
@@ -8304,6 +8336,7 @@ export const getProposalDetail = authenticatedQuery
         : [],
       documents: await withDocumentStorageUrls(ctx, documents),
       events,
+      lifecycle: projectProposalLifecycle(auth.proposal),
       milestones: canUseAppPermission(appPermissions, "milestone", "view")
         ? milestones
         : [],
@@ -40696,6 +40729,7 @@ async function ensureSeedScenarioProposal(
     borrowerWorkingCapitalLimitCents: 40_000_000,
     buildName: input.buildName,
     builderProfileId: input.builderProfileId,
+    capitalSource: "internal",
     createdAt: input.now,
     createdByWorkosUserId: "user_builder",
     interestAnnualBps: 925,
@@ -41031,6 +41065,7 @@ async function seedSubmitProposal(
     workflowRuleId: workflowRule._id,
   });
   await ctx.db.patch(input.proposalId, {
+    backOfficeApprovedByWorkosUserId: undefined,
     reviewOutcome: "none",
     status: "submitted",
     submittedAt: input.now,

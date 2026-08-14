@@ -139,14 +139,17 @@ independent Pi reviewer did not return a decision, so the user explicitly
 exercised human acceptance authority and superseded that pending gate on
 2026-08-14.
 
-Phase 1 is closed. Starting Phase 2 requires a new explicit implementation
-instruction, a target-checkout confirmation, a fresh preflight inventory, and
-only the next dependency-unblocked Phase 2 packet may move to `in-progress`.
+Phase 1 is closed. The explicit Phase 2 implementation instruction, dedicated
+target checkout, fresh preflight inventory, and execution validator gate have
+passed. Only the next dependency-unblocked Phase 2 packet may move to
+`in-progress`.
 
 The repository is also prepared through all 45 Phase 1–9 work-package
 definitions and eight Phase 2–9 handoffs. Those handoffs are reconciled to the
 accepted Phase 1 product SHA above. No Phase 2–9 work package is in progress,
-and no product-code change is authorized by this execution pack alone.
+and no product-code change is authorized by this execution pack alone. The
+dedicated Phase 2 checkout now has `LP-P2-01` in progress; its immutable
+package-start SHA is `d3d75341fb662242a4d18c92337975f5d637a31e`.
 
 Phase 2 implementation is authorized only in the dedicated checkout recorded
 in `current-checkout-preflight.md`. The preparation checkout remains

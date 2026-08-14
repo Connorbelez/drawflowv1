@@ -3482,6 +3482,9 @@ export default defineSchema({
     borrowerWorkingCapitalLimitCents: v.number(),
     lenderDrawPolicyLimitCents: v.number(),
     borrowerCoPayBps: v.number(),
+    capitalSource: v.optional(
+      v.union(v.literal("internal"), v.literal("external")),
+    ),
     borrowerCoPayCents: v.optional(v.number()),
     interestAnnualBps: v.optional(v.number()),
     timelineCurrentDay: v.optional(v.number()),
@@ -3498,6 +3501,7 @@ export default defineSchema({
     activeBuildId: v.optional(v.id("activeBuilds")),
     submittedAt: v.optional(v.number()),
     approvedAt: v.optional(v.number()),
+    backOfficeApprovedByWorkosUserId: v.optional(v.string()),
     closedAt: v.optional(v.number()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),

@@ -1,6 +1,6 @@
 # LP-P2-01 — Proposal lifecycle state machine
 
-Status: ready
+Status: in-progress
 
 Depends on: LP-P1-05
 

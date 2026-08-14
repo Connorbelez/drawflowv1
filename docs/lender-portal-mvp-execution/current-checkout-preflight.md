@@ -25,7 +25,8 @@ changes again before product implementation.
 - Preparation checkout remains untouched at `08-13-lenderdashboard-prod`.
 
 The Phase 2 setup commit and the immutable `LP-P2-01` package-start SHA are
-recorded on this branch before product code changes begin.
+recorded on this branch before product code changes begin. The setup commit is
+`d3d75341fb662242a4d18c92337975f5d637a31e`; it is the clean package-start baseline for `LP-P2-01`.
 
 ## Verified canonical owners
 
