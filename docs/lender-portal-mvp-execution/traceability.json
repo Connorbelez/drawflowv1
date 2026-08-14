@@ -480,7 +480,7 @@
     {
       "id": "LP-P1-03",
       "phase": 1,
-      "status": "ready",
+      "status": "in-progress",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P1-03-membership-reconciliation-and-read-models.md",
       "dependsOn": ["LP-P1-01", "LP-P1-02"],
       "evidence": null

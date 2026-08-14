@@ -96,9 +96,10 @@ evidence attached before verification.
 
 ## Current stop point
 
-`LP-P1-01` and `LP-P1-02` are verified. `LP-P1-02` is accepted at product
-commit `360f11dd3d950a6bc896969df587ef909af45ee1`, with exact-SHA evidence attached
-at `evidence/LP-P1-02-360f11dd.md`. `LP-P1-03` is the next dependency-unblocked
-packet and remains `ready`; starting it requires a new explicit implementation
-instruction and a fresh implementation-checkout preflight. `LP-P1-04` and
-`LP-P1-05` remain ready behind their declared dependency gates.
+`LP-P1-01` and `LP-P1-02` are verified. `LP-P1-03` is in progress on branch
+`codex/lp-phase-1-completion` from verified tracking HEAD
+`83fe51d0e5d5a66add92bb5e70c08080fe3adf58`. The user explicitly authorized
+implementing `LP-P1-03` through `LP-P1-05` in dependency order with one
+consolidated independent review at the end of Phase 1. Until that review,
+`LP-P1-04` and `LP-P1-05` remain `ready` in the ledger and no unreviewed packet
+is represented as verified.

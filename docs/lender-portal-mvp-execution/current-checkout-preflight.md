@@ -145,3 +145,31 @@ The LP-P1-02 gaps are unchanged and bounded:
 No new identity, organization, membership, role, permission, brokerage, audit,
 or projection owner is required. External API, analytics, reporting, and support
 consumers remain pending for the LP-P1-05 consumer audit.
+
+## LP-P1-03 implementation-checkout rerun
+
+- Rerun: 2026-08-14
+- Implementation branch: `codex/lp-phase-1-completion`
+- Verified dependency HEAD: `83fe51d0e5d5a66add92bb5e70c08080fe3adf58`
+- Accepted LP-P1-02 product SHA: `360f11dd3d950a6bc896969df587ef909af45ee1`
+- Working tree before the rerun: clean
+- Authorization: the user explicitly authorized completing `LP-P1-03` through
+  `LP-P1-05` end to end and deferring packet review gates to one consolidated
+  Phase 1 review.
+
+The fresh consumer inventory found 1,974 role, membership, access, assignment,
+queue, recipient, quorum, notification, and audit references before
+classification. Implemented membership readers span shared authorization,
+active-Build access, broker assignments, Builder onboarding and roster,
+collaboration access and recipients, cost documents, production proposals, and
+current user-management surfaces. No production lender Organization Management
+route exists yet; the selected Variant E remains a prototype and is owned by
+`LP-P1-04`.
+
+The bounded LP-P1-03 implementation seam is one rebuildable membership-effect
+projection derived only from canonical WorkOS membership state. It must publish
+current access/role effects and named later-phase handoffs without fabricating
+proposal assignment, review-policy, quorum-satisfaction, queue, or
+transactional-recipient records. Existing canonical consumers continue to read
+the WorkOS projections directly; the effect projection describes reconciliation
+and feeds the Phase 1 organization-management UI.

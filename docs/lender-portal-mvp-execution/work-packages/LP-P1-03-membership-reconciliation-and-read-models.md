@@ -1,6 +1,6 @@
 # LP-P1-03 — Membership reconciliation and read models
 
-Status: ready
+Status: in-progress
 
 Depends on: LP-P1-01, LP-P1-02
 
