@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText } from "lucide-react";
+import { ExternalLink, FileText } from "lucide-react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -12,9 +12,12 @@ export interface SubmilestoneCostDocument {
   kind: "invoice" | "receipt";
   pages: Array<{
     assetId: string;
+    downloadUrl?: string;
     fileName: string;
     mimeType: string;
   }>;
+  subtotalCents?: number;
+  taxCents?: number;
   title: string;
 }
 
@@ -75,23 +78,73 @@ export function CostDocumentFileList({
       {documents.flatMap((document) =>
         document.pages.map((page) => (
           <li
-            className="flex min-w-0 items-center gap-2"
+            className="flex min-w-0 flex-col gap-2 py-1 sm:flex-row sm:items-center"
             key={`${document._id}:${page.assetId}`}
           >
-            <FileText aria-hidden="true" className="size-4 shrink-0" />
-            <Button
-              className="h-auto min-w-0 justify-start p-0 text-left"
-              disabled={!onOpenCostDocument}
-              onClick={() => onOpenCostDocument?.(document._id)}
-              title={`Open ${document.title}`}
-              type="button"
-              variant="link"
-            >
-              <span className="truncate">{page.fileName}</span>
-            </Button>
-            <Badge className="shrink-0" size="sm" variant="outline">
-              {humanizeStatus(document.kind)}
-            </Badge>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <FileText aria-hidden="true" className="size-4 shrink-0" />
+              {onOpenCostDocument ? (
+                <Button
+                  className="h-auto min-w-0 justify-start p-0 text-left"
+                  onClick={() => onOpenCostDocument(document._id)}
+                  title={`Open ${document.title}`}
+                  type="button"
+                  variant="link"
+                >
+                  <span className="truncate">{page.fileName}</span>
+                </Button>
+              ) : (
+                <span className="truncate text-sm">{page.fileName}</span>
+              )}
+              <Badge className="shrink-0" size="sm" variant="outline">
+                {humanizeStatus(document.kind)}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-6 text-xs tabular-nums sm:justify-end sm:pl-0">
+              <span className="text-muted-foreground">
+                Subtotal{" "}
+                <strong className="font-medium text-foreground">
+                  {formatCents(document.subtotalCents, 2)}
+                </strong>
+              </span>
+              <span className="text-muted-foreground">
+                Tax{" "}
+                <strong className="font-medium text-foreground">
+                  {formatCents(document.taxCents, 2)}
+                </strong>
+              </span>
+              {page.downloadUrl ? (
+                <Button
+                  className="h-auto p-0"
+                  render={
+                    <a
+                      aria-label={`Open or download ${document.title}`}
+                      download={page.fileName}
+                      href={page.downloadUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open / download <ExternalLink aria-hidden="true" />
+                    </a>
+                  }
+                  size="sm"
+                  title={`Open or download ${document.title}`}
+                  variant="link"
+                />
+              ) : (
+                <Button
+                  className="h-auto p-0"
+                  disabled={!onOpenCostDocument}
+                  onClick={() => onOpenCostDocument?.(document._id)}
+                  size="sm"
+                  title={`Open or download ${document.title}`}
+                  type="button"
+                  variant="link"
+                >
+                  Open / download <ExternalLink aria-hidden="true" />
+                </Button>
+              )}
+            </div>
           </li>
         ))
       )}
@@ -99,13 +152,14 @@ export function CostDocumentFileList({
   );
 }
 
-function formatCents(value?: number) {
+function formatCents(value?: number, fractionDigits = 0) {
   if (value === undefined) {
     return "Not available";
   }
   return new Intl.NumberFormat("en-CA", {
     currency: "CAD",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: fractionDigits,
     style: "currency",
   }).format(value / 100);
 }

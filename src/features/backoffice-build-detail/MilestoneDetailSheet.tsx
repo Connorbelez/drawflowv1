@@ -40,6 +40,7 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   Tooltip,
@@ -96,9 +97,12 @@ export interface MilestoneSheetSubmilestone {
     kind: "invoice" | "receipt";
     pages: Array<{
       assetId: string;
+      downloadUrl?: string;
       fileName: string;
       mimeType: string;
     }>;
+    subtotalCents?: number;
+    taxCents?: number;
     title: string;
   }>;
   description: string;
@@ -213,6 +217,12 @@ export interface MilestoneDetailSheetProps {
     note?: string;
   }) => Promise<unknown> | unknown;
   pending?: boolean;
+  /** Throwaway prototype-only aggregate tabs composed from canonical child data. */
+  prototypeAggregateTabs?: {
+    collaboration: ReactNode;
+    evidence: ReactNode;
+    receiptsInvoices: ReactNode;
+  };
   /** Throwaway prototype-only slot for comparing role-specific review layers. */
   prototypeReviewLayer?: ReactNode;
   siteVisits?: BrokerageSiteVisitsResult;
@@ -236,12 +246,14 @@ export function MilestoneDetailSheet({
   onStartWork,
   onSubmitCompletion,
   pending: externalPending,
+  prototypeAggregateTabs,
   prototypeReviewLayer,
   siteVisits,
 }: MilestoneDetailSheetProps) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [milestoneNote, setMilestoneNote] = useState("");
+  const [activeSection, setActiveSection] = useState("overview");
 
   const rows = useMemo(() => data?.submilestones ?? [], [data?.submilestones]);
   const incomplete = rows.filter((row) => row.status !== "complete");
@@ -373,61 +385,64 @@ export function MilestoneDetailSheet({
           </div>
         </SheetHeader>
 
-        <SheetPanel className="grid gap-4 px-3 sm:px-5">
-          <Frame>
-            <FramePanel className="space-y-4 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold text-base">
-                    Sub-milestone scope
-                  </h2>
-                  <p className="text-muted-foreground text-sm">
-                    Child execution, evidence, assignments, materials, and
-                    review are owned by the unified detail surface.
-                  </p>
-                </div>
-                <Badge variant="outline">
-                  {rows.length} item{rows.length === 1 ? "" : "s"}
-                </Badge>
-              </div>
-              {rows.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No child scope has been configured.
-                </p>
-              ) : (
-                <div className="grid gap-3">
-                  {rows.map((row) => (
-                    <ParentScopeRow
-                      canOpenCanonicalTarget={Boolean(onOpenCanonicalTarget)}
-                      key={row.key}
-                      onOpen={(tab) => openCanonicalForRow(row, tab)}
-                      onOpenCostDocument={onOpenCostDocument}
-                      row={row}
-                    />
-                  ))}
-                </div>
-              )}
-            </FramePanel>
-          </Frame>
-
-          {siteVisits ? (
-            <MilestoneSiteVisits rows={rows} siteVisits={siteVisits.visits} />
-          ) : null}
-
-          {localError || errorMessage ? (
-            <Frame>
-              <FramePanel className="p-3 text-destructive text-sm" role="alert">
-                {localError ?? errorMessage}
-              </FramePanel>
-            </Frame>
-          ) : null}
-
-          {prototypeReviewLayer}
-
-          {data.recentEvents.length > 0 ? (
-            <RecentActivity events={data.recentEvents} />
-          ) : null}
-        </SheetPanel>
+        {prototypeAggregateTabs ? (
+          <Tabs
+            className="min-h-0 flex-1 gap-0"
+            onValueChange={(value) => setActiveSection(String(value))}
+            value={activeSection}
+          >
+            <div className="shrink-0 border-b px-4 pt-1 sm:px-6">
+              <TabsList
+                aria-label="Milestone detail sections"
+                className="w-full max-w-full justify-start overflow-x-auto"
+                variant="underline"
+              >
+                <TabsTab value="overview">Overview</TabsTab>
+                <TabsTab value="evidence">Evidence</TabsTab>
+                <TabsTab value="receipts-invoices">Receipts / invoices</TabsTab>
+                <TabsTab value="collaboration">Collaboration</TabsTab>
+              </TabsList>
+            </div>
+            <SheetPanel className="min-h-0 px-3 sm:px-5">
+              <TabsPanel className="grid gap-4 pt-4" value="overview">
+                <MilestoneOverviewContent
+                  data={data}
+                  errorMessage={errorMessage}
+                  localError={localError}
+                  onOpenCanonicalTarget={onOpenCanonicalTarget}
+                  onOpenCostDocument={onOpenCostDocument}
+                  openCanonicalForRow={openCanonicalForRow}
+                  prototypeReviewLayer={prototypeReviewLayer}
+                  rows={rows}
+                  siteVisits={siteVisits}
+                />
+              </TabsPanel>
+              <TabsPanel className="pt-4" value="evidence">
+                {prototypeAggregateTabs.evidence}
+              </TabsPanel>
+              <TabsPanel className="pt-4" value="receipts-invoices">
+                {prototypeAggregateTabs.receiptsInvoices}
+              </TabsPanel>
+              <TabsPanel className="pt-4" value="collaboration">
+                {prototypeAggregateTabs.collaboration}
+              </TabsPanel>
+            </SheetPanel>
+          </Tabs>
+        ) : (
+          <SheetPanel className="grid gap-4 px-3 sm:px-5">
+            <MilestoneOverviewContent
+              data={data}
+              errorMessage={errorMessage}
+              localError={localError}
+              onOpenCanonicalTarget={onOpenCanonicalTarget}
+              onOpenCostDocument={onOpenCostDocument}
+              openCanonicalForRow={openCanonicalForRow}
+              prototypeReviewLayer={prototypeReviewLayer}
+              rows={rows}
+              siteVisits={siteVisits}
+            />
+          </SheetPanel>
+        )}
 
         <SheetFooter className="z-20 flex-col items-stretch gap-3 bg-background/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:flex-col sm:items-stretch sm:px-6">
           <div
@@ -514,6 +529,87 @@ export function MilestoneDetailSheet({
         </SheetFooter>
       </SheetPopup>
     </Sheet>
+  );
+}
+
+function MilestoneOverviewContent({
+  data,
+  errorMessage,
+  localError,
+  onOpenCanonicalTarget,
+  onOpenCostDocument,
+  openCanonicalForRow,
+  prototypeReviewLayer,
+  rows,
+  siteVisits,
+}: {
+  data: MilestoneSheetData;
+  errorMessage?: string;
+  localError: string | null;
+  onOpenCanonicalTarget?: MilestoneDetailSheetProps["onOpenCanonicalTarget"];
+  onOpenCostDocument?: MilestoneDetailSheetProps["onOpenCostDocument"];
+  openCanonicalForRow: (
+    row: MilestoneSheetSubmilestone | undefined,
+    selectedTab: BuildSubmilestoneDetailTab
+  ) => boolean;
+  prototypeReviewLayer?: ReactNode;
+  rows: MilestoneSheetSubmilestone[];
+  siteVisits?: BrokerageSiteVisitsResult;
+}) {
+  return (
+    <>
+      <Frame>
+        <FramePanel className="space-y-4 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-base">Sub-milestone scope</h2>
+              <p className="text-muted-foreground text-sm">
+                Child execution, evidence, assignments, materials, and review
+                are owned by the unified detail surface.
+              </p>
+            </div>
+            <Badge variant="outline">
+              {rows.length} item{rows.length === 1 ? "" : "s"}
+            </Badge>
+          </div>
+          {rows.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No child scope has been configured.
+            </p>
+          ) : (
+            <div className="grid gap-3">
+              {rows.map((row) => (
+                <ParentScopeRow
+                  canOpenCanonicalTarget={Boolean(onOpenCanonicalTarget)}
+                  key={row.key}
+                  onOpen={(tab) => openCanonicalForRow(row, tab)}
+                  onOpenCostDocument={onOpenCostDocument}
+                  row={row}
+                />
+              ))}
+            </div>
+          )}
+        </FramePanel>
+      </Frame>
+
+      {siteVisits ? (
+        <MilestoneSiteVisits rows={rows} siteVisits={siteVisits.visits} />
+      ) : null}
+
+      {localError || errorMessage ? (
+        <Frame>
+          <FramePanel className="p-3 text-destructive text-sm" role="alert">
+            {localError ?? errorMessage}
+          </FramePanel>
+        </Frame>
+      ) : null}
+
+      {prototypeReviewLayer}
+
+      {data.recentEvents.length > 0 ? (
+        <RecentActivity events={data.recentEvents} />
+      ) : null}
+    </>
   );
 }
 
@@ -874,10 +970,7 @@ function ParentScopeRow({
                 )}
               </SupportingSection>
               <Separator />
-              <SupportingSection
-                className="py-4"
-                title="Receipts / invoices"
-              >
+              <SupportingSection className="py-4" title="Receipts / invoices">
                 <CostDocumentFileList
                   documents={row.costDocuments ?? []}
                   onOpenCostDocument={onOpenCostDocument}

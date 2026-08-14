@@ -10,6 +10,7 @@ import {
   FileText,
   History,
   ImageIcon,
+  Link2,
   ListChecks,
   LockKeyhole,
   MapPinCheck,
@@ -27,6 +28,7 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
@@ -39,6 +41,8 @@ import {
   MilestoneDetailSheet,
   type MilestoneSheetData,
 } from "#/features/backoffice-build-detail/MilestoneDetailSheet.tsx";
+import { EvidenceAssetCard } from "#/features/build-submilestone-detail/SubmilestoneDetailCanonical.tsx";
+import { CostDocumentFileList } from "#/features/cost-documents/SubmilestoneCostDocuments.tsx";
 
 export const LENDER_MILESTONE_REVIEW_VARIANTS = [
   { key: "A", name: "Canonical sheet + lender layer" },
@@ -129,10 +133,14 @@ const milestone: MilestoneSheetData = {
           pages: [
             {
               assetId: "asset-invoice-framing",
+              downloadUrl:
+                "data:application/pdf;base64,JVBERi0xLjQKJSBUaHJvd2F3YXkgcHJvdG90eXBlIGRvY3VtZW50Cg==",
               fileName: "framing-progress-invoice.pdf",
               mimeType: "application/pdf",
             },
           ],
+          subtotalCents: 4_690_265,
+          taxCents: 609_735,
           title: "Framing progress invoice",
         },
       ],
@@ -147,6 +155,8 @@ const milestone: MilestoneSheetData = {
           label: "North elevation",
           locationVerified: true,
           mimeType: "image/jpeg",
+          previewUrl:
+            "/assets/fairlend-multiplex-gta/source/section-06-draw-planning-framing-source.png",
           sizeBytes: 2_410_000,
           source: "builder",
           tag: "completion",
@@ -158,6 +168,8 @@ const milestone: MilestoneSheetData = {
           label: "Bearing walls",
           locationVerified: true,
           mimeType: "image/jpeg",
+          previewUrl:
+            "/assets/fairlend-investors/imagery/project-types-construction-draw.webp",
           sizeBytes: 2_080_000,
           source: "builder",
           tag: "completion",
@@ -204,10 +216,14 @@ const milestone: MilestoneSheetData = {
           pages: [
             {
               assetId: "asset-receipt-sheathing",
+              downloadUrl:
+                "data:application/pdf;base64,JVBERi0xLjQKJSBUaHJvd2F3YXkgcHJvdG90eXBlIGRvY3VtZW50Cg==",
               fileName: "roof-sheathing-receipt.pdf",
               mimeType: "application/pdf",
             },
           ],
+          subtotalCents: 2_601_770,
+          taxCents: 338_230,
           title: "Roof sheathing receipt",
         },
       ],
@@ -222,6 +238,7 @@ const milestone: MilestoneSheetData = {
           label: "Roof sheathing",
           locationVerified: true,
           mimeType: "image/jpeg",
+          previewUrl: "/assets/fairlend-press-kit/company-building-photo.webp",
           sizeBytes: 2_770_000,
           source: "builder",
           tag: "completion",
@@ -307,7 +324,7 @@ export function LenderMilestoneReviewPrototype({
   variant: LenderMilestoneReviewVariant;
 }) {
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-muted/30 pb-28">
+    <div className="min-h-[calc(100vh-3.5rem)] bg-muted/30 pb-8">
       <PrototypeNotice />
       {variant === "A" ? <VariantA /> : null}
       {variant === "B" ? <VariantB /> : null}
@@ -353,6 +370,11 @@ export function VariantA() {
         <MilestoneDetailSheet
           data={milestone}
           onClose={() => setSheetOpen(false)}
+          prototypeAggregateTabs={{
+            collaboration: <AggregateCollaborationTab />,
+            evidence: <AggregateEvidenceTab />,
+            receiptsInvoices: <AggregateCostDocumentsTab />,
+          }}
           prototypeReviewLayer={<CanonicalLenderReviewLayer />}
         />
       ) : null}
@@ -393,6 +415,194 @@ function CanonicalLenderReviewLayer() {
         </div>
         <Separator />
         <DecisionComposer compact />
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function AggregateEvidenceTab() {
+  const [openedSubmilestone, setOpenedSubmilestone] = useState<string | null>(
+    null
+  );
+  const evidence = (milestone.submilestones ?? []).flatMap((submilestone) =>
+    submilestone.evidence
+      .filter((asset) => asset.source !== "site_visit")
+      .map((asset) => ({ asset, submilestone }))
+  );
+
+  return (
+    <Frame>
+      <FramePanel className="space-y-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-base">Builder evidence</h2>
+            <p className="text-muted-foreground text-sm">
+              All Builder-submitted evidence attached to this Milestone's
+              canonical Sub-milestones.
+            </p>
+          </div>
+          <Badge variant="outline">{evidence.length} assets</Badge>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {evidence.map(({ asset, submilestone }) => (
+            <EvidenceAssetCard
+              asset={{ ...asset }}
+              footer={
+                <Button
+                  className="h-auto min-w-0 justify-start p-0 text-left"
+                  onClick={() => setOpenedSubmilestone(submilestone.name)}
+                  size="sm"
+                  variant="link"
+                >
+                  <Link2 aria-hidden="true" />
+                  <span className="truncate">{submilestone.name}</span>
+                </Button>
+              }
+              key={`${submilestone.key}:${asset.evidenceKey}`}
+            />
+          ))}
+        </div>
+        <p aria-live="polite" className="min-h-4 text-muted-foreground text-xs">
+          {openedSubmilestone
+            ? `${openedSubmilestone} selected · canonical Sub-milestone link preview.`
+            : "Each photo stays linked to its canonical Sub-milestone."}
+        </p>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function AggregateCostDocumentsTab() {
+  const [openedSubmilestone, setOpenedSubmilestone] = useState<string | null>(
+    null
+  );
+  const rows = milestone.submilestones ?? [];
+  return (
+    <Frame>
+      <FramePanel className="space-y-5 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-base">Receipts / invoices</h2>
+            <p className="text-muted-foreground text-sm">
+              Cost documents aggregated across every canonical Sub-milestone.
+            </p>
+          </div>
+          <Badge variant="success">$82,400 documented</Badge>
+        </div>
+        <div className="space-y-5">
+          {rows.map((submilestone, index) => (
+            <section className="space-y-3" key={submilestone.key}>
+              {index > 0 ? <Separator /> : null}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-medium text-sm">{submilestone.name}</h3>
+                  <p className="text-muted-foreground text-xs">
+                    {submilestone.costDocuments?.length ?? 0} linked cost
+                    document
+                  </p>
+                </div>
+                <Button
+                  className="h-auto p-0"
+                  onClick={() => setOpenedSubmilestone(submilestone.name)}
+                  size="sm"
+                  variant="link"
+                >
+                  <Link2 aria-hidden="true" /> Open Sub-milestone
+                </Button>
+              </div>
+              <CostDocumentFileList
+                documents={submilestone.costDocuments ?? []}
+              />
+            </section>
+          ))}
+        </div>
+        <p aria-live="polite" className="min-h-4 text-muted-foreground text-xs">
+          {openedSubmilestone
+            ? `${openedSubmilestone} selected · canonical Receipts / invoices tab preview.`
+            : "Each cost document stays linked to its canonical Sub-milestone."}
+        </p>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function AggregateCollaborationTab() {
+  const [openedSubmilestone, setOpenedSubmilestone] = useState<string | null>(
+    null
+  );
+  const rows = milestone.submilestones ?? [];
+  return (
+    <Frame>
+      <FramePanel className="space-y-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-base">Collaboration</h2>
+            <p className="text-muted-foreground text-sm">
+              Read-only canonical system activity across all Sub-milestones. No
+              general comment stream is added.
+            </p>
+          </div>
+          <Badge variant="outline">{rows.length} Sub-milestones</Badge>
+        </div>
+        <div className="grid gap-3">
+          {rows.map((submilestone) => {
+            const evidenceCount = submilestone.evidence.filter(
+              (asset) => asset.source !== "site_visit"
+            ).length;
+            const costDocumentCount = submilestone.costDocuments?.length ?? 0;
+            return (
+              <Card key={submilestone.key}>
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle className="text-sm">{submilestone.name}</CardTitle>
+                  <CardDescription>
+                    Canonical collaboration projection
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 px-4 pb-3 text-sm">
+                  <p className="flex items-center gap-2">
+                    <CheckCircle2
+                      aria-hidden="true"
+                      className="size-4 text-emerald-600"
+                    />
+                    Completion recorded
+                  </p>
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                    <ImageIcon aria-hidden="true" className="size-4" />
+                    Builder evidence submission · {evidenceCount} asset
+                    {evidenceCount === 1 ? "" : "s"}
+                  </p>
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                    <FileText aria-hidden="true" className="size-4" />
+                    Cost document linked · {costDocumentCount} file
+                    {costDocumentCount === 1 ? "" : "s"}
+                  </p>
+                  {submilestone.siteVisits.length > 0 ? (
+                    <p className="flex items-center gap-2 text-muted-foreground">
+                      <MapPinCheck aria-hidden="true" className="size-4" />
+                      Site Visit report linked
+                    </p>
+                  ) : null}
+                </CardContent>
+                <CardFooter className="border-t bg-muted/30 p-3">
+                  <Button
+                    className="h-auto p-0"
+                    onClick={() => setOpenedSubmilestone(submilestone.name)}
+                    size="sm"
+                    variant="link"
+                  >
+                    <Link2 aria-hidden="true" /> Open Sub-milestone
+                    collaboration
+                  </Button>
+                </CardFooter>
+              </Card>
+            );
+          })}
+        </div>
+        <p aria-live="polite" className="min-h-4 text-muted-foreground text-xs">
+          {openedSubmilestone
+            ? `${openedSubmilestone} selected · canonical Collaboration tab preview.`
+            : "Each activity group stays linked to its canonical Sub-milestone."}
+        </p>
       </FramePanel>
     </Frame>
   );
