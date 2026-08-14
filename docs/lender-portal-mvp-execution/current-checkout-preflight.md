@@ -8,9 +8,24 @@
 - Working tree: dirty state explicitly accepted for preparation by the user
 - Historical planning baseline: `e299f6a3` is provenance only
 
-The inventory describes the current working-tree files over the named HEAD. It
-must be rerun if HEAD or the selected implementation branch changes before
-product implementation.
+The inventory was refreshed against the current named HEAD after the branch
+advanced during preparation. It describes the current working-tree files over
+that HEAD and must be rerun if HEAD or the selected implementation branch
+changes again before product implementation.
+
+## Phase 2 implementation checkout
+
+- Worktree: `/Users/connor/.codex/worktrees/lp-p2-02/drawflowv1`
+- Branch: `codex/lp-phase-2-proposal-lifecycle`
+- Source branch: `codex/lp-phase-1-completion`
+- Source HEAD before Phase 2 setup: `7837a1cd5409be895020adf406947938333a66fa`
+- Accepted Phase 1 product code SHA:
+  `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`
+- Source-to-accepted-code delta: documentation and evidence only
+- Preparation checkout remains untouched at `08-13-lenderdashboard-prod`.
+
+The Phase 2 setup commit and the immutable `LP-P2-01` package-start SHA are
+recorded on this branch before product code changes begin.
 
 ## Verified canonical owners
 
@@ -49,6 +64,39 @@ product implementation.
    consumers span later phases. Phase 1 must reconcile implemented consumers
    and publish explicit canonical membership-change effects for later owners;
    it must not fabricate later workflow state.
+
+## Accepted Phase 1 baseline
+
+The Phase 2–9 handoffs use the accepted Phase 1 implementation baseline:
+
+- branch: `codex/lp-phase-1-completion`;
+- accepted product SHA: `6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`;
+- certification: `LP-P1-05` verified with explicit human acceptance authority;
+- primary integration commit: `7837a1cd5409be895020adf406947938333a66fa`.
+
+The candidate extends the verified owners rather than replacing them:
+
+1. `convex/authz.ts` enforces active organization, active membership,
+   supported lender role, protected targets, and resource authority through
+   shared fluent-convex boundaries.
+2. `convex/workosProjection.ts` exposes
+   `getLenderOrganizationManagement`,
+   `listCurrentUserOrganizations`, and
+   `LENDER_MEMBERSHIP_CONSUMER_HANDOFFS` from webhook-owned projections.
+3. `convex/workosManagement.ts` remains the WorkOS-first operation boundary,
+   including protected Principal Broker transfer and recoverable sync states.
+4. `src/features/lender-organization-management/` owns the extracted Variant
+   E feature components, while `src/routes/lender/organization.tsx` owns the
+   production route.
+5. Later phases consume current membership eligibility plus their own
+   persisted resource state. They do not write membership projections or
+   fabricate assignment, policy, queue, or notification state.
+
+The accepted contract includes typed organization, membership, and audit rows;
+paginated `getLenderOrganizationManagement` results with `continueCursor` and
+`isDone`; and production-route page accumulation. Each later phase must still
+confirm these owners on its actual implementation checkout and refresh its
+handoff if the interfaces drift.
 
 ## Unknown and external boundaries
 
@@ -214,3 +262,9 @@ than representing the missing Pi decision as independent acceptance.
 All five Phase 1 packets are verified. Phase 2 remains out of scope until a new
 explicit implementation instruction confirms the target checkout and reruns
 the dependency and consumer preflight.
+
+The preparation checkout has canonical owners plus an explicit fresh-inventory
+step in every later packet whose concrete file owner can drift before its
+dependency is implemented. All 45 work packages and eight later-phase handoffs
+are bounded and dependency ordered. They are now reconciled to the accepted
+Phase 1 product SHA. No Phase 2–9 product implementation has started.

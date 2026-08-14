@@ -3,7 +3,12 @@
 ## Identity
 
 - Work package:
+- Phase handoff:
 - Requirement selectors:
+- Upstream certification SHAs:
+- Provisional Phase 1 candidate:
+- Accepted Phase 1 SHA:
+- Provisional-to-accepted baseline reconciliation:
 - Base SHA:
 - Accepted SHA:
 - Branch:
@@ -27,6 +32,7 @@
 - Notification effects:
 - Attachment or document-access effects:
 - Prototype contract, if applicable:
+- Rollback and escalation effects:
 
 ## Automated verification
 
