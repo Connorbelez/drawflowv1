@@ -84,15 +84,18 @@ Phase 2–9 handoffs are `ready` after reconciliation to the accepted Phase 1
 product SHA. A ready handoff still requires explicit implementation authority
 and its entry prerequisites before a package can start.
 
-The current execution state has Phase 1 verified with exact-SHA evidence and
-Phases 2–9 ready with no implementation evidence attached.
+The current execution state has Phase 1 verified with exact-SHA evidence,
+`LP-P2-01` through `LP-P2-04` implementation-complete with exact-SHA evidence,
+and `LP-P2-05` still ready for independent Phase 2 certification. Phases 3–9
+remain ready with no implementation evidence attached.
 
 The validator selects `prep` while every packet is ready, `execution` after
 an authorized packet transition, and `release` only when called with
 `--release`. Execution mode permits at most one in-progress packet, requires
-implementation-complete or verified dependencies, checks packet and ledger
-status agreement, and rejects evidence attached before implementation
-completion.
+dependencies to be implementation-complete or verified, checks packet and
+ledger status agreement, and rejects evidence attached before implementation
+completion. An implementation-complete dependency is usable for execution but
+still requires independent acceptance before release.
 
 ## Traceability rules
 
@@ -156,7 +159,8 @@ dedicated Phase 2 checkout has `LP-P2-01` implementation-complete and
 CodeRabbit-clean at `1b9f4f421968fa194750cf0f50e4739419c7cab1`. `LP-P2-02`,
 `LP-P2-03`, and `LP-P2-04` are implementation-complete with exact behavior
 SHAs `c9d67318ea436c7117388086c908b1ec749b4730`,
-`77145bfb0a6d51a5e8030f17e90b24b7104485fd`, and `f6c2cda8`, respectively.
+`77145bfb0a6d51a5e8030f17e90b24b7104485fd`, and
+`f6c2cda897048f597f6b4e827597ed8d474bbe89`, respectively.
 Their package evidence is recorded in the evidence directory; `LP-P2-05`
 remains the sole independent phase-certification package.
 

@@ -284,6 +284,21 @@ function validateEvidence(
     fail(`${workPackage.id}: missing evidence ${evidence.path}`);
   }
   const evidenceText = readFileSync(evidencePath, "utf8");
+  if (workPackage.status === "verified") {
+    const hasIndependentAcceptanceSection = /^## Independent acceptance\b/im.test(
+      evidenceText
+    );
+    const hasAcceptanceDecision =
+      /^-\s*Decision:\s*(?:accepted|verified)\b/im.test(evidenceText) ||
+      /(?:explicit )?human acceptance (?:authority|override)/i.test(
+        evidenceText
+      );
+    if (!hasIndependentAcceptanceSection || !hasAcceptanceDecision) {
+      fail(
+        `${workPackage.id}: verified packets require independent acceptance evidence or a documented human acceptance override`
+      );
+    }
+  }
   const evidenceHash = createHash("sha256").update(evidenceText).digest("hex");
   if (evidenceHash !== evidence.sha256) {
     fail(`${workPackage.id}: evidence hash does not match ${evidence.path}`);

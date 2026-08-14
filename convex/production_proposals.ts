@@ -3261,6 +3261,11 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
       { lenderOrganizationId: string; lenderOrganizationName: string }
     >();
     const scannedOrganizationIds = new Set<string>();
+    const organizationEligibilityCache = new Map<
+      string,
+      { lenderOrganizationName: string } | null
+    >();
+    const activeLenderUserCache = new Map<string, boolean>();
     let membershipCursor: string | null = null;
     let scannedMemberships = 0;
     while (
@@ -3301,42 +3306,74 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
         if (eligibleOrganizations.has(membership.workosOrganizationId)) {
           continue;
         }
-        const organization = await ctx.db
-          .query("workosOrganizations")
-          .withIndex("by_workos_organization_id", (query) =>
-            query.eq(
-              "workosOrganizationId",
+        const cachedOrganization = organizationEligibilityCache.get(
+          membership.workosOrganizationId,
+        );
+        let lenderOrganizationName: string | null =
+          cachedOrganization?.lenderOrganizationName ?? null;
+        if (cachedOrganization === undefined) {
+          const organization = await ctx.db
+            .query("workosOrganizations")
+            .withIndex("by_workos_organization_id", (query) =>
+              query.eq(
+                "workosOrganizationId",
+                membership.workosOrganizationId,
+              ),
+            )
+            .unique();
+          if (!organization || organization.status !== "active") {
+            organizationEligibilityCache.set(
               membership.workosOrganizationId,
-            ),
-          )
-          .unique();
-        if (!organization || organization.status !== "active") {
+              null,
+            );
+            continue;
+          }
+          const brokerages = await ctx.db
+            .query("brokerages")
+            .withIndex("by_workos_organization", (query) =>
+              query.eq(
+                "workosOrganizationId",
+                organization.workosOrganizationId,
+              ),
+            )
+            .take(2);
+          const brokerage = brokerages.length === 1 ? brokerages[0] : null;
+          if (
+            !brokerage ||
+            brokerage._id === auth.brokerage._id ||
+            brokerage.status !== "active"
+          ) {
+            organizationEligibilityCache.set(
+              membership.workosOrganizationId,
+              null,
+            );
+            continue;
+          }
+          lenderOrganizationName = organization.name;
+          organizationEligibilityCache.set(
+            membership.workosOrganizationId,
+            { lenderOrganizationName },
+          );
+        }
+        if (lenderOrganizationName === null) {
           continue;
         }
-        const brokerages = await ctx.db
-          .query("brokerages")
-          .withIndex("by_workos_organization", (query) =>
-            query.eq("workosOrganizationId", organization.workosOrganizationId),
-          )
-          .take(2);
-        const brokerage = brokerages.length === 1 ? brokerages[0] : null;
-        if (
-          !brokerage ||
-          brokerage._id === auth.brokerage._id ||
-          brokerage.status !== "active"
-        ) {
-          continue;
+        const userCacheKey = `${membership.workosOrganizationId}:${membership.workosUserId}`;
+        let isActiveLenderUser = activeLenderUserCache.get(userCacheKey);
+        if (isActiveLenderUser === undefined) {
+          const user = await ctx.db
+            .query("users")
+            .withIndex("by_workos_user_id", (query) =>
+              query.eq("workosUserId", membership.workosUserId),
+            )
+            .unique();
+          isActiveLenderUser = user?.status === "active";
+          activeLenderUserCache.set(userCacheKey, isActiveLenderUser);
         }
-        const user = await ctx.db
-          .query("users")
-          .withIndex("by_workos_user_id", (query) =>
-            query.eq("workosUserId", membership.workosUserId),
-          )
-          .unique();
-        if (user?.status === "active") {
+        if (isActiveLenderUser) {
           eligibleOrganizations.set(membership.workosOrganizationId, {
             lenderOrganizationId: membership.workosOrganizationId,
-            lenderOrganizationName: organization.name,
+            lenderOrganizationName,
           });
         }
         if (eligibleOrganizations.size >= ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
