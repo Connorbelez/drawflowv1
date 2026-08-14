@@ -485,18 +485,6 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
   .returns(
     v.object({
       continueCursor: v.string(),
-      consumerHandoffs: v.array(
-        v.object({
-          consumer: v.string(),
-          inputContract: v.string(),
-          owner: v.string(),
-          state: v.union(
-            v.literal("implemented"),
-            v.literal("unavailable"),
-            v.literal("unknown")
-          ),
-        })
-      ),
       history: v.array(lenderOrganizationAuditRow),
       isDone: v.boolean(),
       members: v.array(
@@ -565,13 +553,7 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
             query.eq("workosUserId", membership.workosUserId)
           )
           .unique();
-        const roleSlugs = [
-          ...new Set(
-            [membership.roleSlug, ...membership.roleSlugs].filter(
-              (role): role is string => Boolean(role)
-            )
-          ),
-        ].sort();
+        const roleSlugs = membershipRoleSlugs(membership).sort();
         const hasLenderRole = roleSlugs.some((role) =>
           ["admin", "principle-broker", "broker", "broker-staff"].includes(role)
         );
@@ -635,7 +617,6 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
 
     return {
       continueCursor: membershipPage.continueCursor,
-      consumerHandoffs: [...LENDER_MEMBERSHIP_CONSUMER_HANDOFFS],
       history: history.map((event) => ({
         _creationTime: event._creationTime,
         _id: event._id,

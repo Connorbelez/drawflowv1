@@ -30,7 +30,7 @@ The boundary therefore has these properties:
 | Consumer class | Current owners | Reconciliation result |
 |---|---|---|
 | Active organization and route authorization | `convex/authz.ts`, `convex/activeBuildAccess.ts`, route `beforeLoad` guards | Lender management requests require one canonical active membership and supported lender role. Active-Build authorization drops stale token roles when no active membership remains; Build-local participant grants retain their separate canonical revocation owner. Deactivation removes membership-derived access on the next request; reactivation or role change restores only currently authorized actions. |
-| Lender organization management | `convex/workosProjection.ts`, `convex/workosManagement.ts`, `convex/brokerageProvisioning.ts` | The new bounded read model returns only the active organization. WorkOS operations preserve pending/accepted/failed states and auditable Principal Broker protection. |
+| Lender organization management | `convex/workosProjection.ts`, `convex/workosManagement.ts`, `convex/brokerageProvisioning.ts`, `src/routes/lender/organization.tsx` | The production route consumes the canonical `getLenderOrganizationManagement` active-organization loader and WorkOS actions. The bounded read model returns only the active organization. WorkOS operations preserve pending/accepted/failed states and auditable Principal Broker protection. |
 | Collaboration access and search authority | `convex/build_collaboration_access.ts`, `convex/build_collaboration_recipient_access.ts`, `convex/build_collaboration_search_authority_projection.ts`, `convex/build_collaboration_search_maintenance.ts` | Request authorization rereads canonical membership. Projection ingestion synchronizes the existing search-authority projection from the canonical membership event; event replay is receipt-idempotent. |
 | Collaboration writes, drafts, moderation, inbox, and system events | `convex/build_collaboration_drafts.ts`, `convex/build_collaboration_inbox.ts`, `convex/build_collaboration_moderation.ts`, `convex/build_collaboration_system_events.ts`, `convex/proposal_collaboration.ts`, `convex/proposal_collaboration_model.ts` | Existing commands and reads enforce current organization membership and resource access. No separate lender membership record exists. |
 | Build and cost-document operations | `convex/build_draw_coordination.ts`, `convex/build_submilestone_operate_authority.ts`, `convex/milestone_start.ts`, `convex/cost_documents.ts`, `convex/contractorEvidence.ts` | Commands re-evaluate the current viewer, organization, and role. A stale authenticated identity cannot retain an action after projection deactivation. Persisted domain history remains unchanged. |
@@ -53,8 +53,11 @@ The boundary therefore has these properties:
 
 ## Future and unknown consumers
 
-These inputs are also returned verbatim by the read boundary so later phases
-cannot silently invent a different membership contract.
+These input shapes define later-phase handoffs. The Phase 1 read boundary
+returns current canonical membership effects only; it does not return or
+materialize later-phase assignment, policy, queue, recipient, or external
+contract state. The handoff shapes remain code-owned constants and exact test
+assertions so later phases cannot silently invent a different contract.
 
 | Consumer | State | Owner | Deterministic input contract |
 |---|---|---|---|
@@ -73,14 +76,17 @@ reproducible command:
 ```sh
 rg -n --glob '!**/*.test.ts' --glob '!**/*.test.tsx' \
   --glob '!convex/_generated/**' --glob '!src/routeTree.gen.ts' \
-  'workosOrganizationMemberships|roleSlug|roleSlugs|assignedBrokerWorkosUserId|recipient|quorum|notification|auditEvents' \
+  'workosOrganizationMemberships|organizationMemberships?|organizationMembershipId|membership(Status|Ids?)|membershipId|roleSlugs?|activeOrganization(Id)?|getLenderOrganizationManagement|lenderOrganizationQuery|lenderUserManagementQuery|beforeLoad|useQuery|loader|assignedBrokerWorkosUserId|recipients?|quorum|notification(Intent)?|auditEvents' \
   convex src
 ```
 
-The command produced 1,795 production-source matches. Its versioned output is
+The expanded command covers canonical identifiers, singular and plural status
+and membership fields, active-organization context, authorization wrappers,
+route guards, query/loader call sites, and later-consumer vocabulary. It
+produced 2,300 production-source matches. Its versioned output is
 `docs/lender-portal-mvp-execution/LP-P1-03-consumer-inventory-output.txt`
 with SHA-256
-`07d3b68c3d5568bb0ee20b77720258e0fb8f2c6ad8d1a631b1d55ef091a828ba`.
+`05eadf63d689f10507e74c6be8ab6f992b5000db107683aebb15360bda48e1c2`.
 Each production match is represented by an implemented, unaffected, absent, or
 unknown class above. No current lender-portal proposal assignment, review
 quorum, participant queue, transactional-recipient table, or later-phase

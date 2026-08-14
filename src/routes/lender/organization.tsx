@@ -409,7 +409,19 @@ function mergeDirectoryPage(
   for (const member of page.members) {
     membersById.set(member.membership.workosMembershipId, member);
   }
-  return { members: [...membersById.values()], projection: page };
+  return {
+    members: [...membersById.values()].sort(compareProjectionMembers),
+    projection: page,
+  };
+}
+
+function compareProjectionMembers(
+  left: LenderManagementMember,
+  right: LenderManagementMember
+) {
+  const leftLabel = left.name ?? left.email ?? left.membership.workosUserId;
+  const rightLabel = right.name ?? right.email ?? right.membership.workosUserId;
+  return leftLabel.localeCompare(rightLabel);
 }
 
 function summarizeDirectoryUsers(directoryUsers: DirectoryUser[]) {

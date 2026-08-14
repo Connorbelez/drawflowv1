@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { LENDER_MEMBERSHIP_CONSUMER_HANDOFFS } from "./workosProjection";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -778,7 +779,7 @@ describe("WorkOS webhook projections", () => {
       "user_foreign_effects"
     );
     expect(first.history).toHaveLength(1);
-    expect(first.consumerHandoffs).toEqual([
+    expect(LENDER_MEMBERSHIP_CONSUMER_HANDOFFS).toEqual([
       {
         consumer: "authorization-and-access",
         inputContract:
