@@ -1,8 +1,13 @@
 # LP-P2-04 — Lifecycle projections and assignment surface
 
-Status: ready
+Status: verified
 
 Depends on: LP-P2-01, LP-P2-02, LP-P2-03
+
+Package-start SHA: `77145bfb0a6d51a5e8030f17e90b24b7104485fd`.
+
+Implementation evidence: `docs/lender-portal-mvp-execution/evidence/LP-P2-04-f6c2cda8.md`.
+Independent phase acceptance remains reserved for LP-P2-05.
 
 ## Objective
 

@@ -28,7 +28,7 @@ The Phase 2 setup commit and the immutable `LP-P2-01` package-start SHA are
 recorded on this branch before product code changes begin. The setup commit is
 `d3d75341fb662242a4d18c92337975f5d637a31e`; it is the clean package-start baseline for `LP-P2-01`.
 
-LP-P2-01 implementation evidence is recorded at `1b9f4f421968fa194750cf0f50e4739419c7cab1`, with its evidence and ledger closure committed at `7205486ef9d9eb2c7fce132a9cfe424734f51456`. LP-P2-02 starts from that clean SHA.
+LP-P2-01 implementation evidence is recorded at `1b9f4f421968fa194750cf0f50e4739419c7cab1`, with its evidence and ledger closure committed at `7205486ef9d9eb2c7fce132a9cfe424734f51456`. LP-P2-02 starts from its clean behavior SHA `1a6b164c211989c1762e7199e4eeab9f46aca147`; LP-P2-03 starts from `c9d67318ea436c7117388086c908b1ec749b4730`; LP-P2-04 starts from `77145bfb0a6d51a5e8030f17e90b24b7104485fd`.
 
 ## Verified canonical owners
 

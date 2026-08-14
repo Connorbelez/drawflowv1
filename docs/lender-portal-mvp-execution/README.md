@@ -149,9 +149,12 @@ definitions and eight Phase 2–9 handoffs. Those handoffs are reconciled to the
 accepted Phase 1 product SHA above. No Phase 3–9 work package is in progress,
 and no product-code change is authorized by this execution pack alone. The
 dedicated Phase 2 checkout has `LP-P2-01` implementation-complete and
-CodeRabbit-clean at `1b9f4f421968fa194750cf0f50e4739419c7cab1`. `LP-P2-02` is
-now the sole active package; its immutable package-start SHA is
-`7205486ef9d9eb2c7fce132a9cfe424734f51456`.
+CodeRabbit-clean at `1b9f4f421968fa194750cf0f50e4739419c7cab1`. `LP-P2-02`,
+`LP-P2-03`, and `LP-P2-04` are implementation-complete with exact behavior
+SHAs `c9d67318ea436c7117388086c908b1ec749b4730`,
+`77145bfb0a6d51a5e8030f17e90b24b7104485fd`, and `f6c2cda8`, respectively.
+Their package evidence is recorded in the evidence directory; `LP-P2-05`
+remains the sole independent phase-certification package.
 
 Phase 2 implementation is authorized only in the dedicated checkout recorded
 in `current-checkout-preflight.md`. The preparation checkout remains

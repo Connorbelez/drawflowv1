@@ -2,8 +2,9 @@
 
 Handoff ID: LP-HO-P2
 
-Status: `LP-P2-01` implementation-complete and CodeRabbit-clean; `LP-P2-02`
-is the sole active work package on the dedicated Phase 2 checkout.
+Status: `LP-P2-01` through `LP-P2-04` implementation-complete; `LP-P2-05`
+remains the independent Phase 2 certification package on the dedicated
+checkout.
 
 ## Phase 1 baseline
 

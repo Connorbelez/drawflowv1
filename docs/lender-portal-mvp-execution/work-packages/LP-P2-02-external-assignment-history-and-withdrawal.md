@@ -1,8 +1,11 @@
 # LP-P2-02 — External assignment history and withdrawal
 
-Status: in-progress
+Status: verified
 
-Package-start SHA: `7205486ef9d9eb2c7fce132a9cfe424734f51456`.
+Package-start SHA: `1a6b164c211989c1762e7199e4eeab9f46aca147`.
+
+Implementation evidence: `docs/lender-portal-mvp-execution/evidence/LP-P2-02-c9d67318.md`.
+Independent phase acceptance remains reserved for LP-P2-05.
 
 Depends on: LP-P2-01
 

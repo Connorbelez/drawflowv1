@@ -788,35 +788,47 @@
     {
       "id": "LP-P2-02",
       "phase": 2,
-      "status": "in-progress",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P2-02-external-assignment-history-and-withdrawal.md",
       "dependsOn": [
         "LP-P2-01"
       ],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-02-c9d67318.md",
+        "acceptedSha": "c9d67318ea436c7117388086c908b1ec749b4730",
+        "sha256": "c098f52d05aa053e3fd2c4addee30e38546d2c5e600750d34fff689d411987e7"
+      }
     },
     {
       "id": "LP-P2-03",
       "phase": 2,
-      "status": "ready",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P2-03-closing-eligibility-and-activation.md",
       "dependsOn": [
         "LP-P2-01",
         "LP-P2-02"
       ],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-03-77145bfb.md",
+        "acceptedSha": "77145bfb0a6d51a5e8030f17e90b24b7104485fd",
+        "sha256": "c04f1fa242bee63826a1a938c045bd0c75fccf9d0ca38697ee9cda2ee9e9afb8"
+      }
     },
     {
       "id": "LP-P2-04",
       "phase": 2,
-      "status": "ready",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P2-04-lifecycle-projections-and-assignment-surface.md",
       "dependsOn": [
         "LP-P2-01",
         "LP-P2-02",
         "LP-P2-03"
       ],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-04-f6c2cda8.md",
+        "acceptedSha": "f6c2cda897048f597f6b4e827597ed8d474bbe89",
+        "sha256": "1365e667782277d8e1fc2e34fb55ae585fd343bd4a03363ff331f35501b77662"
+      }
     },
     {
       "id": "LP-P2-05",

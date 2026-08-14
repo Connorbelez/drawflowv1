@@ -1,8 +1,13 @@
 # LP-P2-03 — Closing eligibility and activation
 
-Status: ready
+Status: verified
 
 Depends on: LP-P2-01, LP-P2-02
+
+Package-start SHA: `c9d67318ea436c7117388086c908b1ec749b4730`.
+
+Implementation evidence: `docs/lender-portal-mvp-execution/evidence/LP-P2-03-77145bfb.md`.
+Independent phase acceptance remains reserved for LP-P2-05.
 
 ## Objective
 
