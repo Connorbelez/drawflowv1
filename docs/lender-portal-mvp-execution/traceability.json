@@ -774,12 +774,16 @@
     {
       "id": "LP-P2-01",
       "phase": 2,
-      "status": "in-progress",
+      "status": "verified",
       "path": "docs/lender-portal-mvp-execution/work-packages/LP-P2-01-proposal-lifecycle-state-machine.md",
       "dependsOn": [
         "LP-P1-05"
       ],
-      "evidence": null
+      "evidence": {
+        "path": "docs/lender-portal-mvp-execution/evidence/LP-P2-01-1b9f4f42.md",
+        "acceptedSha": "1b9f4f421968fa194750cf0f50e4739419c7cab1",
+        "sha256": "61cfc3276eb553a3b1de39cc4ba8a2bb5055bf1200688a576562ae0a45c0a04f"
+      }
     },
     {
       "id": "LP-P2-02",

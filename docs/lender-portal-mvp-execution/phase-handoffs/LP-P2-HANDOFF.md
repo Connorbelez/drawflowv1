@@ -2,8 +2,8 @@
 
 Handoff ID: LP-HO-P2
 
-Status: in-progress; `LP-P2-01` is the sole active work package on the
-dedicated Phase 2 checkout.
+Status: `LP-P2-01` implementation-complete and CodeRabbit-clean; no Phase 2
+package is active while its evidence is recorded.
 
 ## Phase 1 baseline
 
