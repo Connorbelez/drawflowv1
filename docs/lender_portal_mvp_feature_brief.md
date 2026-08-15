@@ -86,7 +86,7 @@ Back Office-only fields remain excluded.
 
 The brief changes three assumptions in the current documentation:
 
-- A Lender Organization is the canonical brokerage-scoped WorkOS organization already projected into DrawFlow. DrawFlow does not create a parallel organization, membership, manager, or role system for the Lender Portal.
+- A Lender Organization is an application-owned child of a DrawFlow Brokerage. WorkOS supplies the shared identity organization, invitations, memberships, roles, and read-only projections; WorkOS never represents or provisions a Lender Organization.
 - Back Office proposal approval, proposal closing, and live Build activation are separate transitions.
 - An assigned external lender may hold required proposal, Milestone, and Draw approval authority according to a locked policy.
 
@@ -115,19 +115,19 @@ with current code and this brief before changing product routes.
 
 ## Outcome
 
-External lender users can access only the proposals and live Builds assigned to their active brokerage-scoped WorkOS organization. They can complete a guided proposal confirmation, review relevant evidence, make policy-authorized Milestone and Draw decisions, and retain a read-only record if their organization is withdrawn before closing.
+External lender users can access only the proposals and live Builds assigned to their active application-owned Lender Organization. They can complete a guided proposal confirmation, review relevant evidence, make policy-authorized Milestone and Draw decisions, and retain a read-only record if their organization is withdrawn before closing.
 
-Back Office Admin remains the internal owner of proposal approval, lender assignment, review-policy configuration, brokerage provisioning/support through the existing WorkOS boundary, and the internal closing path. Admin and Principal Broker members operate their own organization membership surface. Closing and activation are shared with eligible users from the assigned Lender Organization only where this brief says so.
+Back Office Admin remains the internal owner of proposal approval, lender assignment, review-policy configuration, Brokerage and Lender Organization provisioning, shared WorkOS membership commands, and the internal closing path. Closing and activation are shared with eligible users from the assigned Lender Organization only where this brief says so.
 
 ## Terms
 
 | Term | Meaning in this MVP |
 |---|---|
 | Back Office Admin | The single broad internal role that owns every Back Office capability in this brief. |
-| Lender Organization | The brokerage-scoped WorkOS organization used by DrawFlow's existing organization and tenant boundaries. DrawFlow may store assignment and workflow records that reference it, but does not own a duplicate organization record. |
-| Lender user | A WorkOS user with an active membership in the assigned Lender Organization and the required assignment- and policy-derived eligibility for the action. Membership alone does not establish review eligibility. |
-| Lender organization administrator | A user whose canonical role is `admin` or `principle-broker`. `Principal Broker` is the UI label for the `principle-broker` slug. There is no separate lender-manager role or capability. |
-| External lender assignment | The current association between one approved-before-closing proposal and one Lender Organization. |
+| Lender Organization | An application-owned organization under one DrawFlow Brokerage. It owns lender workflow permissions and user assignments; it does not own identity, WorkOS roles, or WorkOS membership state. |
+| Lender user | A WorkOS user with an active user projection, active membership in the shared WorkOS identity organization, an exact lender role, and one active application assignment to the Lender Organization. Membership alone does not establish review eligibility. |
+| Lender organization administrator | A user with the shared WorkOS role `lender-admin` or the platform `admin` bypass. `lender` receives normal lender authority and `lender-staff` cannot make final lender decisions. |
+| Lender assignment | The current association between one approved-before-closing proposal and one Lender Organization. Capital source does not determine assignment eligibility. |
 | Confirmation cycle | One lender review of one proposal revision through every required checkpoint. |
 | Review policy | The locked, Build-wide Milestone and Draw approval requirements selected before closing. |
 | Decision cycle | One submission or resubmission of the same Milestone or Draw request record. |
@@ -140,28 +140,28 @@ must not be renumbered after implementation evidence references it.
 
 ### 1. Lender Organizations and users
 
-- Lender Organizations, users, memberships, roles, and permissions are authoritative in WorkOS and consumed through the existing DrawFlow projections and brokerage boundary.
-- A user may hold memberships in more than one WorkOS organization. Every lender request is scoped to one active organization context and must pass organization, membership, assignment, and policy authorization.
-- An authorized Back Office Admin may provision the brokerage and its initial Principal Broker through the existing brokerage/WorkOS boundary.
-- An active `admin` or `principle-broker` member can invite members, change supported lender roles, and deactivate members in that same organization through WorkOS-first commands.
-- Supported lender organization role slugs are `admin`, `principle-broker`, `broker`, and `broker-staff`.
-- Exactly one active Principal Broker must remain. Normal role removal and deactivation fail closed for the active Principal Broker and route to the protected transfer-of-control workflow.
-- No application-layer lender-manager capability, role alias, organization table, or membership table is introduced.
-- Deactivation ends future access and actions only after the authoritative command completes and the projection reconciles. It preserves membership, access, and decision history.
-- Every membership change re-evaluates affected route/query/write access, lender-review assignment and quorum context, recipients, queues, and audit/notification work without changing the locked review policy.
+- DrawFlow owns `lenderOrganizations` as child records under `brokerages`. Each record stores display/legal names, active/inactive status, timestamps, and the organization-wide proposal, Milestone, Draw, and Site Visit workflow permission bundle.
+- DrawFlow owns `lenderOrganizationAssignments` as a thin relation from a WorkOS user to one active or pending application organization. It stores assignment state, normalized email, actor, reason, and timestamps—not identity, roles, or WorkOS membership state.
+- WorkOS remains authoritative for shared identity, invitations, memberships, roles, and projections. Product commands go WorkOS first; webhook/sync projections remain read-only to product flows.
+- Back Office Admin provisions Lender Organizations, assigns and unassigns lender users, stages invitations, changes shared lender roles, edits workflow permissions, and soft-deactivates organizations through `/backoffice/lenders`. Provisioning never creates a WorkOS organization.
+- The supported lender role slugs are exactly `lender`, `lender-admin`, and `lender-staff`. Lender access requires an active WorkOS user projection, active membership in the configured shared WorkOS organization, a supported role, and one active application assignment.
+- The organization-wide permission bundle caps all lender actions. `lender-staff` cannot make final lender decisions; `lender` and `lender-admin` receive normal/elevated lender workflow capabilities. Platform Admin may bypass a capability cap only for an explicit, validated target organization.
+- An invitation becomes an active application assignment only after the user and shared-membership projections reconcile. Pending and ambiguous records remain visible to Back Office for reconciliation.
+- Deactivation ends future access and actions only after the WorkOS command completes and the projection reconciles. It preserves membership, assignment, decision, and audit history.
+- Every membership or assignment change re-evaluates route/query/write access, lender-review assignment and quorum context, recipients, queues, and audit/notification work without changing the locked review policy.
 
-### 2. External lender assignment, closing, and activation
+### 2. Lender assignment, closing, and activation
 
-- Lender assignment is optional and applies only to external capital.
-- Back Office Admin approves a proposal before an external Lender Organization can be assigned.
-- Back Office Admin may assign one external Lender Organization while the proposal is approved and pending closing.
-- An assigned external proposal requires both:
+- Lender assignment is optional and may be used for either capital source.
+- Back Office Admin approves a proposal before a Lender Organization can be assigned.
+- Back Office Admin may assign one Lender Organization while the proposal is approved and pending closing.
+- An assigned proposal requires both:
   - Back Office Admin approval; and
   - approval from one eligible lender user in the assigned Lender Organization.
 - A proposal cannot close while either required approval is missing.
 - When all applicable prerequisites are satisfied, either Back Office Admin or an eligible user in the assigned Lender Organization may record closing.
 - Closing and activation are separate. After closing, either Back Office Admin or an eligible user in the assigned Lender Organization may activate the live Build.
-- Back Office Admin may withdraw the external lender assignment before closing.
+- Back Office Admin may withdraw the lender assignment before closing.
 - Withdrawal keeps the proposal Back Office-approved and pending closing, removes the current lender assignment, and restores the normal internal closing path.
 - The former Lender Organization retains a read-only withdrawn record containing the proposal documents and history that were available through its assignment.
 - Withdrawal does not grant access to later internal-only changes or unrelated Build information.
@@ -256,9 +256,8 @@ Office Build Workspace in full and does not own decisions or mutations.
 
 ## Non-goals and deferred scope
 
-- Assigning an external lender before Back Office proposal approval.
-- Assigning a Lender Organization to internally funded proposals.
-- More than one current external Lender Organization on a proposal.
+- Assigning a lender before Back Office proposal approval.
+- More than one current Lender Organization on a proposal.
 - Lender edits to proposal content, builder data, Budget, schedule, or review policy.
 - A separate lender-manager appointment system or role alias.
 - A duplicate DrawFlow-owned Lender Organization or membership system.
@@ -276,8 +275,8 @@ the zero-padded list number. For example, invariant 1 is `LP-INV-01`.
 
 1. Every organization-scoped projection, assignment, proposal revision, policy, request, decision, attachment, notification, and audit event is scoped to the owning DrawFlow tenant and canonical WorkOS organization.
 2. WorkOS is authoritative for user, organization, membership, role, and permission state. DrawFlow owns lender assignment, workflow authorization, review policy, decisions, and product-resource access derived from that canonical identity state.
-3. Exactly one current external lender assignment may exist for an eligible proposal.
-4. Back Office Admin approval always precedes external lender assignment.
+3. Exactly one current lender assignment may exist for an eligible proposal.
+4. Back Office Admin approval always precedes lender assignment.
 5. With an active assignment, closing eligibility requires the current Back Office Admin approval and one lender approval of the current proposal revision.
 6. Withdrawal ends current lender authority without deleting its historical record or documents.
 7. A lender decision applies only to the proposal revision or request decision cycle that was reviewed.
@@ -302,7 +301,7 @@ the zero-padded list number. For example, invariant 1 is `LP-INV-01`.
 | `LP-PERM-03` | Invite/change role/deactivate members in own Lender Organization | Under tenant authority | Yes | No | No |
 | `LP-PERM-04` | Invite/add/deactivate users in another Lender Organization | Within tenant authority | No | No | No |
 | `LP-PERM-05` | Approve proposal before lender assignment | Yes | No | No | No |
-| `LP-PERM-06` | Assign/withdraw external lender before closing | Yes | No | No | No |
+| `LP-PERM-06` | Assign/withdraw lender before closing | Yes | No | No | No |
 | `LP-PERM-07` | Configure and lock review policy before closing | Yes | No | No | No |
 | `LP-PERM-08` | Confirm or decline assigned proposal | No lender-side decision | If eligible | If eligible | No |
 | `LP-PERM-09` | Edit lender confirmation checkpoints | Yes, through proposal update | No | No | No |
@@ -328,11 +327,11 @@ Proposal lifecycle, assignment, and lender confirmation are separate state axes.
 ```text
 Back Office Admin review
   -> Back Office Admin approved / pending closing
-      -> no external assignment -> normal internal closing path
-      -> external lender assigned
+      -> no lender assignment -> normal internal closing path
+      -> lender assigned
           -> confirmation in progress
               -> lender declined -> Back Office Admin updates same proposal -> new full cycle
-              -> lender approved -> eligible for external closing
+              -> lender approved -> eligible for closing
           -> assignment withdrawn -> normal internal closing path
       -> prerequisites satisfied
           -> closed by Back Office Admin or eligible assigned lender user
@@ -362,9 +361,10 @@ The names below describe durable responsibilities, not mandatory table names.
 | Responsibility | Required durable data |
 |---|---|
 | Funding path | Proposal capital source with an explicit internal/external distinction used by assignment and closing eligibility. |
-| Lender Organization reference | Canonical WorkOS organization identifier plus the existing brokerage/tenant mapping. Do not duplicate WorkOS organization state in an application-owned domain table. |
-| Membership projection | Canonical WorkOS membership identifier, user, organization, status, role/permission projections, sync state, and audit references. Product commands go to WorkOS first; webhook/sync owns projection updates. |
-| Proposal assignment | Proposal, Lender Organization, assigned/withdrawn intervals, actors, reason where collected, document-access boundary. |
+| Lender Organization reference | Application-owned `lenderOrganizations` child ID plus parent Brokerage ID, names, status, timestamps, and workflow permission bundle. A legacy WorkOS organization identifier may remain only as migration metadata/reconciliation input. |
+| Lender assignment | Thin `lenderOrganizationAssignments` relation keyed by application organization and WorkOS user, with active/pending state, normalized email, actor, reason, and timestamps. It never replaces WorkOS identity, role, or membership projections. |
+| Membership projection | Canonical WorkOS user, shared-organization membership, role/permission projections, sync state, and audit references. Product commands go to WorkOS first; webhook/sync owns projection updates. |
+| Proposal assignment | Proposal, application Lender Organization ID, preserved parent Brokerage ID, assigned/withdrawn intervals, historical organization-name snapshots, actors, reason where collected, and document-access boundary. |
 | Proposal revision | Stable proposal identity, monotonic revision, checkpoint snapshot, changed-field summary, Back Office Admin approval reference. |
 | Confirmation cycle | Proposal revision, assigned organization, checkpoint confirmations, decision, decline reason, actor, timestamps. |
 | Review policy | Proposal/Build identity, approval modes, numeric quorums, independent evidence switches, lock metadata, immutable snapshot. |
@@ -408,12 +408,11 @@ Current-state records may be projections for queue and dashboard performance. Im
 
 ### Organization management
 
-- The approved interface is `/lender/organization-management-prototype?variant=E`, **Shared user management operations**, locked on 2026-08-13.
-- Production directly promotes Variant E's directory-first hierarchy, organization toolbar, shared shadcn/TanStack `UserManagementDirectoryTable`, and shared `UserDetailSheet` with Access, Administration, Review relationship, and History tabs.
-- The surface is operational. Authorized users can stage, review, and execute invite, role-change, and deactivation commands, and use the protected Principal Broker transfer workflow.
-- Command state includes validation, authorization, pending WorkOS sync, success, and failure. The UI never writes WorkOS projection tables directly.
-- The Review relationship tab explains downstream assignment, quorum-context, recipient, queue, and audit effects. It cannot edit reviewer groups, quorum counts, evidence requirements, Site Visit requirements, approval order, or policy satisfaction; those remain in Back Office Review Requirements Setup.
-- Search and status filters stay inside the active organization and use permission-shaped canonical projections.
+- The lender-facing view is `/lender/organization` and is application-level. It resolves the current active `lenderOrganizationAssignments` record, shows the Lender Organization, parent Brokerage, shared workflow policy, and filtered assigned-member directory, and never infers a Lender Organization from a WorkOS organization name or ID.
+- If no active assignment exists, the view exposes no WorkOS directory data and renders the contact-admin empty state with a `mailto:support@fairlend.ca` CTA.
+- The Back Office control plane is `/backoffice/lenders`, directly promoted from the approved Variant E hierarchy where applicable. It owns the Brokerage → Lender Organization → assigned lender user workflow: organization table, search/status filters, unassigned-user queue, detail drawer, assignment controls, staged invitations, permission editing, and soft deactivation.
+- WorkOS invitation, role-change, and membership-deactivation commands are WorkOS-first. The UI reports pending projection reconciliation and never writes WorkOS projection tables directly.
+- Back Office Admin owns all organization and membership operations. Lender-facing users have read-only application organization context; no Principal Broker transfer or brokerage-management controls appear on this surface.
 
 The approved Lender Draw Queue interface is
 `/lender/draws-prototype?variant=D`, **Build packets**, locked on 2026-08-13.
@@ -446,17 +445,18 @@ Retries must be idempotent. Authorization is checked again when an email link is
 
 ### Organization and access
 
-- `LP-AC-ORG-01` Organization Management directly promotes approved Variant E and reuses the existing shared user-management table and member sheet.
-- `LP-AC-ORG-02` WorkOS remains authoritative for organizations, memberships, roles, and permissions; DrawFlow introduces no duplicate identity or manager system.
-- `LP-AC-ORG-03` Active `admin` and `principle-broker` members can invite members, change supported roles, and deactivate members only in their active organization.
-- `LP-AC-ORG-04` The active Principal Broker cannot be removed or deactivated through normal member commands; transfer preserves exactly one active Principal Broker and records audit history.
-- `LP-AC-ORG-05` Deactivation blocks future Lender Portal access and new lender actions after authoritative completion and leaves complete decision and membership history.
-- `LP-AC-ORG-06` Membership changes reconcile access, quorum context, queues, recipients, and audit work without mutating Back Office-owned review requirements.
-- `LP-AC-ORG-07` Tenant, organization, assignment, and policy checks prevent cross-organization reads, writes, or review decisions.
+- `LP-AC-ORG-01` Back Office Admin can provision an application-owned Lender Organization under an existing Brokerage without creating a WorkOS organization.
+- `LP-AC-ORG-02` WorkOS remains authoritative only for shared identity, invitations, memberships, roles, permissions, and projections; DrawFlow owns Lender Organization records, workflow policy, and user assignments.
+- `LP-AC-ORG-03` `/backoffice/lenders` lists organizations, assigned/unassigned users, pending invitations, member counts, statuses, and parent Brokerages, and exposes assignment, permission, membership, and soft-deactivation controls.
+- `LP-AC-ORG-04` Lender access requires an active user projection, active membership in the configured shared WorkOS organization, exact role `lender`, `lender-admin`, or `lender-staff`, and one active application assignment.
+- `LP-AC-ORG-05` Pending invitations do not grant access; reconciliation activates an application assignment only after the user and membership projections exist and match.
+- `LP-AC-ORG-06` Organization-wide permissions cap lender capabilities, and `lender-staff` cannot make final lender decisions. Platform Admin bypass requires an explicit target organization and still validates tenant scope.
+- `LP-AC-ORG-07` The assigned `/lender/organization` view shows only application-owned organization data; users without an active assignment see a contact-admin empty state and no WorkOS directory details.
+- `LP-AC-ORG-08` Cross-Brokerage, cross-Lender-Organization, foreign shared-organization, inactive-projection, and duplicate-assignment checks fail closed.
 
 ### Proposal lifecycle
 
-- `LP-AC-PROP-01` External assignment is unavailable before Back Office Admin approval and for internal capital.
+- `LP-AC-PROP-01` Lender assignment is unavailable before Back Office Admin approval; capital source does not block an eligible assignment.
 - `LP-AC-PROP-02` An assigned proposal cannot close without current Back Office Admin and lender approvals.
 - `LP-AC-PROP-03` Lender decline requires a reason and leaves the proposal approved/pending closing.
 - `LP-AC-PROP-04` A Back Office Admin update preserves proposal identity, creates a revision, highlights changes, and requires every checkpoint again.
@@ -497,7 +497,7 @@ Resolved on 2026-08-13:
 Each numbered decision has the stable identifier `LP-DEC-NN`, where `NN` is
 the zero-padded list number.
 
-1. **Organization authority:** one broad Back Office Admin role owns Back Office capabilities. Organization membership operations use canonical `admin` and `principle-broker`; no lender-manager application capability exists.
+1. **Organization authority:** one broad Back Office Admin role owns `/backoffice/lenders`, application Lender Organization provisioning, assignments, workflow policy, and WorkOS-first shared membership commands. Lender roles are exactly `lender`, `lender-admin`, and `lender-staff`; no Principal Broker or lender-manager role is used for lender organization administration.
 2. **Closing:** after applicable approvals and policy lock, either Back Office Admin or an eligible user in the assigned Lender Organization may record closing. Activation remains a separate shared action.
 3. **Deactivation:** a decision from a later-deactivated lender user remains in audit history but stops counting for pending work. Terminal completed or closed work is unchanged.
 4. **Email:** recipients derive from current eligibility and resource access. The MVP has no per-record assignment system.

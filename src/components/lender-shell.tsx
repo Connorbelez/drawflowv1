@@ -7,12 +7,26 @@ import {
   UserSettings01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Link } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { Bell, ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 
 import ThemeToggle from "#/components/ThemeToggle.tsx";
-import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "#/components/ui/avatar.tsx";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "#/components/ui/breadcrumb.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import {
@@ -29,6 +43,13 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "#/components/ui/sidebar.tsx";
+import {
+  roleLabel as formatRoleLabel,
+  normalizeRoleSlugs,
+} from "#/lib/auth/rbac.ts";
+import { api } from "../../convex/_generated/api";
+
+const WHITESPACE_PATTERN = /\s+/;
 
 export type LenderNavigationTitle =
   | "Dashboard"
@@ -38,64 +59,66 @@ export type LenderNavigationTitle =
   | "Draws"
   | "Organization";
 
-export interface LenderShellIdentity {
-  avatarFallback: string;
-  organizationName: string;
-  roleLabel: string;
-  userName: string;
-}
+type LenderNavigationTarget =
+  | "/lender"
+  | "/lender/proposals"
+  | "/lender/builds"
+  | "/lender/milestones"
+  | "/lender/draws"
+  | "/lender/organization";
 
 interface LenderNavigationItem {
-  administrationOnly?: boolean;
   icon: typeof DashboardSquare01Icon;
   title: LenderNavigationTitle;
-  unresolvedCount: number;
+  to: LenderNavigationTarget;
 }
 
-// TODO(lender-portal): replace these counts with the canonical, lender-scoped
-// unresolved-work projection. Do not derive counts from timestamps or status copy.
 const lenderNavigation: readonly LenderNavigationItem[] = [
-  { title: "Dashboard", icon: DashboardSquare01Icon, unresolvedCount: 4 },
-  { title: "Proposals", icon: Agreement03Icon, unresolvedCount: 1 },
-  { title: "Active Builds", icon: Building06Icon, unresolvedCount: 0 },
-  { title: "Milestones", icon: ClipboardIcon, unresolvedCount: 2 },
-  { title: "Draws", icon: BankIcon, unresolvedCount: 1 },
+  { title: "Dashboard", icon: DashboardSquare01Icon, to: "/lender" },
+  { title: "Proposals", icon: Agreement03Icon, to: "/lender/proposals" },
+  { title: "Active Builds", icon: Building06Icon, to: "/lender/builds" },
+  { title: "Milestones", icon: ClipboardIcon, to: "/lender/milestones" },
+  { title: "Draws", icon: BankIcon, to: "/lender/draws" },
   {
     title: "Organization",
     icon: UserSettings01Icon,
-    administrationOnly: true,
-    unresolvedCount: 0,
+    to: "/lender/organization",
   },
 ];
-
-// TODO(lender-portal): replace only when the authenticated lender-organization
-// projection and member-role projection are implemented. The shell intentionally
-// has no data query or route wiring before those contracts exist.
-export const LENDER_SHELL_PLACEHOLDER_IDENTITY: LenderShellIdentity = {
-  avatarFallback: "ML",
-  organizationName: "Meridian Capital",
-  roleLabel: "Manager access",
-  userName: "Morgan Lee",
-};
 
 export function LenderShell({
   activeNavigation = "Dashboard",
   children,
-  identity = LENDER_SHELL_PLACEHOLDER_IDENTITY,
   pageTitle = activeNavigation,
 }: {
   activeNavigation?: LenderNavigationTitle;
   children: ReactNode;
-  /**
-   * A caller can provide the eventual authenticated lender identity. Until then,
-   * the explicit placeholder above keeps the shared shell independently usable.
-   */
-  identity?: LenderShellIdentity;
   pageTitle?: string;
 }) {
+  const { role, roles, user } = useAuth();
+  const currentOrganization = useQuery(
+    api.lenderOrganizations.getCurrentLenderOrganization,
+    {}
+  );
+  const lenderRoles = normalizeRoleSlugs([role, ...(roles ?? [])]);
+  const userName = user
+    ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
+    : "Signed-in user";
+  const identity = {
+    avatarFallback: initials(userName),
+    avatarUrl: user?.profilePictureUrl ?? undefined,
+    organizationName:
+      currentOrganization?.organization?.displayName ?? "Lender organization",
+    roleLabel: formatLenderRoles(lenderRoles),
+    userName,
+  };
+
   return (
     <SidebarProvider>
-      <LenderSidebar activeNavigation={activeNavigation} identity={identity} />
+      <LenderSidebar
+        activeNavigation={activeNavigation}
+        identity={identity}
+      />
       <SidebarInset>
         <LenderAppHeader
           activeNavigation={activeNavigation}
@@ -123,7 +146,11 @@ function LenderSidebar({
   identity,
 }: {
   activeNavigation: LenderNavigationTitle;
-  identity: LenderShellIdentity;
+  identity: {
+    organizationName: string;
+    roleLabel: string;
+    userName: string;
+  };
 }) {
   return (
     <Sidebar
@@ -141,39 +168,24 @@ function LenderSidebar({
         <SidebarGroup>
           <SidebarGroupLabel>Lender</SidebarGroupLabel>
           <SidebarMenu>
-            {lenderNavigation.map((item) => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton
-                  aria-current={
-                    item.title === activeNavigation ? "page" : undefined
-                  }
-                  // Route targets do not exist yet. Keep the visual shell, but
-                  // do not create speculative navigation contracts.
-                  disabled={item.title !== activeNavigation}
-                  isActive={item.title === activeNavigation}
-                  tooltip={item.title}
-                  type="button"
-                >
-                  <HugeiconsIcon icon={item.icon} strokeWidth={2} />
-                  <span>{item.title}</span>
-                  <Badge
-                    aria-label={`${item.unresolvedCount} unresolved items`}
-                    className="ml-auto min-w-5 justify-center px-1 tabular-nums group-data-[collapsible=icon]:hidden"
-                    variant={item.unresolvedCount > 0 ? "secondary" : "outline"}
+            {lenderNavigation
+              .map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    aria-current={
+                      item.title === activeNavigation ? "page" : undefined
+                    }
+                    isActive={item.title === activeNavigation}
+                    render={
+                      <Link preload="intent" to={item.to} viewTransition />
+                    }
+                    tooltip={item.title}
                   >
-                    {item.unresolvedCount}
-                  </Badge>
-                  {item.administrationOnly ? (
-                    <Badge
-                      className="h-4 px-1 text-xs group-data-[collapsible=icon]:hidden"
-                      variant="outline"
-                    >
-                      Admin
-                    </Badge>
-                  ) : null}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+                    <HugeiconsIcon icon={item.icon} strokeWidth={2} />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
@@ -202,9 +214,17 @@ function LenderAppHeader({
   pageTitle,
 }: {
   activeNavigation: LenderNavigationTitle;
-  identity: LenderShellIdentity;
+  identity: {
+    avatarFallback: string;
+    avatarUrl?: string;
+    userName: string;
+  };
   pageTitle: string;
 }) {
+  const navigationTarget =
+    lenderNavigation.find((item) => item.title === activeNavigation)?.to ??
+    "/lender";
+
   return (
     <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center justify-between gap-2 overflow-visible bg-background/95 px-2 backdrop-blur-sm supports-backdrop-filter:bg-background/50 sm:px-4 md:h-14 md:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
@@ -213,25 +233,43 @@ function LenderAppHeader({
           className="mr-2 h-4 data-[orientation=vertical]:self-center"
           orientation="vertical"
         />
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-xs">
-          <span className="hidden whitespace-nowrap text-muted-foreground sm:inline">
-            Lender
-          </span>
-          <span className="hidden text-muted-foreground sm:inline">/</span>
-          <span className="hidden whitespace-nowrap text-muted-foreground sm:inline">
-            {activeNavigation}
-          </span>
-          {pageTitle === activeNavigation ? (
-            <span className="min-w-0 truncate font-medium sm:hidden">
-              {activeNavigation}
-            </span>
-          ) : (
-            <>
-              <span className="hidden text-muted-foreground sm:inline">/</span>
-              <span className="min-w-0 truncate font-medium">{pageTitle}</span>
-            </>
-          )}
-        </div>
+        <Breadcrumb>
+          <BreadcrumbList className="text-xs">
+            <BreadcrumbItem className="hidden sm:inline-flex">
+              <BreadcrumbLink
+                render={<Link preload="intent" to="/lender" viewTransition />}
+              >
+                Lender
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator className="hidden sm:flex" />
+            {pageTitle === activeNavigation ? (
+              <BreadcrumbItem>
+                <BreadcrumbPage>{activeNavigation}</BreadcrumbPage>
+              </BreadcrumbItem>
+            ) : (
+              <>
+                <BreadcrumbItem className="hidden sm:inline-flex">
+                  <BreadcrumbLink
+                    render={
+                      <Link
+                        preload="intent"
+                        to={navigationTarget}
+                        viewTransition
+                      />
+                    }
+                  >
+                    {activeNavigation}
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden sm:flex" />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </>
+            )}
+          </BreadcrumbList>
+        </Breadcrumb>
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <ThemeToggle />
@@ -249,8 +287,14 @@ function LenderAppHeader({
           className="h-4 data-[orientation=vertical]:self-center"
           orientation="vertical"
         />
-        <Button className="h-8 gap-2 px-1.5" disabled variant="ghost">
-          <Avatar size="sm">
+        <Button
+          aria-label={`${identity.userName} account menu`}
+          className="h-8 gap-2 px-1.5"
+          disabled
+          variant="ghost"
+        >
+          <Avatar className="size-7 sm:size-8">
+            <AvatarImage alt={identity.userName} src={identity.avatarUrl} />
             <AvatarFallback>{identity.avatarFallback}</AvatarFallback>
           </Avatar>
           <span className="hidden text-xs sm:inline">{identity.userName}</span>
@@ -277,4 +321,25 @@ function DrawFlowMark({ className }: { className?: string }) {
       />
     </svg>
   );
+}
+
+function formatLenderRoles(roles: readonly string[]) {
+  return (
+    roles
+      .map((role) =>
+        formatRoleLabel(role as Parameters<typeof formatRoleLabel>[0])
+      )
+      .join(", ") || "Lender access"
+  );
+}
+
+function initials(value: string) {
+  const parts = value.trim().split(WHITESPACE_PATTERN).filter(Boolean);
+  if (parts.length === 0) {
+    return "?";
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return `${parts[0][0] ?? ""}${parts.at(-1)?.[0] ?? ""}`.toUpperCase();
 }

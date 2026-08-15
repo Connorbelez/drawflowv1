@@ -9,8 +9,10 @@ import {
   getUserManagementAccessDecision,
   getWorkspaceAccessDecision,
   hasBuilderStaffWorkspaceAccess,
+  formatRoleSlug,
   requireHomeownerWorkspaceAccess,
   INTEGRATION_ADMIN_ROLE_SLUGS,
+  LENDER_WORKSPACE_ROLE_SLUGS,
   normalizeRoleSlug,
   normalizeRoleSlugs,
   requireUserManagementWriteAccess,
@@ -32,6 +34,12 @@ describe("DrawFlow frontend RBAC policy", () => {
     ]);
   });
 
+  test("formats canonical and unknown role slugs for user-facing controls", () => {
+    expect(formatRoleSlug("principle-broker")).toBe("Principal Broker");
+    expect(formatRoleSlug("builder_staff")).toBe("Builder Staff");
+    expect(formatRoleSlug("custom-reviewer")).toBe("Custom Reviewer");
+  });
+
   test("central role sets match production route and capability policy", () => {
     expect(BACKOFFICE_ROLE_SLUGS).toEqual([
       "admin",
@@ -46,6 +54,12 @@ describe("DrawFlow frontend RBAC policy", () => {
     ]);
     expect(DESTRUCTIVE_WRITE_ROLE_SLUGS).toEqual(["admin", "principle-broker"]);
     expect(INTEGRATION_ADMIN_ROLE_SLUGS).toEqual(["admin"]);
+    expect(LENDER_WORKSPACE_ROLE_SLUGS).toEqual([
+      "admin",
+      "lender",
+      "lender-admin",
+      "lender-staff",
+    ]);
   });
 
   test("reserves integration operations for organization admins", () => {
@@ -231,6 +245,35 @@ describe("DrawFlow frontend RBAC policy", () => {
       })
     ).toMatchObject({ status: "allowed" });
 
+  });
+
+  test("allows every lender role, including admin, and fails closed for other roles", () => {
+    for (const role of [
+      "admin",
+      "lender",
+      "lender-admin",
+      "lender-staff",
+    ]) {
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_lender",
+          pathname: "/lender",
+          roles: [role],
+          workspace: "lender",
+        })
+      ).toMatchObject({ status: "allowed" });
+    }
+
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_lender",
+        pathname: "/lender",
+        roles: ["builder"],
+        workspace: "lender",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "no-workspace-access" });
   });
 
   test("builder-staff workspace allows admins and builder staff only", () => {

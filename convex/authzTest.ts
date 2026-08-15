@@ -34,8 +34,16 @@ const viewerReturn = v.object({
 
 const activeOrganizationReturn = v.object({
   brokerageId: v.id("brokerages"),
+  brokerageName: v.string(),
+  lenderOrganizationId: v.id("lenderOrganizations"),
   membershipIds: v.array(v.string()),
   organizationName: v.string(),
+  permissions: v.object({
+    drawDecisions: v.boolean(),
+    milestoneDecisions: v.boolean(),
+    proposalReview: v.boolean(),
+    siteVisitReview: v.boolean(),
+  }),
   roles: v.array(v.string()),
   userId: v.id("users"),
   workosOrganizationId: v.string(),
@@ -44,6 +52,7 @@ const activeOrganizationReturn = v.object({
 
 const lenderResourceInput = {
   brokerageId: v.optional(v.id("brokerages")),
+  lenderOrganizationId: v.optional(v.id("lenderOrganizations")),
   organizationId: v.optional(v.string()),
   permission: v.optional(v.string()),
 };

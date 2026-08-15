@@ -8,7 +8,7 @@ Depends on: LP-P1-05
 
 ## Objective
 
-Model approval, external assignment, lender confirmation, closing, and
+Model approval, lender assignment, lender confirmation, closing, and
 activation as explicit, auditable state dimensions. Preserve the internal
 funding path and prevent proposal approval from activating a Build.
 

@@ -64,6 +64,12 @@ export const navGroups: SidebarNavGroup[] = [
         matchPrefix: true,
       },
       {
+        title: "Lenders",
+        to: "/backoffice/lenders",
+        icon: icon(BankIcon),
+        matchPrefix: true,
+      },
+      {
         title: "Onboard builder",
         to: "/backoffice/onboard-builder",
         icon: icon(UserAdd01Icon),
@@ -182,7 +188,7 @@ export const builderStaffNavGroups: SidebarNavGroup[] = [
 ];
 
 export const footerNavLinks: SidebarNavItem[] = [
-  { title: "About", to: "/about", icon: icon(HelpCircleIcon) },
+  { title: "About", to: builderRoute("/about"), icon: icon(HelpCircleIcon) },
 ];
 
 /** Does `pathname` represent the given nav item? */

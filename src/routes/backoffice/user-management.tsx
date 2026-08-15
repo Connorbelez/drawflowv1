@@ -6,6 +6,7 @@ import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { persistMembershipRoleUpdate } from "./-user-management-role-update";
 import { UserManagementSurface } from "./-user-management-surface";
 import type {
   BrokerageProvisioningProjection,
@@ -163,7 +164,13 @@ function UserManagementRoute() {
       }}
       onRoleUpdate={async (args) => {
         await runAction(async () => {
-          const result = await updateMembershipRoles(args);
+          const result = await persistMembershipRoleUpdate({
+            args,
+            syncDirectory: async () => {
+              await syncWorkosDirectory({});
+            },
+            updateRoles: updateMembershipRoles,
+          });
           return `${result.operation}: ${result.sync}`;
         });
       }}

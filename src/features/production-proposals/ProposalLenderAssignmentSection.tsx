@@ -90,7 +90,6 @@ export function ProposalLenderAssignmentSection({
   ) => Promise<unknown> | unknown;
   proposal: {
     buildName: string;
-    capitalSource?: "internal" | "external";
     location: string;
     status: "approved" | "closed" | "draft" | "submitted";
   };
@@ -116,7 +115,6 @@ export function ProposalLenderAssignmentSection({
   const canAssign = Boolean(
     onAssign &&
       proposal.status === "approved" &&
-      proposal.capitalSource === "external" &&
       !currentAssignment
   );
   const canWithdraw = Boolean(
@@ -164,7 +162,7 @@ export function ProposalLenderAssignmentSection({
       setAnnouncement(
         `${selectedOrganization.lenderOrganizationName} is assigned. Lender confirmation is next.`
       );
-      toast.success("External lender assigned.");
+      toast.success("Lender assigned.");
       handleOpenChange(false);
     } catch (error) {
       toast.error(proposalActionErrorMessage(error));
@@ -195,7 +193,7 @@ export function ProposalLenderAssignmentSection({
       setAnnouncement(
         `${currentAssignment.lenderOrganizationName} was withdrawn. The internal closing path is restored.`
       );
-      toast.success("External lender assignment withdrawn.");
+      toast.success("Lender assignment withdrawn.");
       handleOpenChange(false);
     } catch (error) {
       toast.error(proposalActionErrorMessage(error));
@@ -204,7 +202,14 @@ export function ProposalLenderAssignmentSection({
     }
   };
 
-  let supportingText = "Optional · internal closing remains available";
+  let supportingText =
+    "Optional · assigning a lender adds confirmation before closing";
+  if (proposal.status !== "approved" && proposal.status !== "closed") {
+    supportingText =
+      "Available after Back Office approval · internal closing remains available";
+  } else if (proposal.status === "closed" && !visibleAssignment) {
+    supportingText = "Proposal closed · lender assignment is unavailable";
+  }
   if (currentAssignment) {
     supportingText =
       approval?.status === "approved"
@@ -223,7 +228,9 @@ export function ProposalLenderAssignmentSection({
           <Landmark className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="font-semibold text-sm">External lender</p>
+              <p className="font-semibold text-sm">
+                Lender assignment
+              </p>
               {currentAssignment ? (
                 <Badge
                   size="sm"
@@ -342,7 +349,6 @@ function AssignmentDialog({
   pending: boolean;
   proposal: {
     buildName: string;
-    capitalSource?: "internal" | "external";
     location: string;
     status: "approved" | "closed" | "draft" | "submitted";
   };
@@ -441,7 +447,6 @@ function FocusedAssignmentDialog({
   pending: boolean;
   proposal: {
     buildName: string;
-    capitalSource?: "internal" | "external";
     location: string;
     status: "approved" | "closed" | "draft" | "submitted";
   };
@@ -452,14 +457,13 @@ function FocusedAssignmentDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Assign external lender</DialogTitle>
+          <DialogTitle>Assign lender</DialogTitle>
           <DialogDescription>
             Give one Lender Organization access to review {proposal.buildName}.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
           <ProposalAssignmentContext
-            capitalSource={proposal.capitalSource}
             status={proposal.status}
           />
           <div className="grid gap-2">
@@ -504,7 +508,7 @@ function FocusedAssignmentDialog({
               </p>
             ) : lenderOrganizations.length === 0 ? (
               <p className="text-muted-foreground text-xs" role="status">
-                No eligible external lender organizations are available.
+                No eligible lender organizations are available.
               </p>
             ) : null}
           </div>
@@ -599,7 +603,7 @@ function AssignedLenderDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>External lender assignment</DialogTitle>
+          <DialogTitle>Lender assignment</DialogTitle>
           <DialogDescription>
             {withdrawn
               ? "Historical assignment for this proposal."
@@ -797,10 +801,8 @@ function WithdrawAssignmentDialog({
 }
 
 function ProposalAssignmentContext({
-  capitalSource,
   status,
 }: {
-  capitalSource?: "internal" | "external";
   status: "approved" | "closed" | "draft" | "submitted";
 }) {
   return (
@@ -808,7 +810,6 @@ function ProposalAssignmentContext({
       <Badge variant={status === "approved" ? "success" : "outline"}>
         {proposalStatusLabel(status)}
       </Badge>
-      <Badge variant="outline">{capitalSourceLabel(capitalSource)}</Badge>
       <Badge variant="outline">Current revision</Badge>
     </div>
   );
@@ -878,10 +879,6 @@ function proposalStatusLabel(
       : status === "submitted"
         ? "Submitted"
         : "Draft";
-}
-
-function capitalSourceLabel(capitalSource?: "internal" | "external") {
-  return capitalSource === "external" ? "External capital" : "Internal capital";
 }
 
 function AssignmentImpact() {

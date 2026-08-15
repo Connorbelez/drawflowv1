@@ -2,7 +2,10 @@
 
 import {
   Building2,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  Copy,
   HardHat,
   LoaderCircle,
   Mail,
@@ -31,7 +34,13 @@ import {
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Badge, type BadgeProps } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Card } from "#/components/ui/card.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
+import {
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "#/components/ui/collapsible.tsx";
 import {
   NativeSelect,
   NativeSelectOption,
@@ -46,6 +55,8 @@ import {
   SheetPanel,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
+import { formatRoleSlug } from "#/lib/auth/rbac.ts";
 
 import type {
   OrganizationProvisioning,
@@ -58,6 +69,8 @@ import { canonicalizeWorkosMembershipRows } from "./-user-management-types";
 
 const BROKER_ROLES = ["principle-broker", "broker", "broker-staff"];
 const BUILDER_ROLES = ["builder", "builder-staff"];
+const DETAIL_CARD_CLASS =
+  "rounded-xl border-border/60 bg-muted/40 p-3.5 shadow-none before:hidden";
 
 export interface DirectoryUser {
   displayName: string;
@@ -188,9 +201,9 @@ function UserDetailBody({
             </Badge>
           </div>
         </div>
-        <p className="font-mono text-[0.6875rem] text-muted-foreground/80">
-          {user.workosUserId}
-        </p>
+        <TechnicalDetails
+          items={[{ label: "WorkOS user ID", value: user.workosUserId ?? "" }]}
+        />
       </SheetHeader>
       <SheetPanel className="flex flex-col gap-6">
         <MembershipsSection
@@ -302,6 +315,7 @@ function MembershipCard({
   readOnly: boolean;
   roleOptions: string[];
 }): ReactElement {
+  const headingId = useId();
   const [saving, setSaving] = useState(false);
   const selectedRoles = useMemo(
     () => selectedRoleSlugs(membership),
@@ -310,13 +324,15 @@ function MembershipCard({
   const isDeleted = membership.status === "deleted";
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3.5">
+    <Card
+      className={`flex flex-col gap-3 ${DETAIL_CARD_CLASS}`}
+      render={<section aria-labelledby={headingId} />}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-medium text-sm">{organizationName}</p>
-          <p className="mt-0.5 truncate font-mono text-[0.6875rem] text-muted-foreground">
-            {membership.workosMembershipId}
-          </p>
+          <h4 className="truncate font-medium text-sm" id={headingId}>
+            {organizationName}
+          </h4>
         </div>
         <div className="flex items-center gap-1.5">
           <MembershipStatusBadge status={membership.status} />
@@ -342,6 +358,7 @@ function MembershipCard({
           ) : null}
           {readOnly || !handlers || isDeleted ? null : (
             <ConfirmButton
+              ariaLabel={`Remove ${organizationName} access`}
               confirmLabel="Remove membership"
               description={`This revokes ${organizationName} access for this account. The membership is removed in WorkOS and can only be restored by re-inviting.`}
               disabled={saving}
@@ -358,7 +375,7 @@ function MembershipCard({
               title="Remove this membership?"
             >
               <UserMinus />
-              Remove
+              Remove access
             </ConfirmButton>
           )}
         </div>
@@ -370,7 +387,7 @@ function MembershipCard({
             {selectedRoles.length > 0 ? (
               selectedRoles.map((role) => (
                 <Badge key={role} variant="secondary">
-                  {role}
+                  {formatRoleSlug(role)}
                   {role === membership.roleSlug ? " · Primary" : ""}
                 </Badge>
               ))
@@ -399,7 +416,15 @@ function MembershipCard({
           roleSlugs={selectedRoles}
         />
       )}
-    </div>
+      <TechnicalDetails
+        items={[
+          {
+            label: "WorkOS membership ID",
+            value: membership.workosMembershipId,
+          },
+        ]}
+      />
+    </Card>
   );
 }
 
@@ -456,7 +481,10 @@ function AddMembershipSection({
     : [];
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-input border-dashed p-3.5">
+    <Card
+      className="flex flex-col gap-3 rounded-xl border-border/80 border-dashed bg-muted/20 p-3.5 shadow-none before:hidden"
+      render={<section />}
+    >
       <SectionLabel title="Add to organization" />
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-muted-foreground text-xs" htmlFor="add-org">
@@ -507,7 +535,7 @@ function AddMembershipSection({
         submitIcon={<Plus />}
         submitLabel="Add membership"
       />
-    </section>
+    </Card>
   );
 }
 
@@ -594,6 +622,7 @@ function ProfileRow({
   readOnly: boolean;
   workosUserId: string;
 }): ReactElement {
+  const headingId = useId();
   const [savingBrokerage, setSavingBrokerage] = useState(false);
   const [savingBuilder, setSavingBuilder] = useState(false);
   const existingLink = provisioning.builderAccountLinks.find(
@@ -637,13 +666,15 @@ function ProfileRow({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3.5">
+    <Card
+      className={`flex flex-col gap-3 ${DETAIL_CARD_CLASS}`}
+      render={<section aria-labelledby={headingId} />}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-medium text-sm">{provisioning.name}</p>
-          <p className="mt-0.5 truncate font-mono text-[0.6875rem] text-muted-foreground">
-            {provisioning.workosOrganizationId}
-          </p>
+          <h4 className="truncate font-medium text-sm" id={headingId}>
+            {provisioning.name}
+          </h4>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <ProfileBadge
@@ -659,11 +690,19 @@ function ProfileRow({
           {linkedAsBuilder ? (
             <Badge variant="info">
               <HardHat className="size-3" />
-              Builder {existingLink.role}
+              Builder {formatRoleSlug(existingLink.role)}
             </Badge>
           ) : null}
         </div>
       </div>
+      <TechnicalDetails
+        items={[
+          {
+            label: "WorkOS organization ID",
+            value: provisioning.workosOrganizationId,
+          },
+        ]}
+      />
       {!readOnly &&
       handlers &&
       (showBrokerageAction ||
@@ -761,7 +800,7 @@ function ProfileRow({
           ) : null}
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -783,6 +822,7 @@ function ProfileBadge({
 }
 
 function ConfirmButton({
+  ariaLabel,
   children,
   confirmLabel,
   description,
@@ -790,6 +830,7 @@ function ConfirmButton({
   onConfirm,
   title,
 }: {
+  ariaLabel?: string;
   children: React.ReactNode;
   confirmLabel: string;
   description: string;
@@ -801,7 +842,12 @@ function ConfirmButton({
     <AlertDialog>
       <AlertDialogTrigger
         render={
-          <Button disabled={disabled} size="xs" variant="destructive-outline" />
+          <Button
+            aria-label={ariaLabel}
+            disabled={disabled}
+            size="xs"
+            variant="destructive-outline"
+          />
         }
       >
         {children}
@@ -872,48 +918,54 @@ function RoleEditor({
   const dirty = currentBaseline !== committedBaseline;
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex flex-wrap gap-1.5">
-        {roleOptions.map((role) => {
-          const checked = selected.includes(role);
-          return (
-            // biome-ignore lint/a11y/noLabelWithoutControl: wraps custom Checkbox component
-            <label
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background/60 px-2 py-1 text-xs"
-              key={role}
-            >
-              <Checkbox
-                checked={checked}
-                disabled={disabled || pending}
-                onCheckedChange={(next) => {
-                  setSubmitError(null);
-                  const isChecked = next === true;
-                  const updated = isChecked
-                    ? [...selected, role]
-                    : selected.filter((r) => r !== role);
-                  setSelected(updated);
-                  if (!isChecked && primary === role) {
-                    setPrimary(updated[0] ?? "");
-                  }
-                  if (isChecked && !primary) {
-                    setPrimary(role);
-                  }
-                }}
-              />
-              <span className="font-medium">{role}</span>
-            </label>
-          );
-        })}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-3">
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+          Roles
+        </legend>
+        <div className="flex flex-wrap gap-1.5">
+          {roleOptions.map((role) => {
+            const checked = selected.includes(role);
+            return (
+              // biome-ignore lint/a11y/noLabelWithoutControl: wraps custom Checkbox component
+              <label
+                className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-input bg-background/70 px-2.5 py-1 text-xs shadow-xs/5 outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out hover:border-ring/60 hover:bg-accent/40 has-[[data-disabled]]:cursor-not-allowed has-[[data-checked]]:border-primary/45 has-[[data-checked]]:bg-primary/5 has-[[data-disabled]]:opacity-64 has-[[data-checked]]:shadow-none"
+                key={role}
+              >
+                <Checkbox
+                  checked={checked}
+                  disabled={disabled || pending}
+                  onCheckedChange={(next) => {
+                    setSubmitError(null);
+                    const isChecked = next === true;
+                    const updated = isChecked
+                      ? [...selected, role]
+                      : selected.filter((r) => r !== role);
+                    setSelected(updated);
+                    if (!isChecked && primary === role) {
+                      setPrimary(updated[0] ?? "");
+                    }
+                    if (isChecked && !primary) {
+                      setPrimary(role);
+                    }
+                  }}
+                />
+                <span className="font-medium">{formatRoleSlug(role)}</span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+      <div className="flex flex-wrap items-center gap-2 border-border/60 border-t pt-3">
         <label
-          className="text-muted-foreground text-xs"
+          className="font-medium text-muted-foreground text-xs"
           htmlFor={primaryRoleId}
         >
-          Primary
+          Primary role
         </label>
         <NativeSelect
           aria-label="Primary role"
+          className="min-w-28"
           disabled={disabled || pending || selectedActive.length === 0}
           id={primaryRoleId}
           onChange={(event) => {
@@ -924,13 +976,16 @@ function RoleEditor({
         >
           {selectedActive.map((role) => (
             <NativeSelectOption key={role} value={role}>
-              {role}
+              {formatRoleSlug(role)}
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        <div className="ms-auto">
+        <div className="ms-auto flex items-center">
           <Button
             aria-busy={pending}
+            className={
+              submitLabel === "Add membership" ? "min-w-32" : "min-w-24"
+            }
             disabled={
               disabled || pending || selected.length === 0 || !primary || !dirty
             }
@@ -953,8 +1008,13 @@ function RoleEditor({
             }}
             size="sm"
             type="button"
+            variant={dirty ? "default" : "outline"}
           >
-            {pending ? <LoaderCircle className="animate-spin" /> : submitIcon}
+            {pending ? (
+              <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              submitIcon
+            )}
             {pending
               ? submitLabel === "Add membership"
                 ? "Adding..."
@@ -1006,6 +1066,76 @@ function compactWorkosId(id: string): string {
     return id;
   }
   return `${id.slice(0, 8)}…${id.slice(-6)}`;
+}
+
+interface TechnicalDetail {
+  label: string;
+  value: string;
+}
+
+function TechnicalDetails({
+  items,
+}: {
+  items: readonly TechnicalDetail[];
+}): ReactElement | null {
+  const visibleItems = items.filter((item) => item.value.trim().length > 0);
+  if (visibleItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <Collapsible className="group/technical-details rounded-lg border border-border/70 border-dashed bg-muted/15 transition-[background-color,border-color] duration-150 data-open:border-border data-open:bg-muted/30">
+      <CollapsibleTrigger
+        className="flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-3 text-left text-muted-foreground text-xs outline-none transition-colors duration-150 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        type="button"
+      >
+        <span className="text-pretty">Technical details</span>
+        <ChevronDown className="size-3.5 transition-transform duration-200 group-data-open/technical-details:rotate-180" />
+      </CollapsibleTrigger>
+      <CollapsiblePanel className="px-2.5 pb-2.5 motion-reduce:transition-none">
+        <div className="flex flex-col gap-2 border-border/60 border-t pt-2">
+          {visibleItems.map((item) => (
+            <TechnicalIdentifier item={item} key={item.label} />
+          ))}
+        </div>
+      </CollapsiblePanel>
+    </Collapsible>
+  );
+}
+
+function TechnicalIdentifier({
+  item,
+}: {
+  item: TechnicalDetail;
+}): ReactElement {
+  const { copyToClipboard, isCopied } = useCopyToClipboard();
+
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-muted-foreground text-xs">{item.label}</p>
+        <code
+          className="block truncate font-mono text-foreground text-xs"
+          title={item.value}
+        >
+          <bdi>{item.value}</bdi>
+        </code>
+      </div>
+      <Button
+        aria-label={`Copy ${item.label}`}
+        onClick={() => copyToClipboard(item.value)}
+        size="icon-xs"
+        variant="outline"
+      >
+        {isCopied ? <Check aria-hidden /> : <Copy aria-hidden />}
+      </Button>
+      {isCopied ? (
+        <span aria-live="polite" className="sr-only">
+          Copied {item.label}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function SectionLabel({

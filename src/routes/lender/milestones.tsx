@@ -4,6 +4,12 @@ import { LenderMilestoneQueueVariantC } from "../lender.milestones-prototype.tsx
 
 export const Route = createFileRoute("/lender/milestones")({
   component: LenderMilestoneQueue,
+  staticData: {
+    breadcrumb: {
+      label: "Milestones",
+      to: "/lender/milestones",
+    },
+  },
 });
 function LenderMilestoneQueue() {
   return (

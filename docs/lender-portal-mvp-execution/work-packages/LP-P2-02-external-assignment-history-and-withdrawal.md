@@ -1,4 +1,4 @@
-# LP-P2-02 — External assignment history and withdrawal
+# LP-P2-02 — Lender assignment history and withdrawal
 
 Status: implementation-complete
 
@@ -11,7 +11,7 @@ Depends on: LP-P2-01
 
 ## Objective
 
-Implement one current external Lender Organization assignment with append-only
+Implement one current Lender Organization assignment with append-only
 assignment intervals, withdrawal, bounded historical access, and no deletion
 of review-time records.
 
@@ -37,7 +37,7 @@ authority into a portal-only model.
 
 ## Context pointers
 
-Load the feature brief external assignment, withdrawal, permissions, and
+Load the feature brief lender assignment, withdrawal, permissions, and
 proposal acceptance sections; spec User Stories 33–42 and E2E-01/E2E-04;
 implementation plan Phase 2; Phase 1 organization authorization evidence; and
 the canonical proposal, audit, WorkOS projection, and resource-access owners.
@@ -48,7 +48,7 @@ the canonical proposal, audit, WorkOS projection, and resource-access owners.
    criterion: exactly one current organization can exist and historical
    intervals cannot be overwritten.
 2. Implement assign and withdraw commands. Completion criterion: assignment
-   requires external capital and Back Office Admin approval; withdrawal closes
+   requires Back Office Admin approval; withdrawal closes
    the interval, removes current authority, and preserves prior approval.
 3. Implement current and historical read authorization. Completion criterion:
    a withdrawn organization sees only the retained proposal record and its own

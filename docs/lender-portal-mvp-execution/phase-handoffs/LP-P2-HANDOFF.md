@@ -6,6 +6,23 @@ Status: `LP-P2-01` through `LP-P2-04` implementation-complete; `LP-P2-05`
 remains the independent Phase 2 certification package on the dedicated
 checkout.
 
+## Ownership correction addendum — 2026-08-14
+
+This handoff's earlier references to a WorkOS-backed Lender Organization are
+superseded. WorkOS cannot provision a Lender Organization. The production
+hierarchy is `Brokerage → Lender Organization → assigned lender users`, where
+Lender Organizations, workflow permissions, and user assignments are
+application-owned. WorkOS remains the shared identity container for users,
+invitations, exact lender roles (`lender`, `lender-admin`, `lender-staff`),
+memberships, and read-only projections.
+
+The control-plane entry point is `/backoffice/lenders`. The lender-facing
+`/lender/organization` route is app-level and shows a contact-admin empty state
+without WorkOS directory data when no active assignment exists. The active
+implementation checkout contains this correction plus migration helpers and
+focused tests; it is dirty and is not being represented as an independently
+certified Phase 2 SHA by this addendum.
+
 ## Phase 1 baseline
 
 This handoff is reconciled to the accepted Phase 1 implementation:
@@ -24,11 +41,11 @@ its fresh proposal inventory on the actual target checkout before implementation
 1. Confirm the accepted Phase 1 product SHA in the implementation checkout.
    Completion criterion: `LP-P1-05` is verified with exact-SHA evidence and
    every Phase 1 package dependency is verified in the ledger.
-2. Confirm the accepted Phase 1 interfaces. Completion criterion:
-   `getLenderOrganizationManagement`, `listCurrentUserOrganizations`,
-   `LENDER_MEMBERSHIP_CONSUMER_HANDOFFS`, active-organization authorization,
-   and WorkOS-first management operations are confirmed or this handoff and its
-   affected packets are revised before implementation.
+2. Confirm the accepted Phase 1 interfaces and the corrected ownership seam.
+   Completion criterion: shared WorkOS projections remain read-only, the app
+   Lender Organization/assignment owners are identified, active-organization
+   authorization resolves an explicit app assignment, and WorkOS-first
+   management operations target the configured shared identity organization.
 3. Re-run the proposal transition-consumer inventory on the actual target HEAD.
    Completion criterion: every lifecycle writer, projection, route, queue,
    audit consumer, and external contract is assigned to a package.
@@ -44,14 +61,18 @@ active package. Reach for these owners when their branch applies:
 - lifecycle and Build Proposal state: `convex/production_proposals.ts`,
   `convex/schema.ts`, and `convex/production_proposals.test.ts`;
 - organization and membership eligibility:
-  `convex/authz.ts`, `convex/workosProjection.ts`, and the accepted Phase 1
-  evidence;
+  `convex/authz.ts`, `convex/lenderOrganizationAccess.ts`,
+  `convex/lenderOrganizations.ts`, `convex/workosProjection.ts`, and the
+  accepted Phase 1 evidence;
 - audit and provisioning: `convex/brokerageProvisioning.ts` and the canonical
   audit-event schema/migrations;
 - Back Office proposal consumers:
   `src/routes/backoffice/proposals.$planId.tsx`,
   `src/routes/backoffice/proposals/index.tsx`, and existing production
   proposal components;
+- app-owned lender control plane and lender organization view:
+  `src/routes/backoffice/lenders/`, `src/routes/lender/organization.tsx`,
+  `convex/lenderOrganizations.ts`, and `convex/schema.ts`;
 - source contract: feature brief proposal lifecycle sections, spec User Stories
   15–18 and 33–42, implementation plan Phase 2, and the four Phase 2 packets.
 
@@ -61,7 +82,7 @@ canonical seam and record any changed owner in the evidence.
 ## Package sequence and safe parallel lanes
 
 1. `LP-P2-01` defines the canonical proposal lifecycle state machine.
-2. `LP-P2-02` adds external assignment intervals and withdrawal after
+2. `LP-P2-02` adds lender assignment intervals and withdrawal after
    `LP-P2-01`.
 3. `LP-P2-03` adds closing eligibility and separate activation after
    `LP-P2-01` and `LP-P2-02`.
@@ -85,8 +106,9 @@ state transition owner remains single-writer.
   Production loaders and commands replace prototype data and local actions;
   the locked hierarchy is not redesigned.
 - Lender assignment consumes active organization and current canonical
-  membership eligibility from Phase 1 plus persisted proposal assignment. It
-  does not create another organization or membership authority.
+  shared-membership eligibility from Phase 1 plus persisted app assignment. It
+  consumes `Id<"lenderOrganizations">` proposal references and does not create
+  another WorkOS organization or membership authority.
 
 ## Required verification and exact-commit evidence
 
@@ -99,6 +121,10 @@ using `evidence-template.md`. Required phase evidence includes:
   audit, replay, and concurrency suites;
 - production route/component tests and direct-promotion parity for
   `LP-PROT-ASSIGN`;
+- app-owned lender control-plane tests for provisioning without WorkOS
+  organization creation, one-assignment enforcement, pending invitation
+  reconciliation, policy caps, admin target bypass, cross-scope denial, and the
+  unassigned lender empty state;
 - E2E-01, E2E-02, and E2E-04 at real participant boundaries;
 - build and `bun run validate:lender-portal-execution` on the certification
   SHA.

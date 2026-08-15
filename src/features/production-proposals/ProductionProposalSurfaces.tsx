@@ -2048,6 +2048,8 @@ export function ProductionProposalReviewSurface({
     onApprove && onReject && onRequestChanges
   );
   const canSubmitProposal = Boolean(onSubmit);
+  const canRenderProposalStatusPanel =
+    canRunReviewDecision || canSubmitProposal;
   const canRecordClosing = Boolean(onClose);
   const tabs = useMemo(() => {
     const nextTabs: { label: string; value: ProductionReviewTab }[] = [];
@@ -2267,9 +2269,11 @@ export function ProductionProposalReviewSurface({
       idPrefix={idPrefix}
       onReasonChange={setReason}
       onReviewDecision={runReviewDecision}
+      onSubmit={canSubmitProposal ? submitProposal : undefined}
       pendingDecision={pendingDecision}
       proposal={proposal}
       reason={reason}
+      submitPending={submitPending}
     />
   );
 
@@ -2290,7 +2294,7 @@ export function ProductionProposalReviewSurface({
       >
         {proposal.status === "approved" ? (
           <ApprovedProposalConfirmation detail={detail} />
-        ) : canRunReviewDecision ? (
+        ) : canRenderProposalStatusPanel ? (
           renderReviewDecisionPanel(idPrefix)
         ) : (
           <Section title="Review summary">
@@ -2715,29 +2719,6 @@ export function ProductionProposalReviewSurface({
                         )}
                       </dl>
                     ) : null}
-                  </div>
-                </Section>
-              ) : null}
-              {proposal.status === "draft" && canSubmitProposal ? (
-                <Section title="Submit proposal">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <Badge variant="outline">Draft</Badge>
-                      <p className="mt-2 text-muted-foreground text-sm">
-                        {proposal.selectedPlan
-                          ? "Submit the current reimbursement plan for lender review. The selected optimizer preset is included as advisory comparison metadata."
-                          : "Submit the custom reimbursement plan for lender review when the packet, milestones, and draw schedule are ready. Optimizer presets are optional."}
-                      </p>
-                    </div>
-                    <Button
-                      className="w-full sm:w-auto"
-                      data-testid="production-proposal-submit-cta"
-                      disabled={submitPending}
-                      onClick={() => void submitProposal()}
-                    >
-                      <Send />
-                      {submitPending ? "Submitting..." : "Submit proposal"}
-                    </Button>
                   </div>
                 </Section>
               ) : null}
@@ -3912,26 +3893,46 @@ function ProposalReviewDecisionPanel({
   idPrefix,
   onReasonChange,
   onReviewDecision,
+  onSubmit,
   pendingDecision,
   proposal,
   reason,
+  submitPending,
 }: {
   idPrefix: string;
   onReasonChange: (value: string) => void;
   onReviewDecision: (
     decision: "approve" | "reject" | "requestChanges"
   ) => Promise<void> | void;
+  onSubmit?: () => Promise<unknown> | unknown;
   pendingDecision: "approve" | "reject" | "requestChanges" | null;
   proposal: ProductionProposal;
   reason: string;
+  submitPending: boolean;
 }) {
   const reviewAvailable = proposal.status === "submitted";
   const disabled = pendingDecision !== null;
   const reasonId = `${idPrefix}-decision-reason`;
   const reasonHelpId = `${idPrefix}-decision-reason-help`;
+  const submitAction =
+    proposal.status === "draft" && onSubmit ? (
+      <Button
+        className="w-full sm:w-auto"
+        data-testid={`${idPrefix}-submit-proposal`}
+        disabled={submitPending}
+        onClick={() => void onSubmit()}
+        size="sm"
+      >
+        <Send />
+        {submitPending ? "Submitting..." : "Submit proposal"}
+      </Button>
+    ) : null;
 
   return (
-    <Section title={reviewAvailable ? "Review decision" : "Proposal status"}>
+    <Section
+      action={submitAction}
+      title={reviewAvailable ? "Review decision" : "Proposal status"}
+    >
       <div className="grid gap-4">
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -3993,11 +3994,20 @@ function ProposalReviewDecisionPanel({
             </p>
           </div>
         ) : (
-          <p className="max-w-[65ch] text-muted-foreground text-sm">
-            {proposal.status === "draft"
-              ? "Decision controls unlock after the builder submits this proposal for lender review."
-              : "This proposal is not currently awaiting a lender review decision."}
-          </p>
+          <div className="grid max-w-[65ch] gap-2 text-muted-foreground text-sm">
+            <p>
+              {proposal.status === "draft"
+                ? "Decision controls unlock after the builder submits this proposal for lender review."
+                : "This proposal is not currently awaiting a lender review decision."}
+            </p>
+            {proposal.status === "draft" ? (
+              <p>
+                {proposal.selectedPlan
+                  ? "Submit the current reimbursement plan for lender review. The selected optimizer preset is included as advisory comparison metadata."
+                  : "Submit the custom reimbursement plan for lender review when the packet, milestones, and draw schedule are ready. Optimizer presets are optional."}
+              </p>
+            ) : null}
+          </div>
         )}
       </div>
     </Section>

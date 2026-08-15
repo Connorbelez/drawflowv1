@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { operationalRequestFingerprint } from "./build_operational_idempotency";
+import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import { assertProposalLenderApprovalTimestamps } from "./production_proposals";
 import schema from "./schema";
 
@@ -252,11 +253,11 @@ async function seedExternalLenderOrganization(
     role?: string;
   } = {},
 ) {
-  const organizationId = options.organizationId ?? "org_external_lender";
+  const legacyOrganizationId = options.organizationId ?? "org_external_lender";
   const organizationName =
     options.organizationName ?? "Northstar Lending Organization";
   const userId = options.userId ?? "user_external_lender_admin";
-  const role = options.role ?? "admin";
+  const role = options.role ?? "lender-admin";
   return await t.run(async (ctx: any) => {
     const now = Date.now();
     const brokerageId = await ctx.db.insert("brokerages", {
@@ -265,15 +266,30 @@ async function seedExternalLenderOrganization(
       legalName: `${organizationName} Inc.`,
       status: "active",
       updatedAt: now,
-      workosOrganizationId: organizationId,
+      workosOrganizationId: legacyOrganizationId,
     });
     await ctx.db.insert("workosOrganizations", {
       domains: [],
       name: organizationName,
-      sourceEventId: `test_${organizationId}_created`,
+      sourceEventId: `test_${legacyOrganizationId}_created`,
       sourceEventType: "organization.created",
       status: "active",
-      workosOrganizationId: organizationId,
+      workosOrganizationId: legacyOrganizationId,
+    });
+    const lenderOrganizationId = await ctx.db.insert("lenderOrganizations", {
+      brokerageId,
+      createdAt: now,
+      displayName: organizationName,
+      legalName: `${organizationName} Inc.`,
+      legacyWorkosOrganizationId: legacyOrganizationId,
+      permissions: {
+        drawDecisions: true,
+        milestoneDecisions: true,
+        proposalReview: true,
+        siteVisitReview: true,
+      },
+      status: "active",
+      updatedAt: now,
     });
     await ctx.db.insert("users", {
       authId: userId,
@@ -296,10 +312,28 @@ async function seedExternalLenderOrganization(
       status: "active",
       updatedAt: now,
       workosMembershipId: `om_${userId}`,
-      workosOrganizationId: organizationId,
+      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
       workosUserId: userId,
     });
-    return { brokerageId, organizationId, userId };
+    await ctx.db.insert("lenderOrganizationAssignments", {
+      assignedAt: now,
+      assignedByRole: "admin",
+      assignedByWorkosUserId: "user_admin",
+      brokerageId,
+      lenderOrganizationId,
+      normalizedEmail: `${userId}@example.com`,
+      reason: "Seed an assigned lender for proposal lifecycle tests.",
+      status: "active",
+      updatedAt: now,
+      workosUserId: userId,
+    });
+    return {
+      brokerageId,
+      lenderOrganizationId,
+      organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      legacyOrganizationId,
+      userId,
+    };
   });
 }
 
@@ -969,7 +1003,7 @@ describe("production proposal foundation", () => {
     const assigned = await t.mutation(
       (api as any).production_proposals.assignExternalLenderOrganization,
       {
-        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationId: lender.lenderOrganizationId,
         proposalId,
         reason: "Assign the eligible external lender for review.",
         workosOrganizationId: ORG,
@@ -980,13 +1014,13 @@ describe("production proposal foundation", () => {
       t.mutation(
         (api as any).production_proposals.assignExternalLenderOrganization,
         {
-          lenderOrganizationId: lender.organizationId,
+          lenderOrganizationId: lender.lenderOrganizationId,
           proposalId,
           reason: "Do not overlap a current assignment.",
           workosOrganizationId: ORG,
         },
       ),
-    ).rejects.toThrow("current external lender assignment already exists");
+    ).rejects.toThrow("current lender assignment already exists");
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
@@ -1004,7 +1038,7 @@ describe("production proposal foundation", () => {
     expect(history.assignments).toEqual([
       expect.objectContaining({
         assignmentId: assigned.assignmentId,
-        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationId: lender.lenderOrganizationId,
         status: "current",
       }),
     ]);
@@ -1022,7 +1056,7 @@ describe("production proposal foundation", () => {
       t.mutation(
         (api as any).production_proposals.assignExternalLenderOrganization,
         {
-          lenderOrganizationId: lender.organizationId,
+          lenderOrganizationId: lender.lenderOrganizationId,
           proposalId: concurrentProposalId,
           reason: "Competing assignment attempt one.",
           workosOrganizationId: ORG,
@@ -1031,7 +1065,7 @@ describe("production proposal foundation", () => {
       t.mutation(
         (api as any).production_proposals.assignExternalLenderOrganization,
         {
-          lenderOrganizationId: lender.organizationId,
+          lenderOrganizationId: lender.lenderOrganizationId,
           proposalId: concurrentProposalId,
           reason: "Competing assignment attempt two.",
           workosOrganizationId: ORG,
@@ -1088,7 +1122,7 @@ describe("production proposal foundation", () => {
         (api as any).production_proposals.listProposalLenderAssignmentHistory,
         { proposalId, workosOrganizationId: unrelated.organizationId },
       ),
-    ).rejects.toThrow("Forbidden: proposal scope");
+    ).rejects.toThrow(/Forbidden: (proposal scope|brokerage)/);
   });
 
   test("withdrawal closes the assignment interval without deleting history", async () => {
@@ -1110,7 +1144,7 @@ describe("production proposal foundation", () => {
     const assigned = await t.mutation(
       (api as any).production_proposals.assignExternalLenderOrganization,
       {
-        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationId: lender.lenderOrganizationId,
         proposalId,
         reason: "Assign lender before withdrawal.",
         workosOrganizationId: ORG,
@@ -1212,11 +1246,28 @@ describe("production proposal foundation", () => {
     expect(activated.buildId).toBeDefined();
   });
 
-  test("rejects internal-capital and ineligible-organization assignments", async () => {
-    const { seed, t } = await seeded(["admin"], "user_admin");
+  test("allows internal-capital lender assignment and app-owned organizations without members", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
     const eligibleLender = await seedExternalLenderOrganization(t, {
       organizationId: "org_internal_assignment_lender",
       userId: "user_internal_assignment_lender",
+    });
+    const emptyLenderOrganizationId = await t.run(async (ctx: any) => {
+      const now = Date.now();
+      return await ctx.db.insert("lenderOrganizations", {
+        brokerageId: seed.brokerageId,
+        createdAt: now,
+        displayName: "App Owned Lender Without Members",
+        legalName: "App Owned Lender Without Members Inc.",
+        permissions: {
+          drawDecisions: true,
+          milestoneDecisions: true,
+          proposalReview: true,
+          siteVisitReview: true,
+        },
+        status: "active",
+        updatedAt: now,
+      });
     });
     const internalProposalId = await createSubmittedProposal(t, seed, {
       buildName: "Internal capital assignment proposal",
@@ -1226,56 +1277,74 @@ describe("production proposal foundation", () => {
       reason: "Approve the internal-capital proposal.",
       workosOrganizationId: ORG,
     });
-    await expect(
-      t.mutation(
-        (api as any).production_proposals.assignExternalLenderOrganization,
+    const internalLenderOptions = await t.query(
+      (api as any).production_proposals.listEligibleExternalLenderOrganizations,
+      { proposalId: internalProposalId, workosOrganizationId: ORG },
+    );
+    expect(internalLenderOptions.organizations).toEqual(
+      expect.arrayContaining([
         {
-          lenderOrganizationId: eligibleLender.organizationId,
-          proposalId: internalProposalId,
-          reason: "Reject assignment on internal capital.",
-          workosOrganizationId: ORG,
+          lenderOrganizationId: eligibleLender.lenderOrganizationId,
+          lenderOrganizationName: "Northstar Lending Organization",
         },
-      ),
-    ).rejects.toThrow("requires external capital");
-
-    const ineligibleLender = await seedExternalLenderOrganization(t, {
-      organizationId: "org_ineligible_assignment_lender",
-      role: "member",
-      userId: "user_ineligible_assignment_lender",
+        {
+          lenderOrganizationId: emptyLenderOrganizationId,
+          lenderOrganizationName: "App Owned Lender Without Members",
+        },
+      ]),
+    );
+    const internalAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: eligibleLender.lenderOrganizationId,
+        proposalId: internalProposalId,
+        reason: "Assign the lender for the approved proposal.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(internalAssignment.assignmentId).toBeDefined();
+    const internalLenderViewer = withIdentity(
+      base,
+      ["admin"],
+      eligibleLender.userId,
+      eligibleLender.organizationId,
+    );
+    const internalApproval = await internalLenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId: internalProposalId,
+        reason: "Confirm the assigned lender review.",
+        workosOrganizationId: eligibleLender.organizationId,
+      },
+    );
+    expect(internalApproval.approvalId).toBeDefined();
+    const internalDetail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId: internalProposalId, workosOrganizationId: ORG },
+    );
+    expect(internalDetail.lifecycle).toMatchObject({
+      externalAssignment: "assigned",
+      lenderConfirmation: "approved",
     });
-    const externalProposalId = await createSubmittedProposal(t, seed, {
-      buildName: "Ineligible lender assignment proposal",
-      capitalSource: "external",
+
+    const emptyLenderProposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Assignment before lender membership proposal",
     });
     await t.mutation((api as any).production_proposals.approveProposal, {
-      proposalId: externalProposalId,
-      reason: "Approve the external-capital proposal.",
+      proposalId: emptyLenderProposalId,
+      reason: "Approve before attaching lender members.",
       workosOrganizationId: ORG,
     });
-    await expect(
-      t.mutation((api as any).production_proposals.recordProposalClosing, {
-        buildStartDate: "2026-08-01",
-        ianaTimezone: "America/Toronto",
-        loanFacility: {
-          interestAnnualBps: 925,
-          principalCents: 55_000_000,
-        },
-        proposalId: externalProposalId,
-        reason: "Reject external closing without a lender assignment.",
+    const emptyLenderAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: emptyLenderOrganizationId,
+        proposalId: emptyLenderProposalId,
+        reason: "Assign the app-owned lender before its members reconcile.",
         workosOrganizationId: ORG,
-      }),
-    ).rejects.toThrow("current lender assignment");
-    await expect(
-      t.mutation(
-        (api as any).production_proposals.assignExternalLenderOrganization,
-        {
-          lenderOrganizationId: ineligibleLender.organizationId,
-          proposalId: externalProposalId,
-          reason: "Reject organization without an eligible lender role.",
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow("no eligible active lender user");
+      },
+    );
+    expect(emptyLenderAssignment.assignmentId).toBeDefined();
   });
 
   test("records closing separately from activation and replays activation safely", async () => {
@@ -1383,14 +1452,14 @@ describe("production proposal foundation", () => {
     );
     expect(lenderOptions.organizations).toEqual([
       {
-        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationId: lender.lenderOrganizationId,
         lenderOrganizationName: "Northstar Lending Organization",
       },
     ]);
     const assignment = await t.mutation(
       (api as any).production_proposals.assignExternalLenderOrganization,
       {
-        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationId: lender.lenderOrganizationId,
         proposalId,
         reason: "Assign lender for closing eligibility.",
         workosOrganizationId: ORG,
@@ -1432,7 +1501,7 @@ describe("production proposal foundation", () => {
     expect(lenderProjection).toMatchObject({
       assignment: {
         assignmentId: assignment.assignmentId,
-        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationId: lender.lenderOrganizationId,
         readOnly: false,
         status: "current",
       },
@@ -1454,7 +1523,7 @@ describe("production proposal foundation", () => {
       },
       lenderAssignment: {
         assignmentId: assignment.assignmentId,
-        lenderOrganizationId: lender.organizationId,
+        lenderOrganizationId: lender.lenderOrganizationId,
         status: "current",
       },
       lenderAssignmentHistory: [
@@ -1583,6 +1652,61 @@ describe("production proposal foundation", () => {
       status: "approved",
       approverWorkosUserId: lender.userId,
     });
+  });
+
+  test("caps lender proposal decisions with the app-owned workflow policy", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_policy_lender",
+      role: "lender-admin",
+      userId: "user_policy_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Policy-capped external proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before policy-cap validation.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign lender before policy-cap validation.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(lender.lenderOrganizationId, {
+        permissions: {
+          drawDecisions: true,
+          milestoneDecisions: true,
+          proposalReview: false,
+          siteVisitReview: true,
+        },
+        updatedAt: Date.now(),
+      });
+    });
+
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await expect(
+      lenderViewer.mutation(
+        (api as any).production_proposals.approveExternalProposalForClosing,
+        {
+          proposalId,
+          reason: "This decision is blocked by the organization policy.",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("permission proposal_review");
   });
 
   test("persists an explicit Build IANA timezone and rejects invalid closing input", async () => {

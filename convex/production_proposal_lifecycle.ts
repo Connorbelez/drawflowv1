@@ -100,7 +100,9 @@ export function projectProposalLifecycle(
   },
 ): ProposalLifecycleProjection {
   const capitalSource = proposal.capitalSource ?? "internal";
-  const isExternal = capitalSource === "external";
+  const hasLenderAssignmentFlow =
+    capitalSource === "external" ||
+    Boolean(assignment && assignment.state !== "unassigned");
 
   return {
     activation: proposal.activeBuildId ? "active" : "inactive",
@@ -121,12 +123,12 @@ export function projectProposalLifecycle(
         : proposal.status === "approved"
           ? "pending_closing"
           : "not_ready",
-    externalAssignment: !isExternal
-      ? "not_required"
-      : (assignment?.state ?? "unassigned"),
-    lenderConfirmation: !isExternal
-      ? "not_required"
-      : (assignment?.lenderConfirmation ?? "pending"),
+    externalAssignment: hasLenderAssignmentFlow
+      ? (assignment?.state ?? "unassigned")
+      : "not_required",
+    lenderConfirmation: hasLenderAssignmentFlow
+      ? (assignment?.lenderConfirmation ?? "pending")
+      : "not_required",
     proposalState: proposal.status,
   };
 }

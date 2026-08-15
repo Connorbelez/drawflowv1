@@ -197,5 +197,6 @@ docs/                Product docs and specs
 
 ## Reference Docs
 
+- [docs/cmux-codex-teams-workflow.md](docs/cmux-codex-teams-workflow.md): cmux and Codex team setup, worktree ownership, and verification workflow.
 - [`docs/draw_flow_prd.md`](docs/draw_flow_prd.md): product requirements and domain source of truth.
 - [`AGENTS.md`](AGENTS.md): agent implementation rules, domain constraints, and repo conventions.

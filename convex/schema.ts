@@ -436,6 +436,20 @@ const systemPostHistoricalBackfillValidator = v.object({
   unknownFacts: v.array(systemPostBackfillUnknownFactValidator),
 });
 
+const auditActorRoleValidator = v.union(
+  v.literal("admin"),
+  v.literal("principle-broker"),
+  v.literal("broker"),
+  v.literal("builder"),
+  v.literal("broker-staff"),
+  v.literal("builder-staff"),
+  v.literal("homeowner"),
+  v.literal("contractor"),
+  v.literal("lender"),
+  v.literal("lender-admin"),
+  v.literal("lender-staff")
+);
+
 const contractorKindValidator = v.union(
   v.literal("company"),
   v.literal("individual"),
@@ -1967,6 +1981,7 @@ export default defineSchema({
     workosOrganizationId: v.string(),
     legalName: v.string(),
     displayName: v.string(),
+    legacyWorkosOrganizationId: v.optional(v.string()),
     principalBrokerEmail: v.optional(v.string()),
     principalBrokerWorkosUserId: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("inactive")),
@@ -1974,6 +1989,87 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_workos_organization", ["workosOrganizationId"])
+    .index("by_status", ["status"]),
+
+  /**
+   * Application-owned lender organizations. A lender organization is a
+   * child of a Brokerage and is deliberately not a WorkOS organization.
+   * WorkOS remains the shared identity/membership container; this record
+   * owns the lender workflow boundary and its organization-wide policy.
+   */
+  lenderOrganizations: defineTable({
+    brokerageId: v.id("brokerages"),
+    legalName: v.string(),
+    displayName: v.string(),
+    /** Legacy WorkOS-derived identifier used only during cutover/reconciliation. */
+    legacyWorkosOrganizationId: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    permissions: v.object({
+      proposalReview: v.boolean(),
+      milestoneDecisions: v.boolean(),
+      drawDecisions: v.boolean(),
+      siteVisitReview: v.boolean(),
+    }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_brokerage_and_status", ["brokerageId", "status"])
+    .index("by_brokerage_and_legacy_workos_organization", [
+      "brokerageId",
+      "legacyWorkosOrganizationId",
+    ])
+    .index("by_legacy_workos_organization", ["legacyWorkosOrganizationId"])
+    .index("by_status", ["status"]),
+
+  lenderOrganizationReconciliationCandidates: defineTable({
+    brokerageId: v.optional(v.id("brokerages")),
+    legacyWorkosOrganizationId: v.string(),
+    sourceTable: v.union(
+      v.literal("proposalLenderAssignments"),
+      v.literal("proposalLenderApprovals")
+    ),
+    sourceRecordId: v.string(),
+    snapshotName: v.optional(v.string()),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    reason: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_legacy_workos_organization", ["legacyWorkosOrganizationId"])
+    .index("by_brokerage_and_status", ["brokerageId", "status"])
+    .index("by_status", ["status"]),
+
+  /**
+   * Thin application assignment relation. Identity, roles, and WorkOS
+   * membership state stay in webhook-owned projection tables.
+   */
+  lenderOrganizationAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    lenderOrganizationId: v.id("lenderOrganizations"),
+    workosUserId: v.optional(v.string()),
+    normalizedEmail: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("active"),
+      v.literal("inactive")
+    ),
+    assignedByWorkosUserId: v.string(),
+    assignedByRole: v.string(),
+    reason: v.string(),
+    assignedAt: v.number(),
+    updatedAt: v.number(),
+    unassignedAt: v.optional(v.number()),
+    unassignedByWorkosUserId: v.optional(v.string()),
+  })
+    .index("by_lender_organization", ["lenderOrganizationId"])
+    .index("by_lender_organization_and_status", [
+      "lenderOrganizationId",
+      "status",
+    ])
+    .index("by_workos_user_and_status", ["workosUserId", "status"])
+    .index("by_normalized_email_and_status", ["normalizedEmail", "status"])
+    .index("by_brokerage_and_status", ["brokerageId", "status"])
     .index("by_status", ["status"]),
   builderProfiles: defineTable({
     brokerageId: v.id("brokerages"),
@@ -3522,7 +3618,11 @@ export default defineSchema({
     organizationId: v.string(),
     proposalId: v.id("buildProposals"),
     lenderBrokerageId: v.id("brokerages"),
-    lenderOrganizationId: v.string(),
+    // During the cutover this accepts the legacy WorkOS id so the migration
+    // can normalize existing history in place. New records always contain
+    // an Id<"lenderOrganizations"> and preserve the legacy id separately.
+    lenderOrganizationId: v.union(v.string(), v.id("lenderOrganizations")),
+    legacyLenderOrganizationId: v.optional(v.string()),
     lenderOrganizationName: v.string(),
     status: v.union(v.literal("current"), v.literal("withdrawn")),
     assignedAt: v.number(),
@@ -3545,7 +3645,8 @@ export default defineSchema({
     organizationId: v.string(),
     proposalId: v.id("buildProposals"),
     assignmentId: v.id("proposalLenderAssignments"),
-    lenderOrganizationId: v.string(),
+    lenderOrganizationId: v.union(v.string(), v.id("lenderOrganizations")),
+    legacyLenderOrganizationId: v.optional(v.string()),
     approverWorkosUserId: v.string(),
     approverRole: v.string(),
     status: v.union(v.literal("approved"), v.literal("declined")),
@@ -4034,6 +4135,7 @@ export default defineSchema({
     .index("by_brokerage", ["brokerageId"]),
   auditEvents: defineTable({
     brokerageId: v.id("brokerages"),
+    lenderOrganizationId: v.optional(v.id("lenderOrganizations")),
     organizationId: v.string(),
     // Canonical audit producers may include Build-scoped actor/capacity and
     // revision context. Keep these optional so legacy producers and records
@@ -4046,7 +4148,7 @@ export default defineSchema({
     command: v.string(),
     actorWorkosUserId: v.string(),
     actorKind: v.optional(buildCollaborationActorKindValidator),
-    actorRole: v.optional(buildCollaborationRoleValidator),
+    actorRole: v.optional(auditActorRoleValidator),
     actorRoles: v.array(v.string()),
     effectiveCapacity: v.optional(buildCollaborationRoleValidator),
     targetRevisions: v.optional(
@@ -8485,7 +8587,8 @@ export default defineSchema({
     sourceEventType: v.optional(v.string()),
   })
     .index("authId", ["authId"])
-    .index("by_workos_user_id", ["workosUserId"]),
+    .index("by_workos_user_id", ["workosUserId"])
+    .index("by_email", ["email"]),
   workosOrganizations: defineTable({
     workosOrganizationId: v.string(),
     name: v.string(),

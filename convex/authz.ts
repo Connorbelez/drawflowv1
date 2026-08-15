@@ -1,8 +1,13 @@
 import type { Auth, UserIdentity } from "convex/server";
 
+import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import { fluent } from "./fluent";
+import {
+  LENDER_ROLE_SLUGS,
+  resolveAssignedLenderOrganization,
+  type LenderWorkflowPermissions,
+} from "./lenderOrganizationAccess";
 import type { Id, MutationCtx, QueryCtx } from "./types";
-import { hasProjectedWorkosPermission } from "./workos_permission_access";
 
 export const roleSlugs = [
   "member",
@@ -13,16 +18,14 @@ export const roleSlugs = [
   "builder",
   "builder-staff",
   "contractor",
+  "lender",
+  "lender-admin",
+  "lender-staff",
 ] as const;
 
 export type RoleSlug = (typeof roleSlugs)[number];
 
-const lenderRoleSlugs = [
-  "admin",
-  "principle-broker",
-  "broker",
-  "broker-staff",
-] as const satisfies readonly RoleSlug[];
+const lenderRoleSlugs = ["admin", ...LENDER_ROLE_SLUGS] as const;
 
 export type LenderRoleSlug = (typeof lenderRoleSlugs)[number];
 
@@ -66,6 +69,11 @@ const roleAliases: Record<string, RoleSlug> = {
   "builder-staff": "builder-staff",
   builder_staff: "builder-staff",
   contractor: "contractor",
+  lender: "lender",
+  "lender-admin": "lender-admin",
+  lender_admin: "lender-admin",
+  "lender-staff": "lender-staff",
+  lender_staff: "lender-staff",
   member: "member",
 };
 
@@ -76,13 +84,11 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   builder: ["admin", "builder", "builder-staff"],
   contractor: ["contractor"],
   lenderOrganization: lenderRoleSlugs,
-  lenderUserManagementWrite: ["admin", "principle-broker"],
+  lenderUserManagementWrite: ["admin"],
   userManagementWrite: ["admin", "principle-broker"],
   nonDestructiveWrite: ["admin", "principle-broker", "broker", "broker-staff"],
   destructiveWrite: ["admin", "principle-broker"],
 };
-
-const MAX_LENDER_ORGANIZATION_MEMBERSHIPS = 100;
 
 export interface AuthorizedViewer {
   actorKind?: ActorKind;
@@ -96,8 +102,11 @@ export interface AuthorizedViewer {
 
 export interface ActiveLenderOrganizationContext {
   brokerageId: Id<"brokerages">;
+  brokerageName: string;
+  lenderOrganizationId: Id<"lenderOrganizations">;
   membershipIds: string[];
   organizationName: string;
+  permissions: LenderWorkflowPermissions;
   roles: LenderRoleSlug[];
   userId: Id<"users">;
   workosOrganizationId: string;
@@ -138,7 +147,6 @@ export const requireLenderOrganization = createLenderOrganizationMiddleware(
 export const requireLenderUserManagementWrite =
   createLenderOrganizationMiddleware("lenderUserManagementWrite", [
     "admin",
-    "principle-broker",
   ]);
 
 export const authenticatedQuery = fluent.query().use(requireAuthenticated);
@@ -239,10 +247,10 @@ export function viewerFromIdentity(
 }
 
 export async function requireActiveWorkosUser(
-  ctx: Pick<QueryCtx | MutationCtx, "db">,
+  _ctx: Pick<QueryCtx | MutationCtx, "db">,
   workosUserId: string
 ) {
-  const projectedUsers = await ctx.db
+  const projectedUsers = await _ctx.db
     .query("users")
     .withIndex("by_workos_user_id", (query) =>
       query.eq("workosUserId", workosUserId)
@@ -271,118 +279,31 @@ async function resolveActiveLenderOrganizationContext(
   viewer: AuthorizedViewer;
 }> {
   const identityViewer = viewerFromIdentity(identity, capability);
-  const workosUserId = identity.subject.trim();
-  if (!workosUserId) {
-    throw new Error("Forbidden: WorkOS identity");
-  }
-
-  const user = await requireActiveWorkosUser(ctx, workosUserId);
-  const claimedWorkosOrganizationId = identityViewer.organizationId?.trim();
-  let workosOrganizationId = claimedWorkosOrganizationId;
-  const memberships = claimedWorkosOrganizationId
-    ? await ctx.db
-        .query("workosOrganizationMemberships")
-        .withIndex("by_user_and_organization", (query) =>
-          query
-            .eq("workosUserId", workosUserId)
-            .eq("workosOrganizationId", claimedWorkosOrganizationId)
-        )
-        .take(MAX_LENDER_ORGANIZATION_MEMBERSHIPS + 1)
-    : await ctx.db
-        .query("workosOrganizationMemberships")
-        .withIndex("by_user", (query) => query.eq("workosUserId", workosUserId))
-        .take(MAX_LENDER_ORGANIZATION_MEMBERSHIPS + 1);
-  if (memberships.length > MAX_LENDER_ORGANIZATION_MEMBERSHIPS) {
-    throw new Error("Forbidden: organization membership context exceeds limit");
-  }
-  const activeOrganizationIds = [
-    ...new Set(
-      memberships
-        .filter((membership) => membership.status === "active")
-        .map((membership) => membership.workosOrganizationId)
-    ),
-  ];
-  if (!workosOrganizationId) {
-    if (activeOrganizationIds.length === 0) {
-      throw new Error("Forbidden: active organization context missing");
-    }
-    if (activeOrganizationIds.length !== 1) {
-      throw new Error("Forbidden: active organization context ambiguous");
-    }
-    [workosOrganizationId] = activeOrganizationIds;
-  }
-
-  const selectedMemberships = memberships.filter(
-    (membership) => membership.workosOrganizationId === workosOrganizationId
-  );
-  if (selectedMemberships.length === 0) {
-    throw new Error("Forbidden: foreign organization context");
-  }
-  const activeMemberships = selectedMemberships.filter(
-    (membership) => membership.status === "active"
-  );
-  if (activeMemberships.length === 0) {
-    throw new Error("Forbidden: inactive organization membership");
-  }
-
-  const roles = normalizeRoleSlugs(
-    activeMemberships.flatMap((membership) => [
-      membership.roleSlug,
-      ...membership.roleSlugs,
-    ])
-  );
-  const activeRoles = roles.filter((role): role is LenderRoleSlug =>
-    lenderRoleSlugs.includes(role as LenderRoleSlug)
-  );
-  if (activeRoles.length === 0) {
-    throw new Error("Forbidden: unsupported lender role");
-  }
-
-  const organization = await ctx.db
-    .query("workosOrganizations")
-    .withIndex("by_workos_organization_id", (query) =>
-      query.eq("workosOrganizationId", workosOrganizationId)
-    )
-    .unique();
-  if (!organization || organization.status !== "active") {
-    throw new Error("Forbidden: inactive organization");
-  }
-
-  const brokerages = await ctx.db
-    .query("brokerages")
-    .withIndex("by_workos_organization", (query) =>
-      query.eq("workosOrganizationId", workosOrganizationId)
-    )
-    .take(2);
-  if (brokerages.length !== 1) {
-    throw new Error(
-      brokerages.length === 0
-        ? "Forbidden: lender tenant missing"
-        : "Forbidden: lender tenant ambiguous"
-    );
-  }
-  const [brokerage] = brokerages;
-  if (!brokerage || brokerage.status !== "active") {
-    throw new Error("Forbidden: inactive lender tenant");
-  }
-
+  const resolution = await resolveAssignedLenderOrganization(ctx, identity, {
+    allowPlatformAdminWithoutLenderRole: true,
+  });
+  const identityIsAdmin = identityViewer.roles.includes("admin");
+  const effectiveRoles: LenderRoleSlug[] = identityIsAdmin
+    ? ["admin", ...resolution.roles]
+    : resolution.roles;
   const viewer: AuthorizedViewer = {
     ...identityViewer,
     capability,
-    organizationId: workosOrganizationId,
-    roles: activeRoles,
+    organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+    roles: effectiveRoles,
   };
   return {
     activeOrganization: {
-      brokerageId: brokerage._id,
-      membershipIds: activeMemberships
-        .map((membership) => membership.workosMembershipId)
-        .sort(),
-      organizationName: organization.name,
-      roles: activeRoles,
-      userId: user._id,
-      workosOrganizationId,
-      workosUserId,
+      brokerageId: resolution.brokerage._id,
+      brokerageName: resolution.brokerage.displayName,
+      lenderOrganizationId: resolution.organization._id,
+      membershipIds: resolution.membershipIds,
+      organizationName: resolution.organization.displayName,
+      permissions: resolution.organization.permissions,
+      roles: effectiveRoles,
+      userId: resolution.user._id,
+      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      workosUserId: resolution.workosUserId,
     },
     viewer,
   };
@@ -392,14 +313,21 @@ export function requireLenderOrganizationResource(
   activeOrganization: ActiveLenderOrganizationContext,
   resource: {
     brokerageId?: Id<"brokerages">;
+    lenderOrganizationId?: Id<"lenderOrganizations">;
     organizationId?: string;
   }
 ) {
   if (
     resource.organizationId !== undefined &&
-    resource.organizationId !== activeOrganization.workosOrganizationId
+    resource.organizationId !== FAIRLEND_WORKOS_ORGANIZATION_ID
   ) {
     throw new Error("Forbidden: organization resource");
+  }
+  if (
+    resource.lenderOrganizationId !== undefined &&
+    resource.lenderOrganizationId !== activeOrganization.lenderOrganizationId
+  ) {
+    throw new Error("Forbidden: lender organization resource");
   }
   if (
     resource.brokerageId !== undefined &&
@@ -411,20 +339,50 @@ export function requireLenderOrganizationResource(
 }
 
 export async function requireLenderOrganizationPermission(
-  ctx: Pick<QueryCtx | MutationCtx, "db">,
+  _ctx: Pick<QueryCtx | MutationCtx, "db">,
   activeOrganization: ActiveLenderOrganizationContext,
   permission: string
 ) {
-  const allowed = await hasProjectedWorkosPermission(
-    ctx,
-    activeOrganization.workosOrganizationId,
-    activeOrganization.roles,
-    permission
-  );
-  if (!allowed) {
+  // Platform Admin is the explicit capability bypass. Authentication,
+  // shared membership, parent brokerage, and target assignment were already
+  // required by the lender middleware.
+  if (activeOrganization.roles.includes("admin")) {
+    return activeOrganization;
+  }
+  const key = normalizeLenderWorkflowPermission(permission);
+  if (!activeOrganization.permissions[key]) {
     throw new Error(`Forbidden: permission ${permission}`);
   }
+  if (
+    (key === "proposalReview" ||
+      key === "milestoneDecisions" ||
+      key === "drawDecisions") &&
+    activeOrganization.roles.every((role) => role === "lender-staff")
+  ) {
+    throw new Error(`Forbidden: final lender decision authority ${permission}`);
+  }
   return activeOrganization;
+}
+
+function normalizeLenderWorkflowPermission(
+  permission: string
+): keyof LenderWorkflowPermissions {
+  const normalized = permission.trim().toLowerCase().replace(/[-: ]/g, "_");
+  const aliases: Record<string, keyof LenderWorkflowPermissions> = {
+    proposal_review: "proposalReview",
+    proposalreview: "proposalReview",
+    milestone_decisions: "milestoneDecisions",
+    milestonedecisions: "milestoneDecisions",
+    draw_decisions: "drawDecisions",
+    drawdecisions: "drawDecisions",
+    site_visit_review: "siteVisitReview",
+    sitevisitreview: "siteVisitReview",
+  };
+  const resolved = aliases[normalized];
+  if (!resolved) {
+    throw new Error(`Forbidden: unsupported lender permission ${permission}`);
+  }
+  return resolved;
 }
 
 function actorKindFromIdentity(identity: UserIdentity): ActorKind | undefined {

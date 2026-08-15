@@ -56,7 +56,7 @@ The normal promotion order is:
 | `LP-PROT-ORG` | Lender Organization Management | `lender.organization-management-prototype.tsx`, Variant E | Promote the shared user-management table/detail-sheet contract only through the canonical organization/membership authority boundary. |
 | `LP-PROT-PROP` | Lender Proposal Review | `lender.proposal-confirmation-prototype.tsx`, Variant D | Promote the Back Office Proposal Packet host plus right-side lender confirmation sheet, five acknowledgements, audit evidence, confirmation gate, and decline-reason gate. |
 | `LP-PROT-POLICY` | Back Office Review Requirements Setup | `backoffice/proposals/review-requirements-prototype.tsx`, Variant A | Promote the Closing-workspace policy configuration/lock model; do not build a standalone policy system. |
-| `LP-PROT-ASSIGN` | Back Office Approval and Lender Assignment | `backoffice/proposals/lender-assignment-prototype.tsx`, Variant A, approved and locked 2026-08-14 | Preserve the compact External lender row in the canonical proposal header and its single focused assignment modal. Keep policy editing, guided lender confirmation, closing, and activation as separate existing transitions. |
+| `LP-PROT-ASSIGN` | Back Office Approval and Lender Assignment | `backoffice/proposals/lender-assignment-prototype.tsx`, Variant A, approved and locked 2026-08-14 | Preserve the compact Lender assignment row in the canonical proposal header and its single focused assignment modal. Keep policy editing, guided lender confirmation, closing, and activation as separate existing transitions. Capital source does not block an eligible assignment. |
 | `LP-PROT-BUILD` | Lender Build Detail Overview | `lender.build-detail-overview-prototype.tsx`, Variant C, approved and locked 2026-08-13 | Promote the compact Precision console: narrow Build overview, expandable Milestone ledger with canonical budget, receipt/invoice coverage, actual-or-planned date ranges and a focused read-only Milestone sheet; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration. Do not promote the full Build Workspace or add overview decisions. |
 | `LP-PROT-MILESTONE-QUEUE` | Lender Milestone Queue | `lender.milestones-prototype.tsx`, Variant C | Promote evidence-rich workflow lanes over canonical current-cycle Milestone projections. |
 | `LP-PROT-MILESTONE-SHEET` | Canonical Milestone Detail and Review Sheet | `lender.milestone-review-prototype.tsx`, Variant A | Promoted through the shared `MilestoneDetailSheet`; preserve the four-tab hierarchy, role-aware actions, verified policy gates, canonical child records, privacy, correction/resubmission, and audit ownership. |
@@ -122,6 +122,10 @@ this promotion contract, and the relevant PRDs.
 
 ## Lender Organization Management — locked implementation contract
 
+The ownership boundary below supersedes older Variant E wording that described
+a WorkOS organization as the Lender Organization. WorkOS cannot provision a
+Lender Organization in DrawFlow.
+
 ### Decision
 
 Variant E, **Shared user management operations**, is approved. Start from
@@ -132,36 +136,42 @@ and verified.
 
 ### Product question settled
 
-An authorized lender administrator or Principal Broker manages the brokerage
-organization through the existing User Management directory and member sheet,
-extended with lender-specific administration and review-relationship context.
-The surface is operational: it starts and completes authorized organization
-membership commands. It is not a read-only directory and it does not own lender
-approval policy.
+Back Office Admin manages application-owned Lender Organizations through
+`/backoffice/lenders`, using the Builder roster pattern for the organization
+table, unassigned-user queue, organization detail drawer, assignment controls,
+staged invitations, workflow permissions, and soft deactivation. The hierarchy
+is `Brokerage → Lender Organization → assigned lender users`.
+
+The lender-facing `/lender/organization` route is a read-only application
+organization view. It resolves the active app assignment, never infers an
+organization from a WorkOS organization name or ID, and renders a
+`mailto:support@fairlend.ca` empty state without WorkOS directory data when the
+user has no assignment.
 
 ### Required component composition
 
-1. Reuse `LenderPrototypeShell` as the lender workspace-shell reference and
-   preserve Organization as the active navigation context.
-2. Reuse `UserManagementDirectoryTable` from
-   `src/routes/backoffice/-user-management-surface.tsx`. This is the canonical
-   shadcn Table backed by TanStack Table; extend it rather than copying it.
-3. Reuse `UserDetailSheet` from
-   `src/routes/backoffice/-user-management-detail-sheet.tsx`. Preserve its
-   membership, role, organization, profile, and status information hierarchy.
-4. Preserve the Variant E directory toolbar: member search,
-   membership-status filters, and the organization-level Invite member action.
-5. Preserve the member-sheet tabs: Access, Administration, Review relationship,
-   and History.
+1. Reuse the existing Back Office shell and Builder roster patterns; preserve
+   functional breadcrumbs and the Back Office navigation link at
+   `/backoffice/lenders`.
+2. Preserve Variant E's directory-first information hierarchy through the
+   application-owned organization table, search/status toolbar, detail drawer,
+   member list, and staged command states.
+3. Keep the assignment queue separate from the organization table so unassigned
+   shared-WorkOS lender users can be attached to an explicit app organization.
+4. Show the parent Brokerage, member/pending counts, app status, shared policy,
+   exact lender role, assignment state, and WorkOS reconciliation state without
+   turning WorkOS projections into writable application records.
 
 ### Required operations
 
 | Operation | Required interface | Production command boundary | Completion state |
 | --- | --- | --- | --- |
-| Invite member | Collect a valid email and verified starting role; show a complete draft and review step. | Existing WorkOS-first invitation/user-management action. | Accepted or failed command is visible; active membership appears only after canonical webhook/sync projection. |
-| Change access | Show current and proposed canonical role slugs together; require at least one supported role and a review step. | Existing WorkOS-first membership-role action. | Accepted or failed command is visible; effective access follows canonical projection state. |
-| Deactivate member | Require an operational reason and explicit acknowledgement that history is retained; show affected access and work. | Existing WorkOS-first membership deactivation action. | Future access ends only after authorized completion; membership and decision history remain readable. |
-| Transfer Principal Broker control | Block normal role removal and deactivation when the target is the active Principal Broker. | Canonical protected transfer-of-control workflow, not the normal member command. | Exactly one active Principal Broker remains and transfer history is audited. |
+| Provision organization | Choose an existing Brokerage and create an app-owned Lender Organization with its initial workflow policy. | Fluent Convex admin mutation; no WorkOS organization command. | App organization exists under the Brokerage with audit history. |
+| Assign lender user | Select an eligible shared-WorkOS user from the unassigned queue and require a reason. | Fluent Convex admin mutation against `lenderOrganizationAssignments`. | One active app assignment exists; duplicate/cross-Brokerage assignment fails. |
+| Invite member | Collect a valid email and exact lender starting role. | WorkOS-first invitation to the configured shared identity organization, then pending app assignment staging. | Accepted invitation is pending; active app assignment appears only after user and membership projection reconciliation. |
+| Change access | Show current and proposed exact lender role and require a reason. | WorkOS-first shared-membership role action scoped by app organization and assignment. | Accepted or failed command is visible; projections remain webhook-owned. |
+| Deactivate member | Require an operational reason and preserve history. | WorkOS-first shared-membership deactivation, followed by app unassignment. | Future access ends after command/projection reconciliation; membership and decision history remain readable. |
+| Edit workflow policy | Toggle proposal, Milestone, Draw, and Site Visit permissions for the whole app organization. | Fluent Convex admin mutation with audit reason. | The shared bundle caps every assigned lender action. |
 
 Production commands must expose validation, authorization, pending sync,
 success, and failure states. Material changes record actor, role, timestamp,
@@ -172,18 +182,20 @@ contract.
 
 ### Roles and authority
 
-- WorkOS is authoritative for user, organization, membership, role, and
-  permission state.
-- Verified organization-management slugs are `admin`, `principle-broker`,
-  `broker`, and `broker-staff`.
-- Admin and Principal Broker have the current organization-wide
-  user-management capability. Authorization still checks active organization,
-  membership, role, permission, and protected-target rules on the server.
-- The UI label is `Principal Broker`; policy and projection data retain the
-  canonical `principle-broker` slug.
-- No canonical `manager` role exists. The approved MVP has no manager
-  appointment capability. Do not add an alias, app-only capability, or
-  parallel role/membership system.
+- WorkOS is authoritative for the shared identity organization, user,
+  membership, role, permission, invitation, and projection state.
+- DrawFlow is authoritative for Lender Organization records, parent Brokerage
+  relationships, workflow permissions, and user assignments.
+- Verified lender role slugs are exactly `lender`, `lender-admin`, and
+  `lender-staff`. Platform Admin may bypass capability caps only for an explicit
+  target app organization after parent and target-scope validation.
+- Every lender request checks active user projection, active membership in the
+  configured shared WorkOS organization, exact lender role, one active app
+  assignment, active parent Brokerage, active target organization, and the
+  organization-wide policy cap.
+- No Principal Broker transfer or brokerage membership-management controls
+  appear on the lender organization surface. No manager alias or parallel
+  WorkOS identity/membership system exists.
 
 ### Lender review relationship
 
@@ -202,26 +214,25 @@ not establish quorum eligibility or prove that a review gate is satisfied.
 
 Implementation is complete only when all of the following are true:
 
-1. The production surface preserves Variant E's directory-first hierarchy,
-   toolbar, shared table, shared sheet, four tabs, and staged review gates.
-2. Search and status filters use permission-shaped canonical organization
-   projections and never cross the active organization boundary.
-3. Invite, role-change, and deactivation actions use the canonical WorkOS-first
-   actions and render pending sync, success, and failure without optimistic
-   projection writes.
-4. Principal Broker removal and deactivation fail closed into the protected
-   transfer-of-control workflow.
-5. Deactivation preserves membership and decision history and requires an audit
+1. `/backoffice/lenders` preserves the directory-first Variant E hierarchy
+   through an app-owned organization table, assignment queue, detail drawer,
+   member controls, and staged command states.
+2. Search/status filters and member lists are bounded to validated Brokerage or
+   application organization scope.
+3. Invitation, role-change, and deactivation actions use WorkOS-first commands
+   against the shared identity organization and render pending sync, success,
+   and failure without optimistic projection writes.
+4. Organization provisioning never creates a WorkOS organization.
+5. One-active-assignment, pending-reconciliation, cross-Brokerage,
+   cross-organization, exact-role, and policy-cap checks are tested.
+6. Deactivation preserves membership and decision history and requires an audit
    reason.
-6. Downstream access, assignments, lender-review quorum context, recipients,
-   work queues, and audit/notification effects are reconciled or visibly
-   pending.
-7. The surface describes but cannot mutate Back Office-owned review
-   requirements or approval policy.
-8. No `manager` role, duplicate organization model, duplicate membership table,
-   or lender-owned approval-policy model is introduced.
+7. The lender `/lender/organization` route is read-only, app-level, and shows a
+   contact-admin empty state without WorkOS directory data when unassigned.
+8. No manager role, duplicate WorkOS identity/membership source, or
+   lender-owned approval-policy model is introduced.
 9. Authorization and WorkOS command behavior have focused tests; the promoted
-   route has SSR/render, keyboard, responsive, and browser interaction evidence.
+   routes have SSR/render, keyboard, responsive, and browser interaction evidence.
 
 ### Prototype-to-production boundary
 

@@ -94,12 +94,12 @@ tree. A source change requires validation and a refreshed handoff snapshot.
 
 | Artifact | SHA-256 |
 |---|---|
-| `docs/lender_portal_mvp_feature_brief.md` | `ee0711b57ea86e31cd6e112605d0b8c245d7a7e5e1a0075364b4745efcd1273b` |
-| `docs/lender_portal_mvp_spec.md` | `fbb8a5165978746434cca3d981b6f44aac3f35665dd67e1933519e948a1d3c5b` |
-| `docs/lender_portal_mvp_implementation_plan.md` | `8d44828c928160478fa0ef2973617fee4f4470ae9988a4d964b21404220e4b2f` |
-| `docs/lender-portal-prototype-promotion.md` | `921236efb5523504db58fd5e8aa593dabe1fd68b4ba1197ec065344df0b246e2` |
-| `src/components/prototypes/README.md` | `e44ad908c6fb626b570e7df8e72888e87fbb78476559b3d23ff3d04ac60249c2` |
-| `docs/lender-portal-mvp-execution/traceability.json` | `fc190e67d343f2103f435d6adb31ed377148399bca43b1dc331752f58043b7ca` |
+| `docs/lender_portal_mvp_feature_brief.md` | `ce4d12827b1e306b46d714788edd4242ae373af4cdc6fc709b4dfcddebba8c53` |
+| `docs/lender_portal_mvp_spec.md` | `4bc38518cf06005c55f32a779fb6f579ff4ed9a6655ea8db2b520a7d5d1d66eb` |
+| `docs/lender_portal_mvp_implementation_plan.md` | `0f9807ce26d551681de5f87dc4e1d431b35023e38ad11380943ba4caae845cbd` |
+| `docs/lender-portal-prototype-promotion.md` | `b8d00ddf24417c7c1cc4babcf0f50d07225b404fd48cbde476920cb34abbda6e` |
+| `src/components/prototypes/README.md` | `3a389901cc752fefb6539943d600406ed6baa0c9b1e4fe3b923aaf5141480b22` |
+| `docs/lender-portal-mvp-execution/traceability.json` | `d51d619a97e44086bbf4e805333aba6586a76ea697b6af07d52cf160541d55cb` |
 | `scripts/validate-lender-portal-mvp-execution.ts` | `72b2bf38006d1be94caf18c54de31cfbb87d5286aaab91af056a4c0d7e00db9a` |
 
 ## Stop boundary

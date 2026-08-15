@@ -9,6 +9,12 @@ import {
 
 export const Route = createFileRoute("/lender/draws")({
   component: LenderDrawQueue,
+  staticData: {
+    breadcrumb: {
+      label: "Draws",
+      to: "/lender/draws",
+    },
+  },
 });
 function LenderDrawQueue() {
   const [selectedDraw, setSelectedDraw] =

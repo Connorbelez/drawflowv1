@@ -35,6 +35,21 @@ It stores brokerage-specific fields that WorkOS does not own, such as:
 
 Brokerage membership still comes from WorkOS.
 
+### Lender Organization
+
+An application-owned DrawFlow organization under a Brokerage. It groups lender
+users for proposal review, Milestone decisions, Draw decisions, and Site Visit
+review, and stores the shared workflow permission cap for those users.
+
+A Lender Organization is not a WorkOS Organization and is never provisioned in
+WorkOS. DrawFlow stores a thin assignment relation from a WorkOS user to the
+application organization; WorkOS remains authoritative for the shared identity
+organization, invitations, memberships, roles, and projections.
+
+The supported lender roles are `lender`, `lender-admin`, and `lender-staff`.
+Lender access requires an active user projection, active shared-organization
+membership, an exact lender role, and one active application assignment.
+
 ### Principal Broker
 
 The top brokerage authority inside a brokerage.

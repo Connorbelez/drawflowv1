@@ -12,7 +12,6 @@ afterEach(() => {
 
 const proposal = {
   buildName: "Hamilton Infill Build",
-  capitalSource: "external" as const,
   location: "123 Hamilton Street",
   status: "approved" as const,
 };
@@ -25,6 +24,43 @@ const lenderOrganizations = [
 ];
 
 describe("ProposalLenderAssignmentSection", () => {
+  test("allows an approved internal-capital proposal to be assigned", () => {
+    render(
+      <ProposalLenderAssignmentSection
+        lenderOrganizations={lenderOrganizations}
+        onAssign={vi.fn()}
+        proposal={proposal}
+      />,
+    );
+
+    expect(screen.getByText("Lender assignment")).toBeTruthy();
+    expect(
+      screen.queryByText("Not available · proposal uses internal capital"),
+    ).toBeNull();
+    expect(
+      (screen.getByRole("button", { name: "Assign lender" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  test("keeps the assignment boundary visible before approval", () => {
+    render(
+      <ProposalLenderAssignmentSection
+        lenderOrganizations={lenderOrganizations}
+        onAssign={vi.fn()}
+        proposal={{ ...proposal, status: "submitted" }}
+      />,
+    );
+
+    const assignButton = screen.getByRole("button", { name: "Assign lender" });
+    expect((assignButton as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText(
+        "Available after Back Office approval · internal closing remains available",
+      ),
+    ).toBeTruthy();
+  });
+
   test("promotes the compact assignment row into the governed assignment dialog", async () => {
     const onAssign = vi.fn().mockResolvedValue({ assignmentId: "assignment_1" });
 
@@ -192,7 +228,9 @@ describe("ProposalLenderAssignmentSection", () => {
       within(dialog).getByRole("button", { name: "Assign another lender" }),
     );
     expect(
-      within(screen.getByRole("dialog")).getByText("Assign external lender"),
+      within(screen.getByRole("dialog")).getByRole("heading", {
+        name: "Assign lender",
+      }),
     ).toBeTruthy();
   });
 });

@@ -1,49 +1,27 @@
-import {
-  createFileRoute,
-  type ErrorComponentProps,
-} from "@tanstack/react-router";
-import { useAction, useQuery } from "convex/react";
+import { createFileRoute, type ErrorComponentProps } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { LockKeyhole } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Building2, Mail, ShieldCheck, Users } from "lucide-react";
+import type { ReactNode } from "react";
+
 import { LenderShell } from "#/components/lender-shell.tsx";
-import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
+import { Avatar, AvatarFallback, AvatarImage } from "#/components/ui/avatar.tsx";
+import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Empty, EmptyDescription, EmptyTitle } from "#/components/ui/empty.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import {
-  LenderMemberAdministrationDetails,
-  LenderOrganizationManagementVariantE,
-  type LenderOrganizationOperation,
-} from "#/features/lender-organization-management/LenderOrganizationManagementVariantE.tsx";
-import {
-  LenderOrganizationOperationDialog,
-  type LenderOrganizationOperationRequest,
-} from "#/features/lender-organization-management/LenderOrganizationOperationDialog.tsx";
-import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
-import {
-  type DirectoryUser,
-  UserDetailSheet,
-} from "#/routes/backoffice/-user-management-detail-sheet.tsx";
-import type {
-  OrganizationProvisioning,
-  WorkosOrganizationRow,
-} from "#/routes/backoffice/-user-management-types.ts";
+import { Separator } from "#/components/ui/separator.tsx";
+import { requireWorkspaceAccess } from "#/lib/auth/rbac.ts";
+
 import { api } from "../../../convex/_generated/api";
 
-type LenderManagementProjection = FunctionReturnType<
-  typeof api.workosProjection.getLenderOrganizationManagement
+type LenderOrganizationView = FunctionReturnType<
+  typeof api.lenderOrganizations.getCurrentLenderOrganization
 >;
-type LenderManagementMember = LenderManagementProjection["members"][number];
-interface LenderDirectoryState {
-  members: LenderManagementMember[];
-  projection: LenderManagementProjection;
-}
-const WHITESPACE_PATTERN = /\s+/;
-const AUTHORIZATION_ERROR_PATTERN = /forbidden|unauthorized/i;
 
 export const Route = createFileRoute("/lender/organization")({
   beforeLoad: ({ context, location }) =>
-    requireUserManagementWriteAccess({
+    requireWorkspaceAccess({
       isAuthenticated: Boolean(context.userId),
       organizationId: context.organizationId,
       pathname: location.pathname,
@@ -61,37 +39,27 @@ export const Route = createFileRoute("/lender/organization")({
 });
 
 function LenderOrganizationError({ error, reset }: ErrorComponentProps) {
-  const forbidden = AUTHORIZATION_ERROR_PATTERN.test(
-    error instanceof Error ? error.message : String(error)
-  );
   return (
     <LenderShell activeNavigation="Organization" pageTitle="Organization">
-      <main className="flex min-h-[calc(100vh-3.5rem)] items-start justify-center bg-muted/30 p-4 pt-16 md:p-6 md:pt-24">
-        <Frame className="w-full max-w-xl">
-          <FramePanel className="p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <LockKeyhole className="size-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.14em]">
-                  {forbidden ? "Access restricted" : "Organization unavailable"}
-                </p>
-                <h1 className="mt-2 font-heading font-semibold text-xl">
-                  {forbidden
-                    ? "You cannot manage this lender organization."
-                    : "Organization management could not load."}
-                </h1>
-                <p className="mt-2 text-muted-foreground text-sm leading-6">
-                  {forbidden
-                    ? "Use an active organization membership with Admin or Principal Broker access. No organization data was exposed."
-                    : "The canonical WorkOS projection is temporarily unavailable. No membership command was submitted."}
-                </p>
-                <Button className="mt-5" onClick={reset} variant="outline">
-                  Try again
-                </Button>
-              </div>
-            </div>
+      <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20 p-4 pt-12 md:p-8">
+        <Frame className="mx-auto max-w-2xl">
+          <FramePanel className="p-8">
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">
+              Lender organization
+            </p>
+            <h1 className="mt-3 font-heading font-semibold text-2xl">
+              Organization access could not load
+            </h1>
+            <p className="mt-3 max-w-lg text-muted-foreground text-sm leading-6">
+              DrawFlow could not resolve your application organization. No
+              WorkOS directory data was exposed.
+            </p>
+            <Button className="mt-6" onClick={reset} variant="outline">
+              Try again
+            </Button>
+            <p className="mt-4 text-muted-foreground text-xs">
+              {error instanceof Error ? error.message : "Access check failed"}
+            </p>
           </FramePanel>
         </Frame>
       </main>
@@ -100,419 +68,280 @@ function LenderOrganizationError({ error, reset }: ErrorComponentProps) {
 }
 
 function LenderOrganization() {
-  const routeContext = Route.useRouteContext();
-  const [directoryCursor, setDirectoryCursor] = useState<string | null>(null);
-  const managementPage = useQuery(
-    api.workosProjection.getLenderOrganizationManagement,
-    { cursor: directoryCursor }
-  );
-  const [directoryState, setDirectoryState] =
-    useState<LenderDirectoryState | null>(null);
-  const inviteUser = useAction(api.workosManagement.inviteUser);
-  const updateMembershipRoles = useAction(
-    api.workosManagement.updateMembershipRoles
-  );
-  const deactivateMembership = useAction(
-    api.workosManagement.deactivateMembership
-  );
-  const transferPrincipalBroker = useAction(
-    api.workosManagement.transferPrincipalBroker
-  );
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [operation, setOperation] =
-    useState<LenderOrganizationOperation | null>(null);
-  const [pending, setPending] = useState(false);
-  const [status, setStatus] = useState<
-    { kind: "error" | "success"; message: string } | undefined
-  >();
-
-  useEffect(() => {
-    if (!managementPage) {
-      return;
-    }
-    setDirectoryState((current) =>
-      mergeDirectoryPage(current, managementPage, directoryCursor)
-    );
-  }, [directoryCursor, managementPage]);
-
-  const management = managementPage ?? directoryState?.projection;
-  const projectedMembers =
-    directoryState?.members ?? managementPage?.members ?? [];
-
-  const directoryUsers = useMemo(
-    () => toDirectoryUsers(projectedMembers),
-    [projectedMembers]
-  );
-  const organization = management?.organization as
-    | (WorkosOrganizationRow & { brokerageId?: string })
+  const view = useQuery(api.lenderOrganizations.getCurrentLenderOrganization, {}) as
+    | LenderOrganizationView
     | undefined;
-  const organizationName = organization?.name ?? "Loading organization…";
-  const organizationsById = useMemo(
-    () =>
-      organization
-        ? new Map([[organization.workosOrganizationId, organization]])
-        : new Map<string, WorkosOrganizationRow>(),
-    [organization]
-  );
-  const provisioningByOrg = useMemo(
-    // Phase 1 owns WorkOS membership operations only. Brokerage and Builder
-    // provisioning remain Back Office-owned and are intentionally not exposed
-    // by the active-organization projection.
-    () => new Map<string, OrganizationProvisioning>(),
-    []
-  );
-  const roleOptionsByOrganization = useMemo(
-    () =>
-      organization
-        ? new Map([
-            [
-              organization.workosOrganizationId,
-              ["admin", "principle-broker", "broker", "broker-staff"],
-            ],
-          ])
-        : new Map<string, string[]>(),
-    [organization]
-  );
-  const selectedDirectoryUser =
-    directoryUsers.find(
-      (entry) => entry.user.workosUserId === selectedUserId
-    ) ?? null;
-  const operationMember = operation === "invite" ? null : selectedDirectoryUser;
-  const { activeMemberCount, principalBrokerCount } =
-    summarizeDirectoryUsers(directoryUsers);
-  const administrationContext = getAdministrationContext(
-    Boolean(management),
-    principalBrokerCount
-  );
-
-  const executeOperation = async (
-    request: LenderOrganizationOperationRequest
-  ) => {
-    if (!organization) {
-      return;
-    }
-    setPending(true);
-    setStatus(undefined);
-    try {
-      requireSelectedOperationMembership(request, operationMember);
-      let result:
-        | Awaited<ReturnType<typeof inviteUser>>
-        | Awaited<ReturnType<typeof updateMembershipRoles>>
-        | Awaited<ReturnType<typeof deactivateMembership>>
-        | Awaited<ReturnType<typeof transferPrincipalBroker>>;
-      if (request.kind === "invite") {
-        result = await inviteUser({
-          email: request.email,
-          organizationId: organization.workosOrganizationId,
-          roleSlug: request.roleSlug,
-        });
-      } else if (request.kind === "change-access") {
-        result = await updateMembershipRoles({
-          membershipId: request.membershipId,
-          primaryRoleSlug: request.roleSlugs[0],
-          roleSlugs: request.roleSlugs,
-        });
-      } else if (request.kind === "deactivate") {
-        result = await deactivateMembership({
-          membershipId: request.membershipId,
-          reason: request.reason,
-        });
-      } else {
-        result = await transferPrincipalBroker(request);
-      }
-      if (result.status === "transfer-required") {
-        setStatus({
-          kind: "error",
-          message:
-            "Principal Broker protection blocked this command. Use Transfer Principal Broker control.",
-        });
-        return;
-      }
-      setStatus({
-        kind: "success",
-        message:
-          result.status === "accepted"
-            ? "Command accepted. Access updates after the canonical WorkOS projection reconciles."
-            : `Command state: ${result.status}. Review the protected workflow before retrying.`,
-      });
-      setOperation(null);
-      setDirectoryCursor(null);
-      setDirectoryState(null);
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        message: getSafeErrorMessage(error),
-      });
-    } finally {
-      setPending(false);
-    }
-  };
 
   return (
-    <LenderShell
-      activeNavigation="Organization"
-      identity={{
-        avatarFallback: initials(organizationName),
-        organizationName,
-        roleLabel: formatViewerRoles(routeContext.role, routeContext.roles),
-        userName: routeContext.userName?.trim() || "Signed-in user",
-      }}
-      pageTitle="Organization"
-    >
-      <main className="min-h-[calc(100vh-3.5rem)] bg-muted/30 pb-20">
-        <div className="mx-auto min-w-0 max-w-[1440px] space-y-4 p-4 md:p-6">
-          <div aria-atomic="true" aria-live="polite">
-            {status ? (
-              <Alert
-                variant={status.kind === "error" ? "destructive" : "default"}
-              >
-                <AlertTitle>
-                  {status.kind === "error"
-                    ? "Command not completed"
-                    : "Command accepted"}
-                </AlertTitle>
-                <AlertDescription>{status.message}</AlertDescription>
-              </Alert>
-            ) : null}
-          </div>
-          <LenderOrganizationManagementVariantE
-            activeMemberCount={activeMemberCount}
-            administrationContext={administrationContext}
-            directoryUsers={directoryUsers}
-            mode="production"
-            moreMembersAvailable={Boolean(management && !management.isDone)}
-            onLoadMoreMembers={() => {
-              if (management && !management.isDone) {
-                setDirectoryCursor(management.continueCursor);
-              }
-            }}
-            onOpenOperation={(nextOperation) => {
-              setStatus(undefined);
-              setOperation(nextOperation);
-            }}
-            onOpenUser={setSelectedUserId}
-            organizationName={organizationName}
-            organizationsById={organizationsById}
-            pending={management === undefined}
-            pendingMoreMembers={
-              directoryCursor !== null && managementPage === undefined
-            }
-            provisioningByOrg={provisioningByOrg}
-          />
-        </div>
+    <LenderShell activeNavigation="Organization" pageTitle="Organization">
+      <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20 pb-20">
+        {view === undefined ? (
+          <OrganizationLoadingState />
+        ) : view.organization === null ? (
+          <UnassignedOrganizationState />
+        ) : (
+          <AssignedOrganizationState view={view} />
+        )}
       </main>
-      <UserDetailSheet
-        directoryUser={selectedDirectoryUser}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedUserId(null);
-          }
-        }}
-        organizationsById={organizationsById}
-        provisioningByOrg={provisioningByOrg}
-        readOnly
-        readOnlyBadgeLabel="WorkOS managed"
-        readOnlySupplement={
-          selectedDirectoryUser ? (
-            <LenderMemberAdministrationDetails
-              activeMembershipCount={activeMemberCount}
-              historyCount={management?.history.length ?? 0}
-              member={selectedDirectoryUser}
-              mode="production"
-              onOpenOperation={(nextOperation) => {
-                setStatus(undefined);
-                setOperation(nextOperation);
-              }}
-              organizationName={organizationName}
-            />
-          ) : null
-        }
-        roleOptionsByOrganization={roleOptionsByOrganization}
-        workspaceOrganizations={organization ? [organization] : []}
-      />
-      {operation && (operation === "invite" || operationMember) ? (
-        <LenderOrganizationOperationDialog
-          directoryUsers={directoryUsers}
-          key={`${operation}:${operationMember?.memberships[0]?.workosMembershipId ?? "organization"}`}
-          member={operationMember}
-          onExecute={executeOperation}
-          onOpenChange={(open) => {
-            if (!(open || pending)) {
-              setOperation(null);
-            }
-          }}
-          operation={operation}
-          organizationName={organizationName}
-          pending={pending}
-        />
-      ) : null}
     </LenderShell>
   );
 }
 
-function toDirectoryUsers(
-  members: LenderManagementProjection["members"]
-): DirectoryUser[] {
-  const directoryUsersByWorkosUserId = new Map<string, DirectoryUser>();
-  for (const member of members) {
-    const membership = member.membership;
-    const user = (member.user ?? {
-      authId: membership.workosUserId,
-      email: member.email ?? `${membership.workosUserId}@unknown.invalid`,
-      name: member.name ?? membership.workosUserId,
-      roleSlugs: member.roleSlugs,
-      roles: member.roleSlugs.join(", "),
-      status: membership.status === "deleted" ? "deleted" : "active",
-      workosUserId: membership.workosUserId,
-    }) as DirectoryUser["user"];
-    const displayName = member.name ?? member.email ?? membership.workosUserId;
-    const current = directoryUsersByWorkosUserId.get(membership.workosUserId);
-    if (current) {
-      current.memberships.push(membership);
-      current.user.roleSlugs = [
-        ...new Set([...(current.user.roleSlugs ?? []), ...member.roleSlugs]),
-      ];
-      current.user.roles = current.user.roleSlugs.join(", ");
-      continue;
-    }
-    directoryUsersByWorkosUserId.set(membership.workosUserId, {
-      displayName,
-      initials: initials(displayName),
-      memberships: [membership],
-      user: {
-        ...user,
-        roleSlugs: member.roleSlugs,
-        roles: member.roleSlugs.join(", "),
-      },
-    });
-  }
-  return [...directoryUsersByWorkosUserId.values()];
-}
-
-function mergeDirectoryPage(
-  current: LenderDirectoryState | null,
-  page: LenderManagementProjection,
-  cursor: string | null
-): LenderDirectoryState {
-  const sameOrganization =
-    current?.projection.organization.workosOrganizationId ===
-    page.organization.workosOrganizationId;
-  if (!(sameOrganization && cursor && current)) {
-    return { members: page.members, projection: page };
-  }
-  const membersById = new Map(
-    current.members.map((member) => [
-      member.membership.workosMembershipId,
-      member,
-    ])
-  );
-  for (const member of page.members) {
-    membersById.set(member.membership.workosMembershipId, member);
-  }
-  return {
-    members: [...membersById.values()].sort(compareProjectionMembers),
-    projection: page,
-  };
-}
-
-function compareProjectionMembers(
-  left: LenderManagementMember,
-  right: LenderManagementMember
-) {
-  const leftLabel = left.name ?? left.email ?? left.membership.workosUserId;
-  const rightLabel = right.name ?? right.email ?? right.membership.workosUserId;
+function OrganizationLoadingState() {
   return (
-    leftLabel.localeCompare(rightLabel) ||
-    left.membership.workosMembershipId.localeCompare(
-      right.membership.workosMembershipId
-    )
+    <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-8">
+      <div className="h-3 w-32 animate-pulse rounded bg-muted" />
+      <div className="h-10 w-80 animate-pulse rounded bg-muted" />
+      <Frame>
+        <FramePanel className="h-48 animate-pulse bg-muted/40" />
+      </Frame>
+    </div>
   );
 }
 
-function summarizeDirectoryUsers(directoryUsers: DirectoryUser[]) {
-  let activeMemberCount = 0;
-  let principalBrokerCount = 0;
-  for (const entry of directoryUsers) {
-    const activeMembership = entry.memberships.find(
-      (membership) => membership.status === "active"
-    );
-    if (!activeMembership) {
-      continue;
-    }
-    activeMemberCount += 1;
-    if ((activeMembership.roleSlugs ?? []).includes("principle-broker")) {
-      principalBrokerCount += 1;
-    }
-  }
-  return { activeMemberCount, principalBrokerCount };
-}
-
-function requireSelectedOperationMembership(
-  request: LenderOrganizationOperationRequest,
-  selectedMember: DirectoryUser | null
-) {
-  if (request.kind === "invite") {
-    return;
-  }
-  const selectedMembershipId =
-    selectedMember?.memberships[0]?.workosMembershipId;
-  const requestedMembershipId =
-    request.kind === "transfer-principal"
-      ? request.sourceMembershipId
-      : request.membershipId;
-  if (
-    !(selectedMembershipId && selectedMembershipId === requestedMembershipId)
-  ) {
-    throw new Error("Selected membership is unavailable");
-  }
-}
-
-function getAdministrationContext(
-  loaded: boolean,
-  principalBrokerCount: number
-) {
-  if (!loaded) {
-    return "Loading access…";
-  }
-  return principalBrokerCount > 0
-    ? "Admin · Principal Broker"
-    : "Organization administrator";
-}
-
-function formatViewerRoles(role?: string | null, roles: string[] = []) {
-  const normalized = [role, ...roles]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .map((value) => value.trim().toLowerCase());
-  const labels = [...new Set(normalized)].map((value) => {
-    if (value === "principle-broker" || value === "principal-broker") {
-      return "Principal Broker";
-    }
-    return value
-      .split("-")
-      .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
-      .join(" ");
-  });
-  return labels.join(" · ") || "Organization member";
-}
-
-function initials(value: string) {
+function UnassignedOrganizationState() {
   return (
-    value
-      .split(WHITESPACE_PATTERN)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "LO"
+    <div className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-3xl items-center justify-center p-4 md:p-8">
+      <Frame className="w-full">
+        <FramePanel className="relative overflow-hidden p-8 md:p-12">
+          <div className="pointer-events-none absolute -top-28 -right-20 size-64 rounded-full bg-primary/10 blur-3xl" />
+          <div className="relative max-w-xl">
+            <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Building2 className="size-6" />
+            </div>
+            <p className="mt-8 text-muted-foreground text-xs uppercase tracking-[0.18em]">
+              Lender organization
+            </p>
+            <Empty className="items-start px-0 py-0 text-left">
+              <EmptyTitle className="mt-2 font-heading text-3xl">
+                Your DrawFlow organization is still being arranged.
+              </EmptyTitle>
+              <EmptyDescription className="max-w-lg text-left text-base leading-7">
+                A DrawFlow admin needs to attach your lender account to an
+                application organization before lender work can begin. Your
+                shared identity is signed in, but no lender organization is
+                attached yet.
+              </EmptyDescription>
+            </Empty>
+            <Button
+              className="mt-8"
+              render={
+                <a
+                  href="mailto:support@fairlend.ca?subject=DrawFlow%20lender%20organization%20access"
+                />
+              }
+            >
+              <Mail />
+              Contact DrawFlow admin
+            </Button>
+            <p className="mt-4 text-muted-foreground text-xs">
+              No organization directory or membership details are available
+              until the assignment is active.
+            </p>
+          </div>
+        </FramePanel>
+      </Frame>
+    </div>
   );
 }
 
-function getSafeErrorMessage(error: unknown) {
-  if (!(error instanceof Error)) {
-    return "The command failed. No projection state was changed optimistically.";
+function AssignedOrganizationState({ view }: { view: LenderOrganizationView }) {
+  const organization = view.organization;
+  if (!organization) {
+    return null;
   }
-  if (AUTHORIZATION_ERROR_PATTERN.test(error.message)) {
-    return "You are not authorized to manage this organization membership.";
-  }
-  console.error("Lender organization command failed", error);
-  return "The command failed. Try again after checking WorkOS status.";
+  return (
+    <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-8">
+      <header className="max-w-3xl">
+        <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">
+          Application organization
+        </p>
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="font-heading font-semibold text-3xl tracking-tight">
+              {organization.displayName}
+            </h1>
+            <p className="mt-2 text-muted-foreground text-sm leading-6">
+              Your DrawFlow lender organization, governed by {organization.brokerageName}.
+            </p>
+          </div>
+          <Badge variant="outline">Active</Badge>
+        </div>
+      </header>
+
+      <Frame>
+        <FramePanel className="grid gap-0 p-0 sm:grid-cols-3">
+          <OrganizationStat
+            icon={<Building2 />}
+            label="Parent Brokerage"
+            value={organization.brokerageName}
+          />
+          <OrganizationStat
+            icon={<Users />}
+            label="Assigned members"
+            value={String(view.members.length)}
+          />
+          <OrganizationStat
+            icon={<ShieldCheck />}
+            label="Access model"
+            value="Shared policy"
+          />
+        </FramePanel>
+      </Frame>
+
+      <section aria-labelledby="workflow-access-heading">
+        <Frame>
+          <FramePanel className="p-6 md:p-7">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
+                  Organization policy
+                </p>
+                <h2
+                  className="mt-2 font-heading font-semibold text-xl"
+                  id="workflow-access-heading"
+                >
+                  Shared workflow access
+                </h2>
+                <p className="mt-2 max-w-2xl text-muted-foreground text-sm leading-6">
+                  These controls are set for the whole lender organization by
+                  DrawFlow Back Office. Your WorkOS role limits the actions you
+                  can take within the enabled workflow.
+                </p>
+              </div>
+              <Badge variant="secondary">Read only</Badge>
+            </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <PermissionRow
+                enabled={organization.permissions.proposalReview}
+                label="Proposal review"
+              />
+              <PermissionRow
+                enabled={organization.permissions.milestoneDecisions}
+                label="Milestone decisions"
+              />
+              <PermissionRow
+                enabled={organization.permissions.drawDecisions}
+                label="Draw decisions"
+              />
+              <PermissionRow
+                enabled={organization.permissions.siteVisitReview}
+                label="Site visit review"
+              />
+            </div>
+          </FramePanel>
+        </Frame>
+      </section>
+
+      <section aria-labelledby="members-heading">
+        <Frame>
+          <FramePanel className="p-0">
+            <div className="flex flex-wrap items-start justify-between gap-4 p-6 md:p-7">
+              <div>
+                <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
+                  Assigned people
+                </p>
+                <h2
+                  className="mt-2 font-heading font-semibold text-xl"
+                  id="members-heading"
+                >
+                  Organization members
+                </h2>
+                <p className="mt-2 text-muted-foreground text-sm">
+                  Only people attached to this application organization appear here.
+                </p>
+              </div>
+              <Badge variant="outline">{view.members.length} members</Badge>
+            </div>
+            <Separator />
+            <div className="divide-y">
+              {view.members.length === 0 ? (
+                <div className="p-8 text-muted-foreground text-sm">
+                  No other members are visible yet.
+                </div>
+              ) : (
+                view.members.map((member) => (
+                  <div
+                    className="flex items-center justify-between gap-4 px-6 py-4 md:px-7"
+                    key={member.assignmentId}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar className="size-8">
+                        <AvatarImage alt={member.name} src={member.profilePictureUrl} />
+                        <AvatarFallback>{initials(member.name, member.email)}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-sm">{member.name}</p>
+                        <p className="truncate text-muted-foreground text-xs">{member.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {member.roleSlugs.map((role) => (
+                        <Badge key={role} variant="secondary">
+                          {formatRole(role)}
+                        </Badge>
+                      ))}
+                      {member.canMakeFinalDecision ? (
+                        <Badge className="hidden sm:inline-flex" variant="outline">
+                          Decision authority
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </FramePanel>
+        </Frame>
+      </section>
+    </div>
+  );
+}
+
+function OrganizationStat({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-5 sm:border-r last:sm:border-r-0">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-muted-foreground text-xs">{label}</p>
+        <p className="truncate font-medium text-sm">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function PermissionRow({ enabled, label }: { enabled: boolean; label: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border p-4">
+      <span className="text-sm">{label}</span>
+      <Badge variant={enabled ? "default" : "outline"}>
+        {enabled ? "Enabled" : "Not enabled"}
+      </Badge>
+    </div>
+  );
+}
+
+function formatRole(role: string) {
+  return role
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function initials(name: string, email: string) {
+  const value = name.trim() || email.split("@")[0] || "?";
+  const parts = value.split(/\s+/).filter(Boolean);
+  return parts.length > 1
+    ? `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}`.toUpperCase()
+    : value.slice(0, 2).toUpperCase();
 }

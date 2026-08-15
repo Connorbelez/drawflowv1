@@ -27,27 +27,27 @@
     {
       "path": "docs/lender_portal_mvp_feature_brief.md",
       "authority": "product-contract",
-      "sha256": "ee0711b57ea86e31cd6e112605d0b8c245d7a7e5e1a0075364b4745efcd1273b"
+      "sha256": "ce4d12827b1e306b46d714788edd4242ae373af4cdc6fc709b4dfcddebba8c53"
     },
     {
       "path": "docs/lender_portal_mvp_spec.md",
       "authority": "implementation-synthesis",
-      "sha256": "fbb8a5165978746434cca3d981b6f44aac3f35665dd67e1933519e948a1d3c5b"
+      "sha256": "4bc38518cf06005c55f32a779fb6f579ff4ed9a6655ea8db2b520a7d5d1d66eb"
     },
     {
       "path": "docs/lender_portal_mvp_implementation_plan.md",
       "authority": "delivery-sequence-and-gates",
-      "sha256": "8d44828c928160478fa0ef2973617fee4f4470ae9988a4d964b21404220e4b2f"
+      "sha256": "0f9807ce26d551681de5f87dc4e1d431b35023e38ad11380943ba4caae845cbd"
     },
     {
       "path": "docs/lender-portal-prototype-promotion.md",
       "authority": "prototype-promotion-contract",
-      "sha256": "921236efb5523504db58fd5e8aa593dabe1fd68b4ba1197ec065344df0b246e2"
+      "sha256": "b8d00ddf24417c7c1cc4babcf0f50d07225b404fd48cbde476920cb34abbda6e"
     },
     {
       "path": "src/components/prototypes/README.md",
       "authority": "prototype-decision-registry",
-      "sha256": "e44ad908c6fb626b570e7df8e72888e87fbb78476559b3d23ff3d04ac60249c2"
+      "sha256": "3a389901cc752fefb6539943d600406ed6baa0c9b1e4fe3b923aaf5141480b22"
     }
   ],
   "catalogs": [

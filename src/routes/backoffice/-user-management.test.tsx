@@ -17,6 +17,7 @@ import {
   UserManagementDirectoryTable,
   UserManagementSurface,
 } from "./-user-management-surface";
+import { persistMembershipRoleUpdate } from "./-user-management-role-update";
 import type {
   OrganizationProvisioning,
   UserManagementHandlers,
@@ -26,6 +27,36 @@ import type {
   WorkosUserRow,
 } from "./-user-management-types";
 import { canonicalizeWorkosMembershipRows } from "./-user-management-types";
+
+describe("membership role persistence", () => {
+  test("reconciles the WorkOS projection before an accepted lender-role save completes", async () => {
+    const calls: string[] = [];
+    const result = await persistMembershipRoleUpdate({
+      args: {
+        membershipId: "om_lender",
+        primaryRoleSlug: "lender",
+        roleSlugs: ["lender"],
+      },
+      syncDirectory: async () => {
+        calls.push("sync");
+      },
+      updateRoles: async () => {
+        calls.push("update");
+        return {
+          operation: "updateMembershipRoles",
+          status: "accepted",
+          sync: "waiting-for-webhook",
+        } as const;
+      },
+    });
+
+    expect(calls).toEqual(["update", "sync"]);
+    expect(result).toMatchObject({
+      operation: "updateMembershipRoles",
+      status: "accepted",
+    });
+  });
+});
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -191,17 +222,17 @@ describe("UserDetailSheet role editor", () => {
 
     expect(
       addMembershipEditor
-        .getByRole("checkbox", { name: "admin" })
+        .getByRole("checkbox", { name: "Admin" })
         .getAttribute("aria-checked")
     ).toBe("false");
     expect(
       addMembershipEditor
-        .getByRole("checkbox", { name: "broker" })
+        .getByRole("checkbox", { name: "Broker" })
         .getAttribute("aria-checked")
     ).toBe("false");
     expect(
       addMembershipEditor
-        .getByRole("checkbox", { name: "builder" })
+        .getByRole("checkbox", { name: "Builder" })
         .getAttribute("aria-checked")
     ).toBe("false");
     expect(
@@ -249,13 +280,13 @@ describe("UserDetailSheet role editor", () => {
     const addMembershipEditor = within(addSection as HTMLElement);
 
     expect(
-      addMembershipEditor.getByRole("checkbox", { name: "builder" })
+      addMembershipEditor.getByRole("checkbox", { name: "Builder" })
     ).toBeTruthy();
     expect(
-      addMembershipEditor.queryByRole("checkbox", { name: "admin" })
+      addMembershipEditor.queryByRole("checkbox", { name: "Admin" })
     ).toBeNull();
     expect(
-      addMembershipEditor.queryByRole("checkbox", { name: "broker" })
+      addMembershipEditor.queryByRole("checkbox", { name: "Broker" })
     ).toBeNull();
   });
 
@@ -373,12 +404,12 @@ describe("UserDetailSheet role editor", () => {
 
     // Scope to the membership card (Alpha Lending), not the "Add to
     // organization" editor which also lists an admin option.
-    const card = screen.getByText("Alpha Lending").closest("div.flex-col");
+    const card = screen.getByText("Alpha Lending").closest("section");
     if (!card) {
       throw new Error("membership card not found");
     }
     const adminCheckbox = () =>
-      within(card as HTMLElement).getByRole("checkbox", { name: "admin" });
+      within(card as HTMLElement).getByRole("checkbox", { name: "Admin" });
     expect(adminCheckbox().getAttribute("aria-checked")).toBe("false");
 
     // Server confirms an update that added the admin role to this membership.
@@ -418,7 +449,7 @@ describe("UserDetailSheet role editor", () => {
     ]);
     renderSheet(user, handlers);
 
-    const card = screen.getByText("Alpha Lending").closest("div.flex-col");
+    const card = screen.getByText("Alpha Lending").closest("section");
     if (!card) {
       throw new Error("membership card not found");
     }
@@ -464,7 +495,7 @@ describe("UserDetailSheet role editor", () => {
     ]);
     renderSheet(user, handlers);
 
-    const card = screen.getByText("Alpha Lending").closest("div.flex-col");
+    const card = screen.getByText("Alpha Lending").closest("section");
     if (!card) {
       throw new Error("membership card not found");
     }
@@ -517,6 +548,7 @@ describe("shared read-only user management", () => {
         .getAllByRole("columnheader")
         .map((header) => header.textContent)
     ).toEqual(["Person", "Roles", "Organizations", "Profiles", "Status"]);
+    expect(within(table).getByText("Principal Broker")).toBeTruthy();
 
     fireEvent.click(
       within(table).getByRole("button", { name: "View River Han" })
@@ -578,8 +610,22 @@ describe("shared read-only user management", () => {
 
     expect(screen.getByText("Read-only")).toBeTruthy();
     expect(screen.getAllByText("Alpha Lending")).toHaveLength(2);
-    expect(screen.getByText("admin · Primary")).toBeTruthy();
-    expect(screen.getByText("principle-broker")).toBeTruthy();
+    expect(screen.getByText("Admin · Primary")).toBeTruthy();
+    expect(screen.getByText("Principal Broker")).toBeTruthy();
+    for (const button of screen.getAllByRole("button", {
+      name: "Technical details",
+    })) {
+      fireEvent.click(button);
+    }
+    expect(
+      screen.getByRole("button", { name: "Copy WorkOS user ID" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Copy WorkOS membership ID" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Copy WorkOS organization ID" })
+    ).toBeTruthy();
     expect(screen.getByText("Workspace profiles")).toBeTruthy();
     expect(screen.getByText("Brokerage profile")).toBeTruthy();
     expect(screen.getByText("Administration workflow context")).toBeTruthy();
@@ -587,7 +633,7 @@ describe("shared read-only user management", () => {
     expect(screen.queryByText("Profiles and links")).toBeNull();
     expect(
       screen.queryByRole("button", {
-        name: /add membership|reactivate|remove|save roles/i,
+        name: /add membership|reactivate|remove access|save roles/i,
       })
     ).toBeNull();
   });
@@ -604,7 +650,9 @@ describe("UserDetailSheet destructive actions", () => {
     ]);
     renderSheet(user, handlers);
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Alpha Lending access" })
+    );
     expect(handlers.onRemoveMembership).not.toHaveBeenCalled();
 
     const dialog = await screen.findByRole("alertdialog");
@@ -627,7 +675,9 @@ describe("UserDetailSheet destructive actions", () => {
     ]);
     renderSheet(user, handlers);
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Alpha Lending access" })
+    );
     const dialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
@@ -687,18 +737,24 @@ describe("UserManagementSurface directory rows", () => {
         },
       ],
       } as unknown as UserManagementProjection);
-    return render(
+    const surface = (currentProjections: UserManagementProjection) => (
       <UserManagementSurface
         accepted={null}
         actionError={null}
         brokerageProvisioning={overrides?.brokerageProvisioning}
-        projections={projections}
+        projections={currentProjections}
         setAccepted={() => undefined}
         setActionError={() => undefined}
         syncStatus={{ receipts: [] } as never}
         {...handlers}
       />
     );
+    const result = render(surface(projections));
+    return {
+      ...result,
+      rerenderProjections: (next: UserManagementProjection) =>
+        result.rerender(surface(next)),
+    };
   }
 
   test("exposes each person as an accessible button that opens the detail sheet", async () => {
@@ -716,6 +772,106 @@ describe("UserManagementSurface directory rows", () => {
     });
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("River Han")).toBeTruthy();
+  });
+
+  test("keeps an accepted role update when the sheet closes before WorkOS projects it", async () => {
+    const handlers = noopHandlers();
+    const initialProjections = {
+      memberships: [
+        {
+          roleSlug: "broker",
+          roleSlugs: ["broker"],
+          status: "active",
+          workosMembershipId: "om_alpha",
+          workosOrganizationId: "org_alpha",
+          workosUserId: "user_1",
+        },
+      ],
+      organizationRoles: [],
+      organizations: [ORG_ALPHA],
+      permissions: [],
+      roles: [
+        { name: "Admin", slug: "admin", status: "active" },
+        { name: "Broker", slug: "broker", status: "active" },
+      ],
+      users: [
+        {
+          email: "river@alpha.test",
+          name: "River Han",
+          status: "active",
+          workosUserId: "user_1",
+        },
+      ],
+    } as unknown as UserManagementProjection;
+    const { rerenderProjections } = renderSurface(handlers, {
+      projections: initialProjections,
+    });
+
+    const openSheet = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Manage River Han" }));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      return screen.getByRole("dialog");
+    };
+
+    const dialog = await openSheet();
+    const membershipCard = within(dialog).getByText("Alpha Lending").closest(
+      "section"
+    );
+    if (!membershipCard) {
+      throw new Error("membership card not found");
+    }
+    const editor = within(membershipCard as HTMLElement);
+    fireEvent.click(editor.getByRole("checkbox", { name: "Admin" }));
+    fireEvent.click(editor.getByRole("button", { name: "Save roles" }));
+
+    await waitFor(() => {
+      expect(handlers.onRoleUpdate).toHaveBeenCalledWith({
+        membershipId: "om_alpha",
+        primaryRoleSlug: "broker",
+        roleSlugs: ["broker", "admin"],
+      });
+    });
+
+    const closeButton = dialog.querySelector<HTMLButtonElement>(
+      'button[data-slot="sheet-close"]'
+    );
+    if (!closeButton) {
+      throw new Error("sheet close button not found");
+    }
+    fireEvent.click(closeButton);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    const reopenedDialog = await openSheet();
+    const reopenedMembershipCard = within(reopenedDialog)
+      .getByText("Alpha Lending")
+      .closest("section");
+    if (!reopenedMembershipCard) {
+      throw new Error("reopened membership card not found");
+    }
+    expect(
+      within(reopenedMembershipCard as HTMLElement)
+        .getByRole("checkbox", { name: "Admin" })
+        .getAttribute("aria-checked")
+    ).toBe("true");
+
+    rerenderProjections({
+      ...initialProjections,
+      memberships: [
+        {
+          ...initialProjections.memberships[0],
+          roleSlugs: ["broker", "admin"],
+        },
+      ],
+    } as unknown as UserManagementProjection);
+    rerenderProjections(initialProjections);
+
+    await waitFor(() => {
+      expect(
+        within(reopenedMembershipCard as HTMLElement)
+          .getByRole("checkbox", { name: "Admin" })
+          .getAttribute("aria-checked")
+      ).toBe("false");
+    });
   });
 
   test("canonicalizes duplicate membership projections before rendering mutation controls", async () => {
@@ -767,17 +923,23 @@ describe("UserManagementSurface directory rows", () => {
       fireEvent.click(screen.getByRole("button", { name: "Manage River Han" }));
       await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
       const dialog = screen.getByRole("dialog");
+      const technicalDetailButtons = within(dialog).getAllByRole("button", {
+        name: "Technical details",
+      });
+      fireEvent.click(
+        technicalDetailButtons[technicalDetailButtons.length - 1] as HTMLElement
+      );
       expect(
-        within(dialog).getAllByText("seed_membership_user_broker")
-      ).toHaveLength(1);
+        within(dialog).getByText("seed_membership_user_broker")
+      ).toBeTruthy();
       expect(
         within(dialog)
-          .getByRole("checkbox", { name: "broker" })
+          .getByRole("checkbox", { name: "Broker" })
           .getAttribute("aria-checked")
       ).toBe("true");
       expect(
         within(dialog)
-          .getByRole("checkbox", { name: "builder" })
+          .getByRole("checkbox", { name: "Builder" })
           .getAttribute("aria-checked")
       ).toBe("true");
 

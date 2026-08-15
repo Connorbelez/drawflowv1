@@ -18,7 +18,7 @@ vi.mock("@tanstack/react-router", async () => {
 import { Route } from "./organization.tsx";
 
 describe("lender organization route authorization", () => {
-  test.each(["admin", "principle-broker"])(
+  test.each(["admin", "lender", "lender-admin", "lender-staff"])(
     "allows an active-organization %s administrator",
     (role) => {
       expect(
@@ -36,7 +36,7 @@ describe("lender organization route authorization", () => {
   );
 
   test.each([
-    { organizationId: "org_lender", role: "broker", userId: "user_broker" },
+    { organizationId: "org_lender", role: "principle-broker", userId: "user_broker" },
     { organizationId: undefined, role: "admin", userId: "user_admin" },
     { organizationId: undefined, role: undefined, userId: undefined },
   ])("fails closed for non-administration context %#", (context) => {

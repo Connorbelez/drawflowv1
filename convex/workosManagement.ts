@@ -6,11 +6,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import {
   type AuthorizedViewer,
+  backofficeRoleSlugs,
   adminAction,
-  type LenderRoleSlug,
-  lenderRoleSlugs,
   normalizeRoleSlug,
-  resolveActiveLenderOrganizationContext,
   userManagementWriteAction,
   userManagementWriteQuery,
 } from "./authz";
@@ -18,7 +16,12 @@ import {
   pendingBuilderStaffMembershipId,
   pendingBuilderStaffWorkosUserId,
 } from "./builderStaffIdentity";
-import { publicAction, publicMutation } from "./fluent";
+import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
+import {
+  LENDER_ROLE_SLUGS,
+  type LenderRoleSlug as AppLenderRoleSlug,
+} from "./lenderOrganizationAccess";
+import { internalQuery, publicAction, publicMutation } from "./fluent";
 
 const acceptedReturn = v.object({
   adapter: v.union(v.literal("fake"), v.literal("workos")),
@@ -38,6 +41,20 @@ const transferRequiredReturn = v.object({
 });
 
 const membershipCommandReturn = v.union(acceptedReturn, transferRequiredReturn);
+
+const sharedLenderRoleValidator = v.union(
+  v.literal("lender"),
+  v.literal("lender-admin"),
+  v.literal("lender-staff")
+);
+
+const sharedLenderMembershipTargetReturn = v.object({
+  brokerageId: v.id("brokerages"),
+  lenderOrganizationId: v.id("lenderOrganizations"),
+  membershipId: v.string(),
+  roleSlugs: v.array(v.string()),
+  workosUserId: v.string(),
+});
 
 const principalBrokerTransferReturn = v.union(
   v.object({
@@ -350,9 +367,7 @@ async function resolveWorkosManagementCommandContextHandler(
 }
 
 async function resolveWorkosManagementActor(ctx: WorkosManagementQueryCtx) {
-  const backofficeAdmin =
-    ctx.viewer.roles.includes("admin") && !ctx.viewer.organizationId;
-  if (backofficeAdmin) {
+  if (ctx.viewer.roles.includes("admin")) {
     return {
       actorRoles: ctx.viewer.roles,
       mode: "backoffice" as const,
@@ -363,22 +378,33 @@ async function resolveWorkosManagementActor(ctx: WorkosManagementQueryCtx) {
   if (!identity) {
     throw new Error("Unauthorized");
   }
-  const authorization = await resolveActiveLenderOrganizationContext(
-    ctx,
-    identity,
-    "lenderUserManagementWrite"
-  );
-  if (
-    !authorization.activeOrganization.roles.some(
-      (role) => role === "admin" || role === "principle-broker"
+  const organizationId =
+    ctx.viewer.organizationId ??
+    (typeof identity.organizationId === "string"
+      ? identity.organizationId
+      : undefined);
+  if (!organizationId) {
+    throw new Error("Forbidden: organization scope");
+  }
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user_and_organization", (query) =>
+      query
+        .eq("workosUserId", identity.subject)
+        .eq("workosOrganizationId", organizationId)
     )
+    .take(2);
+  if (
+    memberships.length !== 1 ||
+    memberships[0]?.status !== "active" ||
+    !projectedMembershipRoleSlugs(memberships[0]).includes("principle-broker")
   ) {
-    throw new Error("Forbidden: lenderUserManagementWrite");
+    throw new Error("Forbidden: active backoffice membership");
   }
   return {
-    actorRoles: authorization.activeOrganization.roles,
-    mode: "lender" as const,
-    organizationScope: authorization.activeOrganization.workosOrganizationId,
+    actorRoles: ctx.viewer.roles,
+    mode: "backoffice" as const,
+    organizationScope: organizationId,
   };
 }
 
@@ -540,6 +566,145 @@ export const recordWorkosManagementAudit = publicMutation
   })
   .internal();
 
+/**
+ * Resolve a membership command against the app-owned lender organization.
+ * The shared WorkOS organization is only the identity and membership
+ * container; the app assignment remains the source of lender-organization
+ * scope.
+ */
+export const resolveSharedLenderMembershipTarget = internalQuery
+  .input({
+    lenderOrganizationId: v.id("lenderOrganizations"),
+    membershipId: v.string(),
+  })
+  .returns(sharedLenderMembershipTargetReturn)
+  .handler(async (ctx, args) => {
+    const lenderOrganization = await ctx.db.get(args.lenderOrganizationId);
+    if (!lenderOrganization || lenderOrganization.status !== "active") {
+      throw new Error("Forbidden: inactive lender organization");
+    }
+    const brokerage = await ctx.db.get(lenderOrganization.brokerageId);
+    if (!brokerage || brokerage.status !== "active") {
+      throw new Error("Forbidden: active brokerage scope");
+    }
+
+    const memberships = await ctx.db
+      .query("workosOrganizationMemberships")
+      .withIndex("by_workos_membership_id", (query) =>
+        query.eq("workosMembershipId", args.membershipId)
+      )
+      .take(2);
+    if (memberships.length !== 1) {
+      throw new Error("Forbidden: membership projection scope");
+    }
+    const [membership] = memberships;
+    if (
+      !membership ||
+      membership.status !== "active" ||
+      membership.workosOrganizationId !== FAIRLEND_WORKOS_ORGANIZATION_ID
+    ) {
+      throw new Error("Forbidden: shared lender membership scope");
+    }
+
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_workos_user_id", (query) =>
+        query.eq("workosUserId", membership.workosUserId)
+      )
+      .take(2);
+    if (users.length !== 1 || users[0]?.status !== "active") {
+      throw new Error("Forbidden: active user projection");
+    }
+
+    const assignments = await ctx.db
+      .query("lenderOrganizationAssignments")
+      .withIndex("by_workos_user_and_status", (query) =>
+        query.eq("workosUserId", membership.workosUserId).eq("status", "active")
+      )
+      .take(3);
+    if (
+      assignments.length !== 1 ||
+      assignments[0]?.lenderOrganizationId !== args.lenderOrganizationId
+    ) {
+      throw new Error("Forbidden: lender organization assignment scope");
+    }
+
+    const roleSlugs = projectedMembershipRoleSlugs(membership);
+    if (!roleSlugs.some((role) => LENDER_ROLE_SLUGS.includes(role as AppLenderRoleSlug))) {
+      throw new Error("Forbidden: supported lender role required");
+    }
+
+    return {
+      brokerageId: brokerage._id,
+      lenderOrganizationId: lenderOrganization._id,
+      membershipId: membership.workosMembershipId,
+      roleSlugs,
+      workosUserId: membership.workosUserId,
+    };
+  })
+  .internal();
+
+export const recordSharedLenderMembershipAudit = publicMutation
+  .input({
+    actorRole: v.literal("admin"),
+    actorRoles: v.array(v.string()),
+    actorWorkosUserId: v.string(),
+    brokerageId: v.id("brokerages"),
+    command: v.string(),
+    entityId: v.string(),
+    entityType: v.string(),
+    eventType: v.string(),
+    lenderOrganizationId: v.id("lenderOrganizations"),
+    newState: v.optional(v.string()),
+    priorState: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    reconciliationKey: v.string(),
+    warnings: v.array(v.string()),
+  })
+  .returns(v.id("auditEvents"))
+  .handler(async (ctx, args) => {
+    const lenderOrganization = await ctx.db.get(args.lenderOrganizationId);
+    const brokerage = await ctx.db.get(args.brokerageId);
+    if (
+      !lenderOrganization ||
+      lenderOrganization.brokerageId !== args.brokerageId ||
+      !brokerage ||
+      brokerage.status !== "active"
+    ) {
+      throw new Error("Forbidden: shared lender audit scope");
+    }
+    const existing = await ctx.db
+      .query("auditEvents")
+      .withIndex("by_organizationId_and_reconciliationKey", (query) =>
+        query
+          .eq("organizationId", FAIRLEND_WORKOS_ORGANIZATION_ID)
+          .eq("reconciliationKey", args.reconciliationKey)
+      )
+      .unique();
+    if (existing) {
+      return existing._id;
+    }
+    return await ctx.db.insert("auditEvents", {
+      actorRole: args.actorRole,
+      actorRoles: args.actorRoles,
+      actorWorkosUserId: args.actorWorkosUserId,
+      brokerageId: args.brokerageId,
+      command: args.command,
+      entityId: args.entityId,
+      entityType: args.entityType,
+      eventType: args.eventType,
+      lenderOrganizationId: args.lenderOrganizationId,
+      ...(args.newState ? { newState: args.newState } : {}),
+      organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      ...(args.priorState ? { priorState: args.priorState } : {}),
+      ...(args.reason ? { reason: args.reason } : {}),
+      reconciliationKey: args.reconciliationKey,
+      warnings: args.warnings,
+      createdAt: Date.now(),
+    });
+  })
+  .internal();
+
 async function resolveUserManagementTargetScope(
   ctx: ScopedUserManagementActionCtx,
   target: {
@@ -597,6 +762,25 @@ export const inviteUser = userManagementWriteAction
     }
   })
   .public();
+
+/**
+ * WorkOS command used by the app-owned lender control plane. Lender
+ * organizations never become WorkOS organizations: every lender invitation
+ * targets the shared FairLend identity container.
+ */
+export async function sendWorkosLenderInvitation(args: {
+  email: string;
+  roleSlug: AppLenderRoleSlug;
+}) {
+  if (!LENDER_ROLE_SLUGS.includes(args.roleSlug)) {
+    throw new Error("Unsupported lender WorkOS role");
+  }
+  return await getWorkosManagementAdapter().inviteUser({
+    email: args.email,
+    organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+    roleSlug: args.roleSlug,
+  });
+}
 
 export const inviteBuilderStaffUser = publicAction
   .input({
@@ -754,6 +938,109 @@ export const updateMembershipRoles = userManagementWriteAction
         error,
         membershipId: args.membershipId,
       });
+      throw error;
+    }
+  })
+  .public();
+
+/**
+ * WorkOS-first role command for an app-owned lender organization. Generic
+ * WorkOS management commands cannot be used here because the shared identity
+ * organization is intentionally not mapped one-to-one to a Brokerage.
+ */
+export const updateSharedLenderMembershipRoles = adminAction
+  .input({
+    lenderOrganizationId: v.id("lenderOrganizations"),
+    membershipId: v.string(),
+    reason: v.string(),
+    roleSlug: sharedLenderRoleValidator,
+  })
+  .returns(acceptedReturn)
+  .handler(async (ctx, args) => {
+    const target = await ctx.runQuery(
+      internal.workosManagement.resolveSharedLenderMembershipTarget,
+      {
+        lenderOrganizationId: args.lenderOrganizationId,
+        membershipId: args.membershipId,
+      }
+    );
+    const reason = requireReason(args.reason, "Lender membership role change");
+    const adapter = getWorkosManagementAdapter();
+    try {
+      const update = await adapter.updateMembershipRoles({
+        membershipId: args.membershipId,
+        primaryRoleSlug: args.roleSlug,
+        roleSlugs: [args.roleSlug],
+      });
+      await ctx.runMutation(
+        internal.workosManagement.recordSharedLenderMembershipAudit,
+        {
+          actorRole: "admin",
+          actorRoles: ctx.viewer.roles,
+          actorWorkosUserId: ctx.viewer.subject,
+          brokerageId: target.brokerageId,
+          command: "updateSharedLenderMembershipRoles",
+          entityId: args.membershipId,
+          entityType: "workosOrganizationMembership",
+          eventType: "workos.lender_membership.role_update.accepted",
+          lenderOrganizationId: target.lenderOrganizationId,
+          newState: JSON.stringify({ roleSlugs: [args.roleSlug], status: "active" }),
+          priorState: JSON.stringify({ roleSlugs: target.roleSlugs, status: "active" }),
+          reason,
+          reconciliationKey: `workos-lender-role:${args.membershipId}:${crypto.randomUUID()}`,
+          warnings: ["pending_workos_projection_reconciliation"],
+        }
+      );
+      return update.accepted;
+    } catch (error) {
+      throw error;
+    }
+  })
+  .public();
+
+/** WorkOS-first deactivation command for an app-owned lender assignment. */
+export const deactivateSharedLenderMembership = adminAction
+  .input({
+    lenderOrganizationId: v.id("lenderOrganizations"),
+    membershipId: v.string(),
+    reason: v.string(),
+  })
+  .returns(acceptedReturn)
+  .handler(async (ctx, args) => {
+    const target = await ctx.runQuery(
+      internal.workosManagement.resolveSharedLenderMembershipTarget,
+      {
+        lenderOrganizationId: args.lenderOrganizationId,
+        membershipId: args.membershipId,
+      }
+    );
+    const reason = requireReason(args.reason, "Lender membership deactivation");
+    const adapter = getWorkosManagementAdapter();
+    try {
+      const result = await adapter.deactivateMembership({
+        membershipId: args.membershipId,
+      });
+      await ctx.runMutation(
+        internal.workosManagement.recordSharedLenderMembershipAudit,
+        {
+          actorRole: "admin",
+          actorRoles: ctx.viewer.roles,
+          actorWorkosUserId: ctx.viewer.subject,
+          brokerageId: target.brokerageId,
+          command: "deactivateSharedLenderMembership",
+          entityId: args.membershipId,
+          entityType: "workosOrganizationMembership",
+          eventType: "workos.lender_membership.deactivation.accepted",
+          lenderOrganizationId: target.lenderOrganizationId,
+          newState: JSON.stringify({ status: "inactive" }),
+          priorState: JSON.stringify({ roleSlugs: target.roleSlugs, status: "active" }),
+          reason,
+          reconciliationKey: `workos-lender-deactivate:${args.membershipId}:${crypto.randomUUID()}`,
+          warnings: ["pending_workos_projection_reconciliation"],
+        }
+      );
+      return result;
+    } catch (error) {
       throw error;
     }
   })
@@ -1110,7 +1397,7 @@ export const beginPrincipalBrokerTransfer = publicMutation
     ];
     if (
       !targetRoleSlugs.every((role) =>
-        lenderRoleSlugs.includes(role as LenderRoleSlug)
+        backofficeRoleSlugs.includes(role as (typeof backofficeRoleSlugs)[number])
       )
     ) {
       throw new Error(
@@ -2052,7 +2339,7 @@ function assertManagementRoleSlugs(
     if (
       canonical.length === 0 ||
       canonical.some(
-        (role) => !lenderRoleSlugs.includes(role as LenderRoleSlug)
+        (role) => !LENDER_ROLE_SLUGS.includes(role as AppLenderRoleSlug)
       )
     ) {
       throw new Error("Unsupported lender organization role");

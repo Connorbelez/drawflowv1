@@ -136,14 +136,22 @@ const currentUserOrganizationRow = v.object({
 
 const activeLenderOrganizationRow = v.object({
   brokerageId: v.id("brokerages"),
+  brokerageName: v.string(),
+  lenderOrganizationId: v.id("lenderOrganizations"),
   membershipIds: v.array(v.string()),
   organizationName: v.string(),
+  permissions: v.object({
+    proposalReview: v.boolean(),
+    milestoneDecisions: v.boolean(),
+    drawDecisions: v.boolean(),
+    siteVisitReview: v.boolean(),
+  }),
   roles: v.array(
     v.union(
       v.literal("admin"),
-      v.literal("principle-broker"),
-      v.literal("broker"),
-      v.literal("broker-staff")
+      v.literal("lender"),
+      v.literal("lender-admin"),
+      v.literal("lender-staff")
     )
   ),
   userId: v.id("users"),
@@ -558,7 +566,7 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
           .unique();
         const roleSlugs = membershipRoleSlugs(membership).sort();
         const hasLenderRole = roleSlugs.some((role) =>
-          ["admin", "principle-broker", "broker", "broker-staff"].includes(role)
+          ["admin", "lender", "lender-admin", "lender-staff"].includes(role)
         );
         const accessState =
           membership.status === "pending"
@@ -573,7 +581,7 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
           canManageMembers:
             accessState === "active" &&
             roleSlugs.some((role) =>
-              ["admin", "principle-broker"].includes(role)
+              ["admin", "lender-admin"].includes(role)
             ),
           email: user?.email,
           membership: {
@@ -661,13 +669,15 @@ export const getLenderOrganizationManagement = lenderUserManagementQuery
         administrators: members.filter(
           (member) =>
             member.accessState === "active" &&
-            member.roleSlugs.includes("admin")
+            ["admin", "lender-admin"].some((role) =>
+              member.roleSlugs.includes(role)
+            )
         ).length,
         pending: count("pending"),
         principalBrokers: members.filter(
           (member) =>
             member.accessState === "active" &&
-            member.roleSlugs.includes("principle-broker")
+            member.roleSlugs.includes("lender-admin")
         ).length,
         removed: count("removed"),
         total: members.length,

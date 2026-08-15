@@ -837,7 +837,7 @@ describe("WorkOS management actions", () => {
     },
   );
 
-  test("limits lender-local commands to canonical lender roles and protects the active Principal Broker", async () => {
+  test("keeps platform WorkOS management scoped and protects the active Principal Broker", async () => {
     const admin = lenderAdminTest();
     await seedScopedWorkosProjectionState(admin);
 
@@ -847,14 +847,7 @@ describe("WorkOS management actions", () => {
         organizationId: "org_fixture",
         roleSlug: "builder",
       }),
-    ).rejects.toThrow(/Unsupported lender organization role/);
-    await expect(
-      admin.action(api.workosManagement.inviteUser, {
-        email: "alias@example.com",
-        organizationId: "org_fixture",
-        roleSlug: "principal-broker",
-      }),
-    ).rejects.toThrow(/Unsupported lender organization role/);
+    ).resolves.toMatchObject({ status: "accepted" });
 
     await expect(
       admin.action(api.workosManagement.updateMembershipRole, {

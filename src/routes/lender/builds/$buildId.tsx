@@ -12,6 +12,8 @@ export const Route = createFileRoute("/lender/builds/$buildId")({
   staticData: {
     breadcrumb: {
       label: "Build detail",
+      params: (match) => ({ buildId: match.params.buildId }),
+      to: "/lender/builds/$buildId",
     },
   },
 });

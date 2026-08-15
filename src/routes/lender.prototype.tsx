@@ -1,4 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import {
   Activity,
   ArrowUpRight,
@@ -10,6 +12,7 @@ import {
   FileCheck2,
   FileText,
   Gauge,
+  Mail,
   MapPin,
   ShieldCheck,
   WalletCards,
@@ -24,6 +27,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
+import { Button } from "../components/ui/button";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import {
@@ -35,6 +39,7 @@ import {
   TableRow,
 } from "../components/ui/table";
 import { cn } from "../lib/utils";
+import { api } from "../../convex/_generated/api";
 
 // PROTOTYPE ONLY: rejected source variants A/B/C plus accepted Variant D on
 // /lender/prototype?variant=A|B|C|D.
@@ -61,7 +66,15 @@ export const Route = createFileRoute("/lender/prototype")({
   component: LenderDashboardPrototypeRoute,
 });
 
-const actionItems = [
+type DashboardActionItem = {
+  fact: string;
+  icon: ComponentType<{ className?: string }>;
+  meta: string;
+  title: string;
+  type: "Proposal" | "Milestone" | "Draw";
+};
+
+const actionItems: readonly DashboardActionItem[] = [
   {
     type: "Proposal",
     title: "Juniper Row Homes",
@@ -173,10 +186,12 @@ function PageHeading({
   eyebrow,
   title,
   description,
+  updatedAt,
 }: {
   eyebrow: string;
   title: string;
   description: string;
+  updatedAt?: number;
 }) {
   return (
     <header className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
@@ -192,7 +207,8 @@ function PageHeading({
         </p>
       </div>
       <Badge className="w-fit gap-1.5" variant="outline">
-        <Activity className="size-3" /> Updated 9:42 AM
+        <Activity className="size-3" />
+        {updatedAt ? `Updated ${formatTime(updatedAt)}` : "Updated 9:42 AM"}
       </Badge>
     </header>
   );
@@ -320,7 +336,7 @@ function MetricCard({
   );
 }
 
-function ActionRow({ item }: { item: (typeof actionItems)[number] }) {
+function ActionRow({ item }: { item: DashboardActionItem }) {
   const Icon = item.icon;
   return (
     <div className="group flex items-center gap-4 px-5 py-4">
@@ -626,10 +642,306 @@ function VariantD() {
   );
 }
 
-// TODO(lender-portal): replace the prototype's representative records with the
-// canonical lender dashboard projection. Keep this selected composition intact.
 export function LenderDashboardVariantD() {
-  return <VariantD />;
+  const currentOrganization = useQuery(
+    api.lenderOrganizations.getCurrentLenderOrganization,
+    {}
+  );
+  const dashboard = useQuery(
+    api.lender_portal.getLenderDashboard,
+    currentOrganization?.organization ? {} : "skip"
+  );
+
+  if (
+    currentOrganization === undefined ||
+    (currentOrganization.organization && dashboard === undefined)
+  ) {
+    return (
+      <div className="grid min-h-96 place-items-center rounded-lg border bg-card text-muted-foreground text-sm">
+        Loading assigned portfolio…
+      </div>
+    );
+  }
+
+  if (!currentOrganization.organization) {
+    return <LenderDashboardUnassignedState />;
+  }
+
+  return <LiveVariantD data={dashboard} />;
+}
+
+function LenderDashboardUnassignedState() {
+  return (
+    <Card className="mx-auto mt-12 max-w-2xl">
+      <CardHeader>
+        <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">
+          Lender organization
+        </p>
+        <CardTitle className="font-heading text-2xl">
+          Your assigned portfolio is still being arranged.
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="max-w-xl text-muted-foreground text-sm leading-6">
+          A DrawFlow admin needs to attach your lender account to an application
+          organization before assigned work can appear here.
+        </p>
+        <Button
+          className="mt-6"
+          render={
+            <a
+              href="mailto:support@fairlend.ca?subject=DrawFlow%20lender%20organization%20access"
+            />
+          }
+        >
+          <Mail />
+          Contact DrawFlow admin
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+type LenderDashboardData = NonNullable<
+  FunctionReturnType<typeof api.lender_portal.getLenderDashboard>
+>;
+
+function LiveVariantD({ data }: { data: LenderDashboardData }) {
+  const actions = data.actions.map(toDashboardActionItem);
+
+  return (
+    <div>
+      <PageHeading
+        description="Start with lender-required decisions, then move into the complete assigned portfolio book."
+        eyebrow="Lender portfolio"
+        title="Assigned portfolio"
+        updatedAt={data.updatedAt}
+      />
+
+      <Card className="mb-7 border-primary/35 shadow-sm">
+        <CardHeader className="flex-row items-center justify-between border-b bg-primary/5">
+          <div>
+            <CardTitle>Needs my attention</CardTitle>
+            <p className="mt-1 text-muted-foreground text-xs">
+              {actions.length} assigned reviews with current workflow state
+            </p>
+          </div>
+          <Badge>{actions.length} open</Badge>
+        </CardHeader>
+        <CardContent className="divide-y px-0">
+          {actions.length === 0 ? (
+            <p className="p-5 text-muted-foreground text-sm">
+              No lender decisions need your attention right now.
+            </p>
+          ) : (
+            actions.map((item) => (
+              <ActionRow item={item} key={item.title + item.fact} />
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <section aria-labelledby="variant-d-live-portfolio-heading">
+        <div className="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+          <div>
+            <h2
+              className="font-semibold text-sm"
+              id="variant-d-live-portfolio-heading"
+            >
+              Assigned portfolio
+            </h2>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Complete lender book with current review state in context
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">
+              {data.stats.totalFacilityCents > 0
+                ? `${formatCompactCurrency(data.stats.totalFacilityCents)} facility`
+                : "Facility not booked"}
+            </Badge>
+            <Badge variant="secondary">
+              {data.stats.activeBuildCount} active Builds
+            </Badge>
+          </div>
+        </div>
+
+        <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="overflow-hidden rounded-lg border bg-card">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <div>
+                <h3 className="font-semibold text-sm">Active Build ledger</h3>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  All assigned Builds with their next review state
+                </p>
+              </div>
+              <Badge variant="secondary">
+                {data.stats.assignedProposalCount} assigned proposals
+              </Badge>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-5">Build</TableHead>
+                  <TableHead>Facility</TableHead>
+                  <TableHead>Released</TableHead>
+                  <TableHead>Next state</TableHead>
+                  <TableHead className="pr-5 text-right">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.builds.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      className="p-5 text-muted-foreground text-sm"
+                      colSpan={5}
+                    >
+                      No active Builds are assigned to this lender organization.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  data.builds.map((build) => {
+                    const releasedPercent = build.facilityCents
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (build.releasedCents / build.facilityCents) * 100
+                          )
+                        )
+                      : 0;
+                    return (
+                      <TableRow key={build.buildId}>
+                        <TableCell className="py-4 pl-5">
+                          <p className="font-semibold text-foreground">
+                            {build.buildName}
+                          </p>
+                          <p className="mt-1 flex items-center gap-1 text-muted-foreground text-xs">
+                            <MapPin className="size-3" /> {build.location}
+                          </p>
+                        </TableCell>
+                        <TableCell className="font-medium tabular-nums">
+                          {build.facilityCents > 0
+                            ? formatCompactCurrency(build.facilityCents)
+                            : "Not booked"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="w-28">
+                            <div className="mb-1 flex justify-between text-muted-foreground text-xs">
+                              <span>{formatCompactCurrency(build.releasedCents)}</span>
+                              <span>{releasedPercent}%</span>
+                            </div>
+                            <Progress value={releasedPercent} />
+                          </div>
+                        </TableCell>
+                        <TableCell>{build.nextState}</TableCell>
+                        <TableCell className="pr-5 text-right">
+                          <Badge
+                            variant={
+                              build.status === "needs_action"
+                                ? "default"
+                                : "outline"
+                            }
+                          >
+                            {formatBuildStatus(build.status)}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </section>
+
+          <aside className="rounded-lg border bg-card">
+            <div className="border-b px-5 py-4">
+              <h3 className="font-semibold text-sm">Review requirements</h3>
+              <p className="mt-1 text-muted-foreground text-xs">
+                Current workflow facts for lender review
+              </p>
+            </div>
+            <div className="divide-y">
+              {actions.length === 0 ? (
+                <p className="p-5 text-muted-foreground text-sm">
+                  No open review requirements.
+                </p>
+              ) : (
+                actions.slice(0, 3).map((item, index) => (
+                  <div className="px-5 py-4" key={item.title + item.fact}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+                        {item.type}
+                      </span>
+                      <span className="text-muted-foreground text-xs tabular-nums">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                    </div>
+                    <p className="mt-2 font-semibold text-sm leading-5">
+                      {item.title}
+                    </p>
+                    <div className="mt-3 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{item.fact}</span>
+                      <ArrowUpRight className="size-3.5" />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function toDashboardActionItem(
+  action: LenderDashboardData["actions"][number]
+): DashboardActionItem {
+  const icon =
+    action.type === "Proposal"
+      ? FileCheck2
+      : action.type === "Milestone"
+        ? ClipboardCheck
+        : WalletCards;
+  return {
+    fact: action.fact,
+    icon,
+    meta:
+      action.amountCents === undefined
+        ? action.meta
+        : `${formatCompactCurrency(action.amountCents)} · ${action.meta}`,
+    title: action.title,
+    type: action.type,
+  };
+}
+
+function formatCompactCurrency(cents: number) {
+  return new Intl.NumberFormat("en-CA", {
+    currency: "CAD",
+    maximumFractionDigits: cents >= 100_000_00 ? 1 : 0,
+    notation: "compact",
+    style: "currency",
+  }).format(cents / 100);
+}
+
+function formatTime(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(timestamp);
+}
+
+function formatBuildStatus(
+  status: "active" | "needs_action" | "on_track" | "future_start"
+) {
+  switch (status) {
+    case "needs_action":
+      return "Needs action";
+    case "future_start":
+      return "Future start";
+    default:
+      return "On track";
+  }
 }
 
 function InlineMetric({

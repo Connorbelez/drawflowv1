@@ -12,7 +12,7 @@ Independent phase acceptance remains reserved for LP-P2-05.
 ## Objective
 
 Expose permission-shaped Back Office, Builder, and lender lifecycle
-projections, and directly promote the selected external assignment prototype
+projections, and directly promote the selected lender assignment prototype
 against canonical commands.
 
 ## Ownership

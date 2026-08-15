@@ -14,14 +14,22 @@ import {
 } from "./activeBuildAccess";
 import {
   type AuthorizedViewer,
+  type ActiveLenderOrganizationContext,
   authenticatedAction,
   authenticatedMutation,
   authenticatedQuery,
+  lenderOrganizationQuery,
   lenderRoleSlugs,
   normalizeRoleSlugs,
+  requireLenderOrganizationPermission,
   resolveActiveLenderOrganizationContext,
   type RoleSlug,
 } from "./authz";
+import {
+  LENDER_ROLE_SLUGS,
+  listActiveSharedLenderMemberships,
+  resolveLenderOrganizationTarget,
+} from "./lenderOrganizationAccess";
 import {
   assignBuilderBrokerAssignment,
   ensureBuilderBrokerAssignment,
@@ -490,7 +498,9 @@ const proposalLenderAssignmentProjectionValidator = v.object({
   assignedByRole: v.string(),
   assignedByWorkosUserId: v.string(),
   lenderBrokerageId: v.id("brokerages"),
-  lenderOrganizationId: v.string(),
+  // Historical rows may still carry the legacy WorkOS id until the cutover
+  // migration runs. New/current rows are app-owned lender organization ids.
+  lenderOrganizationId: v.union(v.id("lenderOrganizations"), v.string()),
   lenderOrganizationName: v.string(),
   status: v.union(v.literal("current"), v.literal("withdrawn")),
   withdrawalReason: v.optional(v.string()),
@@ -499,15 +509,12 @@ const proposalLenderAssignmentProjectionValidator = v.object({
 });
 
 const proposalLenderOrganizationOptionValidator = v.object({
-  lenderOrganizationId: v.string(),
+  lenderOrganizationId: v.id("lenderOrganizations"),
   lenderOrganizationName: v.string(),
 });
 
 const PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT = 50;
 const ELIGIBLE_LENDER_ORGANIZATION_LIMIT = 100;
-const ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT = 1_000;
-const ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT = 10_000;
-const LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE = 100;
 
 const proposalDraftDrawInput = v.object({
   amountCents: v.number(),
@@ -3249,130 +3256,32 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
       args.workosOrganizationId,
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
-    if (
-      auth.proposal.status !== "approved" ||
-      (auth.proposal.capitalSource ?? "internal") !== "external"
-    ) {
+    if (auth.proposal.status !== "approved") {
       return { organizations: [] };
     }
 
-    const eligibleOrganizations = new Map<
-      string,
-      { lenderOrganizationId: string; lenderOrganizationName: string }
-    >();
-    const scannedOrganizationIds = new Set<string>();
-    const organizationEligibilityCache = new Map<
-      string,
-      { lenderOrganizationName: string } | null
-    >();
-    const activeLenderUserCache = new Map<string, boolean>();
-    let scannedMemberships = 0;
-    const activeMemberships = await ctx.db
-      .query("workosOrganizationMemberships")
+    const activeOrganizations = await ctx.db
+      .query("lenderOrganizations")
       .withIndex("by_status", (query) => query.eq("status", "active"))
-      .take(ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT);
-
-    for (const membership of activeMemberships) {
-        if (scannedMemberships >= ELIGIBLE_LENDER_MEMBERSHIP_SCAN_LIMIT) {
-          break;
-        }
-        if (
-          !scannedOrganizationIds.has(membership.workosOrganizationId) &&
-          scannedOrganizationIds.size >= ELIGIBLE_LENDER_ORGANIZATION_SCAN_LIMIT
-        ) {
-          break;
-        }
-        scannedMemberships += 1;
-        scannedOrganizationIds.add(membership.workosOrganizationId);
-        const roles = normalizeRoleSlugs([
-          membership.roleSlug,
-          ...membership.roleSlugs,
-        ]);
-        if (
-          !roles.some((role) =>
-            lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
-          )
-        ) {
-          continue;
-        }
-        if (eligibleOrganizations.has(membership.workosOrganizationId)) {
-          continue;
-        }
-        const cachedOrganization = organizationEligibilityCache.get(
-          membership.workosOrganizationId,
-        );
-        let lenderOrganizationName: string | null =
-          cachedOrganization?.lenderOrganizationName ?? null;
-        if (cachedOrganization === undefined) {
-          const organization = await ctx.db
-            .query("workosOrganizations")
-            .withIndex("by_workos_organization_id", (query) =>
-              query.eq(
-                "workosOrganizationId",
-                membership.workosOrganizationId,
-              ),
-            )
-            .unique();
-          if (!organization || organization.status !== "active") {
-            organizationEligibilityCache.set(
-              membership.workosOrganizationId,
-              null,
-            );
-            continue;
-          }
-          const brokerages = await ctx.db
-            .query("brokerages")
-            .withIndex("by_workos_organization", (query) =>
-              query.eq(
-                "workosOrganizationId",
-                organization.workosOrganizationId,
-              ),
-            )
-            .take(2);
-          const brokerage = brokerages.length === 1 ? brokerages[0] : null;
-          if (
-            !brokerage ||
-            brokerage._id === auth.brokerage._id ||
-            brokerage.status !== "active"
-          ) {
-            organizationEligibilityCache.set(
-              membership.workosOrganizationId,
-              null,
-            );
-            continue;
-          }
-          lenderOrganizationName = organization.name;
-          organizationEligibilityCache.set(
-            membership.workosOrganizationId,
-            { lenderOrganizationName },
-          );
-        }
-        if (lenderOrganizationName === null) {
-          continue;
-        }
-        const userCacheKey = `${membership.workosOrganizationId}:${membership.workosUserId}`;
-        let isActiveLenderUser = activeLenderUserCache.get(userCacheKey);
-        if (isActiveLenderUser === undefined) {
-          const user = await ctx.db
-            .query("users")
-            .withIndex("by_workos_user_id", (query) =>
-              query.eq("workosUserId", membership.workosUserId),
-            )
-            .unique();
-          isActiveLenderUser = user?.status === "active";
-          activeLenderUserCache.set(userCacheKey, isActiveLenderUser);
-        }
-        if (isActiveLenderUser) {
-          eligibleOrganizations.set(membership.workosOrganizationId, {
-            lenderOrganizationId: membership.workosOrganizationId,
-            lenderOrganizationName,
-          });
-        }
-        if (eligibleOrganizations.size >= ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
-          break;
-        }
+      .take(ELIGIBLE_LENDER_ORGANIZATION_LIMIT + 1);
+    const eligibleOrganizations = [];
+    for (const organization of activeOrganizations) {
+      const target = await resolveAssignableLenderOrganization(
+        ctx,
+        organization._id,
+      );
+      if (!target) {
+        continue;
+      }
+      eligibleOrganizations.push({
+        lenderOrganizationId: organization._id,
+        lenderOrganizationName: organization.displayName,
+      });
+      if (eligibleOrganizations.length >= ELIGIBLE_LENDER_ORGANIZATION_LIMIT) {
+        break;
+      }
     }
-    const sortedOrganizations = [...eligibleOrganizations.values()];
+    const sortedOrganizations = eligibleOrganizations;
     sortedOrganizations.sort((left, right) =>
       left.lenderOrganizationName.localeCompare(right.lenderOrganizationName),
     );
@@ -3387,7 +3296,7 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
 
 export const assignExternalLenderOrganization = authenticatedMutation
   .input({
-    lenderOrganizationId: v.string(),
+    lenderOrganizationId: v.id("lenderOrganizations"),
     proposalId: v.id("buildProposals"),
     reason: v.string(),
     workosOrganizationId: v.string(),
@@ -3410,28 +3319,20 @@ export const assignExternalLenderOrganization = authenticatedMutation
       state: auth.proposal.status,
     });
     requireReason(args.reason);
-    if ((auth.proposal.capitalSource ?? "internal") !== "external") {
-      throw new Error("External lender assignment requires external capital.");
-    }
-    const lenderOrganizationId = args.lenderOrganizationId.trim();
-    if (!lenderOrganizationId) {
-      throw new Error("Lender organization is required.");
-    }
-    if (lenderOrganizationId === args.workosOrganizationId) {
-      throw new Error("External lender assignment must use another organization.");
-    }
     const currentAssignment = await getCurrentProposalLenderAssignment(
       ctx,
       args.proposalId,
     );
     if (currentAssignment) {
-      throw new Error("A current external lender assignment already exists.");
+      throw new Error("A current lender assignment already exists.");
     }
-    const lenderOrganization = await resolveEligibleExternalLenderOrganization(
+    const lenderOrganization = await resolveAssignableLenderOrganization(
       ctx,
-      lenderOrganizationId,
-      auth.brokerage._id,
+      args.lenderOrganizationId,
     );
+    if (!lenderOrganization) {
+      throw new Error("Lender organization is unavailable for assignment.");
+    }
     const assignedByRole = auth.roles.find((role) =>
       APPROVER_ROLES.includes(role as (typeof APPROVER_ROLES)[number]),
     );
@@ -3446,7 +3347,7 @@ export const assignExternalLenderOrganization = authenticatedMutation
       brokerageId: auth.brokerage._id,
       createdAt: now,
       lenderBrokerageId: lenderOrganization.brokerageId,
-      lenderOrganizationId: lenderOrganization.workosOrganizationId,
+      lenderOrganizationId: lenderOrganization.lenderOrganizationId,
       lenderOrganizationName: lenderOrganization.name,
       organizationId: args.workosOrganizationId,
       proposalId: args.proposalId,
@@ -3459,7 +3360,7 @@ export const assignExternalLenderOrganization = authenticatedMutation
       eventType: "proposal.lender_assignment.created",
       newState: JSON.stringify({
         assignmentId,
-        lenderOrganizationId: lenderOrganization.workosOrganizationId,
+        lenderOrganizationId: lenderOrganization.lenderOrganizationId,
         status: "current",
       }),
       priorState: JSON.stringify({ externalAssignment: "unassigned" }),
@@ -3547,6 +3448,7 @@ export const approveExternalProposalForClosing = authenticatedMutation
       ctx,
       args.proposalId,
       args.workosOrganizationId,
+      "proposal_review",
     );
     if (!auth.isCurrentLenderActor || !auth.currentLenderAssignment) {
       throw new Error("Forbidden: lender proposal approval");
@@ -3557,9 +3459,6 @@ export const approveExternalProposalForClosing = authenticatedMutation
       state: auth.proposal.status,
     });
     requireReason(args.reason);
-    if ((auth.proposal.capitalSource ?? "internal") !== "external") {
-      throw new Error("Lender proposal approval requires external capital.");
-    }
     const existingApproval = await getCurrentProposalLenderApproval(
       ctx,
       args.proposalId,
@@ -3622,7 +3521,7 @@ export const listProposalLenderAssignmentHistory = authenticatedQuery
     }),
   )
   .handler(async (ctx, args) => {
-    let lenderOrganizationId: string | undefined;
+    let lenderOrganizationId: Id<"lenderOrganizations"> | undefined;
     if (args.workosOrganizationId) {
       const auth = await authorizeProposal(
         ctx,
@@ -3640,7 +3539,7 @@ export const listProposalLenderAssignmentHistory = authenticatedQuery
         identity,
         "lenderOrganization",
       );
-      lenderOrganizationId = authorization.activeOrganization.workosOrganizationId;
+      lenderOrganizationId = authorization.activeOrganization.lenderOrganizationId;
     }
 
     let assignments: Doc<"proposalLenderAssignments">[];
@@ -6497,6 +6396,7 @@ export const recordProposalClosing = authenticatedMutation
       ctx,
       args.proposalId,
       args.workosOrganizationId,
+      "proposal_review",
     );
     if (!auth.isCurrentLenderActor) {
       requireAnyRole(auth.roles, APPROVER_ROLES);
@@ -6600,6 +6500,7 @@ export const activateClosedProposal = authenticatedMutation
       ctx,
       args.proposalId,
       args.workosOrganizationId,
+      "proposal_review",
     );
     if (!auth.isCurrentLenderActor) {
       requireAnyRole(auth.roles, APPROVER_ROLES);
@@ -12500,19 +12401,10 @@ export const getProposalDetailByString = authenticatedQuery
   })
   .public();
 
-export const getLenderProposalLifecycleProjection = authenticatedQuery
+export const getLenderProposalLifecycleProjection = lenderOrganizationQuery
   .input({ proposalId: v.id("buildProposals") })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-    const authorization = await resolveActiveLenderOrganizationContext(
-      ctx,
-      identity,
-      "lenderOrganization",
-    );
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) {
       throw new Error("Forbidden: lender proposal scope");
@@ -12528,7 +12420,7 @@ export const getLenderProposalLifecycleProjection = authenticatedQuery
           .eq("proposalId", args.proposalId)
           .eq(
             "lenderOrganizationId",
-            authorization.activeOrganization.workosOrganizationId,
+            ctx.activeOrganization.lenderOrganizationId,
           ),
       )
       .order("desc")
@@ -12542,6 +12434,9 @@ export const getLenderProposalLifecycleProjection = authenticatedQuery
     const visibleAssignment = currentAssignment ?? assignments[0];
     if (!visibleAssignment) {
       throw new Error("Forbidden: lender proposal assignment");
+    }
+    if (visibleAssignment.lenderBrokerageId !== ctx.activeOrganization.brokerageId) {
+      throw new Error("Forbidden: lender proposal tenant");
     }
     const currentApproval = currentAssignment
       ? await getCurrentProposalLenderApproval(
@@ -12561,6 +12456,12 @@ export const getLenderProposalLifecycleProjection = authenticatedQuery
           state: "withdrawn" as const,
           lenderConfirmation: "pending" as const,
         };
+    const canMakeLenderProposalDecision =
+      ctx.activeOrganization.roles.includes("admin") ||
+      (ctx.activeOrganization.permissions.proposalReview &&
+        ctx.activeOrganization.roles.some(
+          (role) => role === "lender" || role === "lender-admin",
+        ));
 
     return {
       assignment: {
@@ -12577,8 +12478,8 @@ export const getLenderProposalLifecycleProjection = authenticatedQuery
       canApproveClosing: Boolean(
         currentAssignment &&
           !currentApproval &&
-          proposal.status === "approved" &&
-          (proposal.capitalSource ?? "internal") === "external",
+          canMakeLenderProposalDecision &&
+          proposal.status === "approved",
       ),
       lifecycle: projectProposalLifecycle(proposal, lenderAssignmentState),
       proposal: {
@@ -33967,6 +33868,7 @@ async function getCurrentProposalLenderAssignment(
 type ProposalLifecycleActorAuth = {
   brokerage: Doc<"brokerages">;
   currentLenderAssignment: Doc<"proposalLenderAssignments"> | null;
+  lenderOrganization?: ActiveLenderOrganizationContext;
   isCurrentLenderActor: boolean;
   organizationId: string;
   proposal: Doc<"buildProposals">;
@@ -33978,6 +33880,7 @@ async function authorizeProposalLifecycleActor(
   ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
   proposalId: Id<"buildProposals">,
   workosOrganizationId: string,
+  lenderPermission?: "proposal_review",
 ): Promise<ProposalLifecycleActorAuth> {
   const proposal = await ctx.db.get(proposalId);
   if (!proposal) {
@@ -34010,10 +33913,14 @@ async function authorizeProposalLifecycleActor(
     identity,
     "lenderOrganization",
   );
-  if (
-    authorization.activeOrganization.workosOrganizationId !==
-    workosOrganizationId
-  ) {
+  if (lenderPermission) {
+    await requireLenderOrganizationPermission(
+      ctx,
+      authorization.activeOrganization,
+      lenderPermission,
+    );
+  }
+  if (workosOrganizationId !== FAIRLEND_WORKOS_ORGANIZATION_ID) {
     throw new Error("Forbidden: active lender organization");
   }
   const currentLenderAssignment = await getCurrentProposalLenderAssignment(
@@ -34022,7 +33929,8 @@ async function authorizeProposalLifecycleActor(
   );
   if (
     !currentLenderAssignment ||
-    currentLenderAssignment.lenderOrganizationId !== workosOrganizationId
+    currentLenderAssignment.lenderOrganizationId !==
+      authorization.activeOrganization.lenderOrganizationId
   ) {
     throw new Error("Forbidden: current lender assignment");
   }
@@ -34033,6 +33941,7 @@ async function authorizeProposalLifecycleActor(
   return {
     brokerage,
     currentLenderAssignment,
+    lenderOrganization: authorization.activeOrganization,
     isCurrentLenderActor: true,
     organizationId: proposal.organizationId,
     proposal,
@@ -34069,33 +33978,35 @@ async function isActiveEligibleLenderApproval(
   if (approval.lenderOrganizationId !== assignment.lenderOrganizationId) {
     return false;
   }
-  const user = await ctx.db
+  const users = await ctx.db
     .query("users")
     .withIndex("by_workos_user_id", (query) =>
       query.eq("workosUserId", approval.approverWorkosUserId),
     )
-    .unique();
-  if (!user || user.status !== "active") {
+    .take(2);
+  if (users.length !== 1 || users[0]?.status !== "active") {
     return false;
   }
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user_and_organization", (query) =>
-      query
-        .eq("workosUserId", approval.approverWorkosUserId)
-        .eq("workosOrganizationId", assignment.lenderOrganizationId),
-    )
-    .filter((query) => query.eq(query.field("status"), "active"))
-    .first();
-  if (!membership) {
+  let lenderOrganization: Doc<"lenderOrganizations"> | null = null;
+  try {
+    lenderOrganization = await ctx.db.get(
+      assignment.lenderOrganizationId as Id<"lenderOrganizations">,
+    );
+  } catch {
+    // Legacy WorkOS-derived identifiers are not valid app organization IDs.
+  }
+  if (!lenderOrganization || lenderOrganization.status !== "active") {
     return false;
   }
-  const roles = normalizeRoleSlugs([
-    membership.roleSlug,
-    ...membership.roleSlugs,
-  ]);
+  const memberships = await listActiveSharedLenderMemberships(
+    ctx,
+    approval.approverWorkosUserId,
+  );
+  const roles = normalizeRoleSlugs(
+    memberships.flatMap((membership) => [membership.roleSlug, ...membership.roleSlugs]),
+  );
   return roles.some((role) =>
-    lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
+    LENDER_ROLE_SLUGS.includes(role as (typeof LENDER_ROLE_SLUGS)[number]),
   );
 }
 
@@ -34162,83 +34073,20 @@ async function evaluateProposalClosingEligibility(
   };
 }
 
-async function resolveEligibleExternalLenderOrganization(
+async function resolveAssignableLenderOrganization(
   ctx: QueryCtx | MutationCtx,
-  workosOrganizationId: string,
-  borrowerBrokerageId: Id<"brokerages">,
+  lenderOrganizationId: Id<"lenderOrganizations">,
 ) {
-  const organization = await ctx.db
-    .query("workosOrganizations")
-    .withIndex("by_workos_organization_id", (query) =>
-      query.eq("workosOrganizationId", workosOrganizationId),
-    )
-    .unique();
-  if (!organization || organization.status !== "active") {
-    throw new Error("External lender organization projection is unavailable.");
+  const { brokerage: lenderBrokerage, organization } =
+    await resolveLenderOrganizationTarget(ctx, lenderOrganizationId);
+  if (organization.status !== "active") {
+    return null;
   }
-  const lenderBrokerages = await ctx.db
-    .query("brokerages")
-    .withIndex("by_workos_organization", (query) =>
-      query.eq("workosOrganizationId", workosOrganizationId),
-    )
-    .take(2);
-  if (lenderBrokerages.length !== 1 || !lenderBrokerages[0]) {
-    throw new Error("External lender organization tenant is unavailable.");
-  }
-  const lenderBrokerage = lenderBrokerages[0];
-  if (
-    lenderBrokerage._id === borrowerBrokerageId ||
-    lenderBrokerage.status !== "active"
-  ) {
-    throw new Error("External lender organization must be a separate active tenant.");
-  }
-
-  let cursor: string | null = null;
-  while (true) {
-    const membershipPage = await ctx.db
-      .query("workosOrganizationMemberships")
-      .withIndex("by_organization", (query) =>
-        query.eq("workosOrganizationId", workosOrganizationId),
-      )
-      .paginate({
-        cursor,
-        numItems: LENDER_ORGANIZATION_MEMBERSHIP_PAGE_SIZE,
-      });
-    for (const membership of membershipPage.page) {
-      if (membership.status !== "active") {
-        continue;
-      }
-      const roles = normalizeRoleSlugs([
-        membership.roleSlug,
-        ...membership.roleSlugs,
-      ]);
-      if (
-        !roles.some((role) =>
-          lenderRoleSlugs.includes(role as (typeof lenderRoleSlugs)[number]),
-        )
-      ) {
-        continue;
-      }
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_workos_user_id", (query) =>
-          query.eq("workosUserId", membership.workosUserId),
-        )
-        .unique();
-      if (user?.status === "active") {
-        return {
-          brokerageId: lenderBrokerage._id,
-          name: organization.name,
-          workosOrganizationId,
-        };
-      }
-    }
-    if (membershipPage.isDone) {
-      break;
-    }
-    cursor = membershipPage.continueCursor;
-  }
-  throw new Error("External lender organization has no eligible active lender user.");
+  return {
+    brokerageId: lenderBrokerage._id,
+    lenderOrganizationId,
+    name: organization.displayName,
+  };
 }
 
 function projectProposalLenderAssignment(

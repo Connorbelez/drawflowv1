@@ -39,9 +39,9 @@ records.
 
 ## Lender Organization Management
 
-**Purpose:** Define the lender administrator's operational surface for
-understanding and managing the active WorkOS brokerage organization, its
-memberships, and the effect of membership operations on lender review work.
+**Purpose:** Define the directory-first interaction contract for managing
+application-owned Lender Organizations, their assigned lender users, and the
+effect of shared WorkOS membership operations on lender review work.
 
 **Selected status:** Variant E, **Approved · Shared user management
 operations**. Variants A, B, C, and D remain rejected comparison history and
@@ -49,21 +49,21 @@ must not be promoted as competing production layouts.
 
 **Locked information architecture:**
 
-- The existing Back Office User Management directory table is the canonical
-  table structure. The lender surface reuses that shadcn Table with its
-  TanStack Table model instead of creating a second member directory.
-- The directory toolbar contains member search, membership-status filters, and
-  the organization-level Invite member operation.
-- Selecting a member opens the shared User Management detail sheet. The sheet
-  retains membership, role, organization, profile, and current-status context,
-  then adds Access, Administration, Review relationship, and History tabs.
-- Administration exposes three operational workflows: invite a member, stage a
-  role change, and review deactivation. Each workflow validates a local draft,
-  shows current and proposed state, previews downstream effects, and requires a
-  review step before execution.
-- Principal Broker removal or deactivation is a protected workflow. The UI must
-  block execution until canonical transfer-of-control requirements are
-  satisfied; it must not infer or simulate a second active Principal Broker.
+- The directory-first hierarchy is `Brokerage → Lender Organization → assigned
+  lender users`. Production may reuse the Builder roster pattern for the
+  organization table and unassigned-user queue while preserving the Variant E
+  member-directory information hierarchy.
+- The toolbar contains organization search/status filters, member counts, and
+  organization-level provisioning and invitation operations.
+- Selecting a Lender Organization opens the detail drawer. It retains parent
+  Brokerage, application status, assigned/pending members, exact lender roles,
+  shared workflow permissions, and reconciliation context.
+- Administration exposes provisioning, assignment, invitation staging, shared
+  role change, app unassignment, policy editing, and soft deactivation. Each
+  workflow validates a local draft, shows current/proposed state, and records a
+  reason before execution.
+- Principal Broker transfer and brokerage membership controls are not part of
+  the lender organization surface.
 - Membership changes show their relationship to lender-quorum re-evaluation,
   recipient routing, work queues, and audit history. They do not determine
   quorum eligibility or claim that a review requirement is satisfied.
@@ -73,18 +73,19 @@ must not be promoted as competing production layouts.
 
 **Role and ownership contract:**
 
-- WorkOS remains authoritative for users, organizations, memberships, roles,
-  and permissions. Production operations must call the existing WorkOS-first
-  management boundary and wait for webhook/sync projection updates; they must
-  not write directly to WorkOS projection tables.
-- The verified organization-management role slugs are `admin`,
-  `principle-broker`, `broker`, and `broker-staff`. Product copy may display
-  `Principal Broker`, but persisted policy and projection data keep the
-  canonical `principle-broker` slug.
-- Admin and Principal Broker are the current organization-wide
-  user-management roles. The inspected canonical sources define no separate
-  `manager` role, so the approved interface and production contract do not
-  invent an alias or application-only manager capability.
+- WorkOS remains authoritative for the shared identity organization, users,
+  memberships, roles, permissions, invitations, and projections. Production
+  commands call WorkOS first and wait for webhook/sync updates; they never write
+  directly to WorkOS projection tables.
+- DrawFlow owns Lender Organization records, parent Brokerage relationships,
+  workflow permissions, and a thin user-assignment relation. WorkOS never
+  provisions a Lender Organization.
+- The exact lender role slugs are `lender`, `lender-admin`, and `lender-staff`.
+  Platform Admin can bypass a policy cap only for an explicit app target after
+  parent and target-scope validation. `lender-staff` cannot make final lender
+  decisions.
+- No `manager` alias, Principal Broker lender-surface control, or duplicate
+  identity/membership system exists.
 
 **Prototype safety boundary:** The approved prototype is an operations
 simulation, not a read-only information page. Its controls are interactive and
@@ -93,15 +94,15 @@ no invitation, performs no WorkOS mutation, assigns no real role, deactivates no
 membership, changes no permission or approval policy, and creates no audit
 event. The final execution control stays unavailable in the prototype.
 
-**Evidence:** Organization tenancy and Principal Broker capabilities come from
-`docs/draw_flow_production_prd.md` §§3.1–3.4, 4.2, 8.2, and 9.2. WorkOS
-ownership, recognized role slugs, and WorkOS-first user-management actions come
-from `docs/auth-rbac-foundation.md` sections Source of Truth, Role Slugs, and
-User Management plus `src/lib/auth/rbac.ts`. The displayed organization and
-member fixture comes from `../../routes/backoffice/user-management.tsx`. The
-review-policy ownership boundary comes from this README's Back Office Review
-Requirements Setup contract, and the representative two-active-member lender
-quorum comes from `../../routes/lender.proposal-confirmation-prototype.tsx`.
+**Evidence:** Brokerage tenancy and the corrected application Lender
+Organization boundary come from `docs/draw_flow_production_prd.md` §§3.1–3.5
+and 9.2.1. Shared WorkOS ownership and exact lender roles come from
+`docs/lender-portal-prototype-promotion.md`, `src/lib/auth/rbac.ts`, and
+`convex/lenderOrganizationAccess.ts`. The Builder roster pattern comes from
+the existing Back Office builders surface. The review-policy ownership
+boundary comes from this README's Back Office Review Requirements Setup
+contract, and the representative lender quorum comes from
+`../../routes/lender.proposal-confirmation-prototype.tsx`.
 
 **Prototype:** `../../routes/lender.organization-management-prototype.tsx` at
 `/lender/organization-management-prototype?variant=E`, composed with
@@ -206,11 +207,11 @@ assets.
 
 ## Back Office Approval and Lender Assignment
 
-**Purpose:** Embed external Lender Organization assignment into the existing
+**Purpose:** Embed Lender Organization assignment into the existing
 production proposal detail. This is not a replacement proposal screen.
 
 **Selection status:** Variant A was explicitly approved and locked on
-2026-08-14. The selected interaction is a compact **External lender** row in the
+2026-08-14. The selected interaction is a compact **Lender assignment** row in the
 existing proposal header that opens one focused assignment modal. Variants B
 and C were comparison hypotheses and are not part of the locked surface.
 
@@ -227,12 +228,12 @@ this prototype task.
   direct navigation restores the unassigned fixture. No proposal, assignment,
   policy, confirmation, withdrawal, closing, activation, or audit record is
   persisted.
-- The modal assigns exactly one application-owned external Lender Organization.
+- The modal assigns exactly one application-owned Lender Organization.
   It does not expose user administration, model a Lender Organization as a
   WorkOS organization, or imply that organization membership carries approval
   weight.
 - The assignment impact is limited to current-revision lender access, lender
-  confirmation before external closing, and confirmation of the configured
+  confirmation before closing, and confirmation of the configured
   review policy.
 - The focused modal shows the current representative review-policy state and
   links to **Edit review policy**. Changing that policy creates a new proposal
@@ -251,7 +252,7 @@ system.
 
 **Impeccable application-pipeline interaction contract:** The primary actor is
 the Back Office Admin. The primary job is to assign exactly one eligible
-external Lender Organization to an approved external-capital proposal while
+Lender Organization to an approved proposal regardless of capital source while
 keeping the current revision, current review policy, next actor, and closing
 effect visible. Keyboard focus returns to the header trigger after dismissal,
 selection changes clear acknowledgement, completion is announced, long names

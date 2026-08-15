@@ -27,6 +27,7 @@ import {
   type ReactElement,
   type ReactNode,
   useDeferredValue,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -58,13 +59,14 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
-
+import { formatRoleSlug } from "#/lib/auth/rbac.ts";
 import {
   type DirectoryUser,
   UserDetailSheet,
 } from "./-user-management-detail-sheet";
 import type {
   BrokerageProvisioningProjection,
+  MembershipRoleUpdate,
   OrganizationProvisioning,
   SyncStatusProjection,
   UserManagementHandlers,
@@ -93,6 +95,42 @@ type ProfileFilter =
   | "builder-missing";
 type SortMode = "attention" | "name-asc" | "role" | "org-count" | "status";
 type StatusFilter = "all" | "active" | "inactive" | "pending";
+
+function normalizedRoleUpdate(
+  update: MembershipRoleUpdate
+): MembershipRoleUpdate {
+  const roleSlugs = [
+    ...new Set(
+      [update.primaryRoleSlug, ...update.roleSlugs].filter(
+        (role): role is string => Boolean(role)
+      )
+    ),
+  ];
+  return {
+    membershipId: update.membershipId,
+    primaryRoleSlug: update.primaryRoleSlug ?? roleSlugs[0],
+    roleSlugs,
+  };
+}
+
+function membershipMatchesRoleUpdate(
+  membership: WorkosMembershipRow,
+  update: MembershipRoleUpdate
+): boolean {
+  const projectedRoles = [
+    ...new Set(
+      [membership.roleSlug, ...(membership.roleSlugs ?? [])].filter(
+        (role): role is string => Boolean(role)
+      )
+    ),
+  ].sort();
+  const acceptedRoles = [...new Set(update.roleSlugs)].sort();
+  return (
+    membership.roleSlug === update.primaryRoleSlug &&
+    projectedRoles.length === acceptedRoles.length &&
+    projectedRoles.every((role, index) => role === acceptedRoles[index])
+  );
+}
 
 export function UserManagementSurface({
   accepted,
@@ -123,6 +161,51 @@ export function UserManagementSurface({
   syncStatus: SyncStatusProjection | undefined;
 }): ReactElement {
   const pending = projections === undefined || syncStatus === undefined;
+  const projectedMemberships = useMemo(
+    () =>
+      canonicalizeWorkosMembershipRows(
+        (projections?.memberships ?? []) as WorkosMembershipRow[]
+      ),
+    [projections?.memberships]
+  );
+  const [acceptedRoleUpdates, setAcceptedRoleUpdates] = useState<
+    Map<string, MembershipRoleUpdate>
+  >(() => new Map());
+
+  useEffect(() => {
+    setAcceptedRoleUpdates((current) => {
+      let next: Map<string, MembershipRoleUpdate> | undefined;
+      for (const membership of projectedMemberships) {
+        const acceptedUpdate = current.get(membership.workosMembershipId);
+        if (
+          acceptedUpdate &&
+          membershipMatchesRoleUpdate(membership, acceptedUpdate)
+        ) {
+          next ??= new Map(current);
+          next.delete(membership.workosMembershipId);
+        }
+      }
+      return next ?? current;
+    });
+  }, [projectedMemberships]);
+
+  const memberships = useMemo(
+    () =>
+      projectedMemberships.map((membership) => {
+        const acceptedUpdate = acceptedRoleUpdates.get(
+          membership.workosMembershipId
+        );
+        if (!acceptedUpdate) {
+          return membership;
+        }
+        return {
+          ...membership,
+          roleSlug: acceptedUpdate.primaryRoleSlug,
+          roleSlugs: acceptedUpdate.roleSlugs,
+        };
+      }),
+    [acceptedRoleUpdates, projectedMemberships]
+  );
   const handlers: UserManagementHandlers = {
     onCreateMembership,
     onInviteUser,
@@ -132,19 +215,19 @@ export function UserManagementSurface({
     onProvisionFairLendBrokerage,
     onReactivateMembership,
     onRemoveMembership,
-    onRoleUpdate,
+    onRoleUpdate: async (args) => {
+      await onRoleUpdate(args);
+      setAcceptedRoleUpdates((current) => {
+        const next = new Map(current);
+        next.set(args.membershipId, normalizedRoleUpdate(args));
+        return next;
+      });
+    },
     onSyncDirectory,
     onUnlinkBuilderAccount,
   };
 
   const users = (projections?.users ?? []) as WorkosUserRow[];
-  const memberships = useMemo(
-    () =>
-      canonicalizeWorkosMembershipRows(
-        (projections?.memberships ?? []) as WorkosMembershipRow[]
-      ),
-    [projections?.memberships]
-  );
   const organizations = (projections?.organizations ??
     []) as WorkosOrganizationRow[];
   const roles = (projections?.roles ?? []) as WorkosRoleRow[];
@@ -573,15 +656,13 @@ function StatStrip({ stats }: { stats: DirectoryStats }): ReactElement {
           className="rounded-lg border bg-card/60 px-3.5 py-3"
           key={card.label}
         >
-          <p className="text-[0.6875rem] text-muted-foreground uppercase tracking-wide">
+          <p className="text-muted-foreground text-xs uppercase tracking-wide">
             {card.label}
           </p>
           <p className="mt-1 font-heading font-semibold text-xl tabular-nums">
             {card.value}
           </p>
-          <p className="text-[0.6875rem] text-muted-foreground/80">
-            {card.hint}
-          </p>
+          <p className="text-muted-foreground/80 text-xs">{card.hint}</p>
         </div>
       ))}
     </section>
@@ -1174,11 +1255,14 @@ function RolesCell({ entry }: { entry: DirectoryUser }): ReactElement {
     <div className="flex max-w-[18rem] flex-wrap gap-1">
       {distinctRoles.slice(0, 3).map((role) => (
         <Badge key={role} variant="secondary">
-          {role}
+          {formatRoleSlug(role)}
         </Badge>
       ))}
       {distinctRoles.length > 3 ? (
-        <Badge title={distinctRoles.slice(3).join(", ")} variant="outline">
+        <Badge
+          title={distinctRoles.slice(3).map(formatRoleSlug).join(", ")}
+          variant="outline"
+        >
           +{distinctRoles.length - 3}
         </Badge>
       ) : null}
@@ -1359,7 +1443,7 @@ function DirectorySources({
             renderRow={(row) => [
               row.name ?? "—",
               row.status ?? "—",
-              <span className="font-mono text-[0.6875rem]" key="id">
+              <span className="font-mono text-xs" key="id">
                 {row.workosOrganizationId}
               </span>,
             ]}
@@ -1370,7 +1454,7 @@ function DirectorySources({
             columns={["Slug", "Name", "Status", "Resource"]}
             getRowId={(row, index) => row._id ?? row.slug ?? `role-${index}`}
             renderRow={(row) => [
-              <span className="font-mono text-[0.6875rem]" key="slug">
+              <span className="font-mono text-xs" key="slug">
                 {row.slug}
               </span>,
               row.name ?? "—",
@@ -1387,12 +1471,12 @@ function DirectorySources({
               `${row.workosOrganizationId ?? "org"}:${row.slug}:${index}`
             }
             renderRow={(row) => [
-              <span className="font-mono text-[0.6875rem]" key="slug">
+              <span className="font-mono text-xs" key="slug">
                 {row.slug}
               </span>,
               row.name ?? "—",
               row.status ?? "—",
-              <span className="font-mono text-[0.6875rem]" key="org">
+              <span className="font-mono text-xs" key="org">
                 {row.workosOrganizationId ?? "—"}
               </span>,
             ]}
@@ -1405,7 +1489,7 @@ function DirectorySources({
               row._id ?? row.slug ?? `permission-${index}`
             }
             renderRow={(row) => [
-              <span className="font-mono text-[0.6875rem]" key="slug">
+              <span className="font-mono text-xs" key="slug">
                 {row.slug}
               </span>,
               row.name ?? "—",
@@ -1422,7 +1506,7 @@ function DirectorySources({
             renderRow={(row) => [
               row.eventType,
               row.status,
-              <span className="font-mono text-[0.6875rem]" key="id">
+              <span className="font-mono text-xs" key="id">
                 {row.eventId}
               </span>,
             ]}

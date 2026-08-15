@@ -4,6 +4,13 @@ import { LenderProposalReviewVariantD } from "../../lender.proposal-confirmation
 
 export const Route = createFileRoute("/lender/proposals/$proposalId")({
   component: LenderProposalReview,
+  staticData: {
+    breadcrumb: {
+      label: "Proposal review",
+      params: (match) => ({ proposalId: match.params.proposalId }),
+      to: "/lender/proposals/$proposalId",
+    },
+  },
 });
 function LenderProposalReview() {
   return (

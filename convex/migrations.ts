@@ -1,6 +1,7 @@
 import { Migrations } from "@convex-dev/migrations";
 
 import { components, internal } from "./_generated/api.js";
+import type { Id } from "./_generated/dataModel";
 import { hasAssignableBrokerRole } from "./brokerAssignments.js";
 import {
   FAIRLEND_DEFAULT_BROKER_EMAIL,
@@ -157,4 +158,208 @@ export const backfillBuildCostItemBudgetTreatment = migrations.define({
 export const runCostItemBudgetTreatmentBackfill = migrations.runner([
   internal.migrations.backfillProposalCostItemBudgetTreatment,
   internal.migrations.backfillBuildCostItemBudgetTreatment,
+]);
+
+type LegacyLenderSource =
+  | "proposalLenderAssignments"
+  | "proposalLenderApprovals";
+
+/**
+ * Resolve one legacy WorkOS-derived lender identifier into the application
+ * organization under its existing lender Brokerage. This migration is
+ * additive and intentionally leaves unresolved rows as reconciliation
+ * candidates instead of guessing across tenants.
+ */
+async function materializeLegacyLenderOrganization(
+  ctx: any,
+  input: {
+    brokerageId?: Id<"brokerages">;
+    legacyWorkosOrganizationId: string;
+    snapshotName?: string;
+    sourceTable: LegacyLenderSource;
+    sourceRecordId: string;
+  }): Promise<Id<"lenderOrganizations"> | null> {
+  let currentOrganization = null;
+  try {
+    currentOrganization = await ctx.db.get(
+      input.legacyWorkosOrganizationId as Id<"lenderOrganizations">,
+    );
+  } catch {
+    // WorkOS organization IDs are not Convex IDs. Treat an invalid Convex ID
+    // shape as a legacy value and continue with the grouped cutover.
+  }
+  if (currentOrganization) {
+    return currentOrganization._id;
+  }
+
+  const brokerage = input.brokerageId
+    ? await ctx.db.get(input.brokerageId)
+    : null;
+  if (!brokerage) {
+    await recordLenderReconciliationCandidate(ctx, input, undefined, "The legacy lender assignment has no resolvable parent Brokerage.");
+    return null;
+  }
+
+  const existing = await ctx.db
+    .query("lenderOrganizations")
+    .withIndex("by_brokerage_and_legacy_workos_organization", (query: any) =>
+      query
+        .eq("brokerageId", brokerage._id)
+        .eq("legacyWorkosOrganizationId", input.legacyWorkosOrganizationId),
+    )
+    .take(1);
+  if (existing[0]) {
+    return existing[0]._id;
+  }
+
+  const workosOrganization = await ctx.db
+    .query("workosOrganizations")
+    .withIndex("by_workos_organization_id", (query: any) =>
+      query.eq("workosOrganizationId", input.legacyWorkosOrganizationId),
+    )
+    .take(1);
+  const displayName =
+    workosOrganization[0]?.name?.trim() ||
+    input.snapshotName?.trim() ||
+    `Legacy lender organization ${input.legacyWorkosOrganizationId}`;
+  const now = Date.now();
+  return await ctx.db.insert("lenderOrganizations", {
+    brokerageId: brokerage._id,
+    legalName: displayName,
+    displayName,
+    legacyWorkosOrganizationId: input.legacyWorkosOrganizationId,
+    status: "active",
+    permissions: {
+      proposalReview: true,
+      milestoneDecisions: true,
+      drawDecisions: true,
+      siteVisitReview: true,
+    },
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function recordLenderReconciliationCandidate(
+  ctx: any,
+  input: {
+    brokerageId?: Id<"brokerages">;
+    legacyWorkosOrganizationId: string;
+    snapshotName?: string;
+    sourceTable: LegacyLenderSource;
+    sourceRecordId: string;
+  },
+  brokerageId: Id<"brokerages"> | undefined,
+  reason: string,
+) {
+  const existing = await ctx.db
+    .query("lenderOrganizationReconciliationCandidates")
+    .withIndex("by_legacy_workos_organization", (query: any) =>
+      query.eq("legacyWorkosOrganizationId", input.legacyWorkosOrganizationId),
+    )
+    .collect();
+  if (
+    existing.some(
+      (candidate: any) =>
+        candidate.sourceTable === input.sourceTable &&
+        candidate.sourceRecordId === input.sourceRecordId &&
+        candidate.status === "open",
+    )
+  ) {
+    return;
+  }
+  const now = Date.now();
+  await ctx.db.insert("lenderOrganizationReconciliationCandidates", {
+    brokerageId: brokerageId ?? input.brokerageId,
+    legacyWorkosOrganizationId: input.legacyWorkosOrganizationId,
+    sourceTable: input.sourceTable,
+    sourceRecordId: input.sourceRecordId,
+    snapshotName: input.snapshotName,
+    status: "open",
+    reason,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+export const backfillLegacyProposalLenderAssignmentOrganizations = migrations.define({
+  table: "proposalLenderAssignments",
+  migrateOne: async (ctx, assignment) => {
+    let currentOrganization = null;
+    try {
+      currentOrganization = await ctx.db.get(
+        assignment.lenderOrganizationId as Id<"lenderOrganizations">,
+      );
+    } catch {
+      // Legacy WorkOS IDs are not Convex IDs.
+    }
+    if (currentOrganization) {
+      return;
+    }
+
+    const lenderOrganizationId = await materializeLegacyLenderOrganization(ctx, {
+      brokerageId: assignment.lenderBrokerageId,
+      legacyWorkosOrganizationId: String(assignment.lenderOrganizationId),
+      snapshotName: assignment.lenderOrganizationName,
+      sourceTable: "proposalLenderAssignments",
+      sourceRecordId: String(assignment._id),
+    });
+    if (!lenderOrganizationId) {
+      return;
+    }
+    return {
+      lenderOrganizationId,
+      legacyLenderOrganizationId: String(assignment.lenderOrganizationId),
+    };
+  },
+});
+
+export const backfillLegacyProposalLenderApprovalOrganizations = migrations.define({
+  table: "proposalLenderApprovals",
+  migrateOne: async (ctx, approval) => {
+    let currentOrganization = null;
+    try {
+      currentOrganization = await ctx.db.get(
+        approval.lenderOrganizationId as Id<"lenderOrganizations">,
+      );
+    } catch {
+      // Legacy WorkOS IDs are not Convex IDs.
+    }
+    if (currentOrganization) {
+      return;
+    }
+
+    const assignment = await ctx.db.get(approval.assignmentId);
+    const lenderOrganizationId = assignment
+      ? await materializeLegacyLenderOrganization(ctx, {
+          brokerageId: assignment.lenderBrokerageId,
+          legacyWorkosOrganizationId: String(approval.lenderOrganizationId),
+          snapshotName: assignment.lenderOrganizationName,
+          sourceTable: "proposalLenderApprovals",
+          sourceRecordId: String(approval._id),
+        })
+      : null;
+    if (!lenderOrganizationId) {
+      await recordLenderReconciliationCandidate(
+        ctx,
+        {
+          legacyWorkosOrganizationId: String(approval.lenderOrganizationId),
+          sourceTable: "proposalLenderApprovals",
+          sourceRecordId: String(approval._id),
+        },
+        undefined,
+        "The lender approval references an assignment that is unavailable.",
+      );
+      return;
+    }
+    return {
+      lenderOrganizationId,
+      legacyLenderOrganizationId: String(approval.lenderOrganizationId),
+    };
+  },
+});
+
+export const runLegacyLenderOrganizationCutover = migrations.runner([
+  internal.migrations.backfillLegacyProposalLenderAssignmentOrganizations,
+  internal.migrations.backfillLegacyProposalLenderApprovalOrganizations,
 ]);

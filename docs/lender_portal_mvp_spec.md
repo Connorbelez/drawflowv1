@@ -19,6 +19,23 @@ Source artifacts:
 - [Component manifest](uiManifest/componentManifest.md)
 - [Proposal lifecycle epic](agileEpics/EPIC-010.md)
 
+## Corrected organization ownership boundary
+
+The application control plane is `/backoffice/lenders` and owns the hierarchy
+`Brokerage → Lender Organization → assigned lender users`. A Lender Organization
+is a DrawFlow-owned child record under a Brokerage. WorkOS provides only the
+shared identity organization, invitations, roles, memberships, and webhook
+projections. DrawFlow must never create a WorkOS organization to represent a
+Lender Organization.
+
+`lenderOrganizations` owns names, status, timestamps, and the organization-wide
+proposal-review, Milestone-decision, Draw-decision, and Site Visit-review
+permission bundle. `lenderOrganizationAssignments` is a thin app relation keyed
+by WorkOS user and application organization; it does not duplicate identity,
+role, or membership state. `/lender/organization` resolves this app assignment
+and shows an empty state with a `mailto:support@fairlend.ca` admin CTA when no
+active assignment exists.
+
 ### Locked Lender Build Detail decision
 
 The Lender Build Detail Overview is locked to Variant C, the compact Precision
@@ -48,21 +65,21 @@ presentation remains unselected until a separate user decision.
 
 ## Problem Statement
 
-DrawFlow does not yet provide an external lender workflow that is separate from its internal Back Office workflow. An external capital provider needs a narrow, organization-scoped portal for confirming a Build Proposal, reviewing relevant evidence, and contributing approvals required by the Build's locked policy. Back Office must retain control of proposal approval, lender assignment, remediation, policy configuration, brokerage provisioning/support, and internal decisions. Canonical Admin and Principal Broker members operate their own organization membership surface.
+DrawFlow does not yet provide an external lender workflow that is separate from its internal Back Office workflow. An external capital provider needs a narrow, application-organization-scoped portal for confirming a Build Proposal, reviewing relevant evidence, and contributing approvals required by the Build's locked policy. Back Office must retain control of proposal approval, lender assignment, remediation, policy configuration, Brokerage and Lender Organization provisioning, shared WorkOS membership commands, and internal decisions.
 
 The workflow crosses proposal, closing, Build activation, Milestone, Draw, evidence, Site Visit, membership, notification, and audit boundaries. Implementing only the lender-facing controls would leave Back Office and builder surfaces unable to handle lender decline, remediation, rejection, correction, resubmission, withdrawal, or approval handoffs. The feature therefore needs one canonical lifecycle used by all participant surfaces, with explicit authorization, immutable history, current-cycle decisions, and privacy-safe projections.
 
 ## Solution
 
-Reuse the canonical brokerage-scoped WorkOS organization, membership, role, and permission model already projected into DrawFlow. Authorized `admin` and `principle-broker` members administer their active organization through WorkOS-first commands. DrawFlow adds assignment- and policy-derived product authorization, but no parallel lender organization, membership, manager, or role system. The active Principal Broker is protected by a transfer-of-control workflow that preserves exactly one active Principal Broker.
+Reuse the configured shared WorkOS identity organization, membership, role, and permission projections already available in DrawFlow. Back Office Admin uses WorkOS-first invitation, role, and membership commands, while DrawFlow owns application Lender Organizations, assignments, and workflow policy. Lender roles are exactly `lender`, `lender-admin`, and `lender-staff`; application policy caps all lender capabilities and `lender-staff` cannot make final lender decisions. No WorkOS organization is created for a Lender Organization.
 
-Separate Back Office proposal approval, optional external lender assignment, closing, and live Build activation. External assignment is available only for external capital and only after Back Office approval. An assigned proposal requires one eligible lender-user approval of the current proposal revision before closing. Once all prerequisites pass, either Back Office Admin or an eligible assigned lender user may record closing, then either side may perform the separate activation action. Withdrawal restores the internal closing path while retaining a read-only lender record of the assignment-period proposal, documents, and history.
+Separate Back Office proposal approval, optional lender assignment, closing, and live Build activation. Lender assignment is available for either capital source after Back Office approval. An assigned proposal requires one eligible lender-user approval of the current proposal revision before closing. Once all prerequisites pass, either Back Office Admin or an eligible assigned lender user may record closing, then either side may perform the separate activation action. Withdrawal restores the internal closing path while retaining a read-only lender record of the assignment-period proposal, documents, and history.
 
 Replace simple lender proposal approval with a guided confirmation of Milestone count, Budget, schedule/timeline, builder, and access/review policy. A decline requires a reason. Back Office updates the same proposal, publishes a new immutable revision, and sends the lender through every checkpoint again with changes highlighted.
 
 Before closing, Back Office locks one Build-wide review policy. Milestone and Draw approval independently require Back Office Admin, a numeric lender quorum, or both. Milestone policy also independently controls Site Visit and receipt/invoice requirements. Rejected Milestone and Draw requests return to builder correction and are resubmitted as a new cycle on the same durable request. All required approvals reset. The Builder receives published revision instructions, while reviewer identity and any separate private reviewer rationale remain private.
 
-Provide the external Lender Portal with a dashboard, proposal list and confirmation detail, active-Build list and narrow detail, Milestone queue and detail, Draw queue and detail, and organization administration for authorized Admin and Principal Broker members. Directly promote accepted Organization Management Variant E, including the shared user-management table and member sheet. Use canonical domain commands and participant-specific projections so Back Office, lender, and builder surfaces remain synchronized without exposing Back Office-only data. The narrow Build detail directly promotes locked Variant C: overview; expandable Milestone records with canonical Budget, receipt/invoice coverage, and actual-or-planned dates; focused read-only Milestone-sheet navigation; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration in read-only form.
+Provide the external Lender Portal with a dashboard, proposal list and confirmation detail, active-Build list and narrow detail, Milestone queue and detail, Draw queue and detail, and a read-only application organization view. Provide Back Office Admin with `/backoffice/lenders` for provisioning, assignment, staged invitations, shared membership management, policy editing, and soft deactivation. Directly promote accepted Variant E composition where it governs the membership-management interaction, but keep the ownership boundary app-level. Use canonical domain commands and participant-specific projections so Back Office, lender, and builder surfaces remain synchronized without exposing WorkOS directory data to unassigned lenders. The narrow Build detail directly promotes locked Variant C: overview; expandable Milestone records with canonical Budget, receipt/invoice coverage, and actual-or-planned dates; focused read-only Milestone-sheet navigation; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration in read-only form.
 
 ## Risk-Rated Blast Radius
 
@@ -115,9 +132,9 @@ must not be reused or renumbered after implementation evidence references them.
 12. As a deactivated lender user, I want my prior decisions preserved in history, so that audit records remain truthful.
 13. As a Back Office Admin, I want a deactivated lender user's decision to stop counting on pending work, so that only current active members satisfy approval requirements.
 14. As an authorized reviewer, I want terminal completed or closed work to remain unchanged after approver deactivation, so that historical outcomes are stable.
-15. As a Back Office Admin, I want to approve a Build Proposal before assigning an external lender, so that internal approval remains the first capital decision.
-16. As a Back Office Admin, I want external assignment available only for external-capital proposals, so that internally funded proposals use the normal internal path.
-17. As a Back Office Admin, I want at most one current external Lender Organization assigned to a proposal, so that approval authority is unambiguous.
+15. As a Back Office Admin, I want to approve a Build Proposal before assigning a lender, so that internal approval remains the first capital decision.
+16. As a Back Office Admin, I want lender assignment available for either capital source, so that capital source does not block the lender relationship.
+17. As a Back Office Admin, I want at most one current Lender Organization assigned to a proposal, so that approval authority is unambiguous.
 18. As an assigned lender user, I want access to the current approved proposal and relevant documents, so that I can evaluate the external capital commitment.
 19. As an assigned lender user, I want to confirm the number of Milestones explicitly, so that I acknowledge the proposed scope breakdown.
 20. As an assigned lender user, I want to confirm the Budget explicitly, so that I acknowledge the proposed financial plan.
@@ -139,7 +156,7 @@ must not be reused or renumbered after implementation evidence references them.
 36. As an authorized closer, I want closing to remain separate from Build activation, so that closing does not make a Build live automatically.
 37. As an eligible assigned lender user, I want to activate a closed Build, so that either authorized side can start live execution.
 38. As a Back Office Admin, I want to activate a closed Build, so that the internal team can start live execution.
-39. As a Back Office Admin, I want to withdraw an external assignment before closing, so that the proposal can return to the internal closing path.
+39. As a Back Office Admin, I want to withdraw a lender assignment before closing, so that the proposal can return to the internal closing path.
 40. As a former assigned lender user, I want a withdrawn proposal to remain read-only with its assignment-period documents and history, so that my prior participation is preserved.
 41. As a Back Office Admin, I want withdrawal to preserve Back Office approval and pending-closing state, so that the proposal does not regress unnecessarily.
 42. As a builder, I want a high-level proposal state that distinguishes Back Office approval, lender review, pending closing, closed, and active, so that I understand progress without seeing private reviewer detail.
@@ -194,12 +211,12 @@ must not be reused or renumbered after implementation evidence references them.
 
 ### Domain ownership and identity
 
-- WorkOS is authoritative for user, Lender Organization, membership, role, and permission state. DrawFlow owns assignment, workflow authorization, review policy, decisions, and product-resource access derived from canonical identity state.
-- Every organization-scoped projection and related product record is scoped to one DrawFlow tenant and canonical WorkOS organization.
-- A user may hold multiple canonical WorkOS memberships. Every request executes in one active organization context and validates active membership, assignment, policy, and resource authority.
-- Canonical lender role slugs are `admin`, `principle-broker`, `broker`, and `broker-staff`. There is no application-layer lender-manager capability or alias, and role alone adds no approval weight.
-- Admin and Principal Broker own organization-wide member administration. Exactly one active Principal Broker remains; normal removal or deactivation routes to a protected transfer-of-control workflow.
-- One broad internal Back Office Admin role owns every Back Office capability in this specification.
+- DrawFlow owns `lenderOrganizations` under `brokerages`, including names, status, timestamps, organization-wide workflow permissions, and the parent Brokerage relationship.
+- DrawFlow owns `lenderOrganizationAssignments` as one active or pending application assignment per WorkOS user. The relation stores normalized email, actor, reason, and timestamps, but never identity, role, or WorkOS membership state.
+- WorkOS is authoritative for the shared identity organization, users, invitations, memberships, roles, permissions, and projections. Product commands go WorkOS first; webhook/sync projections are read-only to product flows.
+- A lender request requires an active WorkOS user projection, active membership in the configured shared WorkOS organization, one exact lender role (`lender`, `lender-admin`, or `lender-staff`), one active app assignment, an active parent Brokerage, and an active target Lender Organization.
+- The organization-wide permission bundle caps lender actions. Platform Admin bypasses a capability cap only for an explicit validated target organization; it does not bypass authentication, parent Brokerage, membership, assignment, or target-scope checks.
+- One broad internal Back Office Admin role owns every Back Office capability in this specification, including `/backoffice/lenders` provisioning and membership operations.
 - Existing authentication providers, mirrored user identity, and authenticated Convex builders are extended in place. A parallel authentication or identity system is not permitted.
 - The mirrored-user deletion path must not erase durable subject references needed by membership, decision, or audit history.
 
@@ -212,8 +229,8 @@ must not be reused or renumbered after implementation evidence references them.
 
 ### Proposal lifecycle
 
-- Proposal lifecycle, capital source, current external assignment, lender confirmation, closing, and activation are separate state dimensions.
-- Back Office approval always precedes external assignment. Assignment is optional, limited to external capital, and limited to one current Lender Organization.
+- Proposal lifecycle, capital source, current lender assignment, lender confirmation, closing, and activation are separate state dimensions.
+- Back Office approval always precedes lender assignment. Assignment is optional for either capital source and limited to one current Lender Organization.
 - Assignment uses append-only intervals. Withdrawal closes the current interval rather than deleting it.
 - With a current assignment, closing requires current Back Office approval, one eligible lender-user approval of the current proposal revision, matching locked policy, and all other closing prerequisites.
 - Back Office Admin or an eligible currently assigned lender user may record closing after prerequisites pass.
@@ -359,7 +376,7 @@ A transition is not complete when its initiating button works. Each row must pas
 | Back Office provisions a brokerage and initial Principal Broker | Existing brokerage/WorkOS command boundary; owning tenant; protected Principal Broker invariant; append-only authority history | Variant E organization administration becomes available for the canonical organization | Portal access, member counts, quorum-context validation, recipient eligibility, audit | E2E-08 |
 | Admin or Principal Broker administers an organization member | Active same-organization membership; supported canonical role; protected Principal Broker target rules; WorkOS-first command | Invitation/access state reconciles from the canonical projection without changing review policy | Portal access, quorum context, queue actions, recipients, audit | E2E-08 |
 | Back Office approves proposal | Back Office Admin; submitted current proposal; audited decision | Assignment control becomes eligible; builder sees approved/pending closing | Proposal queues/counts, closing eligibility, audit, external event contract | E2E-01, E2E-02 |
-| Back Office assigns lender | Approved/pending-closing external-capital proposal; one current assignment | Lender proposal list/detail receives current revision and action | Assignment ACL, dashboard, approval-required email, audit | E2E-02, E2E-04 |
+| Back Office assigns lender | Approved/pending-closing proposal; one current assignment | Lender proposal list/detail receives current revision and action | Assignment ACL, dashboard, approval-required email, audit | E2E-02, E2E-04 |
 | Lender declines proposal | Active assigned member; current revision; all checkpoints visited; reason required | Back Office remediation queue/detail/editor receives private reason | Confirmation history, builder-safe state, closing gate, outcome routing, audit | E2E-03 |
 | Back Office publishes remediation | Back Office Admin; same proposal; new monotonic revision; deterministic diff | Lender receives new full confirmation cycle with highlighted changes | Needs my action, post-decline update email, stale-decision guard, audit | E2E-03 |
 | Lender approves proposal | Active assigned member; current revision; five checkpoints confirmed | Back Office closing readiness updates | Dashboard/counts, decision history, outcome or next-action email, audit | E2E-02, E2E-03 |
@@ -398,7 +415,7 @@ steps are refined.
 
 1. Builder submits a valid internal-capital proposal.
 2. Back Office Admin approves it.
-3. External assignment remains unavailable and no lender action or email is created.
+3. No lender assignment is made, so no lender action or email is created.
 4. Back Office Admin locks the internal review policy and records closing.
 5. The proposal is closed but the Build is not active.
 6. Back Office Admin activates the Build.
@@ -469,9 +486,9 @@ steps are refined.
 
 ### E2E-08 — Membership and deactivation edge cases
 
-1. Back Office provisions a brokerage with one active Principal Broker through the canonical WorkOS boundary; no duplicate organization or membership record is created.
-2. An active Admin or Principal Broker uses the promoted Variant E surface to invite a member, change a supported role, and stage deactivation only in the active organization.
-3. Cross-organization actions fail, and normal removal or deactivation of the active Principal Broker routes to the protected transfer workflow.
+1. Back Office provisions an application-owned Lender Organization under a Brokerage; no WorkOS organization is created.
+2. Back Office Admin uses `/backoffice/lenders` to invite, assign, role-change, and deactivate a lender user through WorkOS-first commands plus the app assignment relation.
+3. Cross-Brokerage and cross-Lender-Organization actions fail, and a shared WorkOS membership projection is never written optimistically.
 4. An active lender user approves pending work, then is deactivated before terminal completion.
 5. The prior decision remains in history but stops counting.
 6. Needs my action, quorum progress, and notification recipients recalculate for active members without changing the locked policy.
@@ -502,8 +519,8 @@ steps are refined.
 - `LP-TEST-01` Test external behavior through the highest available seam. The primary seam is the authenticated canonical Convex command/query boundary used by every participant surface.
 - `LP-TEST-02` Test implementation behavior at the command boundary when that seam can prove authorization, lifecycle state, audit, notification intent, and participant projections together; helper-only tests are supplementary.
 - `LP-TEST-03` Use a small secondary browser/route seam for multi-actor handoffs, accessibility, focus behavior, status announcements, loading/empty/forbidden states, and proof that private data is absent from rendered participant views.
-- `LP-TEST-04` Establish product fixtures around tenant, WorkOS organization/membership/role projections, brokerage mapping, Back Office Admin, Principal Broker, builder ownership, proposal revision, assignment, locked policy, request cycle, evidence, and notification intent.
-- `LP-TEST-05` Every authorization suite covers allow and deny cases across tenant, active WorkOS organization, membership status, canonical role/permission, protected Principal Broker target, assignment status, historical withdrawn access, resource, revision, and decision cycle.
+- `LP-TEST-04` Establish product fixtures around tenant, the shared WorkOS organization and read-only user/membership/role projections, Brokerage, application Lender Organization, Back Office Admin, exact lender roles, app assignment, proposal revision, locked policy, request cycle, evidence, and notification intent.
+- `LP-TEST-05` Every authorization suite covers allow and deny cases across tenant, shared WorkOS organization claim, membership status, exact lender role/permission, parent Brokerage, target Lender Organization, one-assignment invariant, historical withdrawn access, resource, revision, and decision cycle.
 - `LP-TEST-06` Every transition suite covers valid, stale, duplicate, unauthorized, post-terminal, and out-of-order actions.
 - `LP-TEST-07` Every material command asserts its durable state, append-only audit event, affected queue/count/badge projections, builder-safe view, notification intent, and attachment visibility.
 - `LP-TEST-08` Concurrency tests cover competing approval/rejection, withdrawal/confirmation, revision publication/stale decision, closing/policy change, deactivation/quorum completion, and duplicate activation.
@@ -536,7 +553,7 @@ steps are refined.
 |---|---|---|
 | Canonical WorkOS Lender Organizations, memberships, and supported lender roles | User Stories 1–14; identity decisions; identity blast-radius/refactor rows; E2E-08 | Covered |
 | Back Office, Admin, and protected Principal Broker boundaries | User Stories 4–10; domain ownership; transition and deactivation gates; E2E-08 | Covered |
-| Optional external assignment for external capital | User Stories 15–18; proposal lifecycle; assignment gate; E2E-02/E2E-04 | Covered |
+| Optional lender assignment for either capital source | User Stories 15–18; proposal lifecycle; assignment gate; E2E-02/E2E-04 | Covered |
 | Separate approval, closing, and activation | User Stories 33–38; proposal lifecycle; Critical risk row; close/activate gates; E2E-01/E2E-02 | Covered |
 | Withdrawal and read-only lender history | User Stories 39–41; withdrawal decisions/refactor/gate; E2E-04 | Covered |
 | Five-checkpoint confirmation and remediation | User Stories 19–32; revision decisions; Critical risk row; decline/remediation gates; E2E-03 | Covered |
@@ -565,12 +582,11 @@ These unknowns must be resolved or proven absent in their owning implementation 
 
 ## Out of Scope
 
-- Assigning an external lender before Back Office proposal approval.
-- Assigning a Lender Organization to an internally funded proposal.
-- More than one current external Lender Organization on a proposal.
+- Assigning a lender before Back Office proposal approval.
+- More than one current Lender Organization on a proposal.
 - Lender edits to proposal content, builder data, Budget, schedule, or review policy.
 - A separate lender-manager capability, alias, or appointment workflow.
-- A DrawFlow-owned duplicate Lender Organization, membership, role, or permission system.
+- A duplicate WorkOS identity, role, membership, or permission source of truth. Application-owned Lender Organization records, workflow permissions, and user assignments are in scope and required.
 - Per-record reviewer assignment.
 - Post-closing review-policy changes, overrides, or Site Visit waivers.
 - Full Build Workspace, timeline/Gantt, Draw Group visualization, contractors, internal notes, or a broad document library in the external Lender Portal.

@@ -64,10 +64,13 @@ import { Route as BuilderStaffBuildsRouteRouteImport } from './routes/builder-st
 import { Route as BackofficeSiteVisitsRouteRouteImport } from './routes/backoffice/site-visits/route'
 import { Route as BackofficeSettingsRouteRouteImport } from './routes/backoffice/settings/route'
 import { Route as BackofficeProposalsRouteRouteImport } from './routes/backoffice/proposals/route'
+import { Route as BackofficeLendersRouteRouteImport } from './routes/backoffice/lenders/route'
 import { Route as BackofficeDrawsRouteRouteImport } from './routes/backoffice/draws/route'
 import { Route as BackofficeContractorsRouteRouteImport } from './routes/backoffice/contractors/route'
 import { Route as BackofficeBuildsRouteRouteImport } from './routes/backoffice/builds/route'
 import { Route as BackofficeBuildersRouteRouteImport } from './routes/backoffice/builders/route'
+import { Route as LenderProposalsIndexRouteImport } from './routes/lender/proposals/index'
+import { Route as LenderBuildsIndexRouteImport } from './routes/lender/builds/index'
 import { Route as ContractorProposalsIndexRouteImport } from './routes/contractor/proposals/index'
 import { Route as ContractorBuildsIndexRouteImport } from './routes/contractor/builds/index'
 import { Route as BuilderProposalsIndexRouteImport } from './routes/builder/proposals/index'
@@ -75,6 +78,7 @@ import { Route as BuilderStaffProposalsIndexRouteImport } from './routes/builder
 import { Route as BuilderStaffBuildsIndexRouteImport } from './routes/builder-staff/builds/index'
 import { Route as BackofficeSettingsIndexRouteImport } from './routes/backoffice/settings/index'
 import { Route as BackofficeProposalsIndexRouteImport } from './routes/backoffice/proposals/index'
+import { Route as BackofficeLendersIndexRouteImport } from './routes/backoffice/lenders/index'
 import { Route as BackofficeContractorsIndexRouteImport } from './routes/backoffice/contractors/index'
 import { Route as BackofficeBuildsIndexRouteImport } from './routes/backoffice/builds/index'
 import { Route as BackofficeBuildersIndexRouteImport } from './routes/backoffice/builders/index'
@@ -98,6 +102,7 @@ import { Route as ApiAuthSignUpRouteImport } from './routes/api/auth/sign-up'
 import { Route as ApiAuthSignInRouteImport } from './routes/api/auth/sign-in'
 import { Route as BuilderProposalsProposalIdRouteRouteImport } from './routes/builder/proposals/$proposalId/route'
 import { Route as BuilderStaffProposalsProposalIdRouteRouteImport } from './routes/builder-staff/proposals/$proposalId/route'
+import { Route as BackofficeLendersLenderIdRouteRouteImport } from './routes/backoffice/lenders/$lenderId/route'
 import { Route as BackofficeBuildsBuildIdRouteRouteImport } from './routes/backoffice/builds/$buildId/route'
 import { Route as BuilderProposalsProposalIdIndexRouteImport } from './routes/builder/proposals/$proposalId/index'
 import { Route as BuilderBuildsBuildIdIndexRouteImport } from './routes/builder/builds/$buildId/index'
@@ -402,6 +407,11 @@ const BackofficeProposalsRouteRoute =
     path: '/proposals',
     getParentRoute: () => BackofficeRouteRoute,
   } as any)
+const BackofficeLendersRouteRoute = BackofficeLendersRouteRouteImport.update({
+  id: '/lenders',
+  path: '/lenders',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
 const BackofficeDrawsRouteRoute = BackofficeDrawsRouteRouteImport.update({
   id: '/draws',
   path: '/draws',
@@ -422,6 +432,16 @@ const BackofficeBuildersRouteRoute = BackofficeBuildersRouteRouteImport.update({
   id: '/builders',
   path: '/builders',
   getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const LenderProposalsIndexRoute = LenderProposalsIndexRouteImport.update({
+  id: '/proposals/',
+  path: '/proposals/',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
+const LenderBuildsIndexRoute = LenderBuildsIndexRouteImport.update({
+  id: '/builds/',
+  path: '/builds/',
+  getParentRoute: () => LenderRouteRoute,
 } as any)
 const ContractorProposalsIndexRoute =
   ContractorProposalsIndexRouteImport.update({
@@ -461,6 +481,11 @@ const BackofficeProposalsIndexRoute =
     path: '/',
     getParentRoute: () => BackofficeProposalsRouteRoute,
   } as any)
+const BackofficeLendersIndexRoute = BackofficeLendersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BackofficeLendersRouteRoute,
+} as any)
 const BackofficeContractorsIndexRoute =
   BackofficeContractorsIndexRouteImport.update({
     id: '/',
@@ -590,6 +615,12 @@ const BuilderStaffProposalsProposalIdRouteRoute =
     path: '/$proposalId',
     getParentRoute: () => BuilderStaffProposalsRouteRoute,
   } as any)
+const BackofficeLendersLenderIdRouteRoute =
+  BackofficeLendersLenderIdRouteRouteImport.update({
+    id: '/$lenderId',
+    path: '/$lenderId',
+    getParentRoute: () => BackofficeLendersRouteRoute,
+  } as any)
 const BackofficeBuildsBuildIdRouteRoute =
   BackofficeBuildsBuildIdRouteRouteImport.update({
     id: '/$buildId',
@@ -660,6 +691,7 @@ export interface FileRoutesByFullPath {
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
+  '/backoffice/lenders': typeof BackofficeLendersRouteRouteWithChildren
   '/backoffice/proposals': typeof BackofficeProposalsRouteRouteWithChildren
   '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
@@ -706,6 +738,7 @@ export interface FileRoutesByFullPath {
   '/homeowner/': typeof HomeownerIndexRoute
   '/lender/': typeof LenderIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  '/backoffice/lenders/$lenderId': typeof BackofficeLendersLenderIdRouteRoute
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -729,6 +762,7 @@ export interface FileRoutesByFullPath {
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
   '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
+  '/backoffice/lenders/': typeof BackofficeLendersIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
@@ -736,6 +770,8 @@ export interface FileRoutesByFullPath {
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
   '/contractor/builds/': typeof ContractorBuildsIndexRoute
   '/contractor/proposals/': typeof ContractorProposalsIndexRoute
+  '/lender/builds/': typeof LenderBuildsIndexRoute
+  '/lender/proposals/': typeof LenderProposalsIndexRoute
   '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId/': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId/': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -791,6 +827,7 @@ export interface FileRoutesByTo {
   '/contractor': typeof ContractorIndexRoute
   '/homeowner': typeof HomeownerIndexRoute
   '/lender': typeof LenderIndexRoute
+  '/backoffice/lenders/$lenderId': typeof BackofficeLendersLenderIdRouteRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
@@ -812,6 +849,7 @@ export interface FileRoutesByTo {
   '/backoffice/builders': typeof BackofficeBuildersIndexRoute
   '/backoffice/builds': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors': typeof BackofficeContractorsIndexRoute
+  '/backoffice/lenders': typeof BackofficeLendersIndexRoute
   '/backoffice/proposals': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds': typeof BuilderStaffBuildsIndexRoute
@@ -819,6 +857,8 @@ export interface FileRoutesByTo {
   '/builder/proposals': typeof BuilderProposalsIndexRoute
   '/contractor/builds': typeof ContractorBuildsIndexRoute
   '/contractor/proposals': typeof ContractorProposalsIndexRoute
+  '/lender/builds': typeof LenderBuildsIndexRoute
+  '/lender/proposals': typeof LenderProposalsIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -844,6 +884,7 @@ export interface FileRoutesById {
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
+  '/backoffice/lenders': typeof BackofficeLendersRouteRouteWithChildren
   '/backoffice/proposals': typeof BackofficeProposalsRouteRouteWithChildren
   '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
@@ -890,6 +931,7 @@ export interface FileRoutesById {
   '/homeowner/': typeof HomeownerIndexRoute
   '/lender/': typeof LenderIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  '/backoffice/lenders/$lenderId': typeof BackofficeLendersLenderIdRouteRoute
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -913,6 +955,7 @@ export interface FileRoutesById {
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
   '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
+  '/backoffice/lenders/': typeof BackofficeLendersIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
@@ -920,6 +963,8 @@ export interface FileRoutesById {
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
   '/contractor/builds/': typeof ContractorBuildsIndexRoute
   '/contractor/proposals/': typeof ContractorProposalsIndexRoute
+  '/lender/builds/': typeof LenderBuildsIndexRoute
+  '/lender/proposals/': typeof LenderProposalsIndexRoute
   '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId/': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId/': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -946,6 +991,7 @@ export interface FileRouteTypes {
     | '/backoffice/builds'
     | '/backoffice/contractors'
     | '/backoffice/draws'
+    | '/backoffice/lenders'
     | '/backoffice/proposals'
     | '/backoffice/settings'
     | '/backoffice/site-visits'
@@ -992,6 +1038,7 @@ export interface FileRouteTypes {
     | '/homeowner/'
     | '/lender/'
     | '/backoffice/builds/$buildId'
+    | '/backoffice/lenders/$lenderId'
     | '/builder-staff/proposals/$proposalId'
     | '/builder/proposals/$proposalId'
     | '/api/auth/sign-in'
@@ -1015,6 +1062,7 @@ export interface FileRouteTypes {
     | '/backoffice/builders/'
     | '/backoffice/builds/'
     | '/backoffice/contractors/'
+    | '/backoffice/lenders/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
     | '/builder-staff/builds/'
@@ -1022,6 +1070,8 @@ export interface FileRouteTypes {
     | '/builder/proposals/'
     | '/contractor/builds/'
     | '/contractor/proposals/'
+    | '/lender/builds/'
+    | '/lender/proposals/'
     | '/backoffice/builds/$buildId/'
     | '/builder-staff/builds/$buildId/'
     | '/builder-staff/proposals/$proposalId/'
@@ -1077,6 +1127,7 @@ export interface FileRouteTypes {
     | '/contractor'
     | '/homeowner'
     | '/lender'
+    | '/backoffice/lenders/$lenderId'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
@@ -1098,6 +1149,7 @@ export interface FileRouteTypes {
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
+    | '/backoffice/lenders'
     | '/backoffice/proposals'
     | '/backoffice/settings'
     | '/builder-staff/builds'
@@ -1105,6 +1157,8 @@ export interface FileRouteTypes {
     | '/builder/proposals'
     | '/contractor/builds'
     | '/contractor/proposals'
+    | '/lender/builds'
+    | '/lender/proposals'
     | '/backoffice/builds/$buildId'
     | '/builder-staff/builds/$buildId'
     | '/builder-staff/proposals/$proposalId'
@@ -1129,6 +1183,7 @@ export interface FileRouteTypes {
     | '/backoffice/builds'
     | '/backoffice/contractors'
     | '/backoffice/draws'
+    | '/backoffice/lenders'
     | '/backoffice/proposals'
     | '/backoffice/settings'
     | '/backoffice/site-visits'
@@ -1175,6 +1230,7 @@ export interface FileRouteTypes {
     | '/homeowner/'
     | '/lender/'
     | '/backoffice/builds/$buildId'
+    | '/backoffice/lenders/$lenderId'
     | '/builder-staff/proposals/$proposalId'
     | '/builder/proposals/$proposalId'
     | '/api/auth/sign-in'
@@ -1198,6 +1254,7 @@ export interface FileRouteTypes {
     | '/backoffice/builders/'
     | '/backoffice/builds/'
     | '/backoffice/contractors/'
+    | '/backoffice/lenders/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
     | '/builder-staff/builds/'
@@ -1205,6 +1262,8 @@ export interface FileRouteTypes {
     | '/builder/proposals/'
     | '/contractor/builds/'
     | '/contractor/proposals/'
+    | '/lender/builds/'
+    | '/lender/proposals/'
     | '/backoffice/builds/$buildId/'
     | '/builder-staff/builds/$buildId/'
     | '/builder-staff/proposals/$proposalId/'
@@ -1626,6 +1685,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeProposalsRouteRouteImport
       parentRoute: typeof BackofficeRouteRoute
     }
+    '/backoffice/lenders': {
+      id: '/backoffice/lenders'
+      path: '/lenders'
+      fullPath: '/backoffice/lenders'
+      preLoaderRoute: typeof BackofficeLendersRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
     '/backoffice/draws': {
       id: '/backoffice/draws'
       path: '/draws'
@@ -1653,6 +1719,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/builders'
       preLoaderRoute: typeof BackofficeBuildersRouteRouteImport
       parentRoute: typeof BackofficeRouteRoute
+    }
+    '/lender/proposals/': {
+      id: '/lender/proposals/'
+      path: '/proposals'
+      fullPath: '/lender/proposals/'
+      preLoaderRoute: typeof LenderProposalsIndexRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/builds/': {
+      id: '/lender/builds/'
+      path: '/builds'
+      fullPath: '/lender/builds/'
+      preLoaderRoute: typeof LenderBuildsIndexRouteImport
+      parentRoute: typeof LenderRouteRoute
     }
     '/contractor/proposals/': {
       id: '/contractor/proposals/'
@@ -1702,6 +1782,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/proposals/'
       preLoaderRoute: typeof BackofficeProposalsIndexRouteImport
       parentRoute: typeof BackofficeProposalsRouteRoute
+    }
+    '/backoffice/lenders/': {
+      id: '/backoffice/lenders/'
+      path: '/'
+      fullPath: '/backoffice/lenders/'
+      preLoaderRoute: typeof BackofficeLendersIndexRouteImport
+      parentRoute: typeof BackofficeLendersRouteRoute
     }
     '/backoffice/contractors/': {
       id: '/backoffice/contractors/'
@@ -1864,6 +1951,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BuilderStaffProposalsProposalIdRouteRouteImport
       parentRoute: typeof BuilderStaffProposalsRouteRoute
     }
+    '/backoffice/lenders/$lenderId': {
+      id: '/backoffice/lenders/$lenderId'
+      path: '/$lenderId'
+      fullPath: '/backoffice/lenders/$lenderId'
+      preLoaderRoute: typeof BackofficeLendersLenderIdRouteRouteImport
+      parentRoute: typeof BackofficeLendersRouteRoute
+    }
     '/backoffice/builds/$buildId': {
       id: '/backoffice/builds/$buildId'
       path: '/$buildId'
@@ -1998,6 +2092,22 @@ const BackofficeContractorsRouteRouteWithChildren =
     BackofficeContractorsRouteRouteChildren,
   )
 
+interface BackofficeLendersRouteRouteChildren {
+  BackofficeLendersLenderIdRouteRoute: typeof BackofficeLendersLenderIdRouteRoute
+  BackofficeLendersIndexRoute: typeof BackofficeLendersIndexRoute
+}
+
+const BackofficeLendersRouteRouteChildren: BackofficeLendersRouteRouteChildren =
+  {
+    BackofficeLendersLenderIdRouteRoute: BackofficeLendersLenderIdRouteRoute,
+    BackofficeLendersIndexRoute: BackofficeLendersIndexRoute,
+  }
+
+const BackofficeLendersRouteRouteWithChildren =
+  BackofficeLendersRouteRoute._addFileChildren(
+    BackofficeLendersRouteRouteChildren,
+  )
+
 interface BackofficeProposalsRouteRouteChildren {
   BackofficeProposalsPlanIdRoute: typeof BackofficeProposalsPlanIdRoute
   BackofficeProposalsLenderAssignmentPrototypeRoute: typeof BackofficeProposalsLenderAssignmentPrototypeRoute
@@ -2043,6 +2153,7 @@ interface BackofficeRouteRouteChildren {
   BackofficeBuildsRouteRoute: typeof BackofficeBuildsRouteRouteWithChildren
   BackofficeContractorsRouteRoute: typeof BackofficeContractorsRouteRouteWithChildren
   BackofficeDrawsRouteRoute: typeof BackofficeDrawsRouteRoute
+  BackofficeLendersRouteRoute: typeof BackofficeLendersRouteRouteWithChildren
   BackofficeProposalsRouteRoute: typeof BackofficeProposalsRouteRouteWithChildren
   BackofficeSettingsRouteRoute: typeof BackofficeSettingsRouteRouteWithChildren
   BackofficeSiteVisitsRouteRoute: typeof BackofficeSiteVisitsRouteRoute
@@ -2058,6 +2169,7 @@ const BackofficeRouteRouteChildren: BackofficeRouteRouteChildren = {
   BackofficeBuildsRouteRoute: BackofficeBuildsRouteRouteWithChildren,
   BackofficeContractorsRouteRoute: BackofficeContractorsRouteRouteWithChildren,
   BackofficeDrawsRouteRoute: BackofficeDrawsRouteRoute,
+  BackofficeLendersRouteRoute: BackofficeLendersRouteRouteWithChildren,
   BackofficeProposalsRouteRoute: BackofficeProposalsRouteRouteWithChildren,
   BackofficeSettingsRouteRoute: BackofficeSettingsRouteRouteWithChildren,
   BackofficeSiteVisitsRouteRoute: BackofficeSiteVisitsRouteRoute,
@@ -2260,6 +2372,8 @@ interface LenderRouteRouteChildren {
   LenderIndexRoute: typeof LenderIndexRoute
   LenderBuildsBuildIdRoute: typeof LenderBuildsBuildIdRoute
   LenderProposalsProposalIdRoute: typeof LenderProposalsProposalIdRoute
+  LenderBuildsIndexRoute: typeof LenderBuildsIndexRoute
+  LenderProposalsIndexRoute: typeof LenderProposalsIndexRoute
 }
 
 const LenderRouteRouteChildren: LenderRouteRouteChildren = {
@@ -2281,6 +2395,8 @@ const LenderRouteRouteChildren: LenderRouteRouteChildren = {
   LenderIndexRoute: LenderIndexRoute,
   LenderBuildsBuildIdRoute: LenderBuildsBuildIdRoute,
   LenderProposalsProposalIdRoute: LenderProposalsProposalIdRoute,
+  LenderBuildsIndexRoute: LenderBuildsIndexRoute,
+  LenderProposalsIndexRoute: LenderProposalsIndexRoute,
 }
 
 const LenderRouteRouteWithChildren = LenderRouteRoute._addFileChildren(

@@ -328,8 +328,7 @@ function ProposalReviewRoute() {
       !lenderAssignmentDialogOpen ||
       !productionDetail ||
       !canManageBrokerAssignment ||
-      productionDetail.proposal.status !== "approved" ||
-      productionDetail.proposal.capitalSource !== "external"
+      productionDetail.proposal.status !== "approved"
       ? "skip"
       : {
           proposalId: planId as Id<"buildProposals">,
@@ -413,6 +412,9 @@ function ProposalReviewRoute() {
   );
   const rejectProductionProposal = useMutation(
     api.production_proposals.rejectProposal
+  );
+  const submitProductionProposal = useMutation(
+    api.production_proposals.submitProposal
   );
   const approveProductionProposal = useMutation(
     api.production_proposals.approveProposal
@@ -655,9 +657,7 @@ function ProposalReviewRoute() {
         initialActiveTab={search.tab}
         lenderAssignmentSurface={
           !visualFixtureEnabled &&
-          canManageBrokerAssignment &&
-          productionDetail.proposal.status === "approved" &&
-          productionDetail.proposal.capitalSource === "external" ? (
+          canManageBrokerAssignment ? (
             <ProposalLenderAssignmentSection
               assignment={productionDetail.lenderAssignment}
               assignmentHistory={productionDetail.lenderAssignmentHistory}
@@ -685,7 +685,6 @@ function ProposalReviewRoute() {
               }
               proposal={{
                 buildName: productionDetail.proposal.buildName,
-                capitalSource: productionDetail.proposal.capitalSource,
                 location: productionDetail.proposal.location,
                 status: productionDetail.proposal.status,
               }}
@@ -856,6 +855,19 @@ function ProposalReviewRoute() {
             reason,
             workosOrganizationId,
           }).then(() => toast.success("Changes requested."))
+        }
+        onSubmit={
+          visualFixtureEnabled
+            ? async () => undefined
+            : () =>
+                submitProductionProposal({
+                  proposalId: proposalId as Id<"buildProposals">,
+                  workosOrganizationId,
+                }).then(() =>
+                  toast.success("Proposal submitted.", {
+                    description: "The proposal is now ready for lender review.",
+                  })
+                )
         }
         onSaveCalendarView={(input) =>
           saveCalendarView({
