@@ -396,6 +396,17 @@ describe("production calendar workspace", () => {
       workosOrganizationId: ORG,
     });
     await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `calendar-workspace-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the calendar workspace fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
       (api as any).production_proposals.recordProposalClosing,
       {
         buildStartDate: "2026-08-01",
@@ -553,6 +564,17 @@ describe("production calendar workspace", () => {
       reason: "Approve before non-financial edit test.",
       workosOrganizationId: ORG,
     });
+    await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `calendar-metadata-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the calendar metadata fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation(
       (api as any).production_proposals.recordProposalClosing,
       {

@@ -140,6 +140,17 @@ async function createApprovedBuild(admin: ReturnType<typeof withIdentity>, seed:
     workosOrganizationId: ORG,
   });
   await admin.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `contractor-workspace-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the contractor workspace fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
     (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-08-01",

@@ -346,6 +346,249 @@ describe("app-owned lender organization control plane", () => {
     ).toMatchObject({ workosUserId: "user_pending", status: "active" });
   });
 
+  test("rejects cross-organization pending-email ambiguity without granting either organization", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (const lenderOrganizationId of [seed.lenderOrganizationId, seed.foreignLenderOrganizationId]) {
+        await ctx.db.insert("lenderOrganizationAssignments", {
+          assignedAt: now,
+          assignedByRole: "admin",
+          assignedByWorkosUserId: "user_admin",
+          brokerageId: seed.brokerageId,
+          lenderOrganizationId,
+          normalizedEmail: "ambiguous-pending@example.com",
+          reason: "Exercise cross-organization invitation ambiguity.",
+          status: "pending",
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert("users", {
+        authId: "user_ambiguous_pending",
+        createdAt: now,
+        email: "ambiguous-pending@example.com",
+        name: "Ambiguous Pending User",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_ambiguous_pending",
+      });
+    });
+    const result = await asAdmin(t).mutation(
+      api.lenderOrganizations.reconcilePendingLenderAssignments,
+      {},
+    );
+    expect(result).toEqual({ activated: 0, bound: 0, conflicts: 2, stillPending: 0 });
+    const rows = await t.run((ctx) => ctx.db.query("lenderOrganizationAssignments")
+      .withIndex("by_normalized_email_and_status", (query) => query.eq("normalizedEmail", "ambiguous-pending@example.com").eq("status", "inactive"))
+      .collect());
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.reconciliationOutcome === "conflict_rejected" && row.reconciledAt === row.updatedAt)).toBe(true);
+    const firstOrganizationProjection = await asAdmin(t).query(
+      api.lenderOrganizations.listLenderOrganizationMembersForAdmin,
+      { lenderOrganizationId: seed.lenderOrganizationId },
+    );
+    expect(firstOrganizationProjection.pendingInvitations).toEqual([
+      expect.objectContaining({
+        email: "ambiguous-pending@example.com",
+        reconciliationReason: expect.stringContaining("multiple pending"),
+        status: "conflict_rejected",
+      }),
+    ]);
+  });
+
+  test("rejects duplicate active email projections instead of selecting the first identity", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: now,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: seed.brokerageId,
+        lenderOrganizationId: seed.lenderOrganizationId,
+        normalizedEmail: "duplicate-user@example.com",
+        reason: "Exercise duplicate user projection ambiguity.",
+        status: "pending",
+        updatedAt: now,
+      });
+      for (const suffix of ["a", "b"]) {
+        const workosUserId = `user_duplicate_${suffix}`;
+        await ctx.db.insert("users", {
+          authId: workosUserId,
+          createdAt: now,
+          email: "duplicate-user@example.com",
+          name: `Duplicate ${suffix}`,
+          status: "active",
+          updatedAt: now,
+          workosUserId,
+        });
+      }
+    });
+    const result = await asAdmin(t).mutation(
+      api.lenderOrganizations.reconcilePendingLenderAssignments,
+      { lenderOrganizationId: seed.lenderOrganizationId },
+    );
+    expect(result).toEqual({ activated: 0, bound: 0, conflicts: 1, stillPending: 0 });
+    const active = await t.run((ctx) => ctx.db.query("lenderOrganizationAssignments")
+      .withIndex("by_lender_organization_and_status", (query) => query.eq("lenderOrganizationId", seed.lenderOrganizationId).eq("status", "active"))
+      .collect());
+    expect(active).toEqual([]);
+  });
+
+  test("rejects reconciliation when a different WorkOS identity already owns the normalized email", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const fixture = await t.run(async (ctx) => {
+      const now = Date.now();
+      const activeAssignmentId = await ctx.db.insert(
+        "lenderOrganizationAssignments",
+        {
+          assignedAt: now - 1,
+          assignedByRole: "admin",
+          assignedByWorkosUserId: "user_admin",
+          brokerageId: seed.foreignBrokerageId,
+          lenderOrganizationId: seed.foreignLenderOrganizationId,
+          normalizedEmail: "legacy-email-owner@example.com",
+          reason: "Represent malformed legacy ownership by another identity.",
+          status: "active",
+          updatedAt: now - 1,
+          workosUserId: "user_legacy_email_owner",
+        },
+      );
+      const pendingAssignmentId = await ctx.db.insert(
+        "lenderOrganizationAssignments",
+        {
+          assignedAt: now,
+          assignedByRole: "admin",
+          assignedByWorkosUserId: "user_admin",
+          brokerageId: seed.brokerageId,
+          lenderOrganizationId: seed.lenderOrganizationId,
+          normalizedEmail: "legacy-email-owner@example.com",
+          reason: "Reconcile only if normalized email ownership is unique.",
+          status: "pending",
+          updatedAt: now,
+        },
+      );
+      await ctx.db.insert("users", {
+        authId: "user_new_email_owner",
+        createdAt: now,
+        email: "legacy-email-owner@example.com",
+        name: "New Projected Email Owner",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_new_email_owner",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        roleSlug: "lender",
+        roleSlugs: ["lender"],
+        sourceEventId: "legacy_email_owner_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_user_new_email_owner",
+        workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        workosUserId: "user_new_email_owner",
+      });
+      return { activeAssignmentId, pendingAssignmentId };
+    });
+
+    await expect(
+      asAdmin(t).mutation(
+        api.lenderOrganizations.reconcilePendingLenderAssignments,
+        { lenderOrganizationId: seed.lenderOrganizationId },
+      ),
+    ).resolves.toEqual({
+      activated: 0,
+      bound: 0,
+      conflicts: 1,
+      stillPending: 0,
+    });
+    const pending = await t.run((ctx) =>
+      ctx.db.get(fixture.pendingAssignmentId),
+    );
+    expect(pending).toMatchObject({
+      reconciledToAssignmentId: fixture.activeAssignmentId,
+      reconciliationOutcome: "conflict_rejected",
+      reconciliationReason: expect.stringContaining("normalized email"),
+      status: "inactive",
+      workosUserId: "user_new_email_owner",
+    });
+    const activeForEmail = await t.run((ctx) =>
+      ctx.db
+        .query("lenderOrganizationAssignments")
+        .withIndex("by_normalized_email_and_status", (query) =>
+          query
+            .eq("normalizedEmail", "legacy-email-owner@example.com")
+            .eq("status", "active"),
+        )
+        .collect(),
+    );
+    expect(activeForEmail.map((assignment) => assignment._id)).toEqual([
+      fixture.activeAssignmentId,
+    ]);
+  });
+
+  test("rejects mixed-case normalized email ambiguity for direct assignment and reconciliation", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_unassigned_case_duplicate",
+        createdAt: now,
+        email: "User_Unassigned@Example.com",
+        name: "Mixed Case Duplicate",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_unassigned_case_duplicate",
+      });
+    });
+    await expect(
+      asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Reject a normalized email collision before direct assignment.",
+        workosUserId: "user_unassigned",
+      }),
+    ).rejects.toThrow("Active lender email projection is ambiguous");
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: now,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: seed.brokerageId,
+        lenderOrganizationId: seed.lenderOrganizationId,
+        normalizedEmail: "mixed-pending@example.com",
+        reason: "Exercise normalized pending reconciliation ambiguity.",
+        status: "pending",
+        updatedAt: now,
+      });
+      for (const [suffix, email] of [
+        ["lower", "mixed-pending@example.com"],
+        ["upper", "Mixed-Pending@Example.com"],
+      ] as const) {
+        await ctx.db.insert("users", {
+          authId: `user_mixed_pending_${suffix}`,
+          createdAt: now,
+          email,
+          name: `Mixed Pending ${suffix}`,
+          status: "active",
+          updatedAt: now,
+          workosUserId: `user_mixed_pending_${suffix}`,
+        });
+      }
+    });
+    await expect(
+      asAdmin(t).mutation(api.lenderOrganizations.reconcilePendingLenderAssignments, {
+        lenderOrganizationId: seed.lenderOrganizationId,
+      }),
+    ).resolves.toEqual({ activated: 0, bound: 0, conflicts: 1, stillPending: 0 });
+  });
+
   test("caps workflow permissions and blocks final decisions for lender staff", async () => {
     const t = convexTest(schema, modules);
     const seed = await seedControlPlane(t, { lenderRole: "lender-staff" });
@@ -441,6 +684,128 @@ describe("app-owned lender organization control plane", () => {
       lenderOrganizationId: seed.lenderOrganizationId,
       normalizedEmail: "invited@example.com",
       status: "pending",
+    });
+  });
+
+  test("binds a compatible email invitation during direct assignment without creating a collision", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const invitation = await asAdmin(t).action(
+      api.lenderOrganizations.inviteLenderUser,
+      {
+        email: "user_unassigned@example.com",
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Stage the pending assignment before projection reconciliation.",
+        roleSlug: "lender",
+      },
+    );
+    const assignmentId = await asAdmin(t).mutation(
+      api.lenderOrganizations.assignLenderUser,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Bind the projected user to the compatible invitation.",
+        workosUserId: "user_unassigned",
+      },
+    );
+    expect(assignmentId).toBe(invitation.stagedAssignmentId);
+    expect(await t.run((ctx) => ctx.db.get(assignmentId))).toMatchObject({
+      lenderOrganizationId: seed.lenderOrganizationId,
+      normalizedEmail: "user_unassigned@example.com",
+      status: "active",
+      workosUserId: "user_unassigned",
+    });
+    const activeOrPending = await t.run(async (ctx) => {
+      const [active, pending] = await Promise.all([
+        ctx.db
+          .query("lenderOrganizationAssignments")
+          .withIndex("by_normalized_email_and_status", (query) =>
+            query
+              .eq("normalizedEmail", "user_unassigned@example.com")
+              .eq("status", "active"),
+          )
+          .take(3),
+        ctx.db
+          .query("lenderOrganizationAssignments")
+          .withIndex("by_normalized_email_and_status", (query) =>
+            query
+              .eq("normalizedEmail", "user_unassigned@example.com")
+              .eq("status", "pending"),
+          )
+          .take(3),
+      ]);
+      return [...active, ...pending];
+    });
+    expect(activeOrPending).toHaveLength(1);
+  });
+
+  test("rejects a direct assignment that conflicts with a pending invitation in another organization", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await asAdmin(t).action(api.lenderOrganizations.inviteLenderUser, {
+      email: "user_unassigned@example.com",
+      lenderOrganizationId: seed.lenderOrganizationId,
+      reason: "Stage the authoritative pending organization.",
+      roleSlug: "lender",
+    });
+    await expect(
+      asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+        lenderOrganizationId: seed.foreignLenderOrganizationId,
+        reason: "Do not cross-bind a pending invitation.",
+        workosUserId: "user_unassigned",
+      }),
+    ).rejects.toThrow(
+      "pending lender organization assignment for another organization",
+    );
+  });
+
+  test("serializes direct assignment and pending reconciliation into one active record", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const invitation = await asAdmin(t).action(
+      api.lenderOrganizations.inviteLenderUser,
+      {
+        email: "user_unassigned@example.com",
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Stage the assignment used by the reconciliation race.",
+        roleSlug: "lender",
+      },
+    );
+    const outcomes = await Promise.allSettled([
+      asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Race direct assignment against reconciliation.",
+        workosUserId: "user_unassigned",
+      }),
+      asAdmin(t).mutation(
+        api.lenderOrganizations.reconcilePendingLenderAssignments,
+        { lenderOrganizationId: seed.lenderOrganizationId },
+      ),
+    ]);
+    expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);
+    const rows = await t.run(async (ctx) => {
+      const active = await ctx.db
+        .query("lenderOrganizationAssignments")
+        .withIndex("by_normalized_email_and_status", (query) =>
+          query
+            .eq("normalizedEmail", "user_unassigned@example.com")
+            .eq("status", "active"),
+        )
+        .take(3);
+      const pending = await ctx.db
+        .query("lenderOrganizationAssignments")
+        .withIndex("by_normalized_email_and_status", (query) =>
+          query
+            .eq("normalizedEmail", "user_unassigned@example.com")
+            .eq("status", "pending"),
+        )
+        .take(3);
+      return { active, pending };
+    });
+    expect(rows.pending).toEqual([]);
+    expect(rows.active).toHaveLength(1);
+    expect(rows.active[0]).toMatchObject({
+      _id: invitation.stagedAssignmentId,
+      workosUserId: "user_unassigned",
     });
   });
 

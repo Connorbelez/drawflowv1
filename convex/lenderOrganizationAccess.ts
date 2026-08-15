@@ -19,6 +19,17 @@ export type LenderWorkflowPermissions = {
   siteVisitReview: boolean;
 };
 
+export type LenderApprovalCapability =
+  | "proposal_review"
+  | "draw_decisions"
+  | "milestone_decisions";
+
+const capabilityPermission = {
+  proposal_review: "proposalReview",
+  draw_decisions: "drawDecisions",
+  milestone_decisions: "milestoneDecisions",
+} as const satisfies Record<LenderApprovalCapability, keyof LenderWorkflowPermissions>;
+
 export type LenderOrganizationResolution = {
   assignment: Doc<"lenderOrganizationAssignments">;
   brokerage: Doc<"brokerages">;
@@ -110,7 +121,7 @@ export async function resolveAssignedLenderOrganization(
     identity["https://workos.com/organization_id"],
   ].find(
     (value): value is string =>
-      typeof value === "string" && value.trim().length > 0,
+      typeof value === "string" && value.trim().length > 0
   );
   if (
     claimedWorkosOrganizationId &&
@@ -120,7 +131,10 @@ export async function resolveAssignedLenderOrganization(
   }
 
   const user = await requireActiveLenderWorkosUser(ctx, workosUserId);
-  const memberships = await listActiveSharedLenderMemberships(ctx, workosUserId);
+  const memberships = await listActiveSharedLenderMemberships(
+    ctx,
+    workosUserId
+  );
   if (memberships.length === 0) {
     throw new Error("Forbidden: active shared lender membership missing");
   }
@@ -208,4 +222,90 @@ export function lenderCanMakeFinalDecision(
   roles: readonly LenderRoleSlug[]
 ): boolean {
   return roles.includes("lender") || roles.includes("lender-admin");
+}
+
+/**
+ * Canonical denominator for lender approval quorums and later decision
+ * counting. A person is eligible only while the app assignment, WorkOS user,
+ * shared membership, and final-decision role are all active.
+ */
+export async function listActiveApprovalEligibleLenderOrganizationMembers(
+  ctx: ReadCtx,
+  lenderOrganizationId: Id<"lenderOrganizations">,
+  capability: LenderApprovalCapability,
+) {
+  const organization = await ctx.db.get(lenderOrganizationId);
+  if (
+    !organization ||
+    organization.status !== "active" ||
+    !organization.permissions[capabilityPermission[capability]]
+  ) {
+    return [];
+  }
+  const assignments = await ctx.db
+    .query("lenderOrganizationAssignments")
+    .withIndex("by_lender_organization_and_status", (query) =>
+      query
+        .eq("lenderOrganizationId", lenderOrganizationId)
+        .eq("status", "active")
+    )
+    .take(1_001);
+  if (assignments.length > 1_000) {
+    throw new Error(
+      "Lender organization approval-eligible member count exceeds the safe limit"
+    );
+  }
+
+  const eligible = [];
+  const seen = new Set<string>();
+  for (const assignment of assignments) {
+    const workosUserId = assignment.workosUserId;
+    if (!workosUserId || seen.has(workosUserId)) {
+      continue;
+    }
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_workos_user_id", (query) =>
+        query.eq("workosUserId", workosUserId)
+      )
+      .take(2);
+    if (users.length !== 1 || users[0]?.status !== "active") {
+      continue;
+    }
+    const memberships = await listActiveSharedLenderMemberships(
+      ctx,
+      workosUserId
+    );
+    const roles = normalizeLenderRoleSlugs(
+      memberships.flatMap((membership) => [
+        membership.roleSlug,
+        ...membership.roleSlugs,
+      ])
+    );
+    if (!lenderCanMakeFinalDecision(roles)) {
+      continue;
+    }
+    seen.add(workosUserId);
+    eligible.push({
+      assignmentId: assignment._id,
+      roles,
+      workosUserId,
+    });
+  }
+  return eligible;
+}
+
+export async function getLenderOrganizationApprovalEligibility(
+  ctx: ReadCtx,
+  lenderOrganizationId: Id<"lenderOrganizations">,
+) {
+  const [proposalReview, draw, milestone] = await Promise.all([
+    listActiveApprovalEligibleLenderOrganizationMembers(ctx, lenderOrganizationId, "proposal_review"),
+    listActiveApprovalEligibleLenderOrganizationMembers(ctx, lenderOrganizationId, "draw_decisions"),
+    listActiveApprovalEligibleLenderOrganizationMembers(ctx, lenderOrganizationId, "milestone_decisions"),
+  ]);
+  return {
+    counts: { proposalReview: proposalReview.length, draw: draw.length, milestone: milestone.length },
+    members: { proposalReview, draw, milestone },
+  };
 }

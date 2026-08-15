@@ -138,6 +138,17 @@ async function createActiveBuild(t: any, seed: any) {
     workosOrganizationId: ORG,
   });
   await t.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `contractors-v1-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the contractor tracking fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await t.mutation(
     (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-08-01",
@@ -470,6 +481,17 @@ describe("contractors v1", () => {
       reason: "Proposal contractor plan is ready.",
       workosOrganizationId: ORG,
     });
+    await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `contractor-plan-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the contractor planning fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation(
       (api as any).production_proposals.recordProposalClosing,
       {

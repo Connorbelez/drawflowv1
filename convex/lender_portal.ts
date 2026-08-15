@@ -149,6 +149,7 @@ async function projectLenderAssignedProposals(
 ) {
   const rows = await Promise.all(
     assignments.map(async (assignment) => {
+      if (assignment.status === "archiving") return null;
       const proposal = await ctx.db.get(assignment.proposalId);
       if (!proposal) {
         return null;

@@ -93,6 +93,17 @@ async function seedFixture() {
     workosOrganizationId: ORG,
   });
   await admin.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `submilestone-review-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the Sub-milestone review fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
     (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-05-01",

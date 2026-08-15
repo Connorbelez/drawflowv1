@@ -141,6 +141,17 @@ describe("contractor duplicate merge (PRD §6.3)", () => {
       workosOrganizationId: ORG,
     });
     await admin.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `contractor-merge-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the contractor merge fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
       (api as any).production_proposals.recordProposalClosing,
       {
         buildStartDate: "2026-01-01",

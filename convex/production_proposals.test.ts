@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { operationalRequestFingerprint } from "./build_operational_idempotency";
 import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import { assertProposalLenderApprovalTimestamps } from "./production_proposals";
@@ -38,6 +39,2526 @@ function tiptapDocument(text: string) {
 const EMPTY_TIPTAP_DOCUMENT = JSON.stringify({
   content: [{ type: "paragraph" }],
   type: "doc",
+});
+
+describe("Lender Portal Phase 3 review policy and revision controls", () => {
+  test("rejects proposal approval with an actionable builder prerequisite before lifecycle writes", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 missing builder prerequisite",
+      capitalSource: "internal",
+    });
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(proposalId, { builderProfileId: undefined });
+    });
+    await expect(t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Do not approve without a builder.",
+      workosOrganizationId: ORG,
+    })).rejects.toThrow("Assign an active builder before approving");
+    const proposal = await base.run((ctx: any) => ctx.db.get(proposalId));
+    expect(proposal).toMatchObject({ reviewOutcome: "none", status: "submitted" });
+  });
+
+  test("returns an explicit Builder-safe proposal detail without internal identities or audit payloads", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 Builder privacy projection",
+      capitalSource: "internal",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the Builder privacy projection fixture.",
+      workosOrganizationId: ORG,
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder", ORG);
+    const [byId, byString] = await Promise.all([
+      builder.query((api as any).production_proposals.getProposalDetail, {
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+      builder.query((api as any).production_proposals.getProposalDetailByString, {
+        proposalId: String(proposalId),
+        workosOrganizationId: ORG,
+      }),
+    ]);
+
+    for (const detail of [byId, byString]) {
+      expect(detail.proposal).toMatchObject({
+        buildName: "Phase 3 Builder privacy projection",
+        status: "approved",
+      });
+      expect(detail.proposal.backOfficeApprovedByWorkosUserId).toBeUndefined();
+      expect(detail.proposal.createdByWorkosUserId).toBeUndefined();
+      expect(detail.proposal.updatedByWorkosUserId).toBeUndefined();
+      expect(detail.proposal.currentReviewPolicyVersionId).toBeUndefined();
+      expect(detail.proposal.lockedReviewPolicyId).toBeUndefined();
+      expect(detail.assignment?.broker).toBeUndefined();
+      expect(detail.assignment?.createdBy).toBeUndefined();
+      expect(detail.documents.every((document: any) =>
+        document.uploadedByWorkosUserId === undefined
+      )).toBe(true);
+      expect(detail.auditEvents ?? []).toEqual([]);
+      expect(detail.events ?? []).toEqual([]);
+      expect(JSON.stringify(detail)).not.toContain("user_admin");
+    }
+  });
+
+  test("keeps monotonic immutable revisions, deterministic checkpoint diffs, exact-revision decisions, and copied closing lock evidence", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_revision_lender",
+      userId: "user_phase3_revision_lender",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      userId: "user_phase3_revision_lender_2",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 immutable revision proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the initial reviewable revision.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the Phase 3 lender.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    const firstControl = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(firstControl.revisions.map((revision: any) => revision.revisionNumber)).toEqual([
+      1,
+      2,
+    ]);
+    const lenderReviewedSnapshot = structuredClone(
+      firstControl.revisions[1].checkpoints,
+    );
+    await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve revision two.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+
+    const policyInput = {
+      drawApprovalMode: "both" as const,
+      drawLenderQuorum: 2,
+      milestoneApprovalMode: "lender_quorum" as const,
+      milestoneLenderQuorum: 1,
+      milestoneReceiptInvoiceRequired: true,
+      milestoneSiteVisitRequired: false,
+    };
+    const configured = await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-revision-policy-v2",
+        policy: policyInput,
+        proposalId,
+        reason: "Require lender participation in Build reviews.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const configuredRetry = await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-revision-policy-v2",
+        policy: policyInput,
+        proposalId,
+        reason: "Require lender participation in Build reviews.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(configuredRetry).toEqual(configured);
+    expect(configured).toMatchObject({ revisionNumber: 3 });
+
+    const revisedControl = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(revisedControl).toMatchObject({
+      currentRevisionNumber: 3,
+      latestLenderReviewedRevisionNumber: 2,
+    });
+    expect(revisedControl.revisions[1].checkpoints).toEqual(
+      lenderReviewedSnapshot,
+    );
+    expect(revisedControl.revisions[2]).toMatchObject({
+      changedCheckpoints: ["accessReviewPolicy"],
+      priorLenderReviewedRevisionId:
+        revisedControl.revisions[1].proposalRevisionId,
+      revisionNumber: 3,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.publishProposalRevision, {
+        expectedAssignmentId: revisedControl.currentAssignmentId,
+        expectedProposalRevisionNumber: 2,
+        idempotencyKey: "phase3-stale-base-publication",
+        proposalId,
+        reason: "Reject publication from a stale base revision.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Stale proposal revision");
+    const publicationBase = await phase3CommandBaseForTest(t, proposalId);
+    const publications = await Promise.allSettled([
+      t.mutation((api as any).production_proposals.publishProposalRevision, {
+        ...publicationBase,
+        idempotencyKey: "phase3-concurrent-publication-a",
+        proposalId,
+        reason: "Publish competing revision A.",
+        workosOrganizationId: ORG,
+      }),
+      t.mutation((api as any).production_proposals.publishProposalRevision, {
+        ...publicationBase,
+        idempotencyKey: "phase3-concurrent-publication-b",
+        proposalId,
+        reason: "Publish competing revision B.",
+        workosOrganizationId: ORG,
+      }),
+    ]);
+    expect(publications.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(publications.filter((result) => result.status === "rejected")).toHaveLength(1);
+    await expect(
+      t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-stale-lock",
+        proposalId,
+        reason: "Reject the stale revision decision.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Current lender-reviewed proposal revision");
+
+    await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve revision three.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    const locked = await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-final-policy-lock",
+        proposalId,
+        reason: "Lock the lender-confirmed policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const lockRetry = await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-final-policy-lock",
+        proposalId,
+        reason: "Lock the lender-confirmed policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(lockRetry).toEqual(locked);
+    expect(locked.activeLenderMemberCount).toBe(2);
+    const builderViewer = withIdentity(base, ["builder"], "user_builder", ORG);
+    const [builderControl, lenderControl] = await Promise.all([
+      builderViewer.query(
+        (api as any).production_proposals.getProposalPhase3ReviewControl,
+        { proposalId, workosOrganizationId: ORG },
+      ),
+      lenderViewer.query(
+        (api as any).production_proposals.getProposalPhase3ReviewControl,
+        { proposalId, workosOrganizationId: lender.organizationId },
+      ),
+    ]);
+    for (const control of [builderControl, lenderControl]) {
+      expect(control.lock.lockedByWorkosUserId).toBeUndefined();
+      expect(control.lock.reason).toBeUndefined();
+      expect(control.policyVersions[0].configuredByWorkosUserId).toBeUndefined();
+      expect(control.policyVersions[0].reason).toBeUndefined();
+      expect(control.policyVersions[0].idempotencyKey).toBeUndefined();
+      expect(control.policyVersions[0].organizationId).toBeUndefined();
+      expect(control.revisions[0].createdByWorkosUserId).toBeUndefined();
+      expect(
+        control.revisions[0].backOfficeApprovedByWorkosUserId,
+      ).toBeUndefined();
+      expect(control.revisions[0].reason).toBeUndefined();
+      expect(control.revisions[0].idempotencyKey).toBeUndefined();
+      expect(control.revisions[0].organizationId).toBeUndefined();
+      expect(control.lock.idempotencyKey).toBeUndefined();
+      expect(control.lock.organizationId).toBeUndefined();
+    }
+    expect(builderControl.lock.lenderOrganizationId).toBeUndefined();
+    expect(builderControl.lock.activeLenderMemberCount).toBeUndefined();
+    expect(builderControl.lock.eligibleLenderApproverCount).toBeUndefined();
+    expect(builderControl.lock.eligibleLenderApproverCounts).toBeUndefined();
+    expect(lenderControl.lock.lenderOrganizationId).toBe(lender.lenderOrganizationId);
+    expect(lenderControl.lock.eligibleLenderApproverCounts).toEqual({
+      draw: 2,
+      milestone: 2,
+      proposalReview: 2,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-conflicting-second-lock",
+        proposalId,
+        reason: "Reject a second policy lock.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("already locked");
+
+    const closingInput = {
+      buildStartDate: "2026-09-01",
+      ianaTimezone: "America/Toronto",
+      loanFacility: {
+        interestAnnualBps: 900,
+        principalCents: 55_000_000,
+      },
+      proposalId,
+      reason: "Close with the immutable Phase 3 policy.",
+      workosOrganizationId: ORG,
+    };
+    const closingPolicyBase = await phase3CommandBaseForTest(t, proposalId);
+    const [closingRace, policyRace] = await Promise.allSettled([
+      t.mutation(
+        (api as any).production_proposals.recordProposalClosing,
+        closingInput,
+      ),
+      t.mutation(
+        (api as any).production_proposals.configureProposalReviewPolicy,
+        {
+          ...closingPolicyBase,
+          idempotencyKey: "phase3-racing-policy-write",
+          policy: {
+            ...policyInput,
+            milestoneSiteVisitRequired: true,
+          },
+          proposalId,
+          reason: "Race a policy mutation against closing.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ]);
+    expect(closingRace.status).toBe("fulfilled");
+    expect(policyRace.status).toBe("rejected");
+    const activated = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Activate the policy-locked Build.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const build = await base.run((ctx: any) => ctx.db.get(activated.buildId));
+    expect(build).toMatchObject({
+      reviewPolicyLockEvidence: {
+        activeLenderMemberCount: 2,
+        proposalRevisionNumber: 4,
+      },
+      reviewPolicyLockId: locked.policyLockId,
+      reviewPolicySnapshot: {
+        drawApprovalMode: "both",
+        drawLenderQuorum: 2,
+        milestoneApprovalMode: "lender_quorum",
+        milestoneLenderQuorum: 1,
+        milestoneReceiptInvoiceRequired: true,
+        milestoneSiteVisitRequired: false,
+      },
+    });
+  });
+
+  test("accepts every independent approval-mode combination and evidence-switch combination at the command seam", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_mode_lender",
+      userId: "user_phase3_mode_lender",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      userId: "user_phase3_mode_lender_2",
+    });
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    const modes = ["backoffice_only", "lender_quorum", "both"] as const;
+
+    for (const [drawIndex, drawApprovalMode] of modes.entries()) {
+      for (const [milestoneIndex, milestoneApprovalMode] of modes.entries()) {
+        const key = `${drawApprovalMode}-${milestoneApprovalMode}`;
+        const proposalId = await createSubmittedProposal(t, seed, {
+          buildName: `Phase 3 mode ${key}`,
+          capitalSource: "external",
+        });
+        await t.mutation((api as any).production_proposals.approveProposal, {
+          proposalId,
+          reason: `Approve ${key}.`,
+          workosOrganizationId: ORG,
+        });
+        await t.mutation(
+          (api as any).production_proposals.assignExternalLenderOrganization,
+          {
+            lenderOrganizationId: lender.lenderOrganizationId,
+            proposalId,
+            reason: `Assign ${key}.`,
+            workosOrganizationId: ORG,
+          },
+        );
+        const configured = await t.mutation(
+          (api as any).production_proposals.configureProposalReviewPolicy,
+          {
+            ...(await phase3CommandBaseForTest(t, proposalId)),
+            idempotencyKey: `phase3-mode-${key}`,
+            policy: {
+              drawApprovalMode,
+              ...(drawApprovalMode === "backoffice_only"
+                ? {}
+                : { drawLenderQuorum: 2 }),
+              milestoneApprovalMode,
+              ...(milestoneApprovalMode === "backoffice_only"
+                ? {}
+                : { milestoneLenderQuorum: 1 }),
+              milestoneReceiptInvoiceRequired: drawIndex % 2 === 0,
+              milestoneSiteVisitRequired: milestoneIndex % 2 === 1,
+            },
+            proposalId,
+            reason: `Configure ${key}.`,
+            workosOrganizationId: ORG,
+          },
+        );
+        expect(configured.revisionNumber).toBe(3);
+        await lenderViewer.mutation(
+          (api as any).production_proposals.approveExternalProposalForClosing,
+          {
+            proposalId,
+            reason: `Confirm ${key}.`,
+            workosOrganizationId: lender.organizationId,
+          },
+        );
+        const lock = await t.mutation(
+          (api as any).production_proposals.lockProposalReviewPolicy,
+          {
+            ...(await phase3CommandBaseForTest(t, proposalId)),
+            idempotencyKey: `phase3-lock-${key}`,
+            proposalId,
+            reason: `Lock ${key}.`,
+            workosOrganizationId: ORG,
+          },
+        );
+        expect(lock.activeLenderMemberCount).toBe(2);
+      }
+    }
+  });
+
+  test("rejects invalid quorums, stale revision decisions, unauthorized policy writes, and post-lock mutations", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_denial_lender",
+      userId: "user_phase3_denial_lender",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      userId: "user_phase3_denial_lender_2",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender-staff",
+      userId: "user_phase3_denial_staff",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 denial proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the denial fixture.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the denial fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.configureProposalReviewPolicy,
+        {
+          ...(await phase3CommandBaseForTest(t, proposalId)),
+          idempotencyKey: "phase3-builder-policy-write",
+          policy: {
+            drawApprovalMode: "backoffice_only",
+            milestoneApprovalMode: "backoffice_only",
+            milestoneReceiptInvoiceRequired: false,
+            milestoneSiteVisitRequired: false,
+          },
+          proposalId,
+          reason: "Builder cannot configure review policy.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Forbidden");
+    const foreignAdmin = withIdentity(
+      base,
+      ["admin"],
+      "user_phase3_foreign_admin",
+      "org_phase3_foreign",
+    );
+    await expect(
+      foreignAdmin.mutation(
+        (api as any).production_proposals.configureProposalReviewPolicy,
+        {
+          ...(await phase3CommandBaseForTest(t, proposalId)),
+          idempotencyKey: "phase3-foreign-tenant-policy-write",
+          policy: {
+            drawApprovalMode: "backoffice_only",
+            milestoneApprovalMode: "backoffice_only",
+            milestoneReceiptInvoiceRequired: false,
+            milestoneSiteVisitRequired: false,
+          },
+          proposalId,
+          reason: "Foreign tenant cannot configure review policy.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Forbidden");
+    const currentBase = await phase3CommandBaseForTest(t, proposalId);
+    await expect(
+      t.mutation((api as any).production_proposals.configureProposalReviewPolicy, {
+        ...currentBase,
+        expectedAssignmentId: null,
+        idempotencyKey: "phase3-stale-assignment-policy-write",
+        policy: {
+          drawApprovalMode: "backoffice_only",
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: false,
+        },
+        proposalId,
+        reason: "Reject a stale assignment base.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Stale lender assignment");
+    await expect(
+      t.mutation((api as any).production_proposals.configureProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-zero-quorum",
+        policy: {
+          drawApprovalMode: "lender_quorum",
+          drawLenderQuorum: 0,
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: false,
+        },
+        proposalId,
+        reason: "Reject zero quorum.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("positive integer");
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.configureProposalReviewPolicy,
+        {
+          ...(await phase3CommandBaseForTest(t, proposalId)),
+          idempotencyKey: "phase3-too-large-quorum",
+          policy: {
+            drawApprovalMode: "lender_quorum",
+            drawLenderQuorum: 3,
+            milestoneApprovalMode: "both",
+            milestoneLenderQuorum: 3,
+            milestoneReceiptInvoiceRequired: false,
+            milestoneSiteVisitRequired: true,
+          },
+          proposalId,
+          reason: "Reject a quorum that exceeds active membership.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("1 through 2");
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-valid-quorum",
+        policy: {
+          drawApprovalMode: "lender_quorum",
+          drawLenderQuorum: 2,
+          milestoneApprovalMode: "both",
+          milestoneLenderQuorum: 1,
+          milestoneReceiptInvoiceRequired: true,
+          milestoneSiteVisitRequired: true,
+        },
+        proposalId,
+        reason: "Correct the quorum values.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve the valid-quorum revision.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    await base.run(async (ctx: any) => {
+      const assignment = await ctx.db
+        .query("lenderOrganizationAssignments")
+        .withIndex("by_workos_user_and_status", (query: any) =>
+          query
+            .eq("workosUserId", "user_phase3_denial_lender_2")
+            .eq("status", "active"),
+        )
+        .unique();
+      await ctx.db.patch(assignment._id, {
+        status: "inactive",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-membership-change-lock",
+        proposalId,
+        reason: "Revalidate quorum after active membership changes.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("1 through 1");
+    await base.run(async (ctx: any) => {
+      const assignment = await ctx.db
+        .query("lenderOrganizationAssignments")
+        .withIndex("by_workos_user_and_status", (query: any) =>
+          query
+            .eq("workosUserId", "user_phase3_denial_lender_2")
+            .eq("status", "inactive"),
+        )
+        .unique();
+      await ctx.db.patch(assignment._id, {
+        status: "active",
+        updatedAt: Date.now(),
+      });
+    });
+    await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-valid-quorum-v2",
+        policy: {
+          drawApprovalMode: "lender_quorum",
+          drawLenderQuorum: 2,
+          milestoneApprovalMode: "both",
+          milestoneLenderQuorum: 1,
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: true,
+        },
+        proposalId,
+        reason: "Publish another valid policy revision.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-stale-decision-lock",
+        proposalId,
+        reason: "Reject the stale lender decision.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Current lender-reviewed proposal revision");
+    await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve the corrected current revision.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    await t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+      ...(await phase3CommandBaseForTest(t, proposalId)),
+      idempotencyKey: "phase3-valid-lock",
+      proposalId,
+      reason: "Lock the corrected policy.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.publishProposalRevision, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-post-lock-revision",
+        proposalId,
+        reason: "Reject post-lock revision publication.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("after policy lock");
+    await expect(
+      t.mutation((api as any).production_proposals.configureProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-post-lock-policy",
+        policy: {
+          drawApprovalMode: "backoffice_only",
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: false,
+        },
+        proposalId,
+        reason: "Reject post-lock policy mutation.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("after policy lock or closing");
+  });
+
+  test("reports a direct quorum error when an assigned organization has no approval-eligible member", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_staff_only_lender",
+      role: "lender-staff",
+      userId: "user_phase3_staff_only_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 staff-only quorum",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the staff-only quorum fixture.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the staff-only lender organization.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.configureProposalReviewPolicy,
+        {
+          ...(await phase3CommandBaseForTest(t, proposalId)),
+          idempotencyKey: "phase3-staff-only-quorum",
+          policy: {
+            drawApprovalMode: "lender_quorum",
+            drawLenderQuorum: 1,
+            milestoneApprovalMode: "backoffice_only",
+            milestoneReceiptInvoiceRequired: false,
+            milestoneSiteVisitRequired: false,
+          },
+          proposalId,
+          reason: "Reject a quorum with no approval-eligible member.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("no active approval-eligible lender member");
+  });
+
+  test("replays a policy configuration deterministically after more than twenty later revisions", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 delayed policy replay",
+      capitalSource: "internal",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the delayed-replay fixture.",
+      workosOrganizationId: ORG,
+    });
+    const originalBase = await phase3CommandBaseForTest(t, proposalId);
+    const policy = {
+      drawApprovalMode: "backoffice_only" as const,
+      milestoneApprovalMode: "backoffice_only" as const,
+      milestoneReceiptInvoiceRequired: true,
+      milestoneSiteVisitRequired: false,
+    };
+    const first = await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...originalBase,
+        idempotencyKey: "phase3-delayed-policy-replay",
+        policy,
+        proposalId,
+        reason: "Persist the replay anchor.",
+        workosOrganizationId: ORG,
+      },
+    );
+    for (let index = 0; index < 25; index += 1) {
+      await t.mutation(
+        (api as any).production_proposals.publishProposalRevision,
+        {
+          ...(await phase3CommandBaseForTest(t, proposalId)),
+          idempotencyKey: `phase3-delayed-policy-followup-${index}`,
+          proposalId,
+          reason: `Publish follow-up revision ${index}.`,
+          workosOrganizationId: ORG,
+        },
+      );
+    }
+    const replay = await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...originalBase,
+        idempotencyKey: "phase3-delayed-policy-replay",
+        policy,
+        proposalId,
+        reason: "Persist the replay anchor.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toEqual(first);
+  });
+
+  test("serializes policy lock against lender-assignment withdrawal", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_lock_withdraw_lender",
+      userId: "user_phase3_lock_withdraw_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 lock withdrawal race",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the lock-withdrawal race fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the lock-withdrawal race fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve the lock-withdrawal race revision.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    const commandBase = await phase3CommandBaseForTest(t, proposalId);
+    const outcomes = await Promise.allSettled([
+      t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+        ...commandBase,
+        idempotencyKey: "phase3-lock-withdrawal-race",
+        proposalId,
+        reason: "Race policy lock against assignment withdrawal.",
+        workosOrganizationId: ORG,
+      }),
+      t.mutation(
+        (api as any).production_proposals.withdrawExternalLenderAssignment,
+        {
+          assignmentId: assignment.assignmentId,
+          proposalId,
+          reason: "Race assignment withdrawal against policy lock.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ]);
+    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((result) => result.status === "rejected")).toHaveLength(1);
+  });
+
+  test("serializes archive sealing against policy lock and internal closing in both orderings", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_archive_exclusivity",
+      userId: "user_phase3_archive_exclusivity",
+    });
+
+    const lockedProposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 lock before archive",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId: lockedProposalId,
+      reason: "Approve the lock-first archive fixture.",
+      workosOrganizationId: ORG,
+    });
+    const lockedAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId: lockedProposalId,
+        reason: "Assign the lock-first archive fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId: lockedProposalId,
+        reason: "Approve before the lock-first ordering.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    await t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+      ...(await phase3CommandBaseForTest(t, lockedProposalId)),
+      idempotencyKey: "phase3-lock-before-archive",
+      proposalId: lockedProposalId,
+      reason: "Lock before attempting withdrawal.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.withdrawExternalLenderAssignment, {
+        assignmentId: lockedAssignment.assignmentId,
+        proposalId: lockedProposalId,
+        reason: "Do not archive after the lock commits.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("cannot change after policy lock");
+
+    const archivingProposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 archive before lock",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId: archivingProposalId,
+      reason: "Approve the archive-first fixture.",
+      workosOrganizationId: ORG,
+    });
+    const archivingAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId: archivingProposalId,
+        reason: "Assign the archive-first fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const archiveBase = await phase3CommandBaseForTest(t, archivingProposalId);
+    vi.useFakeTimers();
+    await t.mutation((api as any).production_proposals.withdrawExternalLenderAssignment, {
+      assignmentId: archivingAssignment.assignmentId,
+      proposalId: archivingProposalId,
+      reason: "Begin archival before lifecycle writes.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.configureProposalReviewPolicy, {
+        ...archiveBase,
+        idempotencyKey: "phase3-policy-during-archive",
+        policy: {
+          drawApprovalMode: "backoffice_only",
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: true,
+          milestoneSiteVisitRequired: false,
+        },
+        proposalId: archivingProposalId,
+        reason: "Do not configure policy while archival is incomplete.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("archive is still sealing");
+    await expect(
+      t.mutation((api as any).production_proposals.publishProposalRevision, {
+        ...archiveBase,
+        idempotencyKey: "phase3-revision-during-archive",
+        proposalId: archivingProposalId,
+        reason: "Do not publish while archival is incomplete.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("archive is still sealing");
+    await expect(
+      t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+        ...archiveBase,
+        idempotencyKey: "phase3-lock-during-archive",
+        proposalId: archivingProposalId,
+        reason: "Do not lock while archival is incomplete.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("archive is still sealing");
+    await expect(
+      t.mutation((api as any).production_proposals.recordProposalClosing, {
+        buildStartDate: "2026-09-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: { interestAnnualBps: 800, principalCents: 50_000_000 },
+        proposalId: archivingProposalId,
+        reason: "Do not take the internal closing path during archival.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("archive is still sealing");
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+
+    await t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+      ...(await phase3CommandBaseForTest(t, archivingProposalId)),
+      idempotencyKey: "phase3-lock-after-archive",
+      proposalId: archivingProposalId,
+      reason: "Lock the internal path after archival completes.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.recordProposalClosing, {
+        buildStartDate: "2026-09-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: { interestAnnualBps: 800, principalCents: 50_000_000 },
+        proposalId: archivingProposalId,
+        reason: "Close only after archival completes.",
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ closingId: expect.any(String) });
+  });
+
+  test("resolves legacy lender organization identifiers for policy configuration and lock", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_legacy_policy_lender",
+      userId: "user_phase3_legacy_policy_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 legacy policy organization",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the legacy organization fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assigned = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the legacy organization fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const legacyWorkosOrganizationId = "org_legacy_phase3_policy";
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(lender.lenderOrganizationId, { legacyWorkosOrganizationId });
+      await ctx.db.patch(assigned.assignmentId, {
+        lenderOrganizationId: legacyWorkosOrganizationId,
+      });
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.configureProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-legacy-organization-policy",
+        policy: {
+          drawApprovalMode: "backoffice_only",
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: false,
+        },
+        proposalId,
+        reason: "Resolve the legacy organization during policy configuration.",
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ revisionId: expect.any(String) });
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(assigned.assignmentId, {
+        lenderOrganizationId: lender.lenderOrganizationId,
+      });
+    });
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await lenderViewer.mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve before exercising the legacy lock lookup.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(assigned.assignmentId, {
+        lenderOrganizationId: legacyWorkosOrganizationId,
+      });
+    });
+    await expect(
+      t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-legacy-organization-lock",
+        proposalId,
+        reason: "Resolve the legacy organization during policy lock.",
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ policyLockId: expect.any(String) });
+  });
+
+  test("rejects a canonical lender organization from a different Brokerage", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const assignedLender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_brokerage_consistency_assigned",
+      userId: "user_phase3_brokerage_consistency_assigned",
+    });
+    const foreignLender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_brokerage_consistency_foreign",
+      userId: "user_phase3_brokerage_consistency_foreign",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 Brokerage consistency",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before testing malformed cutover data.",
+      workosOrganizationId: ORG,
+    });
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: assignedLender.lenderOrganizationId,
+        proposalId,
+        reason: "Create the correctly scoped assignment first.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(assignment.assignmentId, {
+        lenderOrganizationId: foreignLender.lenderOrganizationId,
+      });
+    });
+
+    await expect(
+      t.mutation((api as any).production_proposals.configureProposalReviewPolicy, {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-cross-brokerage-organization",
+        policy: {
+          drawApprovalMode: "backoffice_only",
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: false,
+        },
+        proposalId,
+        reason: "Reject cross-Brokerage policy ownership.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("legacy organization cutover");
+  });
+
+  test("uses capability-specific quorum denominators and invalidates revoked proposal approval", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_permission_lender",
+      userId: "user_phase3_permission_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 permission-aware quorum",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the permission-aware quorum fixture.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.assignExternalLenderOrganization, {
+      lenderOrganizationId: lender.lenderOrganizationId,
+      proposalId,
+      reason: "Assign the permission-aware lender.",
+      workosOrganizationId: ORG,
+    });
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(lender.lenderOrganizationId, {
+        permissions: { drawDecisions: false, milestoneDecisions: true, proposalReview: true, siteVisitReview: true },
+      });
+    });
+    await expect(t.mutation((api as any).production_proposals.configureProposalReviewPolicy, {
+      ...(await phase3CommandBaseForTest(t, proposalId)),
+      idempotencyKey: "phase3-disabled-draw-capability",
+      policy: {
+        drawApprovalMode: "lender_quorum",
+        drawLenderQuorum: 1,
+        milestoneApprovalMode: "backoffice_only",
+        milestoneReceiptInvoiceRequired: false,
+        milestoneSiteVisitRequired: false,
+      },
+      proposalId,
+      reason: "Reject a quorum for a disabled Draw capability.",
+      workosOrganizationId: ORG,
+    })).rejects.toThrow("no active approval-eligible lender member");
+
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(lender.lenderOrganizationId, {
+        permissions: { drawDecisions: true, milestoneDecisions: true, proposalReview: true, siteVisitReview: true },
+      });
+    });
+    const lenderViewer = withIdentity(base, ["lender-admin"], lender.userId, lender.organizationId);
+    await lenderViewer.mutation((api as any).production_proposals.approveExternalProposalForClosing, {
+      proposalId,
+      reason: "Approve before proposal-review permission is revoked.",
+      workosOrganizationId: lender.organizationId,
+    });
+    await base.run(async (ctx: any) => {
+      await ctx.db.patch(lender.lenderOrganizationId, {
+        permissions: { drawDecisions: true, milestoneDecisions: true, proposalReview: false, siteVisitReview: true },
+      });
+    });
+    await expect(t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
+      ...(await phase3CommandBaseForTest(t, proposalId)),
+      idempotencyKey: "phase3-revoked-proposal-review",
+      proposalId,
+      reason: "Reject a lock after approval eligibility is revoked.",
+      workosOrganizationId: ORG,
+    })).rejects.toThrow("Current lender-reviewed proposal revision");
+  });
+
+  test("seals large withdrawn histories in batches and keeps prior assignment manifests addressable after reassignment", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_large_archive_lender",
+      userId: "user_phase3_large_archive_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 large archive proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the large archive fixture.",
+      workosOrganizationId: ORG,
+    });
+    const firstAssignment = await t.mutation((api as any).production_proposals.assignExternalLenderOrganization, {
+      lenderOrganizationId: lender.lenderOrganizationId,
+      proposalId,
+      reason: "Assign the large archive lender.",
+      workosOrganizationId: ORG,
+    });
+    await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      if (!proposal) throw new Error("Large archive fixture is unavailable.");
+      for (let index = 0; index < 205; index += 1) {
+        const now = Date.now() - 1_000 + index;
+        await ctx.db.insert("proposalDocuments", {
+          brokerageId: proposal.brokerageId,
+          createdAt: now,
+          documentType: "supporting",
+          fileName: `archive-document-${index}.pdf`,
+          mimeType: "application/pdf",
+          organizationId: proposal.organizationId,
+          proposalId,
+          sizeBytes: 100 + index,
+          status: "uploaded",
+          updatedAt: now,
+          uploadedByWorkosUserId: "user_admin",
+        });
+      }
+    });
+    const formerLender = withIdentity(base, ["lender-admin"], lender.userId, lender.organizationId);
+    vi.useFakeTimers();
+    await t.mutation((api as any).production_proposals.withdrawExternalLenderAssignment, {
+      assignmentId: firstAssignment.assignmentId,
+      proposalId,
+      reason: "Freeze a history larger than the former single-mutation cap.",
+      workosOrganizationId: ORG,
+    });
+    await expect(formerLender.query(
+      (api as any).production_proposals.getLenderProposalLifecycleProjection,
+      { assignmentId: firstAssignment.assignmentId, proposalId },
+    )).rejects.toThrow("still sealing");
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+
+    let cursor: string | null = null;
+    let archivedDocumentCount = 0;
+    do {
+      const page: any = await formerLender.query(
+        (api as any).production_proposals.listLenderProposalAssignmentDocuments,
+        { assignmentId: firstAssignment.assignmentId, paginationOpts: { cursor, numItems: 37 }, proposalId },
+      );
+      archivedDocumentCount += page.page.length;
+      cursor = page.isDone ? null : page.continueCursor;
+      if (page.isDone) break;
+    } while (cursor !== null);
+    expect(archivedDocumentCount).toBeGreaterThan(200);
+
+    const secondAssignment = await t.mutation((api as any).production_proposals.assignExternalLenderOrganization, {
+      lenderOrganizationId: lender.lenderOrganizationId,
+      proposalId,
+      reason: "Reassign the same organization for a new interval.",
+      workosOrganizationId: ORG,
+    });
+    expect(secondAssignment.assignmentId).not.toBe(firstAssignment.assignmentId);
+    await expect(formerLender.query(
+      (api as any).production_proposals.getLenderProposalLifecycleProjection,
+      { assignmentId: firstAssignment.assignmentId, proposalId },
+    )).resolves.toMatchObject({ assignment: { assignmentId: firstAssignment.assignmentId, readOnly: true, status: "withdrawn" } });
+    await expect(formerLender.query(
+      (api as any).production_proposals.getLenderProposalLifecycleProjection,
+      { assignmentId: secondAssignment.assignmentId, proposalId },
+    )).resolves.toMatchObject({ assignment: { assignmentId: secondAssignment.assignmentId, readOnly: false, status: "current" } });
+  });
+
+  test("paginates current-lender revisions within the current assignment interval", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_revision_pagination_lender",
+      userId: "user_phase3_revision_pagination_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 assignment-scoped revision pagination",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the multi-interval revision fixture.",
+      workosOrganizationId: ORG,
+    });
+    const firstAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Create the first revision interval.",
+        workosOrganizationId: ORG,
+      },
+    );
+    for (const suffix of ["a", "b"] as const) {
+      await t.mutation(
+        (api as any).production_proposals.publishProposalRevision,
+        {
+          ...(await phase3CommandBaseForTest(t, proposalId)),
+          idempotencyKey: `phase3-first-interval-revision-${suffix}`,
+          proposalId,
+          reason: `Publish first-interval revision ${suffix}.`,
+          workosOrganizationId: ORG,
+        },
+      );
+    }
+    vi.useFakeTimers();
+    await t.mutation(
+      (api as any).production_proposals.withdrawExternalLenderAssignment,
+      {
+        assignmentId: firstAssignment.assignmentId,
+        proposalId,
+        reason: "Seal the first revision interval.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+
+    const secondAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Create the current revision interval.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const secondIntervalStartingRevisionNumber = (
+      await phase3CommandBaseForTest(t, proposalId)
+    ).expectedProposalRevisionNumber;
+    for (const suffix of ["a", "b"] as const) {
+      await t.mutation(
+        (api as any).production_proposals.publishProposalRevision,
+        {
+          ...(await phase3CommandBaseForTest(t, proposalId)),
+          idempotencyKey: `phase3-current-interval-revision-${suffix}`,
+          proposalId,
+          reason: `Publish current-interval revision ${suffix}.`,
+          workosOrganizationId: ORG,
+        },
+      );
+    }
+
+    const lenderViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    let cursor: string | null = null;
+    const visibleRevisions: any[] = [];
+    for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
+      const page: any = await lenderViewer.query(
+        (api as any).production_proposals.listProposalRevisions,
+        {
+          paginationOpts: { cursor, numItems: 1 },
+          proposalId,
+          workosOrganizationId: lender.organizationId,
+        },
+      );
+      expect(page.page).toHaveLength(1);
+      expect(page.page[0].assignmentId).toBe(secondAssignment.assignmentId);
+      visibleRevisions.push(...page.page);
+      if (page.isDone) {
+        break;
+      }
+      cursor = page.continueCursor;
+    }
+    expect(visibleRevisions).toHaveLength(3);
+    expect(
+      visibleRevisions.map((revision) => revision.revisionNumber),
+    ).toEqual([
+      secondIntervalStartingRevisionNumber,
+      secondIntervalStartingRevisionNumber + 1,
+      secondIntervalStartingRevisionNumber + 2,
+    ]);
+  });
+
+  test("serializes document creation against the archive cutover at the same wall-clock time", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_document_archive_cutover",
+      userId: "user_phase3_document_archive_cutover",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 document archive cutover",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the document cutover fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the document cutover fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T18:00:00.000Z"));
+    await t.mutation((api as any).production_proposals.addProposalDocument, {
+      documentType: "supporting",
+      fileName: "before-cutover.pdf",
+      mimeType: "application/pdf",
+      proposalId,
+      sizeBytes: 100,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.withdrawExternalLenderAssignment,
+      {
+        assignmentId: assignment.assignmentId,
+        proposalId,
+        reason: "Freeze the exact document set.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      t.mutation((api as any).production_proposals.addProposalDocument, {
+        documentType: "supporting",
+        fileName: "same-millisecond-after-cutover.pdf",
+        mimeType: "application/pdf",
+        proposalId,
+        sizeBytes: 100,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("archive is still sealing");
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+
+    const formerLender = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    const page: any = await formerLender.query(
+      (api as any).production_proposals.listLenderProposalAssignmentDocuments,
+      {
+        assignmentId: assignment.assignmentId,
+        paginationOpts: { cursor: null, numItems: 20 },
+        proposalId,
+      },
+    );
+    expect(page.page.map((document: any) => document.fileName)).toContain(
+      "before-cutover.pdf",
+    );
+    expect(page.page.map((document: any) => document.fileName)).not.toContain(
+      "same-millisecond-after-cutover.pdf",
+    );
+  });
+
+  test("places a concurrent document transaction on exactly one side of the archive cutover", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_document_archive_race",
+      userId: "user_phase3_document_archive_race",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 document archive race",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the concurrent document cutover fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the concurrent document cutover fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T18:05:00.000Z"));
+    const [withdrawalResult, documentResult] = await Promise.allSettled([
+      t.mutation(
+        (api as any).production_proposals.withdrawExternalLenderAssignment,
+        {
+          assignmentId: assignment.assignmentId,
+          proposalId,
+          reason: "Race the archive cutover against a document transaction.",
+          workosOrganizationId: ORG,
+        },
+      ),
+      t.mutation((api as any).production_proposals.addProposalDocument, {
+        documentType: "supporting",
+        fileName: "concurrent-cutover.pdf",
+        mimeType: "application/pdf",
+        proposalId,
+        sizeBytes: 100,
+        workosOrganizationId: ORG,
+      }),
+    ]);
+    expect(withdrawalResult.status).toBe("fulfilled");
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+
+    const formerLender = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    const page: any = await formerLender.query(
+      (api as any).production_proposals.listLenderProposalAssignmentDocuments,
+      {
+        assignmentId: assignment.assignmentId,
+        paginationOpts: { cursor: null, numItems: 20 },
+        proposalId,
+      },
+    );
+    expect(
+      page.page.some(
+        (document: any) => document.fileName === "concurrent-cutover.pdf",
+      ),
+    ).toBe(documentResult.status === "fulfilled");
+  });
+
+  test("records a failed archive and repairs a legacy missing-policy prerequisite on retry", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_archive_repair",
+      userId: "user_phase3_archive_repair",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 repairable archive",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the archive repair fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assigned = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the archive repair fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      if (proposal?.currentReviewPolicyVersionId) {
+        await ctx.db.delete(proposal.currentReviewPolicyVersionId);
+      }
+      await ctx.db.patch(proposalId, { currentReviewPolicyVersionId: undefined });
+    });
+    vi.useFakeTimers();
+    await t.mutation((api as any).production_proposals.withdrawExternalLenderAssignment, {
+      assignmentId: assigned.assignmentId,
+      proposalId,
+      reason: "Preflight the missing legacy policy and start archival.",
+      workosOrganizationId: ORG,
+    });
+    await base.run(async (ctx: any) => {
+      const manifest = await ctx.db
+        .query("proposalLenderAssignmentManifests")
+        .withIndex("by_assignment", (query: any) =>
+          query.eq("assignmentId", assigned.assignmentId),
+        )
+        .unique();
+      if (!manifest?.reviewPolicyVersionId) {
+        throw new Error("Archive repair manifest did not capture a policy.");
+      }
+      await ctx.db.delete(manifest.reviewPolicyVersionId);
+      await ctx.db.patch(proposalId, { currentReviewPolicyVersionId: undefined });
+    });
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await expect(
+      t.query((api as any).production_proposals.getProposalLenderArchiveStatus, {
+        assignmentId: assigned.assignmentId,
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ attemptCount: 1, status: "failed" });
+    await expect(
+      t.mutation((api as any).production_proposals.retryProposalLenderArchive, {
+        assignmentId: assigned.assignmentId,
+        proposalId,
+        reason: "Repair the missing policy and resume archival.",
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ status: "building" });
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+    await expect(
+      t.query((api as any).production_proposals.getProposalLenderArchiveStatus, {
+        assignmentId: assigned.assignmentId,
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).resolves.toMatchObject({ attemptCount: 1, status: "sealed" });
+    const assignment: any = await base.run((ctx: any) => ctx.db.get(assigned.assignmentId));
+    expect(assignment.status).toBe("withdrawn");
+  });
+
+  test("records and retries deterministic failures in every archive batch phase", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_archive_batch_failures",
+      userId: "user_phase3_archive_batch_failures",
+    });
+    vi.useFakeTimers();
+    for (const [index, failedPhase] of [
+      "documents",
+      "revisions",
+      "decisions",
+    ].entries()) {
+      const proposalId = await createSubmittedProposal(t, seed, {
+        buildName: `Phase 3 ${failedPhase} archive failure`,
+        capitalSource: "external",
+      });
+      await t.mutation((api as any).production_proposals.approveProposal, {
+        proposalId,
+        reason: `Approve the ${failedPhase} archive failure fixture.`,
+        workosOrganizationId: ORG,
+      });
+      const assigned = await t.mutation(
+        (api as any).production_proposals.assignExternalLenderOrganization,
+        {
+          lenderOrganizationId: lender.lenderOrganizationId,
+          proposalId,
+          reason: `Assign the ${failedPhase} archive failure fixture.`,
+          workosOrganizationId: ORG,
+        },
+      );
+      await t.mutation(
+        (api as any).production_proposals.withdrawExternalLenderAssignment,
+        {
+          assignmentId: assigned.assignmentId,
+          proposalId,
+          reason: `Start ${failedPhase} archival.`,
+          workosOrganizationId: ORG,
+        },
+      );
+      const manifestId = await base.run(async (ctx: any) => {
+        const manifest = await ctx.db
+          .query("proposalLenderAssignmentManifests")
+          .withIndex("by_assignment", (query: any) =>
+            query.eq("assignmentId", assigned.assignmentId),
+          )
+          .unique();
+        if (!manifest) throw new Error("Archive failure manifest is unavailable.");
+        return manifest._id;
+      });
+      const phaseSteps = failedPhase === "documents" ? 0 : failedPhase === "revisions" ? 1 : 2;
+      for (let step = 0; step < phaseSteps; step += 1) {
+        await t.mutation(
+          (internal as any).production_proposals.sealLenderAssignmentManifestBatch,
+          { manifestId },
+        );
+      }
+      await base.run(async (ctx: any) => {
+        const manifest = await ctx.db.get(manifestId);
+        expect(manifest?.phase).toBe(failedPhase);
+        await ctx.db.patch(manifestId, { cursor: `invalid-${failedPhase}-${index}` });
+      });
+      await t.mutation(
+        (internal as any).production_proposals.sealLenderAssignmentManifestBatch,
+        { manifestId },
+      );
+      await expect(
+        t.query((api as any).production_proposals.getProposalLenderArchiveStatus, {
+          assignmentId: assigned.assignmentId,
+          proposalId,
+          workosOrganizationId: ORG,
+        }),
+      ).resolves.toMatchObject({
+        attemptCount: 1,
+        failureReason: expect.any(String),
+        phase: failedPhase,
+        status: "failed",
+      });
+      await t.mutation((api as any).production_proposals.retryProposalLenderArchive, {
+        assignmentId: assigned.assignmentId,
+        proposalId,
+        reason: `Retry the ${failedPhase} batch from its safe boundary.`,
+        workosOrganizationId: ORG,
+      });
+      await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await expect(
+        t.query((api as any).production_proposals.getProposalLenderArchiveStatus, {
+          assignmentId: assigned.assignmentId,
+          proposalId,
+          workosOrganizationId: ORG,
+        }),
+      ).resolves.toMatchObject({ attemptCount: 1, status: "sealed" });
+    }
+    vi.useRealTimers();
+  });
+
+  test("backfills legacy policy, revision, and exact approval links idempotently", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_migration_lender",
+      userId: "user_phase3_migration_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 approval migration proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the legacy migration fixture.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the migration fixture lender.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    ).mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve the legacy migration fixture revision.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+
+    await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const approvals = await ctx.db
+        .query("proposalLenderApprovals")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      const revisions = await ctx.db
+        .query("proposalRevisions")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      const policies = await ctx.db
+        .query("proposalReviewPolicyVersions")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      if (!proposal || approvals.length !== 1) {
+        throw new Error("Legacy approval migration fixture is unavailable.");
+      }
+      const {
+        currentProposalRevisionId: _currentRevisionId,
+        currentProposalRevisionNumber: _currentRevisionNumber,
+        currentReviewPolicyVersionId: _currentPolicyVersionId,
+        latestLenderReviewedRevisionId: _latestRevisionId,
+        latestLenderReviewedRevisionNumber: _latestRevisionNumber,
+        ...legacyProposal
+      } = proposal;
+      const {
+        proposalRevisionId: _approvalRevisionId,
+        proposalRevisionNumber: _approvalRevisionNumber,
+        ...legacyApproval
+      } = approvals[0];
+      await ctx.db.replace(proposalId, legacyProposal);
+      await ctx.db.replace(approvals[0]._id, legacyApproval);
+      for (const revision of revisions) await ctx.db.delete(revision._id);
+      for (const policy of policies) await ctx.db.delete(policy._id);
+    });
+
+    await runPhase3LifecycleBackfill(t);
+    await runPhase3LifecycleBackfill(t);
+
+    const migrated = await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const approval = await ctx.db
+        .query("proposalLenderApprovals")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .unique();
+      const policies = await ctx.db
+        .query("proposalReviewPolicyVersions")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      const revisions = await ctx.db
+        .query("proposalRevisions")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      const issues = await ctx.db
+        .query("proposalPhase3MigrationIssues")
+        .withIndex("by_proposal_and_status", (query: any) =>
+          query.eq("proposalId", proposalId).eq("status", "open"),
+        )
+        .collect();
+      return { approval, issues, policies, proposal, revisions };
+    });
+    expect(migrated.policies).toHaveLength(1);
+    expect(migrated.revisions).toHaveLength(1);
+    expect(migrated.approval?.proposalRevisionId).toBe(migrated.revisions[0]._id);
+    expect(migrated.approval?.proposalRevisionNumber).toBe(1);
+    expect(migrated.proposal?.currentReviewPolicyVersionId).toBe(
+      migrated.policies[0]._id,
+    );
+    expect(migrated.proposal?.currentProposalRevisionId).toBe(
+      migrated.revisions[0]._id,
+    );
+    expect(migrated.proposal?.latestLenderReviewedRevisionId).toBe(
+      migrated.revisions[0]._id,
+    );
+    expect(migrated.issues).toHaveLength(0);
+  });
+
+  test("backfills an exact approval revision deterministically beyond one hundred revisions", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_long_revision_history",
+      userId: "user_phase3_long_revision_history",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 long revision history",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the long revision history fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assigned = await t.mutation((api as any).production_proposals.assignExternalLenderOrganization, {
+      lenderOrganizationId: lender.lenderOrganizationId,
+      proposalId,
+      reason: "Assign the long-history lender.",
+      workosOrganizationId: ORG,
+    });
+    const fixture = await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const current = proposal?.currentProposalRevisionId
+        ? await ctx.db.get(proposal.currentProposalRevisionId)
+        : null;
+      if (!proposal || !current) throw new Error("Long revision history fixture is unavailable.");
+      let latestRevisionId = current._id;
+      const origin = Date.now() - 10_000;
+      for (let revisionNumber = 3; revisionNumber <= 112; revisionNumber += 1) {
+        latestRevisionId = await ctx.db.insert("proposalRevisions", {
+          assignmentId: assigned.assignmentId,
+          backOfficeApprovedByWorkosUserId: current.backOfficeApprovedByWorkosUserId,
+          brokerageId: current.brokerageId,
+          changedCheckpoints: [],
+          checkpoints: current.checkpoints,
+          createdAt: origin + revisionNumber,
+          createdByRole: "migration-fixture",
+          createdByWorkosUserId: "user_admin",
+          idempotencyKey: `migration-fixture-long-history-${revisionNumber}`,
+          organizationId: current.organizationId,
+          proposalId,
+          reason: "Seed deterministic historical revision ordering.",
+          revisionNumber,
+          reviewPolicyVersionId: current.reviewPolicyVersionId,
+        });
+      }
+      const decisionAt = origin + 200;
+      const approvalId = await ctx.db.insert("proposalLenderApprovals", {
+        approverRole: "lender-admin",
+        approverWorkosUserId: lender.userId,
+        approvedAt: decisionAt,
+        assignmentId: assigned.assignmentId,
+        brokerageId: proposal.brokerageId,
+        createdAt: decisionAt,
+        lenderOrganizationId: lender.lenderOrganizationId,
+        organizationId: proposal.organizationId,
+        proposalId,
+        status: "approved",
+      });
+      return { approvalId, latestRevisionId };
+    });
+    await runPhase3LifecycleBackfill(t);
+    const approval: any = await base.run((ctx: any) => ctx.db.get(fixture.approvalId));
+    expect(approval?.proposalRevisionId).toBe(fixture.latestRevisionId);
+    expect(approval?.proposalRevisionNumber).toBe(112);
+  });
+
+  test("records an issue instead of guessing between revisions with the same creation time", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_revision_timestamp_tie",
+      userId: "user_phase3_revision_timestamp_tie",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 revision timestamp tie",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before constructing an ambiguous timestamp tie.",
+      workosOrganizationId: ORG,
+    });
+    const assigned = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the timestamp-tie migration fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const approvalId = await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const current = proposal?.currentProposalRevisionId
+        ? await ctx.db.get(proposal.currentProposalRevisionId)
+        : null;
+      if (!proposal || !current) {
+        throw new Error("Timestamp-tie migration fixture is unavailable.");
+      }
+      const createdAt = Date.now() + 1_000;
+      for (const revisionNumber of [3, 4]) {
+        await ctx.db.insert("proposalRevisions", {
+          assignmentId: assigned.assignmentId,
+          backOfficeApprovedByWorkosUserId:
+            current.backOfficeApprovedByWorkosUserId,
+          brokerageId: current.brokerageId,
+          changedCheckpoints: [],
+          checkpoints: current.checkpoints,
+          createdAt,
+          createdByRole: "migration-fixture",
+          createdByWorkosUserId: "user_admin",
+          idempotencyKey: `migration-fixture-timestamp-tie-${revisionNumber}`,
+          organizationId: current.organizationId,
+          proposalId,
+          reason: "Seed an intentionally ambiguous revision timestamp.",
+          revisionNumber,
+          reviewPolicyVersionId: current.reviewPolicyVersionId,
+        });
+      }
+      return await ctx.db.insert("proposalLenderApprovals", {
+        approverRole: "lender-admin",
+        approverWorkosUserId: lender.userId,
+        approvedAt: createdAt + 1,
+        assignmentId: assigned.assignmentId,
+        brokerageId: proposal.brokerageId,
+        createdAt: createdAt + 1,
+        lenderOrganizationId: lender.lenderOrganizationId,
+        organizationId: proposal.organizationId,
+        proposalId,
+        status: "approved",
+      });
+    });
+
+    await runPhase3LifecycleBackfill(t);
+    const result = await base.run(async (ctx: any) => ({
+      approval: await ctx.db.get(approvalId),
+      issues: await ctx.db
+        .query("proposalPhase3MigrationIssues")
+        .withIndex("by_proposal_and_status", (query: any) =>
+          query.eq("proposalId", proposalId).eq("status", "open"),
+        )
+        .collect(),
+    }));
+    expect(result.approval?.proposalRevisionId).toBeUndefined();
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: expect.stringContaining("same creation time"),
+          sourceRecordId: String(approvalId),
+          sourceTable: "proposalLenderApprovals",
+        }),
+      ]),
+    );
+  });
+
+  test("finds a prior reviewed revision behind more than one hundred newer unlinked approvals", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_deep_approval_history",
+      userId: "user_phase3_deep_approval_history",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 deep approval history",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the deep approval history fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assigned = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the deep approval history lender.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const priorRevisionId = await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const revision = proposal?.currentProposalRevisionId
+        ? await ctx.db.get(proposal.currentProposalRevisionId)
+        : null;
+      if (!proposal || !revision) throw new Error("Deep approval history fixture is unavailable.");
+      await ctx.db.patch(proposalId, {
+        latestLenderApprovalId: undefined,
+        latestLenderReviewedRevisionId: undefined,
+        latestLenderReviewedRevisionNumber: undefined,
+      });
+      await ctx.db.insert("proposalLenderApprovals", {
+        approverRole: "lender-admin",
+        approverWorkosUserId: lender.userId,
+        approvedAt: Date.now() - 1_000,
+        assignmentId: assigned.assignmentId,
+        brokerageId: proposal.brokerageId,
+        createdAt: Date.now() - 1_000,
+        lenderOrganizationId: lender.lenderOrganizationId,
+        organizationId: proposal.organizationId,
+        proposalId,
+        proposalRevisionId: revision._id,
+        proposalRevisionNumber: revision.revisionNumber,
+        status: "approved",
+      });
+      for (let index = 0; index < 101; index += 1) {
+        await ctx.db.insert("proposalLenderApprovals", {
+          approverRole: "legacy-lender",
+          approverWorkosUserId: `legacy-unlinked-${index}`,
+          approvedAt: Date.now() + index,
+          assignmentId: assigned.assignmentId,
+          brokerageId: proposal.brokerageId,
+          createdAt: Date.now() + index,
+          lenderOrganizationId: lender.lenderOrganizationId,
+          organizationId: proposal.organizationId,
+          proposalId,
+          status: "approved",
+        });
+      }
+      return revision._id;
+    });
+    const published = await t.mutation(
+      (api as any).production_proposals.publishProposalRevision,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase3-deep-approval-history-publication",
+        proposalId,
+        reason: "Publish against the older linked review anchor.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const revision: any = await base.run((ctx: any) => ctx.db.get(published.revisionId));
+    expect(revision.priorLenderReviewedRevisionId).toBe(priorRevisionId);
+  });
+
+  test("records multiple-current-assignment migration ambiguity and continues without linking a revision", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_multiple_current_migration",
+      userId: "user_phase3_multiple_current_migration",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 multiple current migration",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before constructing ambiguous legacy state.",
+      workosOrganizationId: ORG,
+    });
+    await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      if (!proposal) throw new Error("Multiple-current migration fixture is unavailable.");
+      for (let index = 0; index < 2; index += 1) {
+        await ctx.db.insert("proposalLenderAssignments", {
+          assignedAt: Date.now() + index,
+          assignedByRole: "admin",
+          assignedByWorkosUserId: "user_admin",
+          brokerageId: proposal.brokerageId,
+          createdAt: Date.now() + index,
+          lenderBrokerageId: lender.brokerageId,
+          lenderOrganizationId: lender.lenderOrganizationId,
+          lenderOrganizationName: `Ambiguous lender ${index}`,
+          organizationId: proposal.organizationId,
+          proposalId,
+          status: "current",
+        });
+      }
+      const revisions = await ctx.db.query("proposalRevisions").withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId)).collect();
+      const policies = await ctx.db.query("proposalReviewPolicyVersions").withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId)).collect();
+      for (const revision of revisions) await ctx.db.delete(revision._id);
+      for (const policy of policies) await ctx.db.delete(policy._id);
+      await ctx.db.patch(proposalId, {
+        currentProposalRevisionId: undefined,
+        currentProposalRevisionNumber: undefined,
+        currentReviewPolicyVersionId: undefined,
+      });
+    });
+    await expect(runPhase3LifecycleBackfill(t)).resolves.toBeUndefined();
+    const result = await base.run(async (ctx: any) => ({
+      issues: await ctx.db.query("proposalPhase3MigrationIssues")
+        .withIndex("by_proposal_and_status", (query: any) => query.eq("proposalId", proposalId).eq("status", "open")).collect(),
+      proposal: await ctx.db.get(proposalId),
+    }));
+    expect(result.proposal?.currentProposalRevisionId).toBeUndefined();
+    expect(result.issues).toEqual([expect.objectContaining({ sourceTable: "buildProposals", status: "open" })]);
+  });
+
+  test("backfills a closed Build policy lock and copied evidence idempotently", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Phase 3 closed Build migration",
+    });
+    const fixture = await base.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      const proposal = build ? await ctx.db.get(build.proposalId) : null;
+      const proposalClosing = proposal
+        ? await ctx.db
+            .query("proposalClosings")
+            .withIndex("by_proposal", (query: any) =>
+              query.eq("proposalId", proposal._id),
+            )
+            .unique()
+        : null;
+      if (!build || !proposal || !proposalClosing) {
+        throw new Error("Closed Build migration fixture is unavailable.");
+      }
+      const revisions = await ctx.db
+        .query("proposalRevisions")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposal._id))
+        .collect();
+      const policies = await ctx.db
+        .query("proposalReviewPolicyVersions")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposal._id))
+        .collect();
+      const locks = await ctx.db
+        .query("proposalReviewPolicyLocks")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposal._id))
+        .collect();
+      const {
+        currentProposalRevisionId: _currentRevisionId,
+        currentProposalRevisionNumber: _currentRevisionNumber,
+        currentReviewPolicyVersionId: _currentPolicyVersionId,
+        lockedReviewPolicyId: _lockedReviewPolicyId,
+        ...legacyProposal
+      } = proposal;
+      const { reviewPolicyLockId: _closingLockId, ...legacyClosing } =
+        proposalClosing;
+      const {
+        reviewPolicyLockEvidence: _lockEvidence,
+        reviewPolicyLockId: _buildLockId,
+        reviewPolicySnapshot: _policySnapshot,
+        ...legacyBuild
+      } = build;
+      await ctx.db.replace(proposal._id, legacyProposal);
+      await ctx.db.replace(proposalClosing._id, legacyClosing);
+      await ctx.db.replace(build._id, legacyBuild);
+      for (const lock of locks) await ctx.db.delete(lock._id);
+      for (const revision of revisions) await ctx.db.delete(revision._id);
+      for (const policy of policies) await ctx.db.delete(policy._id);
+      return { proposalId: proposal._id };
+    });
+
+    await runPhase3LifecycleBackfill(t);
+    await base.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      const proposalClosing = await ctx.db
+        .query("proposalClosings")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", fixture.proposalId),
+        )
+        .unique();
+      if (!build || !proposalClosing) {
+        throw new Error("Migrated policy-lock linkage fixture is unavailable.");
+      }
+      const { reviewPolicyLockId: _closingLockId, ...closingWithoutLock } =
+        proposalClosing;
+      const {
+        reviewPolicyLockEvidence: _lockEvidence,
+        reviewPolicyLockId: _buildLockId,
+        reviewPolicySnapshot: _policySnapshot,
+        ...buildWithoutLock
+      } = build;
+      await ctx.db.replace(proposalClosing._id, closingWithoutLock);
+      await ctx.db.replace(build._id, buildWithoutLock);
+    });
+    await runPhase3LifecycleBackfill(t);
+
+    const migrated = await base.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(fixture.proposalId);
+      const build = await ctx.db.get(closing.buildId);
+      const proposalClosing = await ctx.db
+        .query("proposalClosings")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", fixture.proposalId),
+        )
+        .unique();
+      const locks = await ctx.db
+        .query("proposalReviewPolicyLocks")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", fixture.proposalId),
+        )
+        .collect();
+      const issues = await ctx.db
+        .query("proposalPhase3MigrationIssues")
+        .withIndex("by_proposal_and_status", (query: any) =>
+          query.eq("proposalId", fixture.proposalId).eq("status", "open"),
+        )
+        .collect();
+      return { build, issues, locks, proposal, proposalClosing };
+    });
+    expect(migrated.locks).toHaveLength(1);
+    expect(migrated.proposal?.lockedReviewPolicyId).toBe(migrated.locks[0]._id);
+    expect(migrated.proposalClosing?.reviewPolicyLockId).toBe(
+      migrated.locks[0]._id,
+    );
+    expect(migrated.build?.reviewPolicyLockId).toBe(migrated.locks[0]._id);
+    expect(migrated.build?.reviewPolicyLockEvidence).toMatchObject({
+      activeLenderMemberCount: 0,
+      eligibleLenderApproverCount: 0,
+      proposalRevisionNumber: 1,
+    });
+    expect(migrated.issues).toHaveLength(0);
+  });
+
+  test("does not fabricate historical external quorum evidence from current membership", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_historical_quorum_lender",
+      userId: "user_phase3_historical_quorum_lender",
+    });
+    const closing = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Phase 3 historical quorum non-fabrication",
+    });
+    const proposalId = await base.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      const proposal = build ? await ctx.db.get(build.proposalId) : null;
+      if (!build || !proposal) throw new Error("Historical quorum fixture is unavailable.");
+      const proposalClosing = await ctx.db.query("proposalClosings")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposal._id)).unique();
+      const locks = await ctx.db.query("proposalReviewPolicyLocks")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposal._id)).collect();
+      for (const lock of locks) await ctx.db.delete(lock._id);
+      await ctx.db.patch(proposal._id, { lockedReviewPolicyId: undefined });
+      if (proposalClosing) await ctx.db.patch(proposalClosing._id, { reviewPolicyLockId: undefined });
+      await ctx.db.patch(build._id, {
+        reviewPolicyLockEvidence: undefined,
+        reviewPolicyLockId: undefined,
+        reviewPolicySnapshot: undefined,
+      });
+      await ctx.db.insert("proposalLenderAssignments", {
+        assignedAt: proposal.closedAt ?? Date.now(),
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: proposal.brokerageId,
+        createdAt: proposal.closedAt ?? Date.now(),
+        lenderBrokerageId: lender.brokerageId,
+        lenderOrganizationId: lender.lenderOrganizationId,
+        lenderOrganizationName: "Historical current lender",
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        status: "current",
+      });
+      return proposal._id;
+    });
+    await expect(runPhase3LifecycleBackfill(t)).resolves.toBeUndefined();
+    const result = await base.run(async (ctx: any) => ({
+      issues: await ctx.db.query("proposalPhase3MigrationIssues")
+        .withIndex("by_proposal_and_status", (query: any) => query.eq("proposalId", proposalId).eq("status", "open")).collect(),
+      locks: await ctx.db.query("proposalReviewPolicyLocks")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId)).collect(),
+    }));
+    expect(result.locks).toEqual([]);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        reason: expect.stringContaining("cannot be proven"),
+        sourceTable: "proposalClosings",
+        status: "open",
+      }),
+    ]));
+  });
+
+  test("supports an audited operator activation override for an unprovable legacy closing lock", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_legacy_activation_resolution",
+      userId: "user_phase3_legacy_activation_resolution",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 legacy activation resolution",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the legacy activation fixture.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the legacy activation fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    ).mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve the current revision before closing.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    const lock = await lockProposalReviewPolicyForTest(
+      t,
+      proposalId,
+      "legacy-activation-resolution",
+    );
+    await t.mutation((api as any).production_proposals.recordProposalClosing, {
+      buildStartDate: "2026-09-15",
+      ianaTimezone: "America/Toronto",
+      loanFacility: { interestAnnualBps: 875, principalCents: 55_000_000 },
+      proposalId,
+      reason: "Record the original closing before simulating legacy loss.",
+      workosOrganizationId: ORG,
+    });
+    await base.run(async (ctx: any) => {
+      const closing = await ctx.db
+        .query("proposalClosings")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .unique();
+      if (!closing) throw new Error("Legacy activation closing is unavailable.");
+      await ctx.db.patch(closing._id, { reviewPolicyLockId: undefined });
+      await ctx.db.patch(proposalId, { lockedReviewPolicyId: undefined });
+      await ctx.db.delete(lock.policyLockId);
+    });
+    await runPhase3LifecycleBackfill(t);
+    const issue = (await base.run((ctx: any) =>
+      ctx.db
+        .query("proposalPhase3MigrationIssues")
+        .withIndex("by_proposal_and_status", (query: any) =>
+          query.eq("proposalId", proposalId).eq("status", "open"),
+        )
+        .filter((query: any) =>
+          query.eq(query.field("sourceTable"), "proposalClosings"),
+        )
+        .unique(),
+    )) as Doc<"proposalPhase3MigrationIssues"> | null;
+    expect(issue).toBeDefined();
+    await expect(
+      t.mutation((api as any).production_proposals.activateClosedProposal, {
+        proposalId,
+        reason: "Do not activate before operator resolution.",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("missing its review policy lock");
+
+    const resolutionInput = {
+      evidenceReference: "closing-file://legacy-activation-resolution",
+      issueId: issue!._id,
+      proposalId,
+      reason:
+        "Back Office reviewed the signed closing file and authorizes activation as an explicit legacy exception without reconstructed quorum evidence.",
+      workosOrganizationId: ORG,
+    };
+    const resolved = await t.mutation(
+      (api as any).production_proposals.resolveLegacyClosedProposalActivation,
+      resolutionInput,
+    );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.resolveLegacyClosedProposalActivation,
+        resolutionInput,
+      ),
+    ).resolves.toEqual(resolved);
+    const activated = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Activate using the audited legacy exception.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const result = await base.run(async (ctx: any) => ({
+      build: await ctx.db.get(activated.buildId),
+      issue: await ctx.db.get(issue!._id),
+      events: await ctx.db
+        .query("proposalEvents")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect(),
+    }));
+    expect(result.issue).toMatchObject({
+      resolutionMode: "operator_activation_override",
+      resolvedByWorkosUserId: "user_admin",
+      status: "resolved",
+    });
+    expect(result.build).toMatchObject({
+      legacyPolicyResolutionIssueId: issue!._id,
+      proposalId,
+    });
+    expect(result.build?.reviewPolicyLockId).toBeUndefined();
+    expect(result.events.map((event: any) => event.eventType)).toContain(
+      "proposal.legacy_policy_activation_resolved",
+    );
+  });
+
+  test("records an observable issue instead of guessing an ambiguous historical approval revision", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase3_ambiguous_migration_lender",
+      userId: "user_phase3_ambiguous_migration_lender",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 3 ambiguous migration proposal",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the ambiguous migration fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the ambiguous migration fixture.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    ).mutation(
+      (api as any).production_proposals.approveExternalProposalForClosing,
+      {
+        proposalId,
+        reason: "Approve before the historical assignment is withdrawn.",
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.withdrawExternalLenderAssignment,
+      {
+        assignmentId: assignment.assignmentId,
+        proposalId,
+        reason: "Withdraw before simulating the legacy migration shape.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await base.run(async (ctx: any) => {
+      const approval = await ctx.db
+        .query("proposalLenderApprovals")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .unique();
+      const revisions = await ctx.db
+        .query("proposalRevisions")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect();
+      if (!approval) throw new Error("Ambiguous approval fixture is unavailable.");
+      const {
+        proposalRevisionId: _approvalRevisionId,
+        proposalRevisionNumber: _approvalRevisionNumber,
+        ...legacyApproval
+      } = approval;
+      await ctx.db.replace(approval._id, legacyApproval);
+      for (const revision of revisions) await ctx.db.delete(revision._id);
+    });
+
+    await runPhase3LifecycleBackfill(t);
+    const result = await base.run(async (ctx: any) => {
+      const approval = await ctx.db
+        .query("proposalLenderApprovals")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .unique();
+      const issues = await ctx.db
+        .query("proposalPhase3MigrationIssues")
+        .withIndex("by_proposal_and_status", (query: any) =>
+          query.eq("proposalId", proposalId).eq("status", "open"),
+        )
+        .collect();
+      return { approval, issues };
+    });
+    expect(result.approval?.proposalRevisionId).toBeUndefined();
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        sourceTable: "proposalLenderApprovals",
+        status: "open",
+      }),
+    ]);
+  });
 });
 
 function asIdentity(
@@ -337,6 +2858,56 @@ async function seedExternalLenderOrganization(
   });
 }
 
+async function seedAdditionalLenderOrganizationMember(
+  t: any,
+  input: {
+    brokerageId: any;
+    lenderOrganizationId: any;
+    role?: "lender" | "lender-admin" | "lender-staff";
+    userId: string;
+  },
+) {
+  await t.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.insert("users", {
+      authId: input.userId,
+      createdAt: now,
+      email: `${input.userId}@example.com`,
+      name: input.userId,
+      sourceEventId: `test_${input.userId}_created`,
+      sourceEventType: "user.created",
+      status: "active",
+      updatedAt: now,
+      workosUserId: input.userId,
+    });
+    await ctx.db.insert("workosOrganizationMemberships", {
+      createdAt: now,
+      directoryManaged: false,
+      roleSlug: input.role ?? "lender",
+      roleSlugs: [input.role ?? "lender"],
+      sourceEventId: `test_${input.userId}_membership`,
+      sourceEventType: "organization_membership.created",
+      status: "active",
+      updatedAt: now,
+      workosMembershipId: `om_${input.userId}`,
+      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      workosUserId: input.userId,
+    });
+    await ctx.db.insert("lenderOrganizationAssignments", {
+      assignedAt: now,
+      assignedByRole: "admin",
+      assignedByWorkosUserId: "user_admin",
+      brokerageId: input.brokerageId,
+      lenderOrganizationId: input.lenderOrganizationId,
+      normalizedEmail: `${input.userId}@example.com`,
+      reason: "Seed an additional active lender member.",
+      status: "active",
+      updatedAt: now,
+      workosUserId: input.userId,
+    });
+  });
+}
+
 async function runAuditEventBuildIdBackfill(t: any) {
   let cursor: string | null = null;
   let isDone = false;
@@ -348,6 +2919,28 @@ async function runAuditEventBuildIdBackfill(t: any) {
       );
     cursor = result.continueCursor;
     isDone = result.isDone;
+  }
+}
+
+async function runPhase3LifecycleBackfill(t: any) {
+  for (const migrationName of [
+    "backfillProposalPhase3PolicyAndRevision",
+    "backfillProposalPhase3ApprovalRevision",
+    "backfillProposalPhase3PolicyLock",
+  ]) {
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone) {
+      const result: { continueCursor: string; isDone: boolean } =
+        await t.mutation((internal as any).migrations[migrationName], {
+          batchSize: 25,
+          cursor,
+          dryRun: false,
+          oneBatchOnly: true,
+        });
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+    }
   }
 }
 
@@ -425,7 +3018,50 @@ async function submitProposalForTest(
   });
 }
 
+async function phase3CommandBaseForTest(
+  t: any,
+  proposalId: any,
+  workosOrganizationId = ORG,
+) {
+  const control = await t.query(
+    (api as any).production_proposals.getProposalPhase3ReviewControl,
+    { proposalId, workosOrganizationId },
+  );
+  return {
+    expectedAssignmentId: control.currentAssignmentId,
+    expectedProposalRevisionNumber: control.currentRevisionNumber,
+  };
+}
+
+async function lockProposalReviewPolicyForTest(
+  t: any,
+  proposalId: any,
+  suffix = "default",
+  workosOrganizationId = ORG,
+) {
+  return await t.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      ...(await phase3CommandBaseForTest(
+        t,
+        proposalId,
+        workosOrganizationId,
+      )),
+      idempotencyKey: `test-policy-lock:${String(proposalId)}:${suffix}`,
+      proposalId,
+      reason: "Lock the review policy for the closing test.",
+      workosOrganizationId,
+    },
+  );
+}
+
 async function closeAndActivateProposal(t: any, input: any) {
+  await lockProposalReviewPolicyForTest(
+    t,
+    input.proposalId,
+    "default",
+    input.workosOrganizationId,
+  );
   await t.mutation(
     (api as any).production_proposals.recordProposalClosing,
     input,
@@ -1035,7 +3671,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.listProposalLenderAssignmentHistory,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(history.assignments).toEqual([
+    expect(history.page).toEqual([
       expect.objectContaining({
         assignmentId: assigned.assignmentId,
         lenderOrganizationId: lender.lenderOrganizationId,
@@ -1079,7 +3715,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.listProposalLenderAssignmentHistory,
       { proposalId: concurrentProposalId, workosOrganizationId: ORG },
     );
-    expect(concurrentHistory.assignments).toHaveLength(1);
+    expect(concurrentHistory.page).toHaveLength(1);
 
     const lenderViewer = withIdentity(
       base,
@@ -1093,7 +3729,7 @@ describe("production proposal foundation", () => {
         { proposalId },
       ),
     ).resolves.toMatchObject({
-      assignments: [
+      page: [
         expect.objectContaining({
           assignmentId: assigned.assignmentId,
           status: "current",
@@ -1150,6 +3786,7 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    vi.useFakeTimers();
     await t.mutation(
       (api as any).production_proposals.withdrawExternalLenderAssignment,
       {
@@ -1159,6 +3796,8 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
     await expect(
       t.mutation(
         (api as any).production_proposals.withdrawExternalLenderAssignment,
@@ -1195,19 +3834,29 @@ describe("production proposal foundation", () => {
       { proposalId },
     );
     expect(formerHistory).toMatchObject({
-      assignments: [
+      page: [
         expect.objectContaining({
           assignmentId: assigned.assignmentId,
           status: "withdrawn",
         }),
       ],
     });
-    expect(formerHistory.assignments[0]?.withdrawalReason).toBeUndefined();
-    expect(formerHistory.assignments[0]?.withdrawnByWorkosUserId).toBeUndefined();
+    expect(formerHistory.page[0]?.withdrawalReason).toBeUndefined();
+    expect(formerHistory.page[0]?.withdrawnByWorkosUserId).toBeUndefined();
     const formerLenderProjection = await formerLender.query(
       (api as any).production_proposals.getLenderProposalLifecycleProjection,
-      { proposalId },
+      { assignmentId: assigned.assignmentId, proposalId },
     );
+    const [frozenDocuments, frozenRevisions] = await Promise.all([
+      formerLender.query(
+        (api as any).production_proposals.listLenderProposalAssignmentDocuments,
+        { assignmentId: assigned.assignmentId, paginationOpts: { cursor: null, numItems: 50 }, proposalId },
+      ),
+      formerLender.query(
+        (api as any).production_proposals.listLenderProposalAssignmentRevisions,
+        { assignmentId: assigned.assignmentId, paginationOpts: { cursor: null, numItems: 50 }, proposalId },
+      ),
+    ]);
     expect(formerLenderProjection).toMatchObject({
       assignment: {
         assignmentId: assigned.assignmentId,
@@ -1217,9 +3866,85 @@ describe("production proposal foundation", () => {
       lifecycle: {
         externalAssignment: "withdrawn",
       },
+      snapshot: {
+        proposal: {
+          buildName: "Withdrawal assignment proposal",
+          location: "18 Assignment History Road",
+          status: "approved",
+        },
+      },
     });
+    expect(frozenDocuments.page).toEqual([expect.objectContaining({ fileName: "assignment-permit.pdf" })]);
+    expect(frozenRevisions.page).toEqual(expect.arrayContaining([expect.objectContaining({ assignmentId: assigned.assignmentId, revisionNumber: 2 })]));
     expect(formerLenderProjection.assignment.withdrawalReason).toBeUndefined();
 
+    await base.run(async (ctx: any) => {
+      const documents = await ctx.db
+        .query("proposalDocuments")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .take(10);
+      await ctx.db.patch(proposalId, {
+        buildName: "Internal-only revised proposal",
+        updatedAt: Date.now(),
+        updatedByWorkosUserId: "user_admin",
+      });
+      await ctx.db.patch(documents[0]._id, {
+        fileName: "internal-only-renamed-permit.pdf",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("proposalDocuments", {
+        brokerageId: seed.brokerageId,
+        createdAt: Date.now(),
+        documentType: "supporting",
+        fileName: "internal-only-document.pdf",
+        mimeType: "application/pdf",
+        organizationId: ORG,
+        proposalId,
+        sizeBytes: 128,
+        status: "uploaded",
+        updatedAt: Date.now(),
+        uploadedByWorkosUserId: "user_admin",
+      });
+    });
+    await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "withdrawn-internal-only-policy",
+        policy: {
+          drawApprovalMode: "backoffice_only",
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: true,
+          milestoneSiteVisitRequired: true,
+        },
+        proposalId,
+        reason: "Change policy after the lender assignment period ended.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const frozenProjection = await formerLender.query(
+      (api as any).production_proposals.getLenderProposalLifecycleProjection,
+      { assignmentId: assigned.assignmentId, proposalId },
+    );
+    expect(frozenProjection.snapshot).toEqual(formerLenderProjection.snapshot);
+    const frozenDocumentsAfter = await formerLender.query(
+      (api as any).production_proposals.listLenderProposalAssignmentDocuments,
+      { assignmentId: assigned.assignmentId, paginationOpts: { cursor: null, numItems: 50 }, proposalId },
+    );
+    const frozenRevisionsAfter = await formerLender.query(
+      (api as any).production_proposals.listLenderProposalAssignmentRevisions,
+      { assignmentId: assigned.assignmentId, paginationOpts: { cursor: null, numItems: 50 }, proposalId },
+    );
+    expect(
+      frozenDocumentsAfter.page.map((document: any) => document.fileName),
+    ).not.toContain("internal-only-document.pdf");
+    expect(
+      frozenRevisionsAfter.page.map((revision: any) =>
+        revision.revisionNumber,
+      ),
+    ).not.toContain(4);
+
+    await lockProposalReviewPolicyForTest(t, proposalId, "withdrawn");
     const closing = await t.mutation(
       (api as any).production_proposals.recordProposalClosing,
       {
@@ -1358,6 +4083,7 @@ describe("production proposal foundation", () => {
       workosOrganizationId: ORG,
     });
 
+    await lockProposalReviewPolicyForTest(t, proposalId, "separate-close");
     const closing = await t.mutation(
       (api as any).production_proposals.recordProposalClosing,
       {
@@ -1496,7 +4222,7 @@ describe("production proposal foundation", () => {
     expect(approval.approvalId).toBeDefined();
     const lenderProjection = await lenderViewer.query(
       (api as any).production_proposals.getLenderProposalLifecycleProjection,
-      { proposalId },
+      { assignmentId: assignment.assignmentId, proposalId },
     );
     expect(lenderProjection).toMatchObject({
       assignment: {
@@ -1552,6 +4278,8 @@ describe("production proposal foundation", () => {
         },
       ),
     ).rejects.toThrow("already recorded");
+
+    await lockProposalReviewPolicyForTest(t, proposalId, "external-close");
 
     await base.run(async (ctx: any) => {
       const memberships = await ctx.db
@@ -5423,10 +8151,10 @@ describe("production proposal foundation", () => {
       { proposalId, workosOrganizationId: ORG },
     );
     expect(detail.proposal).toMatchObject({
-      assignedBrokerWorkosUserId: "user_broker",
       buildName: "Builder-created production proposal",
-      createdByWorkosUserId: "user_builder",
     });
+    expect(detail.proposal.assignedBrokerWorkosUserId).toBeUndefined();
+    expect(detail.proposal.createdByWorkosUserId).toBeUndefined();
   });
 
   test("builder proposal creation context includes seeded Garden Suite template", async () => {

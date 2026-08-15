@@ -467,6 +467,85 @@ gate if the checkout changes before Phase 1 product implementation.
 - A closed Build always has one immutable review-policy snapshot.
 - The current proposal revision and the revision reviewed by the lender are unambiguous.
 
+### Existing-data backfill
+
+Phase 3 includes an idempotent, non-destructive lifecycle backfill for records
+created before policy versions, proposal revisions, exact-revision lender
+approvals, and closing policy locks were stored. Preview it first with:
+
+```sh
+bun x convex run migrations:runProposalPhase3LifecycleBackfill '{"dryRun":true}'
+```
+
+After reviewing the dry-run output, apply it with:
+
+```sh
+bun x convex run migrations:runProposalPhase3LifecycleBackfill
+```
+
+Run the legacy lender-organization cutover first when legacy WorkOS
+organization identifiers remain. The Phase 3 runner is safe to retry and does
+not guess when historical evidence is ambiguous. It records those cases in
+`proposalPhase3MigrationIssues` for operator reconciliation. The backfill only
+derives lifecycle state from stored proposal, assignment, approval, closing,
+and active-Build evidence; it does not create withdrawn-assignment manifests
+that were never captured at withdrawal time. Do not execute the production
+runner without the normal deployment review and dry-run workflow.
+
+The exact-approval compound index is deployed as a staged index. Runtime
+commands use the proposal's durable latest-approval pointer and the existing
+proposal/assignment/status index, so they do not depend on the staged index
+while Convex backfills it. The safe rollout is: deploy the staged schema and
+compatible runtime; wait for the Convex dashboard to report the index ready;
+then remove `staged: true` in a later reviewed deployment before any runtime
+query is changed to require that index. The Phase 3 backfill instead uses the
+revision table's assignment/creation-time index to find the exact revision at
+or before a legacy decision without a numeric history cap.
+
+The WorkOS user projection also adds an optional `normalizedEmail` key and a
+staged `by_normalized_email` index. New webhook projections populate the key.
+Preview and run `migrations:runWorkosUserNormalizedEmailBackfill` before making
+that index queryable, wait for Convex to report the staged index ready, then
+remove `staged: true` in a later reviewed schema deployment. Until that cutover,
+Lender Organization assignment and invitation reconciliation use one bounded
+compatibility snapshot and fail closed above the existing 500-user directory
+boundary; they never fall back to a case-sensitive identity choice.
+
+The backfill never reconstructs historical lender quorum evidence from current
+memberships or permissions. A closed external proposal without a stored valid
+lock is recorded as an open migration issue. Multiple current assignments,
+unverifiable revision/policy/assignment linkage, and other recoverable legacy
+ambiguities are also recorded per proposal so the runner can continue. These
+records require operator reconciliation; the runner does not fabricate facts.
+For a closed proposal whose original policy lock cannot be proven, an
+authorized Back Office approver may resolve the exact closing-scoped issue with
+an evidence reference and required reason. Activation then records that
+operator-approved legacy exception on the closing and Build instead of creating
+quorum or policy evidence that did not exist. This resolution is idempotent and
+audited.
+
+Withdrawals revoke lender access in the initiating transaction and seal the
+immutable assignment manifest in bounded scheduled batches. The document
+cutover is an indexed Convex transaction boundary based on document creation
+order, not a wall-clock timestamp. A deterministic failure in any batch phase
+stores the failed phase, reason, attempt count, and last-attempt time. An
+authorized Back Office retry resumes the same manifest idempotently; incomplete
+or failed manifests remain unreadable to the former lender until fully sealed.
+
+New withdrawals use an access-revoking `archiving` interval state and a
+resumable, bounded manifest sealer. Only a fully sealed manifest is exposed as
+the withdrawn read-only record. Documents, revisions, decisions, assignment
+history, and revision milestones are read through cursor-based projections;
+no history is truncated to make withdrawal succeed.
+
+Policy configuration, revision publication, policy lock, lender confirmation,
+and closing reject while an assignment is `archiving`. A finalization failure
+is stored as an observable `failed` manifest with its attempt metadata while
+lender access remains revoked. Back Office can inspect it through
+`getProposalLenderArchiveStatus` and request an idempotent repair/resume through
+`retryProposalLenderArchive`; the retry repairs a missing default policy pointer
+before scheduling the next bounded sealing step.
+
 ## Phase 4 — Implement the guided lender confirmation flow
 
 **Depends on:** Phase 3 checkpoint snapshots and policy lock data.

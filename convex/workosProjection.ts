@@ -109,6 +109,7 @@ const userRow = v.object({
   _creationTime: v.number(),
   authId: v.string(),
   email: v.string(),
+  normalizedEmail: v.optional(v.string()),
   name: v.string(),
   status: v.optional(v.string()),
   workosUserId: v.optional(v.string()),
@@ -864,6 +865,11 @@ async function upsertUser(
     row,
     "email" in data
   );
+  const projectedEmail = patch.email ?? row?.email;
+  if (projectedEmail !== undefined) {
+    const normalizedEmail = projectedEmail.trim().toLowerCase();
+    patch.normalizedEmail = normalizedEmail || undefined;
+  }
   patchIfProvided(
     patch,
     "emailVerified",

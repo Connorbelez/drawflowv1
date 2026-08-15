@@ -122,6 +122,17 @@ async function createActiveBuild(t: any, seed: any) {
     reason: "Assistant test approval.",
     workosOrganizationId: ORG,
   });
+  await t.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `assistant-build-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the assistant Build fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
   await t.mutation((api as any).production_proposals.recordProposalClosing, {
     buildStartDate: "2026-05-01",
     ianaTimezone: "America/Toronto",

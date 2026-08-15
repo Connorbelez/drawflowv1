@@ -5,15 +5,6 @@ Handoff ID: LP-HO-P3
 Status: ready; no work package is authorized to start by this
 document alone.
 
-## Phase 1 baseline
-
-This handoff uses the accepted Phase 1 product SHA
-`6ba68e82a7c445074b11ae7f08f3c901a3c3b2b9`, certified by `LP-P1-05`.
-
-The candidate establishes active-organization scope, canonical WorkOS
-membership eligibility, organization-management operations, and named later
-consumer inputs. Phase 3 must confirm those interfaces on its actual target
-checkout before implementation.
 
 ## Entry prerequisites
 

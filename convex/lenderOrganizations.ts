@@ -1,20 +1,15 @@
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   adminAction,
   adminMutation,
   adminQuery,
   authenticatedQuery,
 } from "./authz";
-import {
-  FAIRLEND_WORKOS_ORGANIZATION_ID,
-} from "./fairLendConfig";
-import {
-  internalMutation,
-  internalQuery,
-} from "./fluent";
+import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
+import { internalMutation, internalQuery } from "./fluent";
 import {
   LENDER_ROLE_SLUGS,
   lenderCanMakeFinalDecision,
@@ -86,8 +81,10 @@ const unassignedUserValidator = v.object({
 const pendingInvitationValidator = v.object({
   assignmentId: v.id("lenderOrganizationAssignments"),
   email: v.string(),
-  status: v.literal("pending"),
+  status: v.union(v.literal("pending"), v.literal("conflict_rejected")),
   assignedAt: v.number(),
+  reconciledAt: v.optional(v.number()),
+  reconciliationReason: v.optional(v.string()),
 });
 
 const acceptedInvitationValidator = v.object({
@@ -129,7 +126,9 @@ export const listLenderOrganizations = adminQuery
     if (brokerages.length > 500) {
       throw new Error("Brokerage directory exceeds the safe limit");
     }
-    const brokerageById = new Map(brokerages.map((brokerage) => [brokerage._id, brokerage]));
+    const brokerageById = new Map(
+      brokerages.map((brokerage) => [brokerage._id, brokerage])
+    );
     const normalizedSearch = args.search?.trim().toLowerCase() ?? "";
 
     const rows = [];
@@ -169,13 +168,17 @@ export const listLenderOrganizations = adminQuery
         displayName: organization.displayName,
         status: organization.status,
         permissions: organization.permissions,
-        memberCount: assignments.filter((row) => row.status === "active").length,
-        pendingCount: assignments.filter((row) => row.status === "pending").length,
+        memberCount: assignments.filter((row) => row.status === "active")
+          .length,
+        pendingCount: assignments.filter((row) => row.status === "pending")
+          .length,
         updatedAt: organization.updatedAt,
       });
     }
 
-    rows.sort((left, right) => left.displayName.localeCompare(right.displayName));
+    rows.sort((left, right) =>
+      left.displayName.localeCompare(right.displayName)
+    );
     return {
       brokerages: brokerages.map((brokerage) => ({
         id: brokerage._id,
@@ -198,7 +201,9 @@ export const listUnassignedLenderUsers = adminQuery
       )
       .take(501);
     if (memberships.length > 500) {
-      throw new Error("Shared WorkOS membership directory exceeds the safe limit");
+      throw new Error(
+        "Shared WorkOS membership directory exceeds the safe limit"
+      );
     }
 
     const seen = new Set<string>();
@@ -238,7 +243,9 @@ export const listUnassignedLenderUsers = adminQuery
         workosUserId: membership.workosUserId,
         name: user.name || user.email,
         email: user.email,
-        ...(user.profilePictureUrl ? { profilePictureUrl: user.profilePictureUrl } : {}),
+        ...(user.profilePictureUrl
+          ? { profilePictureUrl: user.profilePictureUrl }
+          : {}),
         membershipId: membership.workosMembershipId,
         roleSlugs,
       });
@@ -267,8 +274,8 @@ export const listLenderOrganizationMembersForAdmin = adminQuery
     if (assignments.length > 500) {
       throw new Error("Lender organization membership limit exceeded");
     }
-    const members = [];
-    const pendingInvitations = [];
+    const members: Infer<typeof lenderMemberValidator>[] = [];
+    const pendingInvitations: Infer<typeof pendingInvitationValidator>[] = [];
     for (const assignment of assignments) {
       if (assignment.status === "pending") {
         pendingInvitations.push({
@@ -276,6 +283,22 @@ export const listLenderOrganizationMembersForAdmin = adminQuery
           email: assignment.normalizedEmail,
           status: "pending" as const,
           assignedAt: assignment.assignedAt,
+        });
+        continue;
+      }
+      if (
+        assignment.status === "inactive" &&
+        assignment.reconciliationOutcome === "conflict_rejected"
+      ) {
+        pendingInvitations.push({
+          assignmentId: assignment._id,
+          assignedAt: assignment.assignedAt,
+          email: assignment.normalizedEmail,
+          reconciledAt: assignment.reconciledAt,
+          reconciliationReason:
+            assignment.reconciliationReason ??
+            "Invitation reconciliation requires Back Office review.",
+          status: "conflict_rejected" as const,
         });
         continue;
       }
@@ -300,7 +323,10 @@ export const listLenderOrganizationMembersForAdmin = adminQuery
         continue;
       }
       const roleSlugs = normalizeLenderRoleSlugs(
-        memberships.flatMap((membership) => [membership.roleSlug, ...membership.roleSlugs])
+        memberships.flatMap((membership) => [
+          membership.roleSlug,
+          ...membership.roleSlugs,
+        ])
       );
       const membership = memberships[0];
       members.push({
@@ -310,7 +336,9 @@ export const listLenderOrganizationMembersForAdmin = adminQuery
         workosUserId: assignment.workosUserId,
         name: user.name || user.email,
         email: user.email,
-        ...(user.profilePictureUrl ? { profilePictureUrl: user.profilePictureUrl } : {}),
+        ...(user.profilePictureUrl
+          ? { profilePictureUrl: user.profilePictureUrl }
+          : {}),
         roleSlugs,
         assignmentStatus: "active" as const,
         membershipStatus: "active" as const,
@@ -318,7 +346,9 @@ export const listLenderOrganizationMembersForAdmin = adminQuery
       });
     }
     members.sort((left, right) => left.name.localeCompare(right.name));
-    pendingInvitations.sort((left, right) => right.assignedAt - left.assignedAt);
+    pendingInvitations.sort(
+      (left, right) => right.assignedAt - left.assignedAt
+    );
     return { members, pendingInvitations };
   })
   .public();
@@ -361,9 +391,14 @@ export const getCurrentLenderOrganization = authenticatedQuery
       workosUserId,
       name: user.name || user.email,
       email: user.email,
-      ...(user.profilePictureUrl ? { profilePictureUrl: user.profilePictureUrl } : {}),
+      ...(user.profilePictureUrl
+        ? { profilePictureUrl: user.profilePictureUrl }
+        : {}),
     };
-    const memberships = await listActiveSharedLenderMemberships(ctx, workosUserId);
+    const memberships = await listActiveSharedLenderMemberships(
+      ctx,
+      workosUserId
+    );
     if (memberships.length === 0) {
       return { currentUser, organization: null, members: [] };
     }
@@ -382,7 +417,9 @@ export const getCurrentLenderOrganization = authenticatedQuery
     const memberAssignments = await ctx.db
       .query("lenderOrganizationAssignments")
       .withIndex("by_lender_organization_and_status", (query) =>
-        query.eq("lenderOrganizationId", resolution.organization._id).eq("status", "active")
+        query
+          .eq("lenderOrganizationId", resolution.organization._id)
+          .eq("status", "active")
       )
       .take(501);
     if (memberAssignments.length > 500) {
@@ -465,7 +502,9 @@ export const provisionLenderOrganization = adminMutation
     const displayName = requireName(args.displayName, "Display name");
     const siblings = await ctx.db
       .query("lenderOrganizations")
-      .withIndex("by_brokerage", (query) => query.eq("brokerageId", brokerage._id))
+      .withIndex("by_brokerage", (query) =>
+        query.eq("brokerageId", brokerage._id)
+      )
       .take(501);
     if (siblings.length > 500) {
       throw new Error("Lender organization directory exceeds the safe limit");
@@ -477,7 +516,9 @@ export const provisionLenderOrganization = adminMutation
           sibling.displayName.trim().toLowerCase() === displayName.toLowerCase()
       )
     ) {
-      throw new Error("An active lender organization with this name already exists");
+      throw new Error(
+        "An active lender organization with this name already exists"
+      );
     }
     const now = Date.now();
     const organizationId = await ctx.db.insert("lenderOrganizations", {
@@ -550,7 +591,9 @@ export const setLenderOrganizationStatus = adminMutation
       const assignments = await ctx.db
         .query("lenderOrganizationAssignments")
         .withIndex("by_lender_organization_and_status", (query) =>
-          query.eq("lenderOrganizationId", organization._id).eq("status", "active")
+          query
+            .eq("lenderOrganizationId", organization._id)
+            .eq("status", "active")
         )
         .take(501);
       if (assignments.length > 500) {
@@ -591,7 +634,9 @@ export const assignLenderUser = adminMutation
       args.lenderOrganizationId
     );
     if (organization.status !== "active") {
-      throw new Error("Cannot assign a user to an inactive lender organization");
+      throw new Error(
+        "Cannot assign a user to an inactive lender organization"
+      );
     }
     const reason = requireReason(args.reason);
     const workosUserId = args.workosUserId.trim();
@@ -599,12 +644,31 @@ export const assignLenderUser = adminMutation
       throw new Error("WorkOS user is required");
     }
     const user = await requireActiveLenderWorkosUser(ctx, workosUserId);
-    const memberships = await listActiveSharedLenderMemberships(ctx, workosUserId);
+    const memberships = await listActiveSharedLenderMemberships(
+      ctx,
+      workosUserId
+    );
     const roleSlugs = normalizeLenderRoleSlugs(
-      memberships.flatMap((membership) => [membership.roleSlug, ...membership.roleSlugs])
+      memberships.flatMap((membership) => [
+        membership.roleSlug,
+        ...membership.roleSlugs,
+      ])
     );
     if (memberships.length === 0 || roleSlugs.length === 0) {
       throw new Error("User needs an active shared WorkOS lender membership");
+    }
+    const normalizedEmail = normalizeLenderEmail(user.email);
+    const activeProjectedEmailUsers = (
+      await listActiveWorkosUserEmailProjectionSnapshot(ctx)
+    ).filter(
+      (candidate) =>
+        normalizeLenderEmail(candidate.email) === normalizedEmail,
+    );
+    if (
+      activeProjectedEmailUsers.length !== 1 ||
+      activeProjectedEmailUsers[0]?.workosUserId !== workosUserId
+    ) {
+      throw new Error("Active lender email projection is ambiguous");
     }
 
     const activeAssignment = await findAssignmentByUserAndStatus(
@@ -616,22 +680,71 @@ export const assignLenderUser = adminMutation
       if (activeAssignment.lenderOrganizationId === organization._id) {
         return activeAssignment._id;
       }
-      throw new Error("User already has an active lender organization assignment");
+      throw new Error(
+        "User already has an active lender organization assignment"
+      );
     }
-    const pendingAssignment = await findAssignmentByUserAndStatus(
+    const activeByEmail = await findAssignmentByEmailAndStatus(
       ctx,
-      workosUserId,
-      "pending"
+      normalizedEmail,
+      "active"
     );
+    if (activeByEmail) {
+      if (
+        activeByEmail.lenderOrganizationId === organization._id &&
+        activeByEmail.workosUserId === workosUserId
+      ) {
+        return activeByEmail._id;
+      }
+      throw new Error(
+        "Email already has an active lender organization assignment"
+      );
+    }
+    const [pendingByUser, pendingByEmail] = await Promise.all([
+      findAssignmentByUserAndStatus(ctx, workosUserId, "pending"),
+      findAssignmentByEmailAndStatus(ctx, normalizedEmail, "pending"),
+    ]);
+    if (
+      pendingByUser &&
+      pendingByEmail &&
+      pendingByUser._id !== pendingByEmail._id
+    ) {
+      throw new Error("Pending lender organization assignment is ambiguous");
+    }
+    const pendingAssignment = pendingByUser ?? pendingByEmail;
     if (pendingAssignment) {
-      throw new Error("User has a pending lender organization assignment");
+      if (pendingAssignment.lenderOrganizationId !== organization._id) {
+        throw new Error(
+          "User has a pending lender organization assignment for another organization"
+        );
+      }
+      const now = Date.now();
+      await ctx.db.patch(pendingAssignment._id, {
+        normalizedEmail,
+        status: "active",
+        updatedAt: now,
+        workosUserId,
+      });
+      await writeLenderAudit(ctx, brokerage, organization._id, {
+        command: "assignLenderUser",
+        entityId: workosUserId,
+        entityType: "lenderOrganizationAssignment",
+        eventType: "lender.organization.invitation.bound",
+        newState: {
+          assignmentId: pendingAssignment._id,
+          email: user.email,
+          roleSlugs,
+        },
+        reason,
+      });
+      return pendingAssignment._id;
     }
     const now = Date.now();
     const assignmentId = await ctx.db.insert("lenderOrganizationAssignments", {
       brokerageId: brokerage._id,
       lenderOrganizationId: organization._id,
       workosUserId,
-      normalizedEmail: normalizeLenderEmail(user.email),
+      normalizedEmail,
       status: "active",
       assignedByWorkosUserId: ctx.viewer.subject,
       assignedByRole: primaryActorRole(ctx.viewer.roles),
@@ -700,50 +813,56 @@ export const inviteLenderUser = adminAction
     reason: v.string(),
   })
   .returns(acceptedInvitationValidator)
-  .handler(async (ctx, args): Promise<{
-    adapter: "fake" | "workos";
-    operation: "inviteLenderUser";
-    status: "accepted";
-    sync: "waiting-for-webhook";
-    stagedAssignmentId: Id<"lenderOrganizationAssignments">;
-    workosId?: string;
-  }> => {
-    const normalizedEmail = normalizeLenderEmail(args.email);
-    if (!normalizedEmail.includes("@")) {
-      throw new Error("A valid work email is required");
-    }
-    const target: {
-      brokerageId: Id<"brokerages">;
-      status: "active" | "inactive";
-    } = await ctx.runQuery(
-      internal.lenderOrganizations.resolveInvitationTarget,
-      { lenderOrganizationId: args.lenderOrganizationId }
-    );
-    const reason = requireReason(args.reason);
-    const result = await sendWorkosLenderInvitation({
-      email: normalizedEmail,
-      roleSlug: args.roleSlug,
-    });
-    const assignmentId: Id<"lenderOrganizationAssignments"> = await ctx.runMutation(
-      internal.lenderOrganizations.stageInvitedLenderAssignment,
-      {
-        brokerageId: target.brokerageId,
-        lenderOrganizationId: args.lenderOrganizationId,
-        normalizedEmail,
-        assignedByWorkosUserId: ctx.viewer.subject,
-        assignedByRole: primaryActorRole(ctx.viewer.roles),
-        reason,
+  .handler(
+    async (
+      ctx,
+      args
+    ): Promise<{
+      adapter: "fake" | "workos";
+      operation: "inviteLenderUser";
+      status: "accepted";
+      sync: "waiting-for-webhook";
+      stagedAssignmentId: Id<"lenderOrganizationAssignments">;
+      workosId?: string;
+    }> => {
+      const normalizedEmail = normalizeLenderEmail(args.email);
+      if (!normalizedEmail.includes("@")) {
+        throw new Error("A valid work email is required");
       }
-    );
-    return {
-      adapter: result.adapter,
-      operation: "inviteLenderUser" as const,
-      status: "accepted" as const,
-      sync: "waiting-for-webhook" as const,
-      stagedAssignmentId: assignmentId,
-      ...(result.workosId ? { workosId: result.workosId } : {}),
-    };
-  })
+      const target: {
+        brokerageId: Id<"brokerages">;
+        status: "active" | "inactive";
+      } = await ctx.runQuery(
+        internal.lenderOrganizations.resolveInvitationTarget,
+        { lenderOrganizationId: args.lenderOrganizationId }
+      );
+      const reason = requireReason(args.reason);
+      const result = await sendWorkosLenderInvitation({
+        email: normalizedEmail,
+        roleSlug: args.roleSlug,
+      });
+      const assignmentId: Id<"lenderOrganizationAssignments"> =
+        await ctx.runMutation(
+          internal.lenderOrganizations.stageInvitedLenderAssignment,
+          {
+            brokerageId: target.brokerageId,
+            lenderOrganizationId: args.lenderOrganizationId,
+            normalizedEmail,
+            assignedByWorkosUserId: ctx.viewer.subject,
+            assignedByRole: primaryActorRole(ctx.viewer.roles),
+            reason,
+          }
+        );
+      return {
+        adapter: result.adapter,
+        operation: "inviteLenderUser" as const,
+        status: "accepted" as const,
+        sync: "waiting-for-webhook" as const,
+        stagedAssignmentId: assignmentId,
+        ...(result.workosId ? { workosId: result.workosId } : {}),
+      };
+    }
+  )
   .public();
 
 export const reconcilePendingLenderAssignments = adminMutation
@@ -753,6 +872,7 @@ export const reconcilePendingLenderAssignments = adminMutation
   .returns(
     v.object({
       activated: v.number(),
+      bound: v.number(),
       stillPending: v.number(),
       conflicts: v.number(),
     })
@@ -762,7 +882,9 @@ export const reconcilePendingLenderAssignments = adminMutation
       ? await ctx.db
           .query("lenderOrganizationAssignments")
           .withIndex("by_lender_organization_and_status", (query) =>
-            query.eq("lenderOrganizationId", args.lenderOrganizationId!).eq("status", "pending")
+            query
+              .eq("lenderOrganizationId", args.lenderOrganizationId!)
+              .eq("status", "pending")
           )
           .take(501)
       : await ctx.db
@@ -773,25 +895,69 @@ export const reconcilePendingLenderAssignments = adminMutation
       throw new Error("Pending lender assignment queue exceeds the safe limit");
     }
     let activated = 0;
+    let bound = 0;
     let stillPending = 0;
     let conflicts = 0;
+    const now = Date.now();
+    const ambiguousPendingEmails = new Set<string>();
     for (const assignment of pending) {
-      const userRows = await ctx.db
-        .query("users")
-        .withIndex("by_email", (query) => query.eq("email", assignment.normalizedEmail))
-        .take(3);
-      const user = userRows.find(
-        (candidate) =>
-          candidate.status === "active" &&
-          normalizeLenderEmail(candidate.email) === assignment.normalizedEmail
-      );
+      const sameEmail = await ctx.db
+        .query("lenderOrganizationAssignments")
+        .withIndex("by_normalized_email_and_status", (query) =>
+          query.eq("normalizedEmail", assignment.normalizedEmail).eq("status", "pending"),
+        )
+        .take(2);
+      if (sameEmail.length > 1) ambiguousPendingEmails.add(assignment.normalizedEmail);
+    }
+    const activeUsersByNormalizedEmail = new Map<string, Doc<"users">[]>();
+    for (const user of await listActiveWorkosUserEmailProjectionSnapshot(ctx)) {
+      const normalizedEmail = normalizeLenderEmail(user.email);
+      const users = activeUsersByNormalizedEmail.get(normalizedEmail) ?? [];
+      users.push(user);
+      activeUsersByNormalizedEmail.set(normalizedEmail, users);
+    }
+    for (const assignment of pending) {
+      if (ambiguousPendingEmails.has(assignment.normalizedEmail)) {
+        await ctx.db.patch(assignment._id, {
+          reconciledAt: now,
+          reconciliationOutcome: "conflict_rejected",
+          reconciliationReason:
+            "The normalized email matches multiple pending Lender Organization invitations.",
+          status: "inactive",
+          updatedAt: now,
+        });
+        conflicts += 1;
+        continue;
+      }
+      const activeUsers = activeUsersByNormalizedEmail.get(
+        assignment.normalizedEmail,
+      ) ?? [];
+      if (activeUsers.length > 1) {
+        await ctx.db.patch(assignment._id, {
+          reconciledAt: now,
+          reconciliationOutcome: "conflict_rejected",
+          reconciliationReason:
+            "The normalized email matches multiple active WorkOS user projections.",
+          status: "inactive",
+          updatedAt: now,
+        });
+        conflicts += 1;
+        continue;
+      }
+      const user = activeUsers[0];
       if (!user?.workosUserId) {
         stillPending += 1;
         continue;
       }
-      const memberships = await listActiveSharedLenderMemberships(ctx, user.workosUserId);
+      const memberships = await listActiveSharedLenderMemberships(
+        ctx,
+        user.workosUserId
+      );
       const roleSlugs = normalizeLenderRoleSlugs(
-        memberships.flatMap((membership) => [membership.roleSlug, ...membership.roleSlugs])
+        memberships.flatMap((membership) => [
+          membership.roleSlug,
+          ...membership.roleSlugs,
+        ])
       );
       if (memberships.length === 0 || roleSlugs.length === 0) {
         stillPending += 1;
@@ -803,7 +969,26 @@ export const reconcilePendingLenderAssignments = adminMutation
         "active"
       );
       if (activeAssignment && activeAssignment._id !== assignment._id) {
-        conflicts += 1;
+        const compatible =
+          activeAssignment.lenderOrganizationId ===
+            assignment.lenderOrganizationId &&
+          activeAssignment.normalizedEmail === assignment.normalizedEmail;
+        await ctx.db.patch(assignment._id, {
+          reconciledAt: now,
+          reconciledToAssignmentId: activeAssignment._id,
+          reconciliationOutcome: compatible ? "bound" : "conflict_rejected",
+          reconciliationReason: compatible
+            ? undefined
+            : "The WorkOS user already has an active assignment in a different Lender Organization.",
+          status: "inactive",
+          updatedAt: now,
+          workosUserId: user.workosUserId,
+        });
+        if (compatible) {
+          bound += 1;
+        } else {
+          conflicts += 1;
+        }
         continue;
       }
       const otherPending = await findAssignmentByUserAndStatus(
@@ -812,17 +997,80 @@ export const reconcilePendingLenderAssignments = adminMutation
         "pending"
       );
       if (otherPending && otherPending._id !== assignment._id) {
+        await ctx.db.patch(assignment._id, {
+          reconciledAt: now,
+          reconciledToAssignmentId: otherPending._id,
+          reconciliationOutcome:
+            otherPending.lenderOrganizationId ===
+              assignment.lenderOrganizationId &&
+            otherPending.normalizedEmail === assignment.normalizedEmail
+              ? "bound"
+              : "conflict_rejected",
+          reconciliationReason:
+            otherPending.lenderOrganizationId ===
+                assignment.lenderOrganizationId &&
+              otherPending.normalizedEmail === assignment.normalizedEmail
+              ? undefined
+              : "The WorkOS user is already linked to a different pending Lender Organization invitation.",
+          status: "inactive",
+          updatedAt: now,
+          workosUserId: user.workosUserId,
+        });
+        if (
+          otherPending.lenderOrganizationId === assignment.lenderOrganizationId &&
+          otherPending.normalizedEmail === assignment.normalizedEmail
+        ) bound += 1;
+        else conflicts += 1;
+        continue;
+      }
+      const [activeEmailAssignments, pendingEmailAssignments] =
+        await Promise.all([
+          ctx.db
+            .query("lenderOrganizationAssignments")
+            .withIndex("by_normalized_email_and_status", (query) =>
+              query
+                .eq("normalizedEmail", assignment.normalizedEmail)
+                .eq("status", "active"),
+            )
+            .take(2),
+          ctx.db
+            .query("lenderOrganizationAssignments")
+            .withIndex("by_normalized_email_and_status", (query) =>
+              query
+                .eq("normalizedEmail", assignment.normalizedEmail)
+                .eq("status", "pending"),
+            )
+            .take(2),
+        ]);
+      const emailCollision =
+        activeEmailAssignments[0] ??
+        pendingEmailAssignments.find(
+          (candidate) => candidate._id !== assignment._id,
+        );
+      if (emailCollision) {
+        await ctx.db.patch(assignment._id, {
+          reconciledAt: now,
+          reconciledToAssignmentId: emailCollision._id,
+          reconciliationOutcome: "conflict_rejected",
+          reconciliationReason:
+            emailCollision.status === "active"
+              ? "The normalized email already has an active assignment owned by another WorkOS identity."
+              : "The normalized email already has another pending assignment owned by another WorkOS identity.",
+          status: "inactive",
+          updatedAt: now,
+          workosUserId: user.workosUserId,
+        });
         conflicts += 1;
         continue;
       }
       await ctx.db.patch(assignment._id, {
         workosUserId: user.workosUserId,
         status: "active",
-        updatedAt: Date.now(),
+        updatedAt: now,
       });
       activated += 1;
     }
-    return { activated, stillPending, conflicts };
+    return { activated, bound, stillPending, conflicts };
   })
   .public();
 
@@ -861,28 +1109,32 @@ export const stageInvitedLenderAssignment = internalMutation
       ctx,
       args.lenderOrganizationId
     );
-    if (brokerage._id !== args.brokerageId || organization.status !== "active") {
+    if (
+      brokerage._id !== args.brokerageId ||
+      organization.status !== "active"
+    ) {
       throw new Error("Lender invitation target changed before staging");
     }
-    const activeByEmail = await ctx.db
-      .query("lenderOrganizationAssignments")
-      .withIndex("by_normalized_email_and_status", (query) =>
-        query.eq("normalizedEmail", args.normalizedEmail).eq("status", "active")
-      )
-      .take(2);
-    if (activeByEmail.length > 0) {
-      throw new Error("Email already has an active lender organization assignment");
+    const activeByEmail = await findAssignmentByEmailAndStatus(
+      ctx,
+      args.normalizedEmail,
+      "active"
+    );
+    if (activeByEmail) {
+      throw new Error(
+        "Email already has an active lender organization assignment"
+      );
     }
-    const pendingByEmail = await ctx.db
-      .query("lenderOrganizationAssignments")
-      .withIndex("by_normalized_email_and_status", (query) =>
-        query.eq("normalizedEmail", args.normalizedEmail).eq("status", "pending")
-      )
-      .take(2);
-    const existing = pendingByEmail[0];
+    const existing = await findAssignmentByEmailAndStatus(
+      ctx,
+      args.normalizedEmail,
+      "pending"
+    );
     if (existing) {
       if (existing.lenderOrganizationId !== organization._id) {
-        throw new Error("Email already has a pending lender organization assignment");
+        throw new Error(
+          "Email already has a pending lender organization assignment"
+        );
       }
       return existing._id;
     }
@@ -921,6 +1173,50 @@ async function findAssignmentByUserAndStatus(
     });
 }
 
+const NORMALIZED_WORKOS_USER_COMPATIBILITY_LIMIT = 500;
+
+/**
+ * Compatibility read used while users.by_normalized_email is staged and its
+ * optional key is being backfilled. It scans one bounded projection snapshot
+ * and fails closed above the established directory boundary instead of
+ * performing an incomplete case-sensitive match. After the staged index is
+ * ready and made queryable, this helper can switch to indexed equality reads.
+ */
+async function listActiveWorkosUserEmailProjectionSnapshot(
+  ctx: { db: QueryCtx["db"] | MutationCtx["db"] },
+): Promise<Doc<"users">[]> {
+  const users = await ctx.db
+    .query("users")
+    .take(NORMALIZED_WORKOS_USER_COMPATIBILITY_LIMIT + 1);
+  if (users.length > NORMALIZED_WORKOS_USER_COMPATIBILITY_LIMIT) {
+    throw new Error(
+      "Normalized WorkOS user email lookup requires the staged email-index backfill before the directory exceeds 500 records",
+    );
+  }
+  return users.filter(
+    (user) => user.status === "active" && Boolean(user.workosUserId),
+  );
+}
+
+async function findAssignmentByEmailAndStatus(
+  ctx: { db: QueryCtx["db"] | MutationCtx["db"] },
+  normalizedEmail: string,
+  status: "active" | "pending"
+) {
+  return await ctx.db
+    .query("lenderOrganizationAssignments")
+    .withIndex("by_normalized_email_and_status", (query) =>
+      query.eq("normalizedEmail", normalizedEmail).eq("status", status)
+    )
+    .take(2)
+    .then((rows) => {
+      if (rows.length > 1) {
+        throw new Error("Lender organization email assignment is ambiguous");
+      }
+      return rows[0] ?? null;
+    });
+}
+
 function requireName(value: string, label: string): string {
   const name = value.trim();
   if (!name) {
@@ -932,12 +1228,16 @@ function requireName(value: string, label: string): string {
 function requireReason(value: string): string {
   const reason = value.trim();
   if (!reason) {
-    throw new Error("A reason is required for lender organization control-plane changes");
+    throw new Error(
+      "A reason is required for lender organization control-plane changes"
+    );
   }
   return reason;
 }
 
-function primaryActorRole(roles: readonly string[]):
+function primaryActorRole(
+  roles: readonly string[]
+):
   | "admin"
   | "principle-broker"
   | "broker"

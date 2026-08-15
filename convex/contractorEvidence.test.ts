@@ -113,6 +113,17 @@ async function createApprovedBuild(admin: ReturnType<typeof withIdentity>, seed:
     reason: "ok",
     workosOrganizationId: ORG,
   });
+  await admin.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `contractor-evidence-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the contractor evidence fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
   // Past start date so the build lands as active (not future_start).
   await admin.mutation(
     (api as any).production_proposals.recordProposalClosing,

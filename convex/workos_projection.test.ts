@@ -15,6 +15,53 @@ const modules = import.meta.glob("./**/*.ts");
 const sampleEvents = loadPayloadEvents();
 
 describe("WorkOS webhook projections", () => {
+  test("persists a normalized email key from mixed-case WorkOS user events", async () => {
+    const t = convexTest(schema, modules);
+    const event = userEvent("user.created", "user_mixed_case_email");
+    event.data.email = "Mixed.Case@Example.COM";
+    await t.mutation(internal.auth.authKitEvent, {
+      data: event,
+      event: event.event,
+    });
+    const user = await t.run((ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (query) =>
+          query.eq("workosUserId", "user_fixture"),
+        )
+        .unique(),
+    );
+    expect(user?.normalizedEmail).toBe("mixed.case@example.com");
+  });
+
+  test("clears the normalized email key when WorkOS explicitly clears email", async () => {
+    const t = convexTest(schema, modules);
+    const created = userEvent("user.created", "user_email_clear_created");
+    created.data.email = "Clear.Me@Example.COM";
+    await t.mutation(internal.auth.authKitEvent, {
+      data: created,
+      event: created.event,
+    });
+
+    const updated = userEvent("user.updated", "user_email_clear_updated");
+    updated.data.email = "";
+    await t.mutation(internal.auth.authKitEvent, {
+      data: updated,
+      event: updated.event,
+    });
+
+    const user = await t.run((ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (query) =>
+          query.eq("workosUserId", "user_fixture"),
+        )
+        .unique(),
+    );
+    expect(user?.email).toBe("");
+    expect(user?.normalizedEmail).toBeUndefined();
+  });
+
   test("processes every payload-file event plus user lifecycle events into projections and receipts", async () => {
     const t = convexTest(schema, modules);
     const events = [

@@ -104,6 +104,17 @@ async function seedClosedBuild() {
     workosOrganizationId: ORG,
   });
   await admin.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `submilestone-workspace-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the Sub-milestone workspace fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
     (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-05-01",
