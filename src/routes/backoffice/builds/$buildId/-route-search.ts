@@ -12,10 +12,14 @@ import {
 
 export interface BuildDetailSearch extends CostDocumentRouteSearch {
   detailTab?: BuildSubmilestoneDetailTab;
+  drawRequestId?: string;
   focus?: string;
   milestone?: string;
+  milestoneId?: string;
   rail?: "open" | "closed";
   roundId?: string;
+  reviewCycleId?: string;
+  reviewCycleNumber?: number;
   tab?: BuildDetailSubTab;
   timeframe?: CalendarTimeframe;
 }
@@ -45,6 +49,17 @@ export function validateBuildDetailSearch(
     typeof search.roundId === "string" && search.roundId.trim()
       ? search.roundId.trim()
       : undefined;
+  const drawRequestId =
+    typeof search.drawRequestId === "string" ? search.drawRequestId : undefined;
+  const milestoneId =
+    typeof search.milestoneId === "string" ? search.milestoneId : undefined;
+  const reviewCycleId =
+    typeof search.reviewCycleId === "string" ? search.reviewCycleId : undefined;
+  const reviewCycleNumber =
+    typeof search.reviewCycleNumber === "string" &&
+    Number.isSafeInteger(Number(search.reviewCycleNumber))
+      ? Number(search.reviewCycleNumber)
+      : undefined;
   const focus = normalizeBuildCollaborationFocus(search.focus);
   const detailTab = normalizeBuildSubmilestoneDetailTab(search.detailTab);
   const rail =
@@ -65,6 +80,9 @@ export function validateBuildDetailSearch(
       costDocumentSearch.costDocumentDraft
   );
   const out: BuildDetailSearch = {};
+  if (drawRequestId !== undefined) {
+    out.drawRequestId = drawRequestId;
+  }
   if (detailTab !== undefined) {
     out.detailTab = detailTab;
   }
@@ -73,6 +91,15 @@ export function validateBuildDetailSearch(
   }
   if (milestone !== undefined) {
     out.milestone = milestone;
+  }
+  if (milestoneId !== undefined) {
+    out.milestoneId = milestoneId;
+  }
+  if (reviewCycleId !== undefined) {
+    out.reviewCycleId = reviewCycleId;
+  }
+  if (reviewCycleNumber !== undefined) {
+    out.reviewCycleNumber = reviewCycleNumber;
   }
   if (
     tab !== undefined ||

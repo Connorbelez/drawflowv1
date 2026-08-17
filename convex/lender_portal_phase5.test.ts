@@ -10,7 +10,115 @@ const modules = import.meta.glob("./**/*.ts");
 const ORG = "org_phase5";
 const PAGE = { cursor: null, numItems: 50 };
 
+async function phase8ReviewIntents(f: any, kind: "draw" | "milestone", targetId: any) {
+  return await f.base.run(async (ctx: any) =>
+    await ctx.db
+      .query("communicationIntents")
+      .withIndex(
+        "by_relatedEntityType_and_relatedEntityId_and_createdAt",
+        (query: any) =>
+          query
+            .eq("relatedEntityType", kind)
+            .eq("relatedEntityId", String(targetId)),
+      )
+      .collect(),
+  );
+}
+
 describe("Lender Portal Phase 5 stable request cycles", () => {
+  test("keeps unsupported field progress changes silent", async () => {
+    const f = await fixture();
+    const progressSubmilestoneId = await f.base.run(async (ctx: any) => {
+      const now = Date.now();
+      const proposalSubmilestoneId = await ctx.db.insert(
+        "proposalSubmilestones",
+        {
+          brokerageId: f.brokerageId,
+          createdAt: now,
+          key: "progress-only",
+          milestoneKey: "foundation",
+          name: "Progress only",
+          order: 2,
+          organizationId: ORG,
+          proposalId: f.proposalId,
+          proposalMilestoneId: f.proposalMilestoneId,
+          updatedAt: now,
+        },
+      );
+      await ctx.db.patch(f.milestoneId, {
+        completionClaim: undefined,
+        progressPercent: 0,
+      });
+      return await ctx.db.insert("buildSubmilestones", {
+        actualStartedAt: Date.now(),
+        brokerageId: f.brokerageId,
+        buildId: f.buildId,
+        buildMilestoneId: f.milestoneId,
+        createdAt: now,
+        key: "progress-only",
+        milestoneKey: "foundation",
+        name: "Progress only",
+        order: 2,
+        organizationId: ORG,
+        progressPercent: 0,
+        proposalSubmilestoneId,
+        status: "in_progress",
+        updatedAt: now,
+        workflowRevision: 0,
+      });
+    });
+    expect(progressSubmilestoneId).toBeTruthy();
+
+    await expect(
+      f.builder.mutation(
+        (api as any).production_proposals
+          .updateActiveBuildSubmilestoneProgress,
+        {
+          buildId: f.buildId,
+          expectedRevision: 0,
+          idempotencyKey: "phase8-progress-only-silence",
+          milestoneKey: "foundation",
+          progressPercent: 50,
+          submilestoneKey: "progress-only",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toMatchObject({ progressPercent: 50, replayed: false });
+
+    const intents = await f.base.run(async (ctx: any) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_organizationId_and_createdAt", (query: any) =>
+          query.eq("organizationId", ORG),
+        )
+        .collect(),
+    );
+    expect(
+      intents.filter((intent: any) => intent.kind.startsWith("lender_portal_")),
+    ).toEqual([]);
+  });
+
+  test("does not commit an intent when a canonical review transition aborts", async () => {
+    const f = await fixture();
+    const target = { kind: "milestone" as const, milestoneId: f.milestoneId };
+
+    await expect(
+      f.builder.mutation(
+        (api as any).lender_portal_phase5.submitBuilderReviewRequest,
+        {
+          expectedCycleNumber: 1,
+          idempotencyKey: "phase8-aborted-review-transition",
+          target,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("STALE_REVIEW_CYCLE");
+
+    expect(await phase8ReviewIntents(f, "milestone", f.milestoneId)).toEqual(
+      [],
+    );
+  });
+
   test("keeps stable identities, reconstructs cycles, projects every state, and enforces privacy and stale-cycle guards", async () => {
     const f = await fixture();
     const target = { kind: "milestone" as const, milestoneId: f.milestoneId };
@@ -18,6 +126,17 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
       (api as any).lender_portal_phase5.submitBuilderReviewRequest,
       { expectedCycleNumber: 0, idempotencyKey: "milestone-cycle-001", target, workosOrganizationId: ORG },
     );
+    const firstApprovalRequired = await phase8ReviewIntents(
+      f,
+      "milestone",
+      f.milestoneId,
+    );
+    expect(firstApprovalRequired).toHaveLength(2);
+    expect(
+      firstApprovalRequired.map((intent: any) =>
+        JSON.parse(intent.payloadSnapshot).audience,
+      ).sort(),
+    ).toEqual(["backoffice", "lender"]);
     await f.admin.mutation(
       (api as any).lender_portal_phase5.decideBackofficeReviewRequest,
       {
@@ -29,6 +148,18 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
         target,
         workosOrganizationId: ORG,
       },
+    );
+    const milestoneOutcomeIntents = (
+      await phase8ReviewIntents(f, "milestone", f.milestoneId)
+    ).filter(
+      (intent: any) => intent.kind === "lender_portal_approval_outcome",
+    );
+    expect(milestoneOutcomeIntents).toHaveLength(2);
+    const builderOutcome = milestoneOutcomeIntents.find(
+      (intent: any) => JSON.parse(intent.payloadSnapshot).audience === "builder",
+    );
+    expect(builderOutcome.payloadSnapshot).not.toMatch(
+      /user_admin|Reviewer-only structural risk context|privateRationale/,
     );
     const correction = await f.builder.query(
       (api as any).lender_portal_phase5.getBuilderReviewRequest,
@@ -71,6 +202,56 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
     );
     expect(second).toMatchObject({ cycleNumber: 2, requestIdentity: first.requestIdentity, state: "in_review" });
     expect(replay.replayed).toBe(true);
+    const milestoneApprovalRequired = (
+      await phase8ReviewIntents(f, "milestone", f.milestoneId)
+    ).filter(
+      (intent: any) => intent.kind === "lender_portal_approval_required",
+    );
+    expect(milestoneApprovalRequired).toHaveLength(4);
+    expect(
+      new Set(
+        milestoneApprovalRequired.map((intent: any) => intent.idempotencyKey),
+      ).size,
+    ).toBe(4);
+    expect(
+      milestoneApprovalRequired
+        .filter(
+          (intent: any) =>
+            JSON.parse(intent.payloadSnapshot).reviewCycleNumber === 2,
+        )
+        .every((intent: any) =>
+          JSON.parse(intent.payloadSnapshot).linkPath.includes(
+            `reviewCycleNumber=2`,
+          ),
+        ),
+    ).toBe(true);
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5
+          .getLenderNotificationReviewRequest,
+        {
+          historyPaginationOpts: PAGE,
+          reviewCycleId: second.cycleId,
+          reviewCycleNumber: 2,
+          target,
+        },
+      ),
+    ).resolves.toMatchObject({
+      currentCycleNumber: 2,
+      requestIdentity: first.requestIdentity,
+    });
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5
+          .getLenderNotificationReviewRequest,
+        {
+          historyPaginationOpts: PAGE,
+          reviewCycleId: first.cycleId,
+          reviewCycleNumber: 1,
+          target,
+        },
+      ),
+    ).rejects.toThrow();
     await expect(
       f.admin.mutation((api as any).lender_portal_phase5.decideBackofficeReviewRequest, {
         decision: "approved",
@@ -91,7 +272,9 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
         actorWorkosUserId: "user_admin",
         privateRationale: "Reviewer-only structural risk context.",
       })],
-      evidenceReferences: [expect.objectContaining({ evidenceAssetId: f.evidenceAssetId })],
+      evidenceReferences: expect.arrayContaining([
+        expect.objectContaining({ evidenceAssetId: f.evidenceAssetId }),
+      ]),
       requirements: expect.objectContaining({ requiredGroups: ["backoffice", "lender"] }),
       submission: expect.objectContaining({ actualCostCents: 4_200_000, completedDay: 18 }),
     });
@@ -125,6 +308,54 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
     ]);
     expect(raced.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(raced.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(
+      (await phase8ReviewIntents(f, "draw", f.drawRequestId)).filter(
+        (intent: any) => intent.kind === "lender_portal_approval_outcome",
+      ),
+    ).toHaveLength(0);
+    const partialApprovalRequired = (
+      await phase8ReviewIntents(f, "draw", f.drawRequestId)
+    ).filter(
+      (intent: any) => intent.kind === "lender_portal_approval_required",
+    );
+    expect(partialApprovalRequired).toHaveLength(2);
+    expect(
+      partialApprovalRequired.filter(
+        (intent: any) =>
+          JSON.parse(intent.payloadSnapshot).audience === "backoffice",
+      ),
+    ).toHaveLength(1);
+    await expect(
+      f.admin.query(
+        (api as any).lender_portal_phase5
+          .getBackofficeNotificationReviewRequest,
+        {
+          historyPaginationOpts: PAGE,
+          reviewCycleId: draw.cycleId,
+          reviewCycleNumber: 1,
+          target: drawTarget,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toMatchObject({
+      currentCycleNumber: 1,
+      state: "partial_approval",
+    });
+    await expect(
+      f.builder.query(
+        (api as any).lender_portal_phase5.getBuilderNotificationReviewRequest,
+        {
+          historyPaginationOpts: PAGE,
+          reviewCycleId: draw.cycleId,
+          reviewCycleNumber: 1,
+          target: drawTarget,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toMatchObject({
+      currentCycleNumber: 1,
+      state: "partial_approval",
+    });
     const partial = await f.admin.query(
       (api as any).lender_portal_phase5.listBackofficeReviewRequests,
       { buildId: f.buildId, paginationOpts: PAGE, workosOrganizationId: ORG },
@@ -164,6 +395,17 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
     );
     expect(builderDraw.state).toBe("completed");
     expect(JSON.stringify(builderDraw)).not.toMatch(/user_admin|user_lender|Internal reconciliation/);
+    const drawOutcomeIntents = (
+      await phase8ReviewIntents(f, "draw", f.drawRequestId)
+    ).filter(
+      (intent: any) => intent.kind === "lender_portal_approval_outcome",
+    );
+    expect(drawOutcomeIntents).toHaveLength(2);
+    expect(
+      drawOutcomeIntents.find(
+        (intent: any) => JSON.parse(intent.payloadSnapshot).audience === "builder",
+      ).payloadSnapshot,
+    ).not.toMatch(/user_admin|user_lender|Internal reconciliation|privateRationale/);
     const lenderQueue = await f.lender.query(
       (api as any).lender_portal_phase5.listLenderReviewRequests,
       { buildId: f.buildId, paginationOpts: PAGE },
@@ -176,15 +418,21 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
   test("requires two distinct eligible lenders for quorum two and personalizes remaining action", async () => {
     const f = await fixture();
     await f.base.run(async (ctx: any) => {
-      await ctx.db.patch(f.buildId, {
-        reviewPolicySnapshot: {
+      const reviewPolicySnapshot = {
           drawApprovalMode: "lender_quorum",
           drawLenderQuorum: 2,
           milestoneApprovalMode: "lender_quorum",
           milestoneLenderQuorum: 2,
           milestoneReceiptInvoiceRequired: false,
           milestoneSiteVisitRequired: false,
-        },
+      };
+      const build = await ctx.db.get(f.buildId);
+      await ctx.db.patch(f.buildId, {
+        reviewPolicySnapshot,
+      });
+      await ctx.db.patch(build.reviewPolicyLockId, {
+        activeLenderMemberCount: 2,
+        policy: reviewPolicySnapshot,
       });
     });
     const secondLender = await addEligibleLender(f, "user_lender_two");
@@ -383,6 +631,110 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
     );
   });
 
+  test.each([
+    "unrelated_same_milestone",
+    "foreign_build",
+    "foreign_tenant",
+    "prior_cycle_association",
+    "malformed_reference_type",
+  ] as const)(
+    "rejects %s immutable Evidence Package child relationships",
+    async (scenario) => {
+      const f = await fixture();
+      await f.base.run(async (ctx: any) => {
+        if (scenario === "unrelated_same_milestone") {
+          await ctx.db.patch(f.evidenceAssetId, {
+            submilestoneKey: "unrelated-foundation-work",
+          });
+          return;
+        }
+        if (scenario === "foreign_build") {
+          const build = await ctx.db.get(f.buildId);
+          const { _creationTime, _id, ...copy } = build;
+          const foreignBuildId = await ctx.db.insert("activeBuilds", {
+            ...copy,
+            buildName: "Foreign evidence Build",
+            createdAt: build.createdAt + 1,
+          });
+          await ctx.db.patch(f.evidenceAssetId, { buildId: foreignBuildId });
+          return;
+        }
+        if (scenario === "foreign_tenant") {
+          await ctx.db.patch(f.evidenceAssetId, {
+            organizationId: "org_phase5_foreign",
+          });
+          return;
+        }
+        if (scenario === "prior_cycle_association") {
+          const prior = await ctx.db.get(f.packageRevisionId);
+          const currentRevisionId = await ctx.db.insert(
+            "buildSubmilestoneEvidencePackageRevisions",
+            {
+              brokerageId: prior.brokerageId,
+              buildId: prior.buildId,
+              buildMilestoneId: prior.buildMilestoneId,
+              buildSubmilestoneId: prior.buildSubmilestoneId,
+              createdAt: prior.createdAt + 1,
+              createdByWorkosUserId: "user_builder",
+              frozenAt: prior.frozenAt + 1,
+              frozenByWorkosUserId: "user_builder",
+              milestoneKey: prior.milestoneKey,
+              organizationId: prior.organizationId,
+              proposalId: prior.proposalId,
+              requirementsRevision: prior.requirementsRevision,
+              revision: 2,
+              status: "frozen",
+              submilestoneKey: prior.submilestoneKey,
+              supersedesRevisionId: prior._id,
+              updatedAt: prior.updatedAt + 1,
+            },
+          );
+          await ctx.db.patch(f.packageItemId, {
+            packageRevisionId: currentRevisionId,
+          });
+          const milestone = await ctx.db.get(f.milestoneId);
+          await ctx.db.patch(f.milestoneId, {
+            completionClaim: {
+              ...milestone.completionClaim,
+              evidencePackageRevisionIds: [
+                {
+                  revision: 2,
+                  revisionId: currentRevisionId,
+                  submilestoneKey: "foundation-work",
+                },
+              ],
+            },
+          });
+          return;
+        }
+        const milestone = await ctx.db.get(f.milestoneId);
+        await ctx.db.patch(f.milestoneId, {
+          completionClaim: {
+            ...milestone.completionClaim,
+            evidencePackageRevisionIds: [
+              {
+                revision: 1,
+                revisionId: String(f.evidenceAssetId),
+                submilestoneKey: "foundation-work",
+              },
+            ],
+          },
+        });
+      });
+      await expect(
+        f.builder.mutation(
+          (api as any).lender_portal_phase5.submitBuilderReviewRequest,
+          {
+            expectedCycleNumber: 0,
+            idempotencyKey: `phase5-invalid-child-${scenario}`,
+            target: { kind: "milestone", milestoneId: f.milestoneId },
+            workosOrganizationId: ORG,
+          },
+        ),
+      ).rejects.toThrow("INVALID_EVIDENCE_PACKAGE_REFERENCE");
+    },
+  );
+
   test("rejects cross-scope Evidence Package revisions before snapshotting or projection", async () => {
     const f = await fixture();
     const foreignPackageRevisionId = await f.base.run(async (ctx: any) => {
@@ -568,14 +920,49 @@ async function fixture() {
       requirePermitForApproval: true, ruleKey: "phase5-review", settings: {}, version: 1,
       workflowRuleId: ruleId,
     });
+    const reviewPolicy = {
+      drawApprovalMode: "both" as const,
+      drawLenderQuorum: 1,
+      milestoneApprovalMode: "both" as const,
+      milestoneLenderQuorum: 1,
+      milestoneReceiptInvoiceRequired: false,
+      milestoneSiteVisitRequired: false,
+    };
+    const policyVersionId = await ctx.db.insert("proposalReviewPolicyVersions", {
+      brokerageId, configuredAt: now, configuredByRole: "admin",
+      configuredByWorkosUserId: "user_admin", idempotencyKey: "phase5-policy-v1",
+      organizationId: ORG, policy: reviewPolicy, proposalId,
+      reason: "Phase 5 locked policy fixture.", version: 1,
+    });
+    const proposalRevisionId = await ctx.db.insert("proposalRevisions", {
+      backOfficeApprovedByWorkosUserId: "user_admin", brokerageId,
+      changedCheckpoints: ["accessReviewPolicy"],
+      checkpoints: {
+        accessReviewPolicy: reviewPolicy,
+        budget: { totalBudgetCents: 10_000_000 },
+        builder: { builderProfileId, displayName: "Phase 5 Builder" },
+        milestoneCount: { count: 1 },
+        scheduleTimeline: {
+          milestonesFingerprint: "phase5", proposedStartDate: "2026-08-01",
+          timelineRangeMax: 20, timelineRangeMin: 0,
+        },
+      },
+      createdAt: now, createdByRole: "admin", createdByWorkosUserId: "user_admin",
+      idempotencyKey: "phase5-revision-v1", organizationId: ORG, proposalId,
+      reason: "Phase 5 locked revision fixture.", reviewPolicyVersionId: policyVersionId,
+      revisionNumber: 1,
+    });
+    const reviewPolicyLockId = await ctx.db.insert("proposalReviewPolicyLocks", {
+      activeLenderMemberCount: 1, brokerageId, idempotencyKey: "phase5-policy-lock",
+      lockedAt: now, lockedByRole: "admin", lockedByWorkosUserId: "user_admin",
+      organizationId: ORG, policy: reviewPolicy, policyVersionId, proposalId,
+      proposalRevisionId, proposalRevisionNumber: 1,
+      reason: "Phase 5 policy lock fixture.",
+    });
     const buildId = await ctx.db.insert("activeBuilds", {
       brokerageId, builderProfileId, buildName: "Stable cycle build", createdAt: now,
       location: "15 Stable Cycle Road", organizationId: ORG, proposalId,
-      reviewPolicySnapshot: {
-        drawApprovalMode: "both", drawLenderQuorum: 1,
-        milestoneApprovalMode: "both", milestoneLenderQuorum: 1,
-        milestoneReceiptInvoiceRequired: true, milestoneSiteVisitRequired: false,
-      },
+      reviewPolicyLockId, reviewPolicySnapshot: reviewPolicy,
       startDate: "2026-08-01", status: "active", totalBudgetCents: 10_000_000,
       updatedAt: now, workflowRuleSnapshotId: snapshotId,
     });
@@ -593,11 +980,50 @@ async function fixture() {
       name: "Foundation", order: 1, organizationId: ORG, progressPercent: 100,
       proposalMilestoneId, status: "in_progress", updatedAt: now,
     });
+    const proposalSubmilestoneId = await ctx.db.insert("proposalSubmilestones", {
+      brokerageId, createdAt: now, key: "foundation-work",
+      milestoneKey: "foundation", name: "Foundation work", order: 1,
+      organizationId: ORG, proposalId, proposalMilestoneId, updatedAt: now,
+    });
+    const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
+      brokerageId, buildId, buildMilestoneId: milestoneId, createdAt: now,
+      key: "foundation-work", milestoneKey: "foundation", name: "Foundation work",
+      order: 1, organizationId: ORG, proposalSubmilestoneId,
+      status: "complete", updatedAt: now,
+    });
+    const packageRevisionId = await ctx.db.insert(
+      "buildSubmilestoneEvidencePackageRevisions",
+      {
+        brokerageId, buildId, buildMilestoneId: milestoneId,
+        buildSubmilestoneId, createdAt: now, createdByWorkosUserId: "user_builder",
+        frozenAt: now, frozenByWorkosUserId: "user_builder", milestoneKey: "foundation",
+        organizationId: ORG, proposalId, requirementsRevision: 1, revision: 1,
+        status: "frozen", submilestoneKey: "foundation-work", updatedAt: now,
+      },
+    );
     const evidenceAssetId = await ctx.db.insert("buildEvidenceAssets", {
       brokerageId, buildId, createdAt: now, evidenceKey: "foundation-invoice",
+      evidencePackageRevisionId: packageRevisionId,
       fileName: "foundation-invoice.pdf", label: "Foundation invoice", locationVerified: true,
       milestoneKey: "foundation", mimeType: "application/pdf", organizationId: ORG,
-      proposalId, sizeBytes: 1_024, source: "builder_upload", tag: "invoice", updatedAt: now,
+      proposalId, sizeBytes: 1_024, source: "builder_upload",
+      submilestoneKey: "foundation-work", tag: "invoice", updatedAt: now,
+    });
+    const packageItemId = await ctx.db.insert("buildSubmilestoneEvidencePackageItems", {
+      brokerageId, buildId, buildMilestoneId: milestoneId, buildSubmilestoneId,
+      createdAt: now, evidenceAssetId, locationVerified: true,
+      organizationId: ORG, packageRevisionId, requirementKey: "completion-photo",
+      sourceKind: "canonical_upload", sourceUploaderWorkosUserId: "user_builder",
+    });
+    await ctx.db.patch(milestoneId, {
+      completionClaim: {
+        actualCostCents: 4_200_000, completedDay: 18,
+        evidencePackageRevisionIds: [{
+          revision: 1, revisionId: packageRevisionId,
+          submilestoneKey: "foundation-work",
+        }],
+        note: "Ready.", submittedAt: "2026-08-15T12:00:00.000Z",
+      },
     });
     const drawRequestId = await ctx.db.insert("activeBuildDrawRequests", {
       amountCents: 2_500_000, brokerageId, buildId, clientOperationId: "phase5-draw",
@@ -658,10 +1084,13 @@ async function fixture() {
     return {
       brokerageId,
       buildId,
+      buildSubmilestoneId,
       drawRequestId,
       evidenceAssetId,
       lenderOrganizationId,
       milestoneId,
+      packageItemId,
+      packageRevisionId,
       proposalId,
       proposalMilestoneId,
     };

@@ -15,6 +15,7 @@ const LENDER_PORTAL_RESULT_LIMIT = 50;
 
 const lenderProposalListRow = v.object({
   assignedAt: v.number(),
+  assignmentId: v.id("proposalLenderAssignments"),
   assignmentStatus: v.union(v.literal("current"), v.literal("withdrawn")),
   buildName: v.string(),
   lenderConfirmation: v.union(v.literal("approved"), v.literal("pending")),
@@ -171,6 +172,7 @@ async function projectLenderAssignedProposals(
 
       return {
         assignedAt: assignment.assignedAt,
+        assignmentId: assignment._id,
         assignmentStatus: assignment.status,
         buildName: proposal.buildName,
         lenderConfirmation,

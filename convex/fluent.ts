@@ -290,12 +290,14 @@ const viewerValidator = v.object({
   issuer: v.string(),
   name: v.optional(v.string()),
   email: v.optional(v.string()),
+  subject: v.string(),
 });
 
 interface Viewer {
   email?: string;
   issuer: string;
   name?: string;
+  subject: string;
   tokenIdentifier: string;
 }
 
@@ -303,6 +305,7 @@ function toViewer(identity: UserIdentity): Viewer {
   const viewer: Viewer = {
     tokenIdentifier: identity.tokenIdentifier,
     issuer: identity.issuer,
+    subject: identity.subject,
   };
 
   if (identity.name) {
