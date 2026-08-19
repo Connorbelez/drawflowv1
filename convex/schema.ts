@@ -57,6 +57,17 @@ import {
   proposalRevisionCheckpointSnapshotValidator,
   proposalRevisionMilestoneValidator,
 } from "./lender_portal_phase3";
+import { proposalConfirmationCycleStatusValidator } from "./lender_portal_phase4";
+import {
+  lenderPortalReviewDecisionValidator,
+  lenderPortalReviewEvidenceReferenceValidator,
+  lenderPortalReviewGroupValidator,
+  lenderPortalReviewRequestKindValidator,
+  lenderPortalReviewRequestStateValidator,
+  lenderPortalReviewRequirementsValidator,
+  lenderPortalReviewerRoleValidator,
+  lenderPortalReviewSubmissionSnapshotValidator,
+} from "./lender_portal_phase5_contracts";
 
 const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
@@ -3781,6 +3792,58 @@ export default defineSchema({
   }))
     .index("by_revision", ["revisionId"])
     .index("by_revision_and_order", ["revisionId", "order"]),
+  proposalLenderConfirmationCycles: defineTable({
+    assignmentId: v.id("proposalLenderAssignments"),
+    brokerageId: v.id("brokerages"),
+    closedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    cycleNumber: v.number(),
+    decisionId: v.optional(v.id("proposalLenderApprovals")),
+    openedAt: v.number(),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalRevisionId: v.id("proposalRevisions"),
+    proposalRevisionNumber: v.number(),
+    status: proposalConfirmationCycleStatusValidator,
+    supersededAt: v.optional(v.number()),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_status", ["proposalId", "status"])
+    .index("by_assignment", ["assignmentId"])
+    .index("by_assignment_and_status", ["assignmentId", "status"])
+    .index("by_assignment_and_cycle_number", ["assignmentId", "cycleNumber"])
+    .index("by_assignment_and_revision", [
+      "assignmentId",
+      "proposalRevisionId",
+    ]),
+  proposalLenderConfirmationAcknowledgements: defineTable({
+    acknowledgedAt: v.number(),
+    acknowledgedByRole: v.string(),
+    acknowledgedByWorkosUserId: v.string(),
+    assignmentId: v.id("proposalLenderAssignments"),
+    brokerageId: v.id("brokerages"),
+    checkpoint: proposalRevisionCheckpointNameValidator,
+    confirmationCycleId: v.id("proposalLenderConfirmationCycles"),
+    idempotencyKey: v.string(),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalRevisionId: v.id("proposalRevisions"),
+    sequence: v.number(),
+  })
+    .index("by_cycle", ["confirmationCycleId"])
+    .index("by_cycle_and_actor", [
+      "confirmationCycleId",
+      "acknowledgedByWorkosUserId",
+    ])
+    .index("by_cycle_actor_checkpoint", [
+      "confirmationCycleId",
+      "acknowledgedByWorkosUserId",
+      "checkpoint",
+    ])
+    .index("by_cycle_and_idempotency_key", [
+      "confirmationCycleId",
+      "idempotencyKey",
+    ]),
   proposalLenderApprovals: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3788,6 +3851,9 @@ export default defineSchema({
     assignmentId: v.id("proposalLenderAssignments"),
     proposalRevisionId: v.optional(v.id("proposalRevisions")),
     proposalRevisionNumber: v.optional(v.number()),
+    confirmationCycleId: v.optional(v.id("proposalLenderConfirmationCycles")),
+    declinedCheckpoint: v.optional(proposalRevisionCheckpointNameValidator),
+    idempotencyKey: v.optional(v.string()),
     lenderOrganizationId: v.union(v.string(), v.id("lenderOrganizations")),
     legacyLenderOrganizationId: v.optional(v.string()),
     approverWorkosUserId: v.string(),
@@ -3814,6 +3880,11 @@ export default defineSchema({
       ],
       staged: true,
     })
+    .index("by_confirmation_cycle", ["confirmationCycleId"])
+    .index("by_confirmation_cycle_and_idempotency_key", [
+      "confirmationCycleId",
+      "idempotencyKey",
+    ])
     .index("by_assignment", ["assignmentId"]),
   proposalReviewPolicyLocks: defineTable({
     brokerageId: v.id("brokerages"),
@@ -3840,6 +3911,80 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_proposal_and_idempotency_key", ["proposalId", "idempotencyKey"]),
+  lenderPortalReviewCycles: defineTable({
+    approvedGroups: v.array(lenderPortalReviewGroupValidator),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    commandFingerprint: v.string(),
+    cycleNumber: v.number(),
+    drawRequestId: v.optional(v.id("activeBuildDrawRequests")),
+    evidenceReferences: v.array(lenderPortalReviewEvidenceReferenceValidator),
+    idempotencyKey: v.string(),
+    isCurrent: v.boolean(),
+    kind: lenderPortalReviewRequestKindValidator,
+    lenderApprovalCount: v.number(),
+    milestoneId: v.optional(v.id("buildMilestones")),
+    organizationId: v.string(),
+    requestIdentity: v.string(),
+    requirements: lenderPortalReviewRequirementsValidator,
+    revisionInstructions: v.optional(v.string()),
+    state: lenderPortalReviewRequestStateValidator,
+    submission: lenderPortalReviewSubmissionSnapshotValidator,
+    submittedAt: v.number(),
+    submittedByWorkosUserId: v.string(),
+    targetLabel: v.string(),
+    decisionSummaries: v.array(
+      v.object({
+        actorWorkosUserId: v.string(),
+        decision: lenderPortalReviewDecisionValidator,
+        group: lenderPortalReviewGroupValidator,
+      })
+    ),
+    updatedAt: v.number(),
+  })
+    .index("by_request_identity_and_cycle_number", [
+      "requestIdentity",
+      "cycleNumber",
+    ])
+    .index("by_request_identity_and_idempotency_key", [
+      "requestIdentity",
+      "idempotencyKey",
+    ])
+    .index("by_build_and_state", ["buildId", "state"])
+    .index("by_build_and_submitted_at", ["buildId", "submittedAt"])
+    .index("by_build_and_is_current_and_submitted_at", [
+      "buildId",
+      "isCurrent",
+      "submittedAt",
+    ]),
+  lenderPortalReviewDecisions: defineTable({
+    actorRole: lenderPortalReviewerRoleValidator,
+    actorWorkosUserId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    commandFingerprint: v.string(),
+    createdAt: v.number(),
+    cycleId: v.id("lenderPortalReviewCycles"),
+    cycleNumber: v.number(),
+    decision: lenderPortalReviewDecisionValidator,
+    group: lenderPortalReviewGroupValidator,
+    idempotencyKey: v.string(),
+    organizationId: v.string(),
+    privateRationale: v.optional(v.string()),
+    requestIdentity: v.string(),
+    revisionInstructions: v.optional(v.string()),
+  })
+    .index("by_cycle", ["cycleId"])
+    .index("by_cycle_and_group", ["cycleId", "group"])
+    .index("by_cycle_group_and_actor", [
+      "cycleId",
+      "group",
+      "actorWorkosUserId",
+    ])
+    .index("by_request_identity_and_idempotency_key", [
+      "requestIdentity",
+      "idempotencyKey",
+    ]),
   proposalPhase3MigrationIssues: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -7827,6 +7972,13 @@ export default defineSchema({
     dependencyKeys: v.array(v.string()),
     completionClaim: v.optional(v.any()),
     completionReview: v.optional(v.any()),
+    currentLenderPortalReviewCycleId: v.optional(
+      v.id("lenderPortalReviewCycles"),
+    ),
+    currentLenderPortalReviewCycleNumber: v.optional(v.number()),
+    lenderPortalReviewState: v.optional(
+      lenderPortalReviewRequestStateValidator,
+    ),
     reviewDecisionState: v.optional(
       v.union(
         v.literal("in_review"),
@@ -8627,6 +8779,13 @@ export default defineSchema({
     label: v.string(),
     amountCents: v.number(),
     status: activeBuildDrawRequestStatusValidator,
+    currentLenderPortalReviewCycleId: v.optional(
+      v.id("lenderPortalReviewCycles"),
+    ),
+    currentLenderPortalReviewCycleNumber: v.optional(v.number()),
+    lenderPortalReviewState: v.optional(
+      lenderPortalReviewRequestStateValidator,
+    ),
     note: v.optional(v.string()),
     operationsRecommendationNote: v.optional(v.string()),
     operationsReviewStartedAt: v.optional(v.string()),

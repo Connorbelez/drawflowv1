@@ -41,6 +41,572 @@ const EMPTY_TIPTAP_DOCUMENT = JSON.stringify({
   type: "doc",
 });
 
+const PHASE4_CONFIRMATION_CHECKPOINTS = [
+  "milestoneCount",
+  "budget",
+  "scheduleTimeline",
+  "builder",
+  "accessReviewPolicy",
+] as const;
+const PHASE4_HISTORY_PAGE = { cursor: null, numItems: 50 };
+
+async function phase4CommandBaseForTest(t: any, proposalId: any) {
+  const projection = await t.query(
+    (api as any).production_proposals.getBackofficeProposalRemediation,
+    {
+      historyPaginationOpts: PHASE4_HISTORY_PAGE,
+      proposalId,
+      workosOrganizationId: ORG,
+    },
+  );
+  if (!projection.currentCycle) {
+    throw new Error("Phase 4 test fixture is missing its current confirmation cycle.");
+  }
+  return {
+    expectedAssignmentId: projection.currentCycle.assignmentId,
+    expectedConfirmationCycleId:
+      projection.currentCycle.confirmationCycleId,
+    expectedProposalRevisionId:
+      projection.currentCycle.proposalRevisionId,
+  };
+}
+
+async function approveCurrentProposalConfirmationForTest(
+  t: any,
+  lenderViewer: any,
+  proposalId: any,
+  lenderWorkosOrganizationId: string,
+  idempotencyKeyPrefix: string,
+  reason: string,
+) {
+  const commandBase = await phase4CommandBaseForTest(t, proposalId);
+  for (const [index, checkpoint] of PHASE4_CONFIRMATION_CHECKPOINTS.entries()) {
+    await lenderViewer.mutation(
+      (api as any).production_proposals
+        .acknowledgeProposalConfirmationCheckpoint,
+      {
+        ...commandBase,
+        checkpoint,
+        idempotencyKey: `${idempotencyKeyPrefix}:ack:${index + 1}`,
+        proposalId,
+        workosOrganizationId: lenderWorkosOrganizationId,
+      },
+    );
+  }
+  return await lenderViewer.mutation(
+    (api as any).production_proposals.approveExternalProposalForClosing,
+    {
+      ...commandBase,
+      idempotencyKey: `${idempotencyKeyPrefix}:approve`,
+      proposalId,
+      reason,
+      workosOrganizationId: lenderWorkosOrganizationId,
+    },
+  );
+}
+
+async function seededPhase4Proposal(buildName: string) {
+  const { base, seed, t } = await seeded(["admin"], "user_admin");
+  const lender = await seedExternalLenderOrganization(t, {
+    organizationId: `org_${buildName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+    userId: `user_${buildName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+  });
+  const proposalId = await createSubmittedProposal(t, seed, {
+    buildName,
+    capitalSource: "external",
+  });
+  await t.mutation((api as any).production_proposals.approveProposal, {
+    proposalId,
+    reason: "Approve the Phase 4 confirmation fixture.",
+    workosOrganizationId: ORG,
+  });
+  await t.mutation(
+    (api as any).production_proposals.assignExternalLenderOrganization,
+    {
+      lenderOrganizationId: lender.lenderOrganizationId,
+      proposalId,
+      reason: "Assign the Phase 4 confirmation fixture.",
+      workosOrganizationId: ORG,
+    },
+  );
+  return {
+    base,
+    lender,
+    lenderViewer: withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    ),
+    proposalId,
+    t,
+  };
+}
+
+describe("Lender Portal Phase 4 confirmation and remediation", () => {
+  test("requires all immutable checkpoints before lender approval", async () => {
+    const { base, lender, lenderViewer, proposalId, t } =
+      await seededPhase4Proposal("Phase 4 partial confirmation");
+    const commandBase = await phase4CommandBaseForTest(t, proposalId);
+    const before = await lenderViewer.query(
+      (api as any).production_proposals.getLenderProposalConfirmation,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    await lenderViewer.mutation(
+      (api as any).production_proposals
+        .acknowledgeProposalConfirmationCheckpoint,
+      {
+        ...commandBase,
+        checkpoint: "milestoneCount",
+        idempotencyKey: "phase4-partial-milestone-count",
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    const after = await lenderViewer.query(
+      (api as any).production_proposals.getLenderProposalConfirmation,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(after.currentCycle.checkpoints).toEqual(
+      before.currentCycle.checkpoints,
+    );
+    expect(after.currentCycle.acknowledgements).toHaveLength(1);
+    expect(after.canDecide).toBe(false);
+    await expect(
+      lenderViewer.mutation(
+        (api as any).production_proposals.approveExternalProposalForClosing,
+        {
+          ...commandBase,
+          idempotencyKey: "phase4-partial-approval",
+          proposalId,
+          reason: "Do not approve an incomplete guided confirmation.",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("Every proposal confirmation checkpoint");
+    await expect(
+      lenderViewer.mutation(
+        (api as any).production_proposals
+          .updateProductionProposalProposedStartDate,
+        {
+          proposedStartDate: "2027-01-15",
+          proposalId,
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("Forbidden");
+    const staffUserId = "user_phase4_confirmation_staff";
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender-staff",
+      userId: staffUserId,
+    });
+    const staffViewer = withIdentity(
+      base,
+      ["lender-staff"],
+      staffUserId,
+      lender.organizationId,
+    );
+    for (const [index, checkpoint] of PHASE4_CONFIRMATION_CHECKPOINTS.entries()) {
+      await staffViewer.mutation(
+        (api as any).production_proposals
+          .acknowledgeProposalConfirmationCheckpoint,
+        {
+          ...commandBase,
+          checkpoint,
+          idempotencyKey: `phase4-staff-ack-${index + 1}`,
+          proposalId,
+          workosOrganizationId: lender.organizationId,
+        },
+      );
+    }
+    const staffProjection = await staffViewer.query(
+      (api as any).production_proposals.getLenderProposalConfirmation,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(staffProjection.canDecide).toBe(false);
+    await expect(
+      staffViewer.mutation(
+        (api as any).production_proposals.approveExternalProposalForClosing,
+        {
+          ...commandBase,
+          idempotencyKey: "phase4-staff-cannot-approve",
+          proposalId,
+          reason: "Staff cannot make the final lender decision.",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("final lender decision authority proposal_review");
+  });
+
+  test("rejects acknowledgement replay when the expected assignment changes", async () => {
+    const { lender, lenderViewer, proposalId, t } =
+      await seededPhase4Proposal("Phase 4 acknowledgement assignment replay");
+    const commandBase = await phase4CommandBaseForTest(t, proposalId);
+    const command = {
+      ...commandBase,
+      checkpoint: "milestoneCount" as const,
+      idempotencyKey: "phase4-assignment-replay",
+      proposalId,
+      workosOrganizationId: lender.organizationId,
+    };
+    await lenderViewer.mutation(
+      (api as any).production_proposals
+        .acknowledgeProposalConfirmationCheckpoint,
+      command,
+    );
+    const mismatchedAssignmentId = await t.run(async (ctx: any) => {
+      const assignment = await ctx.db.get(commandBase.expectedAssignmentId);
+      if (!assignment) {
+        throw new Error("Phase 4 test assignment is unavailable.");
+      }
+      const { _creationTime, _id, ...values } = assignment;
+      return await ctx.db.insert("proposalLenderAssignments", {
+        ...values,
+        status: "withdrawn",
+      });
+    });
+
+    await expect(
+      lenderViewer.mutation(
+        (api as any).production_proposals
+          .acknowledgeProposalConfirmationCheckpoint,
+        { ...command, expectedAssignmentId: mismatchedAssignmentId },
+      ),
+    ).rejects.toThrow(
+      "Proposal checkpoint acknowledgement idempotency key was reused with different values.",
+    );
+  });
+
+  test("declines privately, remediates the same proposal, and opens a full new cycle", async () => {
+    const { base, lender, lenderViewer, proposalId, t } =
+      await seededPhase4Proposal("Phase 4 remediation loop");
+    const firstBase = await phase4CommandBaseForTest(t, proposalId);
+    await expect(
+      lenderViewer.mutation(
+        (api as any).production_proposals.declineExternalProposalForClosing,
+        {
+          ...firstBase,
+          declinedCheckpoint: "scheduleTimeline",
+          idempotencyKey: "phase4-empty-decline-reason",
+          proposalId,
+          reason: "   ",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("A reason is required");
+    const declineArgs = {
+      ...firstBase,
+      declinedCheckpoint: "scheduleTimeline" as const,
+      idempotencyKey: "phase4-decline-revision-one",
+      proposalId,
+      reason: "The construction start date needs lender review.",
+      workosOrganizationId: lender.organizationId,
+    };
+    const declined = await lenderViewer.mutation(
+      (api as any).production_proposals.declineExternalProposalForClosing,
+      declineArgs,
+    );
+    const declinedRetry = await lenderViewer.mutation(
+      (api as any).production_proposals.declineExternalProposalForClosing,
+      declineArgs,
+    );
+    expect(declinedRetry).toEqual(declined);
+    const proposalAfterDecline = await base.run((ctx: any) =>
+      ctx.db.get(proposalId),
+    );
+    expect(proposalAfterDecline).toMatchObject({
+      reviewOutcome: "approved",
+      status: "approved",
+    });
+    const remediation = await t.query(
+      (api as any).production_proposals.getBackofficeProposalRemediation,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(remediation.remediation).toMatchObject({
+      declinedCheckpoint: "scheduleTimeline",
+      declinedProposalRevisionId: firstBase.expectedProposalRevisionId,
+      editableProposalId: proposalId,
+      privateReason: "The construction start date needs lender review.",
+      updateRequired: true,
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder", ORG);
+    const builderProjection = await builder.query(
+      (api as any).production_proposals.getBuilderProposalConfirmationState,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(builderProjection).toMatchObject({
+      lifecycle: { lenderConfirmation: "declined" },
+      updateRequired: true,
+    });
+    expect(JSON.stringify(builderProjection)).not.toContain(lender.userId);
+    expect(JSON.stringify(builderProjection)).not.toContain(
+      "construction start date needs lender review",
+    );
+
+    await t.mutation(
+      (api as any).production_proposals
+        .updateProductionProposalProposedStartDate,
+      {
+        proposedStartDate: "2027-01-15",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.publishProposalRevision,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase4-publish-remediation-two",
+        proposalId,
+        reason: "Publish the same-proposal schedule remediation.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const lenderAfterPublish = await lenderViewer.query(
+      (api as any).production_proposals.getLenderProposalConfirmation,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(lenderAfterPublish).toMatchObject({
+      canDecide: false,
+      closingGateSatisfied: false,
+      currentCycle: {
+        acknowledgements: [],
+        changedCheckpoints: ["scheduleTimeline"],
+        status: "pending",
+      },
+      lenderNeedsAction: true,
+    });
+    expect(lenderAfterPublish.history.page).toHaveLength(2);
+    expect(new Set(
+      lenderAfterPublish.history.page.map((cycle: any) => cycle.confirmationCycleId),
+    ).size).toBe(2);
+    const backofficeAfterPublish = await t.query(
+      (api as any).production_proposals.getBackofficeProposalRemediation,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(backofficeAfterPublish).toMatchObject({
+      lenderNeedsAction: true,
+      remediation: null,
+    });
+    await expect(
+      lenderViewer.mutation(
+        (api as any).production_proposals.approveExternalProposalForClosing,
+        {
+          ...firstBase,
+          idempotencyKey: "phase4-stale-revision-one-approval",
+          proposalId,
+          reason: "Do not approve the superseded revision.",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("Stale proposal confirmation assignment or revision");
+
+    const secondBase = await phase4CommandBaseForTest(t, proposalId);
+    const secondDeclineArgs = {
+      ...secondBase,
+      declinedCheckpoint: "scheduleTimeline" as const,
+      idempotencyKey: "phase4-decline-revision-two",
+      proposalId,
+      reason: "The remediated start date still needs adjustment.",
+      workosOrganizationId: lender.organizationId,
+    };
+    const secondDecline = await lenderViewer.mutation(
+      (api as any).production_proposals.declineExternalProposalForClosing,
+      secondDeclineArgs,
+    );
+    expect(
+      await lenderViewer.mutation(
+        (api as any).production_proposals.declineExternalProposalForClosing,
+        secondDeclineArgs,
+      ),
+    ).toEqual(secondDecline);
+    await t.mutation(
+      (api as any).production_proposals
+        .updateProductionProposalProposedStartDate,
+      {
+        proposedStartDate: "2027-02-01",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.publishProposalRevision,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "phase4-publish-remediation-three",
+        proposalId,
+        reason: "Publish the second same-proposal schedule remediation.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const thirdCycle = await lenderViewer.query(
+      (api as any).production_proposals.getLenderProposalConfirmation,
+      {
+        historyPaginationOpts: { cursor: null, numItems: 2 },
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(thirdCycle.history.page).toHaveLength(2);
+    expect(thirdCycle.history.isDone).toBe(false);
+    expect(thirdCycle.currentCycle).toMatchObject({
+      acknowledgements: [],
+      changedCheckpoints: ["scheduleTimeline"],
+      status: "pending",
+    });
+    const finalHistoryPage = await lenderViewer.query(
+      (api as any).production_proposals.getLenderProposalConfirmation,
+      {
+        historyPaginationOpts: {
+          cursor: thirdCycle.history.continueCursor,
+          numItems: 2,
+        },
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(finalHistoryPage.history.page).toHaveLength(1);
+    expect(finalHistoryPage.history.isDone).toBe(true);
+    expect(
+      new Set(
+        [...thirdCycle.history.page, ...finalHistoryPage.history.page].map(
+          (cycle: any) => cycle.confirmationCycleId,
+        ),
+      ).size,
+    ).toBe(3);
+
+    const finalApproval = await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase4-approve-remediation-two",
+      "Approve the fully reconfirmed revision.",
+    );
+    expect(
+      await approveCurrentProposalConfirmationForTest(
+        t,
+        lenderViewer,
+        proposalId,
+        lender.organizationId,
+        "phase4-approve-remediation-two",
+        "Approve the fully reconfirmed revision.",
+      ),
+    ).toEqual(finalApproval);
+    const approved = await lenderViewer.query(
+      (api as any).production_proposals.getLenderProposalConfirmation,
+      {
+        historyPaginationOpts: PHASE4_HISTORY_PAGE,
+        proposalId,
+        workosOrganizationId: lender.organizationId,
+      },
+    );
+    expect(approved).toMatchObject({
+      closingGateSatisfied: true,
+      currentCycle: { status: "approved" },
+      lenderNeedsAction: false,
+    });
+    expect(approved.history.page).toHaveLength(3);
+    expect(approved.currentCycle.acknowledgements).toHaveLength(5);
+  });
+
+  test("serializes competing approve and decline decisions without duplicate history", async () => {
+    const { base, lender, lenderViewer, proposalId, t } =
+      await seededPhase4Proposal("Phase 4 competing decisions");
+    const commandBase = await phase4CommandBaseForTest(t, proposalId);
+    for (const [index, checkpoint] of PHASE4_CONFIRMATION_CHECKPOINTS.entries()) {
+      await lenderViewer.mutation(
+        (api as any).production_proposals
+          .acknowledgeProposalConfirmationCheckpoint,
+        {
+          ...commandBase,
+          checkpoint,
+          idempotencyKey: `phase4-race-ack-${index + 1}`,
+          proposalId,
+          workosOrganizationId: lender.organizationId,
+        },
+      );
+    }
+    const outcomes = await Promise.allSettled([
+      lenderViewer.mutation(
+        (api as any).production_proposals.approveExternalProposalForClosing,
+        {
+          ...commandBase,
+          idempotencyKey: "phase4-race-approve",
+          proposalId,
+          reason: "Approve the current confirmation cycle.",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+      lenderViewer.mutation(
+        (api as any).production_proposals.declineExternalProposalForClosing,
+        {
+          ...commandBase,
+          declinedCheckpoint: "budget",
+          idempotencyKey: "phase4-race-decline",
+          proposalId,
+          reason: "Decline the current confirmation cycle.",
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ]);
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled"))
+      .toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected"))
+      .toHaveLength(1);
+    const rows = await base.run(async (ctx: any) => ({
+      cycles: await ctx.db
+        .query("proposalLenderConfirmationCycles")
+        .withIndex("by_proposal", (query: any) =>
+          query.eq("proposalId", proposalId),
+        )
+        .collect(),
+      decisions: await ctx.db
+        .query("proposalLenderApprovals")
+        .withIndex("by_confirmation_cycle", (query: any) =>
+          query.eq(
+            "confirmationCycleId",
+            commandBase.expectedConfirmationCycleId,
+          ),
+        )
+        .collect(),
+    }));
+    expect(rows.cycles).toHaveLength(1);
+    expect(rows.decisions).toHaveLength(1);
+    expect(rows.cycles[0].decisionId).toBe(rows.decisions[0]._id);
+  });
+});
+
 describe("Lender Portal Phase 3 review policy and revision controls", () => {
   test("rejects proposal approval with an actionable builder prerequisite before lifecycle writes", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
@@ -150,13 +716,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
     const lenderReviewedSnapshot = structuredClone(
       firstControl.revisions[1].checkpoints,
     );
-    await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve revision two.",
-        workosOrganizationId: lender.organizationId,
-      },
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-revision-two",
+      "Approve revision two.",
     );
 
     const policyInput = {
@@ -248,13 +814,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
       }),
     ).rejects.toThrow("Current lender-reviewed proposal revision");
 
-    await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve revision three.",
-        workosOrganizationId: lender.organizationId,
-      },
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-revision-three",
+      "Approve revision three.",
     );
     const locked = await t.mutation(
       (api as any).production_proposals.lockProposalReviewPolicy,
@@ -449,13 +1015,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
           },
         );
         expect(configured.revisionNumber).toBe(3);
-        await lenderViewer.mutation(
-          (api as any).production_proposals.approveExternalProposalForClosing,
-          {
-            proposalId,
-            reason: `Confirm ${key}.`,
-            workosOrganizationId: lender.organizationId,
-          },
+        await approveCurrentProposalConfirmationForTest(
+          t,
+          lenderViewer,
+          proposalId,
+          lender.organizationId,
+          `phase3-confirm-${key}`,
+          `Confirm ${key}.`,
         );
         const lock = await t.mutation(
           (api as any).production_proposals.lockProposalReviewPolicy,
@@ -628,13 +1194,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
         workosOrganizationId: ORG,
       },
     );
-    await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve the valid-quorum revision.",
-        workosOrganizationId: lender.organizationId,
-      },
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-valid-quorum",
+      "Approve the valid-quorum revision.",
     );
     await base.run(async (ctx: any) => {
       const assignment = await ctx.db
@@ -700,13 +1266,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
         workosOrganizationId: ORG,
       }),
     ).rejects.toThrow("Current lender-reviewed proposal revision");
-    await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve the corrected current revision.",
-        workosOrganizationId: lender.organizationId,
-      },
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-corrected-revision",
+      "Approve the corrected current revision.",
     );
     await t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
       ...(await phase3CommandBaseForTest(t, proposalId)),
@@ -872,13 +1438,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
       lender.userId,
       lender.organizationId,
     );
-    await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve the lock-withdrawal race revision.",
-        workosOrganizationId: lender.organizationId,
-      },
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-lock-withdrawal-race",
+      "Approve the lock-withdrawal race revision.",
     );
     const commandBase = await phase3CommandBaseForTest(t, proposalId);
     const outcomes = await Promise.allSettled([
@@ -934,13 +1500,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
       lender.userId,
       lender.organizationId,
     );
-    await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId: lockedProposalId,
-        reason: "Approve before the lock-first ordering.",
-        workosOrganizationId: lender.organizationId,
-      },
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      lockedProposalId,
+      lender.organizationId,
+      "phase3-approve-lock-first",
+      "Approve before the lock-first ordering.",
     );
     await t.mutation((api as any).production_proposals.lockProposalReviewPolicy, {
       ...(await phase3CommandBaseForTest(t, lockedProposalId)),
@@ -1106,13 +1672,13 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
       lender.userId,
       lender.organizationId,
     );
-    await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve before exercising the legacy lock lookup.",
-        workosOrganizationId: lender.organizationId,
-      },
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-legacy-lock",
+      "Approve before exercising the legacy lock lookup.",
     );
     await base.run(async (ctx: any) => {
       await ctx.db.patch(assigned.assignmentId, {
@@ -1228,11 +1794,14 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
       });
     });
     const lenderViewer = withIdentity(base, ["lender-admin"], lender.userId, lender.organizationId);
-    await lenderViewer.mutation((api as any).production_proposals.approveExternalProposalForClosing, {
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
       proposalId,
-      reason: "Approve before proposal-review permission is revoked.",
-      workosOrganizationId: lender.organizationId,
-    });
+      lender.organizationId,
+      "phase3-approve-before-permission-revoked",
+      "Approve before proposal-review permission is revoked.",
+    );
     await base.run(async (ctx: any) => {
       await ctx.db.patch(lender.lenderOrganizationId, {
         permissions: { drawDecisions: true, milestoneDecisions: true, proposalReview: false, siteVisitReview: true },
@@ -1789,18 +2358,19 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
         workosOrganizationId: ORG,
       },
     );
-    await withIdentity(
+    const migrationLenderViewer = withIdentity(
       base,
       ["lender-admin"],
       lender.userId,
       lender.organizationId,
-    ).mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve the legacy migration fixture revision.",
-        workosOrganizationId: lender.organizationId,
-      },
+    );
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      migrationLenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-legacy-migration",
+      "Approve the legacy migration fixture revision.",
     );
 
     await base.run(async (ctx: any) => {
@@ -2366,18 +2936,19 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
         workosOrganizationId: ORG,
       },
     );
-    await withIdentity(
+    const closingLenderViewer = withIdentity(
       base,
       ["lender-admin"],
       lender.userId,
       lender.organizationId,
-    ).mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve the current revision before closing.",
-        workosOrganizationId: lender.organizationId,
-      },
+    );
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      closingLenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-before-closing",
+      "Approve the current revision before closing.",
     );
     const lock = await lockProposalReviewPolicyForTest(
       t,
@@ -2496,18 +3067,19 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
         workosOrganizationId: ORG,
       },
     );
-    await withIdentity(
+    const withdrawalLenderViewer = withIdentity(
       base,
       ["lender-admin"],
       lender.userId,
       lender.organizationId,
-    ).mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Approve before the historical assignment is withdrawn.",
-        workosOrganizationId: lender.organizationId,
-      },
+    );
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      withdrawalLenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase3-approve-before-withdrawal",
+      "Approve before the historical assignment is withdrawn.",
     );
     await t.mutation(
       (api as any).production_proposals.withdrawExternalLenderAssignment,
@@ -4034,13 +4606,13 @@ describe("production proposal foundation", () => {
       eligibleLender.userId,
       eligibleLender.organizationId,
     );
-    const internalApproval = await internalLenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId: internalProposalId,
-        reason: "Confirm the assigned lender review.",
-        workosOrganizationId: eligibleLender.organizationId,
-      },
+    const internalApproval = await approveCurrentProposalConfirmationForTest(
+      t,
+      internalLenderViewer,
+      internalProposalId,
+      eligibleLender.organizationId,
+      "phase2-confirm-internal-assignment",
+      "Confirm the assigned lender review.",
     );
     expect(internalApproval.approvalId).toBeDefined();
     const internalDetail = await t.query(
@@ -4211,13 +4783,13 @@ describe("production proposal foundation", () => {
       }),
     ).rejects.toThrow("eligible active lender approval");
 
-    const approval = await lenderViewer.mutation(
-      (api as any).production_proposals.approveExternalProposalForClosing,
-      {
-        proposalId,
-        reason: "Confirm the current proposal for closing.",
-        workosOrganizationId: lender.organizationId,
-      },
+    const approval = await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderViewer,
+      proposalId,
+      lender.organizationId,
+      "phase2-confirm-external-closing",
+      "Confirm the current proposal for closing.",
     );
     expect(approval.approvalId).toBeDefined();
     const lenderProjection = await lenderViewer.query(
@@ -4268,16 +4840,22 @@ describe("production proposal foundation", () => {
     });
     expect(builderProjection.lenderAssignment).toBeNull();
     expect(builderProjection.lenderAssignmentHistory).toEqual([]);
+    const completedConfirmationBase = await phase4CommandBaseForTest(
+      t,
+      proposalId,
+    );
     await expect(
       lenderViewer.mutation(
         (api as any).production_proposals.approveExternalProposalForClosing,
         {
+          ...completedConfirmationBase,
+          idempotencyKey: "phase2-do-not-replay-lender-approval",
           proposalId,
           reason: "Do not replay lender approval.",
           workosOrganizationId: lender.organizationId,
         },
       ),
-    ).rejects.toThrow("already recorded");
+    ).rejects.toThrow("Stale or completed proposal confirmation cycle");
 
     await lockProposalReviewPolicyForTest(t, proposalId, "external-close");
 
@@ -4425,10 +5003,13 @@ describe("production proposal foundation", () => {
       lender.userId,
       lender.organizationId,
     );
+    const deniedConfirmationBase = await phase4CommandBaseForTest(t, proposalId);
     await expect(
       lenderViewer.mutation(
         (api as any).production_proposals.approveExternalProposalForClosing,
         {
+          ...deniedConfirmationBase,
+          idempotencyKey: "phase2-policy-denied-confirmation",
           proposalId,
           reason: "This decision is blocked by the organization policy.",
           workosOrganizationId: lender.organizationId,
