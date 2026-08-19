@@ -12,12 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ProtectedAccessRouteImport } from './routes/protected-access'
 import { Route as ProposalPreviewRouteImport } from './routes/proposal-preview'
 import { Route as CallbackRouteImport } from './routes/callback'
+import { Route as LenderRouteRouteImport } from './routes/lender/route'
 import { Route as HomeownerRouteRouteImport } from './routes/homeowner/route'
 import { Route as ContractorRouteRouteImport } from './routes/contractor/route'
 import { Route as BuilderStaffRouteRouteImport } from './routes/builder-staff/route'
 import { Route as BuilderRouteRouteImport } from './routes/builder/route'
 import { Route as BackofficeRouteRouteImport } from './routes/backoffice/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LenderIndexRouteImport } from './routes/lender/index'
 import { Route as HomeownerIndexRouteImport } from './routes/homeowner/index'
 import { Route as ContractorIndexRouteImport } from './routes/contractor/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
@@ -25,15 +27,31 @@ import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/in
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
 import { Route as QuoteInvitationMagicTokenRouteImport } from './routes/quote-invitation.$magicToken'
 import { Route as PrototypeSystemPostsRouteImport } from './routes/prototype/system-posts'
+import { Route as PrototypeContractorWorkRouteImport } from './routes/prototype/contractor-work'
+import { Route as PrototypeContractorQuotesRouteImport } from './routes/prototype/contractor-quotes'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
+import { Route as LenderPrototypeRouteImport } from './routes/lender.prototype'
+import { Route as LenderProposalConfirmationPrototypeRouteImport } from './routes/lender.proposal-confirmation-prototype'
+import { Route as LenderOrganizationManagementPrototypeRouteImport } from './routes/lender.organization-management-prototype'
+import { Route as LenderOrganizationRouteImport } from './routes/lender/organization'
+import { Route as LenderMilestonesPrototypeRouteImport } from './routes/lender.milestones-prototype'
+import { Route as LenderMilestonesRouteImport } from './routes/lender/milestones'
+import { Route as LenderMilestoneReviewPrototypeRouteImport } from './routes/lender.milestone-review-prototype'
+import { Route as LenderDrawsPrototypeRouteImport } from './routes/lender.draws-prototype'
+import { Route as LenderDrawsRouteImport } from './routes/lender/draws'
+import { Route as LenderDrawReviewSheetPrototypeRouteImport } from './routes/lender.draw-review-sheet-prototype'
+import { Route as LenderDrawReviewPrototypeRouteImport } from './routes/lender.draw-review-prototype'
+import { Route as LenderBuildDetailOverviewPrototypeRouteImport } from './routes/lender.build-detail-overview-prototype'
 import { Route as ContractorWorkRouteImport } from './routes/contractor/work'
 import { Route as ContractorScheduleRouteImport } from './routes/contractor/schedule'
 import { Route as ContractorProfileRouteImport } from './routes/contractor/profile'
 import { Route as ContractorOnboardingRouteImport } from './routes/contractor/onboarding'
 import { Route as ContractorEvidenceRouteImport } from './routes/contractor/evidence'
 import { Route as BuilderQuoteTemplatesRouteImport } from './routes/builder/quote-templates'
+import { Route as BuilderMilestoneRevisionDetailPrototypeRouteImport } from './routes/builder.milestone-revision-detail-prototype'
+import { Route as BuilderCorrectionResubmissionPrototypeRouteImport } from './routes/builder.correction-resubmission-prototype'
 import { Route as BuilderStaffQuoteTemplatesRouteImport } from './routes/builder-staff/quote-templates'
 import { Route as BackofficeUserManagementRouteImport } from './routes/backoffice/user-management'
 import { Route as BackofficeOnboardContractorRouteImport } from './routes/backoffice/onboard-contractor'
@@ -46,10 +64,13 @@ import { Route as BuilderStaffBuildsRouteRouteImport } from './routes/builder-st
 import { Route as BackofficeSiteVisitsRouteRouteImport } from './routes/backoffice/site-visits/route'
 import { Route as BackofficeSettingsRouteRouteImport } from './routes/backoffice/settings/route'
 import { Route as BackofficeProposalsRouteRouteImport } from './routes/backoffice/proposals/route'
+import { Route as BackofficeLendersRouteRouteImport } from './routes/backoffice/lenders/route'
 import { Route as BackofficeDrawsRouteRouteImport } from './routes/backoffice/draws/route'
 import { Route as BackofficeContractorsRouteRouteImport } from './routes/backoffice/contractors/route'
 import { Route as BackofficeBuildsRouteRouteImport } from './routes/backoffice/builds/route'
 import { Route as BackofficeBuildersRouteRouteImport } from './routes/backoffice/builders/route'
+import { Route as LenderProposalsIndexRouteImport } from './routes/lender/proposals/index'
+import { Route as LenderBuildsIndexRouteImport } from './routes/lender/builds/index'
 import { Route as ContractorProposalsIndexRouteImport } from './routes/contractor/proposals/index'
 import { Route as ContractorBuildsIndexRouteImport } from './routes/contractor/builds/index'
 import { Route as BuilderProposalsIndexRouteImport } from './routes/builder/proposals/index'
@@ -57,17 +78,22 @@ import { Route as BuilderStaffProposalsIndexRouteImport } from './routes/builder
 import { Route as BuilderStaffBuildsIndexRouteImport } from './routes/builder-staff/builds/index'
 import { Route as BackofficeSettingsIndexRouteImport } from './routes/backoffice/settings/index'
 import { Route as BackofficeProposalsIndexRouteImport } from './routes/backoffice/proposals/index'
+import { Route as BackofficeLendersIndexRouteImport } from './routes/backoffice/lenders/index'
 import { Route as BackofficeContractorsIndexRouteImport } from './routes/backoffice/contractors/index'
 import { Route as BackofficeBuildsIndexRouteImport } from './routes/backoffice/builds/index'
 import { Route as BackofficeBuildersIndexRouteImport } from './routes/backoffice/builders/index'
 import { Route as NewsitevisitBuildIdSiteVisitTokenRouteImport } from './routes/newsitevisit.$buildId.$siteVisitToken'
+import { Route as LenderProposalsProposalIdRouteImport } from './routes/lender/proposals/$proposalId'
+import { Route as LenderBuildsBuildIdRouteImport } from './routes/lender/builds/$buildId'
 import { Route as HomeownerBuildsBuildIdRouteImport } from './routes/homeowner/builds/$buildId'
 import { Route as ContractorProposalsProposalIdRouteImport } from './routes/contractor/proposals/$proposalId'
 import { Route as ContractorBuildsBuildIdRouteImport } from './routes/contractor/builds/$buildId'
 import { Route as BuilderProposalsNewRouteImport } from './routes/builder/proposals/new'
 import { Route as BuilderContractorsContractorIdRouteImport } from './routes/builder/contractors/$contractorId'
 import { Route as BackofficeProposalsUnassignedRouteImport } from './routes/backoffice/proposals/unassigned'
+import { Route as BackofficeProposalsReviewRequirementsPrototypeRouteImport } from './routes/backoffice/proposals/review-requirements-prototype'
 import { Route as BackofficeProposalsNewRouteImport } from './routes/backoffice/proposals/new'
+import { Route as BackofficeProposalsLenderAssignmentPrototypeRouteImport } from './routes/backoffice/proposals/lender-assignment-prototype'
 import { Route as BackofficeProposalsPlanIdRouteImport } from './routes/backoffice/proposals.$planId'
 import { Route as BackofficeContractorsOnboardingRouteImport } from './routes/backoffice/contractors/onboarding'
 import { Route as BackofficeContractorsContractorIdRouteImport } from './routes/backoffice/contractors/$contractorId'
@@ -76,6 +102,7 @@ import { Route as ApiAuthSignUpRouteImport } from './routes/api/auth/sign-up'
 import { Route as ApiAuthSignInRouteImport } from './routes/api/auth/sign-in'
 import { Route as BuilderProposalsProposalIdRouteRouteImport } from './routes/builder/proposals/$proposalId/route'
 import { Route as BuilderStaffProposalsProposalIdRouteRouteImport } from './routes/builder-staff/proposals/$proposalId/route'
+import { Route as BackofficeLendersLenderIdRouteRouteImport } from './routes/backoffice/lenders/$lenderId/route'
 import { Route as BackofficeBuildsBuildIdRouteRouteImport } from './routes/backoffice/builds/$buildId/route'
 import { Route as BuilderProposalsProposalIdIndexRouteImport } from './routes/builder/proposals/$proposalId/index'
 import { Route as BuilderBuildsBuildIdIndexRouteImport } from './routes/builder/builds/$buildId/index'
@@ -99,6 +126,11 @@ const ProposalPreviewRoute = ProposalPreviewRouteImport.update({
 const CallbackRoute = CallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LenderRouteRoute = LenderRouteRouteImport.update({
+  id: '/lender',
+  path: '/lender',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HomeownerRouteRoute = HomeownerRouteRouteImport.update({
@@ -130,6 +162,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const LenderIndexRoute = LenderIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => LenderRouteRoute,
 } as any)
 const HomeownerIndexRoute = HomeownerIndexRouteImport.update({
   id: '/',
@@ -167,6 +204,17 @@ const PrototypeSystemPostsRoute = PrototypeSystemPostsRouteImport.update({
   path: '/prototype/system-posts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrototypeContractorWorkRoute = PrototypeContractorWorkRouteImport.update({
+  id: '/prototype/contractor-work',
+  path: '/prototype/contractor-work',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrototypeContractorQuotesRoute =
+  PrototypeContractorQuotesRouteImport.update({
+    id: '/prototype/contractor-quotes',
+    path: '/prototype/contractor-quotes',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const PrototypeBuildCollaborationRoute =
   PrototypeBuildCollaborationRouteImport.update({
     id: '/prototype/build-collaboration',
@@ -183,6 +231,73 @@ const ProposalClaimClaimTokenRoute = ProposalClaimClaimTokenRouteImport.update({
   path: '/proposal-claim/$claimToken',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LenderPrototypeRoute = LenderPrototypeRouteImport.update({
+  id: '/prototype',
+  path: '/prototype',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
+const LenderProposalConfirmationPrototypeRoute =
+  LenderProposalConfirmationPrototypeRouteImport.update({
+    id: '/proposal-confirmation-prototype',
+    path: '/proposal-confirmation-prototype',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
+const LenderOrganizationManagementPrototypeRoute =
+  LenderOrganizationManagementPrototypeRouteImport.update({
+    id: '/organization-management-prototype',
+    path: '/organization-management-prototype',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
+const LenderOrganizationRoute = LenderOrganizationRouteImport.update({
+  id: '/organization',
+  path: '/organization',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
+const LenderMilestonesPrototypeRoute =
+  LenderMilestonesPrototypeRouteImport.update({
+    id: '/milestones-prototype',
+    path: '/milestones-prototype',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
+const LenderMilestonesRoute = LenderMilestonesRouteImport.update({
+  id: '/milestones',
+  path: '/milestones',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
+const LenderMilestoneReviewPrototypeRoute =
+  LenderMilestoneReviewPrototypeRouteImport.update({
+    id: '/milestone-review-prototype',
+    path: '/milestone-review-prototype',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
+const LenderDrawsPrototypeRoute = LenderDrawsPrototypeRouteImport.update({
+  id: '/draws-prototype',
+  path: '/draws-prototype',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
+const LenderDrawsRoute = LenderDrawsRouteImport.update({
+  id: '/draws',
+  path: '/draws',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
+const LenderDrawReviewSheetPrototypeRoute =
+  LenderDrawReviewSheetPrototypeRouteImport.update({
+    id: '/draw-review-sheet-prototype',
+    path: '/draw-review-sheet-prototype',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
+const LenderDrawReviewPrototypeRoute =
+  LenderDrawReviewPrototypeRouteImport.update({
+    id: '/draw-review-prototype',
+    path: '/draw-review-prototype',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
+const LenderBuildDetailOverviewPrototypeRoute =
+  LenderBuildDetailOverviewPrototypeRouteImport.update({
+    id: '/build-detail-overview-prototype',
+    path: '/build-detail-overview-prototype',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
 const ContractorWorkRoute = ContractorWorkRouteImport.update({
   id: '/work',
   path: '/work',
@@ -213,6 +328,18 @@ const BuilderQuoteTemplatesRoute = BuilderQuoteTemplatesRouteImport.update({
   path: '/quote-templates',
   getParentRoute: () => BuilderRouteRoute,
 } as any)
+const BuilderMilestoneRevisionDetailPrototypeRoute =
+  BuilderMilestoneRevisionDetailPrototypeRouteImport.update({
+    id: '/milestone-revision-detail-prototype',
+    path: '/milestone-revision-detail-prototype',
+    getParentRoute: () => BuilderRouteRoute,
+  } as any)
+const BuilderCorrectionResubmissionPrototypeRoute =
+  BuilderCorrectionResubmissionPrototypeRouteImport.update({
+    id: '/correction-resubmission-prototype',
+    path: '/correction-resubmission-prototype',
+    getParentRoute: () => BuilderRouteRoute,
+  } as any)
 const BuilderStaffQuoteTemplatesRoute =
   BuilderStaffQuoteTemplatesRouteImport.update({
     id: '/quote-templates',
@@ -280,6 +407,11 @@ const BackofficeProposalsRouteRoute =
     path: '/proposals',
     getParentRoute: () => BackofficeRouteRoute,
   } as any)
+const BackofficeLendersRouteRoute = BackofficeLendersRouteRouteImport.update({
+  id: '/lenders',
+  path: '/lenders',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
 const BackofficeDrawsRouteRoute = BackofficeDrawsRouteRouteImport.update({
   id: '/draws',
   path: '/draws',
@@ -300,6 +432,16 @@ const BackofficeBuildersRouteRoute = BackofficeBuildersRouteRouteImport.update({
   id: '/builders',
   path: '/builders',
   getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const LenderProposalsIndexRoute = LenderProposalsIndexRouteImport.update({
+  id: '/proposals/',
+  path: '/proposals/',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
+const LenderBuildsIndexRoute = LenderBuildsIndexRouteImport.update({
+  id: '/builds/',
+  path: '/builds/',
+  getParentRoute: () => LenderRouteRoute,
 } as any)
 const ContractorProposalsIndexRoute =
   ContractorProposalsIndexRouteImport.update({
@@ -339,6 +481,11 @@ const BackofficeProposalsIndexRoute =
     path: '/',
     getParentRoute: () => BackofficeProposalsRouteRoute,
   } as any)
+const BackofficeLendersIndexRoute = BackofficeLendersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BackofficeLendersRouteRoute,
+} as any)
 const BackofficeContractorsIndexRoute =
   BackofficeContractorsIndexRouteImport.update({
     id: '/',
@@ -361,6 +508,17 @@ const NewsitevisitBuildIdSiteVisitTokenRoute =
     path: '/newsitevisit/$buildId/$siteVisitToken',
     getParentRoute: () => rootRouteImport,
   } as any)
+const LenderProposalsProposalIdRoute =
+  LenderProposalsProposalIdRouteImport.update({
+    id: '/proposals/$proposalId',
+    path: '/proposals/$proposalId',
+    getParentRoute: () => LenderRouteRoute,
+  } as any)
+const LenderBuildsBuildIdRoute = LenderBuildsBuildIdRouteImport.update({
+  id: '/builds/$buildId',
+  path: '/builds/$buildId',
+  getParentRoute: () => LenderRouteRoute,
+} as any)
 const HomeownerBuildsBuildIdRoute = HomeownerBuildsBuildIdRouteImport.update({
   id: '/builds/$buildId',
   path: '/builds/$buildId',
@@ -394,11 +552,23 @@ const BackofficeProposalsUnassignedRoute =
     path: '/unassigned',
     getParentRoute: () => BackofficeProposalsRouteRoute,
   } as any)
+const BackofficeProposalsReviewRequirementsPrototypeRoute =
+  BackofficeProposalsReviewRequirementsPrototypeRouteImport.update({
+    id: '/review-requirements-prototype',
+    path: '/review-requirements-prototype',
+    getParentRoute: () => BackofficeProposalsRouteRoute,
+  } as any)
 const BackofficeProposalsNewRoute = BackofficeProposalsNewRouteImport.update({
   id: '/new',
   path: '/new',
   getParentRoute: () => BackofficeProposalsRouteRoute,
 } as any)
+const BackofficeProposalsLenderAssignmentPrototypeRoute =
+  BackofficeProposalsLenderAssignmentPrototypeRouteImport.update({
+    id: '/lender-assignment-prototype',
+    path: '/lender-assignment-prototype',
+    getParentRoute: () => BackofficeProposalsRouteRoute,
+  } as any)
 const BackofficeProposalsPlanIdRoute =
   BackofficeProposalsPlanIdRouteImport.update({
     id: '/$planId',
@@ -444,6 +614,12 @@ const BuilderStaffProposalsProposalIdRouteRoute =
     id: '/$proposalId',
     path: '/$proposalId',
     getParentRoute: () => BuilderStaffProposalsRouteRoute,
+  } as any)
+const BackofficeLendersLenderIdRouteRoute =
+  BackofficeLendersLenderIdRouteRouteImport.update({
+    id: '/$lenderId',
+    path: '/$lenderId',
+    getParentRoute: () => BackofficeLendersRouteRoute,
   } as any)
 const BackofficeBuildsBuildIdRouteRoute =
   BackofficeBuildsBuildIdRouteRouteImport.update({
@@ -507,6 +683,7 @@ export interface FileRoutesByFullPath {
   '/builder-staff': typeof BuilderStaffRouteRouteWithChildren
   '/contractor': typeof ContractorRouteRouteWithChildren
   '/homeowner': typeof HomeownerRouteRouteWithChildren
+  '/lender': typeof LenderRouteRouteWithChildren
   '/callback': typeof CallbackRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
@@ -514,6 +691,7 @@ export interface FileRoutesByFullPath {
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
+  '/backoffice/lenders': typeof BackofficeLendersRouteRouteWithChildren
   '/backoffice/proposals': typeof BackofficeProposalsRouteRouteWithChildren
   '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
@@ -526,15 +704,31 @@ export interface FileRoutesByFullPath {
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/correction-resubmission-prototype': typeof BuilderCorrectionResubmissionPrototypeRoute
+  '/builder/milestone-revision-detail-prototype': typeof BuilderMilestoneRevisionDetailPrototypeRoute
   '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/lender/build-detail-overview-prototype': typeof LenderBuildDetailOverviewPrototypeRoute
+  '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
+  '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
+  '/lender/draws': typeof LenderDrawsRoute
+  '/lender/draws-prototype': typeof LenderDrawsPrototypeRoute
+  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
+  '/lender/milestones': typeof LenderMilestonesRoute
+  '/lender/milestones-prototype': typeof LenderMilestonesPrototypeRoute
+  '/lender/organization': typeof LenderOrganizationRoute
+  '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
+  '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
+  '/lender/prototype': typeof LenderPrototypeRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/contractor-quotes': typeof PrototypeContractorQuotesRoute
+  '/prototype/contractor-work': typeof PrototypeContractorWorkRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
@@ -542,7 +736,9 @@ export interface FileRoutesByFullPath {
   '/builder/': typeof BuilderIndexRoute
   '/contractor/': typeof ContractorIndexRoute
   '/homeowner/': typeof HomeownerIndexRoute
+  '/lender/': typeof LenderIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  '/backoffice/lenders/$lenderId': typeof BackofficeLendersLenderIdRouteRoute
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -551,17 +747,22 @@ export interface FileRoutesByFullPath {
   '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
   '/backoffice/contractors/onboarding': typeof BackofficeContractorsOnboardingRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
+  '/backoffice/proposals/lender-assignment-prototype': typeof BackofficeProposalsLenderAssignmentPrototypeRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
+  '/backoffice/proposals/review-requirements-prototype': typeof BackofficeProposalsReviewRequirementsPrototypeRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
   '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/contractor/builds/$buildId': typeof ContractorBuildsBuildIdRoute
   '/contractor/proposals/$proposalId': typeof ContractorProposalsProposalIdRoute
   '/homeowner/builds/$buildId': typeof HomeownerBuildsBuildIdRoute
+  '/lender/builds/$buildId': typeof LenderBuildsBuildIdRoute
+  '/lender/proposals/$proposalId': typeof LenderProposalsProposalIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
   '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
+  '/backoffice/lenders/': typeof BackofficeLendersIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
@@ -569,6 +770,8 @@ export interface FileRoutesByFullPath {
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
   '/contractor/builds/': typeof ContractorBuildsIndexRoute
   '/contractor/proposals/': typeof ContractorProposalsIndexRoute
+  '/lender/builds/': typeof LenderBuildsIndexRoute
+  '/lender/proposals/': typeof LenderProposalsIndexRoute
   '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId/': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId/': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -591,15 +794,31 @@ export interface FileRoutesByTo {
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/correction-resubmission-prototype': typeof BuilderCorrectionResubmissionPrototypeRoute
+  '/builder/milestone-revision-detail-prototype': typeof BuilderMilestoneRevisionDetailPrototypeRoute
   '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/lender/build-detail-overview-prototype': typeof LenderBuildDetailOverviewPrototypeRoute
+  '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
+  '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
+  '/lender/draws': typeof LenderDrawsRoute
+  '/lender/draws-prototype': typeof LenderDrawsPrototypeRoute
+  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
+  '/lender/milestones': typeof LenderMilestonesRoute
+  '/lender/milestones-prototype': typeof LenderMilestonesPrototypeRoute
+  '/lender/organization': typeof LenderOrganizationRoute
+  '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
+  '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
+  '/lender/prototype': typeof LenderPrototypeRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/contractor-quotes': typeof PrototypeContractorQuotesRoute
+  '/prototype/contractor-work': typeof PrototypeContractorWorkRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
@@ -607,23 +826,30 @@ export interface FileRoutesByTo {
   '/builder': typeof BuilderIndexRoute
   '/contractor': typeof ContractorIndexRoute
   '/homeowner': typeof HomeownerIndexRoute
+  '/lender': typeof LenderIndexRoute
+  '/backoffice/lenders/$lenderId': typeof BackofficeLendersLenderIdRouteRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
   '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
   '/backoffice/contractors/onboarding': typeof BackofficeContractorsOnboardingRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
+  '/backoffice/proposals/lender-assignment-prototype': typeof BackofficeProposalsLenderAssignmentPrototypeRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
+  '/backoffice/proposals/review-requirements-prototype': typeof BackofficeProposalsReviewRequirementsPrototypeRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
   '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/contractor/builds/$buildId': typeof ContractorBuildsBuildIdRoute
   '/contractor/proposals/$proposalId': typeof ContractorProposalsProposalIdRoute
   '/homeowner/builds/$buildId': typeof HomeownerBuildsBuildIdRoute
+  '/lender/builds/$buildId': typeof LenderBuildsBuildIdRoute
+  '/lender/proposals/$proposalId': typeof LenderProposalsProposalIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders': typeof BackofficeBuildersIndexRoute
   '/backoffice/builds': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors': typeof BackofficeContractorsIndexRoute
+  '/backoffice/lenders': typeof BackofficeLendersIndexRoute
   '/backoffice/proposals': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds': typeof BuilderStaffBuildsIndexRoute
@@ -631,6 +857,8 @@ export interface FileRoutesByTo {
   '/builder/proposals': typeof BuilderProposalsIndexRoute
   '/contractor/builds': typeof ContractorBuildsIndexRoute
   '/contractor/proposals': typeof ContractorProposalsIndexRoute
+  '/lender/builds': typeof LenderBuildsIndexRoute
+  '/lender/proposals': typeof LenderProposalsIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -648,6 +876,7 @@ export interface FileRoutesById {
   '/builder-staff': typeof BuilderStaffRouteRouteWithChildren
   '/contractor': typeof ContractorRouteRouteWithChildren
   '/homeowner': typeof HomeownerRouteRouteWithChildren
+  '/lender': typeof LenderRouteRouteWithChildren
   '/callback': typeof CallbackRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
@@ -655,6 +884,7 @@ export interface FileRoutesById {
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
+  '/backoffice/lenders': typeof BackofficeLendersRouteRouteWithChildren
   '/backoffice/proposals': typeof BackofficeProposalsRouteRouteWithChildren
   '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
@@ -667,15 +897,31 @@ export interface FileRoutesById {
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/correction-resubmission-prototype': typeof BuilderCorrectionResubmissionPrototypeRoute
+  '/builder/milestone-revision-detail-prototype': typeof BuilderMilestoneRevisionDetailPrototypeRoute
   '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/lender/build-detail-overview-prototype': typeof LenderBuildDetailOverviewPrototypeRoute
+  '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
+  '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
+  '/lender/draws': typeof LenderDrawsRoute
+  '/lender/draws-prototype': typeof LenderDrawsPrototypeRoute
+  '/lender/milestone-review-prototype': typeof LenderMilestoneReviewPrototypeRoute
+  '/lender/milestones': typeof LenderMilestonesRoute
+  '/lender/milestones-prototype': typeof LenderMilestonesPrototypeRoute
+  '/lender/organization': typeof LenderOrganizationRoute
+  '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
+  '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
+  '/lender/prototype': typeof LenderPrototypeRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/contractor-quotes': typeof PrototypeContractorQuotesRoute
+  '/prototype/contractor-work': typeof PrototypeContractorWorkRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
@@ -683,7 +929,9 @@ export interface FileRoutesById {
   '/builder/': typeof BuilderIndexRoute
   '/contractor/': typeof ContractorIndexRoute
   '/homeowner/': typeof HomeownerIndexRoute
+  '/lender/': typeof LenderIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  '/backoffice/lenders/$lenderId': typeof BackofficeLendersLenderIdRouteRoute
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -692,17 +940,22 @@ export interface FileRoutesById {
   '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
   '/backoffice/contractors/onboarding': typeof BackofficeContractorsOnboardingRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
+  '/backoffice/proposals/lender-assignment-prototype': typeof BackofficeProposalsLenderAssignmentPrototypeRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
+  '/backoffice/proposals/review-requirements-prototype': typeof BackofficeProposalsReviewRequirementsPrototypeRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
   '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/contractor/builds/$buildId': typeof ContractorBuildsBuildIdRoute
   '/contractor/proposals/$proposalId': typeof ContractorProposalsProposalIdRoute
   '/homeowner/builds/$buildId': typeof HomeownerBuildsBuildIdRoute
+  '/lender/builds/$buildId': typeof LenderBuildsBuildIdRoute
+  '/lender/proposals/$proposalId': typeof LenderProposalsProposalIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
   '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
+  '/backoffice/lenders/': typeof BackofficeLendersIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
@@ -710,6 +963,8 @@ export interface FileRoutesById {
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
   '/contractor/builds/': typeof ContractorBuildsIndexRoute
   '/contractor/proposals/': typeof ContractorProposalsIndexRoute
+  '/lender/builds/': typeof LenderBuildsIndexRoute
+  '/lender/proposals/': typeof LenderProposalsIndexRoute
   '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId/': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId/': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -728,6 +983,7 @@ export interface FileRouteTypes {
     | '/builder-staff'
     | '/contractor'
     | '/homeowner'
+    | '/lender'
     | '/callback'
     | '/proposal-preview'
     | '/protected-access'
@@ -735,6 +991,7 @@ export interface FileRouteTypes {
     | '/backoffice/builds'
     | '/backoffice/contractors'
     | '/backoffice/draws'
+    | '/backoffice/lenders'
     | '/backoffice/proposals'
     | '/backoffice/settings'
     | '/backoffice/site-visits'
@@ -747,15 +1004,31 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
     | '/builder-staff/quote-templates'
+    | '/builder/correction-resubmission-prototype'
+    | '/builder/milestone-revision-detail-prototype'
     | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/lender/build-detail-overview-prototype'
+    | '/lender/draw-review-prototype'
+    | '/lender/draw-review-sheet-prototype'
+    | '/lender/draws'
+    | '/lender/draws-prototype'
+    | '/lender/milestone-review-prototype'
+    | '/lender/milestones'
+    | '/lender/milestones-prototype'
+    | '/lender/organization'
+    | '/lender/organization-management-prototype'
+    | '/lender/proposal-confirmation-prototype'
+    | '/lender/prototype'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/contractor-quotes'
+    | '/prototype/contractor-work'
     | '/prototype/system-posts'
     | '/quote-invitation/$magicToken'
     | '/backoffice/'
@@ -763,7 +1036,9 @@ export interface FileRouteTypes {
     | '/builder/'
     | '/contractor/'
     | '/homeowner/'
+    | '/lender/'
     | '/backoffice/builds/$buildId'
+    | '/backoffice/lenders/$lenderId'
     | '/builder-staff/proposals/$proposalId'
     | '/builder/proposals/$proposalId'
     | '/api/auth/sign-in'
@@ -772,17 +1047,22 @@ export interface FileRouteTypes {
     | '/backoffice/contractors/$contractorId'
     | '/backoffice/contractors/onboarding'
     | '/backoffice/proposals/$planId'
+    | '/backoffice/proposals/lender-assignment-prototype'
     | '/backoffice/proposals/new'
+    | '/backoffice/proposals/review-requirements-prototype'
     | '/backoffice/proposals/unassigned'
     | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/contractor/builds/$buildId'
     | '/contractor/proposals/$proposalId'
     | '/homeowner/builds/$buildId'
+    | '/lender/builds/$buildId'
+    | '/lender/proposals/$proposalId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
     | '/backoffice/builds/'
     | '/backoffice/contractors/'
+    | '/backoffice/lenders/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
     | '/builder-staff/builds/'
@@ -790,6 +1070,8 @@ export interface FileRouteTypes {
     | '/builder/proposals/'
     | '/contractor/builds/'
     | '/contractor/proposals/'
+    | '/lender/builds/'
+    | '/lender/proposals/'
     | '/backoffice/builds/$buildId/'
     | '/builder-staff/builds/$buildId/'
     | '/builder-staff/proposals/$proposalId/'
@@ -812,15 +1094,31 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
     | '/builder-staff/quote-templates'
+    | '/builder/correction-resubmission-prototype'
+    | '/builder/milestone-revision-detail-prototype'
     | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/lender/build-detail-overview-prototype'
+    | '/lender/draw-review-prototype'
+    | '/lender/draw-review-sheet-prototype'
+    | '/lender/draws'
+    | '/lender/draws-prototype'
+    | '/lender/milestone-review-prototype'
+    | '/lender/milestones'
+    | '/lender/milestones-prototype'
+    | '/lender/organization'
+    | '/lender/organization-management-prototype'
+    | '/lender/proposal-confirmation-prototype'
+    | '/lender/prototype'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/contractor-quotes'
+    | '/prototype/contractor-work'
     | '/prototype/system-posts'
     | '/quote-invitation/$magicToken'
     | '/backoffice'
@@ -828,23 +1126,30 @@ export interface FileRouteTypes {
     | '/builder'
     | '/contractor'
     | '/homeowner'
+    | '/lender'
+    | '/backoffice/lenders/$lenderId'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
     | '/backoffice/contractors/$contractorId'
     | '/backoffice/contractors/onboarding'
     | '/backoffice/proposals/$planId'
+    | '/backoffice/proposals/lender-assignment-prototype'
     | '/backoffice/proposals/new'
+    | '/backoffice/proposals/review-requirements-prototype'
     | '/backoffice/proposals/unassigned'
     | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/contractor/builds/$buildId'
     | '/contractor/proposals/$proposalId'
     | '/homeowner/builds/$buildId'
+    | '/lender/builds/$buildId'
+    | '/lender/proposals/$proposalId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
+    | '/backoffice/lenders'
     | '/backoffice/proposals'
     | '/backoffice/settings'
     | '/builder-staff/builds'
@@ -852,6 +1157,8 @@ export interface FileRouteTypes {
     | '/builder/proposals'
     | '/contractor/builds'
     | '/contractor/proposals'
+    | '/lender/builds'
+    | '/lender/proposals'
     | '/backoffice/builds/$buildId'
     | '/builder-staff/builds/$buildId'
     | '/builder-staff/proposals/$proposalId'
@@ -868,6 +1175,7 @@ export interface FileRouteTypes {
     | '/builder-staff'
     | '/contractor'
     | '/homeowner'
+    | '/lender'
     | '/callback'
     | '/proposal-preview'
     | '/protected-access'
@@ -875,6 +1183,7 @@ export interface FileRouteTypes {
     | '/backoffice/builds'
     | '/backoffice/contractors'
     | '/backoffice/draws'
+    | '/backoffice/lenders'
     | '/backoffice/proposals'
     | '/backoffice/settings'
     | '/backoffice/site-visits'
@@ -887,15 +1196,31 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
     | '/builder-staff/quote-templates'
+    | '/builder/correction-resubmission-prototype'
+    | '/builder/milestone-revision-detail-prototype'
     | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/lender/build-detail-overview-prototype'
+    | '/lender/draw-review-prototype'
+    | '/lender/draw-review-sheet-prototype'
+    | '/lender/draws'
+    | '/lender/draws-prototype'
+    | '/lender/milestone-review-prototype'
+    | '/lender/milestones'
+    | '/lender/milestones-prototype'
+    | '/lender/organization'
+    | '/lender/organization-management-prototype'
+    | '/lender/proposal-confirmation-prototype'
+    | '/lender/prototype'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/contractor-quotes'
+    | '/prototype/contractor-work'
     | '/prototype/system-posts'
     | '/quote-invitation/$magicToken'
     | '/backoffice/'
@@ -903,7 +1228,9 @@ export interface FileRouteTypes {
     | '/builder/'
     | '/contractor/'
     | '/homeowner/'
+    | '/lender/'
     | '/backoffice/builds/$buildId'
+    | '/backoffice/lenders/$lenderId'
     | '/builder-staff/proposals/$proposalId'
     | '/builder/proposals/$proposalId'
     | '/api/auth/sign-in'
@@ -912,17 +1239,22 @@ export interface FileRouteTypes {
     | '/backoffice/contractors/$contractorId'
     | '/backoffice/contractors/onboarding'
     | '/backoffice/proposals/$planId'
+    | '/backoffice/proposals/lender-assignment-prototype'
     | '/backoffice/proposals/new'
+    | '/backoffice/proposals/review-requirements-prototype'
     | '/backoffice/proposals/unassigned'
     | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/contractor/builds/$buildId'
     | '/contractor/proposals/$proposalId'
     | '/homeowner/builds/$buildId'
+    | '/lender/builds/$buildId'
+    | '/lender/proposals/$proposalId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
     | '/backoffice/builds/'
     | '/backoffice/contractors/'
+    | '/backoffice/lenders/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
     | '/builder-staff/builds/'
@@ -930,6 +1262,8 @@ export interface FileRouteTypes {
     | '/builder/proposals/'
     | '/contractor/builds/'
     | '/contractor/proposals/'
+    | '/lender/builds/'
+    | '/lender/proposals/'
     | '/backoffice/builds/$buildId/'
     | '/builder-staff/builds/$buildId/'
     | '/builder-staff/proposals/$proposalId/'
@@ -947,6 +1281,7 @@ export interface RootRouteChildren {
   BuilderStaffRouteRoute: typeof BuilderStaffRouteRouteWithChildren
   ContractorRouteRoute: typeof ContractorRouteRouteWithChildren
   HomeownerRouteRoute: typeof HomeownerRouteRouteWithChildren
+  LenderRouteRoute: typeof LenderRouteRouteWithChildren
   CallbackRoute: typeof CallbackRoute
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
@@ -954,6 +1289,8 @@ export interface RootRouteChildren {
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
+  PrototypeContractorQuotesRoute: typeof PrototypeContractorQuotesRoute
+  PrototypeContractorWorkRoute: typeof PrototypeContractorWorkRoute
   PrototypeSystemPostsRoute: typeof PrototypeSystemPostsRoute
   QuoteInvitationMagicTokenRoute: typeof QuoteInvitationMagicTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
@@ -982,6 +1319,13 @@ declare module '@tanstack/react-router' {
       path: '/callback'
       fullPath: '/callback'
       preLoaderRoute: typeof CallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lender': {
+      id: '/lender'
+      path: '/lender'
+      fullPath: '/lender'
+      preLoaderRoute: typeof LenderRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/homeowner': {
@@ -1025,6 +1369,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/lender/': {
+      id: '/lender/'
+      path: '/'
+      fullPath: '/lender/'
+      preLoaderRoute: typeof LenderIndexRouteImport
+      parentRoute: typeof LenderRouteRoute
     }
     '/homeowner/': {
       id: '/homeowner/'
@@ -1075,6 +1426,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrototypeSystemPostsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/prototype/contractor-work': {
+      id: '/prototype/contractor-work'
+      path: '/prototype/contractor-work'
+      fullPath: '/prototype/contractor-work'
+      preLoaderRoute: typeof PrototypeContractorWorkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/contractor-quotes': {
+      id: '/prototype/contractor-quotes'
+      path: '/prototype/contractor-quotes'
+      fullPath: '/prototype/contractor-quotes'
+      preLoaderRoute: typeof PrototypeContractorQuotesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/prototype/build-collaboration': {
       id: '/prototype/build-collaboration'
       path: '/prototype/build-collaboration'
@@ -1095,6 +1460,90 @@ declare module '@tanstack/react-router' {
       fullPath: '/proposal-claim/$claimToken'
       preLoaderRoute: typeof ProposalClaimClaimTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/lender/prototype': {
+      id: '/lender/prototype'
+      path: '/prototype'
+      fullPath: '/lender/prototype'
+      preLoaderRoute: typeof LenderPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/proposal-confirmation-prototype': {
+      id: '/lender/proposal-confirmation-prototype'
+      path: '/proposal-confirmation-prototype'
+      fullPath: '/lender/proposal-confirmation-prototype'
+      preLoaderRoute: typeof LenderProposalConfirmationPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/organization-management-prototype': {
+      id: '/lender/organization-management-prototype'
+      path: '/organization-management-prototype'
+      fullPath: '/lender/organization-management-prototype'
+      preLoaderRoute: typeof LenderOrganizationManagementPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/organization': {
+      id: '/lender/organization'
+      path: '/organization'
+      fullPath: '/lender/organization'
+      preLoaderRoute: typeof LenderOrganizationRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/milestones-prototype': {
+      id: '/lender/milestones-prototype'
+      path: '/milestones-prototype'
+      fullPath: '/lender/milestones-prototype'
+      preLoaderRoute: typeof LenderMilestonesPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/milestones': {
+      id: '/lender/milestones'
+      path: '/milestones'
+      fullPath: '/lender/milestones'
+      preLoaderRoute: typeof LenderMilestonesRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/milestone-review-prototype': {
+      id: '/lender/milestone-review-prototype'
+      path: '/milestone-review-prototype'
+      fullPath: '/lender/milestone-review-prototype'
+      preLoaderRoute: typeof LenderMilestoneReviewPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/draws-prototype': {
+      id: '/lender/draws-prototype'
+      path: '/draws-prototype'
+      fullPath: '/lender/draws-prototype'
+      preLoaderRoute: typeof LenderDrawsPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/draws': {
+      id: '/lender/draws'
+      path: '/draws'
+      fullPath: '/lender/draws'
+      preLoaderRoute: typeof LenderDrawsRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/draw-review-sheet-prototype': {
+      id: '/lender/draw-review-sheet-prototype'
+      path: '/draw-review-sheet-prototype'
+      fullPath: '/lender/draw-review-sheet-prototype'
+      preLoaderRoute: typeof LenderDrawReviewSheetPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/draw-review-prototype': {
+      id: '/lender/draw-review-prototype'
+      path: '/draw-review-prototype'
+      fullPath: '/lender/draw-review-prototype'
+      preLoaderRoute: typeof LenderDrawReviewPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/build-detail-overview-prototype': {
+      id: '/lender/build-detail-overview-prototype'
+      path: '/build-detail-overview-prototype'
+      fullPath: '/lender/build-detail-overview-prototype'
+      preLoaderRoute: typeof LenderBuildDetailOverviewPrototypeRouteImport
+      parentRoute: typeof LenderRouteRoute
     }
     '/contractor/work': {
       id: '/contractor/work'
@@ -1136,6 +1585,20 @@ declare module '@tanstack/react-router' {
       path: '/quote-templates'
       fullPath: '/builder/quote-templates'
       preLoaderRoute: typeof BuilderQuoteTemplatesRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
+    '/builder/milestone-revision-detail-prototype': {
+      id: '/builder/milestone-revision-detail-prototype'
+      path: '/milestone-revision-detail-prototype'
+      fullPath: '/builder/milestone-revision-detail-prototype'
+      preLoaderRoute: typeof BuilderMilestoneRevisionDetailPrototypeRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
+    '/builder/correction-resubmission-prototype': {
+      id: '/builder/correction-resubmission-prototype'
+      path: '/correction-resubmission-prototype'
+      fullPath: '/builder/correction-resubmission-prototype'
+      preLoaderRoute: typeof BuilderCorrectionResubmissionPrototypeRouteImport
       parentRoute: typeof BuilderRouteRoute
     }
     '/builder-staff/quote-templates': {
@@ -1222,6 +1685,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeProposalsRouteRouteImport
       parentRoute: typeof BackofficeRouteRoute
     }
+    '/backoffice/lenders': {
+      id: '/backoffice/lenders'
+      path: '/lenders'
+      fullPath: '/backoffice/lenders'
+      preLoaderRoute: typeof BackofficeLendersRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
     '/backoffice/draws': {
       id: '/backoffice/draws'
       path: '/draws'
@@ -1249,6 +1719,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/builders'
       preLoaderRoute: typeof BackofficeBuildersRouteRouteImport
       parentRoute: typeof BackofficeRouteRoute
+    }
+    '/lender/proposals/': {
+      id: '/lender/proposals/'
+      path: '/proposals'
+      fullPath: '/lender/proposals/'
+      preLoaderRoute: typeof LenderProposalsIndexRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/builds/': {
+      id: '/lender/builds/'
+      path: '/builds'
+      fullPath: '/lender/builds/'
+      preLoaderRoute: typeof LenderBuildsIndexRouteImport
+      parentRoute: typeof LenderRouteRoute
     }
     '/contractor/proposals/': {
       id: '/contractor/proposals/'
@@ -1299,6 +1783,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeProposalsIndexRouteImport
       parentRoute: typeof BackofficeProposalsRouteRoute
     }
+    '/backoffice/lenders/': {
+      id: '/backoffice/lenders/'
+      path: '/'
+      fullPath: '/backoffice/lenders/'
+      preLoaderRoute: typeof BackofficeLendersIndexRouteImport
+      parentRoute: typeof BackofficeLendersRouteRoute
+    }
     '/backoffice/contractors/': {
       id: '/backoffice/contractors/'
       path: '/'
@@ -1326,6 +1817,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/newsitevisit/$buildId/$siteVisitToken'
       preLoaderRoute: typeof NewsitevisitBuildIdSiteVisitTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/lender/proposals/$proposalId': {
+      id: '/lender/proposals/$proposalId'
+      path: '/proposals/$proposalId'
+      fullPath: '/lender/proposals/$proposalId'
+      preLoaderRoute: typeof LenderProposalsProposalIdRouteImport
+      parentRoute: typeof LenderRouteRoute
+    }
+    '/lender/builds/$buildId': {
+      id: '/lender/builds/$buildId'
+      path: '/builds/$buildId'
+      fullPath: '/lender/builds/$buildId'
+      preLoaderRoute: typeof LenderBuildsBuildIdRouteImport
+      parentRoute: typeof LenderRouteRoute
     }
     '/homeowner/builds/$buildId': {
       id: '/homeowner/builds/$buildId'
@@ -1369,11 +1874,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeProposalsUnassignedRouteImport
       parentRoute: typeof BackofficeProposalsRouteRoute
     }
+    '/backoffice/proposals/review-requirements-prototype': {
+      id: '/backoffice/proposals/review-requirements-prototype'
+      path: '/review-requirements-prototype'
+      fullPath: '/backoffice/proposals/review-requirements-prototype'
+      preLoaderRoute: typeof BackofficeProposalsReviewRequirementsPrototypeRouteImport
+      parentRoute: typeof BackofficeProposalsRouteRoute
+    }
     '/backoffice/proposals/new': {
       id: '/backoffice/proposals/new'
       path: '/new'
       fullPath: '/backoffice/proposals/new'
       preLoaderRoute: typeof BackofficeProposalsNewRouteImport
+      parentRoute: typeof BackofficeProposalsRouteRoute
+    }
+    '/backoffice/proposals/lender-assignment-prototype': {
+      id: '/backoffice/proposals/lender-assignment-prototype'
+      path: '/lender-assignment-prototype'
+      fullPath: '/backoffice/proposals/lender-assignment-prototype'
+      preLoaderRoute: typeof BackofficeProposalsLenderAssignmentPrototypeRouteImport
       parentRoute: typeof BackofficeProposalsRouteRoute
     }
     '/backoffice/proposals/$planId': {
@@ -1431,6 +1950,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/builder-staff/proposals/$proposalId'
       preLoaderRoute: typeof BuilderStaffProposalsProposalIdRouteRouteImport
       parentRoute: typeof BuilderStaffProposalsRouteRoute
+    }
+    '/backoffice/lenders/$lenderId': {
+      id: '/backoffice/lenders/$lenderId'
+      path: '/$lenderId'
+      fullPath: '/backoffice/lenders/$lenderId'
+      preLoaderRoute: typeof BackofficeLendersLenderIdRouteRouteImport
+      parentRoute: typeof BackofficeLendersRouteRoute
     }
     '/backoffice/builds/$buildId': {
       id: '/backoffice/builds/$buildId'
@@ -1566,9 +2092,27 @@ const BackofficeContractorsRouteRouteWithChildren =
     BackofficeContractorsRouteRouteChildren,
   )
 
+interface BackofficeLendersRouteRouteChildren {
+  BackofficeLendersLenderIdRouteRoute: typeof BackofficeLendersLenderIdRouteRoute
+  BackofficeLendersIndexRoute: typeof BackofficeLendersIndexRoute
+}
+
+const BackofficeLendersRouteRouteChildren: BackofficeLendersRouteRouteChildren =
+  {
+    BackofficeLendersLenderIdRouteRoute: BackofficeLendersLenderIdRouteRoute,
+    BackofficeLendersIndexRoute: BackofficeLendersIndexRoute,
+  }
+
+const BackofficeLendersRouteRouteWithChildren =
+  BackofficeLendersRouteRoute._addFileChildren(
+    BackofficeLendersRouteRouteChildren,
+  )
+
 interface BackofficeProposalsRouteRouteChildren {
   BackofficeProposalsPlanIdRoute: typeof BackofficeProposalsPlanIdRoute
+  BackofficeProposalsLenderAssignmentPrototypeRoute: typeof BackofficeProposalsLenderAssignmentPrototypeRoute
   BackofficeProposalsNewRoute: typeof BackofficeProposalsNewRoute
+  BackofficeProposalsReviewRequirementsPrototypeRoute: typeof BackofficeProposalsReviewRequirementsPrototypeRoute
   BackofficeProposalsUnassignedRoute: typeof BackofficeProposalsUnassignedRoute
   BackofficeProposalsIndexRoute: typeof BackofficeProposalsIndexRoute
 }
@@ -1576,7 +2120,11 @@ interface BackofficeProposalsRouteRouteChildren {
 const BackofficeProposalsRouteRouteChildren: BackofficeProposalsRouteRouteChildren =
   {
     BackofficeProposalsPlanIdRoute: BackofficeProposalsPlanIdRoute,
+    BackofficeProposalsLenderAssignmentPrototypeRoute:
+      BackofficeProposalsLenderAssignmentPrototypeRoute,
     BackofficeProposalsNewRoute: BackofficeProposalsNewRoute,
+    BackofficeProposalsReviewRequirementsPrototypeRoute:
+      BackofficeProposalsReviewRequirementsPrototypeRoute,
     BackofficeProposalsUnassignedRoute: BackofficeProposalsUnassignedRoute,
     BackofficeProposalsIndexRoute: BackofficeProposalsIndexRoute,
   }
@@ -1605,6 +2153,7 @@ interface BackofficeRouteRouteChildren {
   BackofficeBuildsRouteRoute: typeof BackofficeBuildsRouteRouteWithChildren
   BackofficeContractorsRouteRoute: typeof BackofficeContractorsRouteRouteWithChildren
   BackofficeDrawsRouteRoute: typeof BackofficeDrawsRouteRoute
+  BackofficeLendersRouteRoute: typeof BackofficeLendersRouteRouteWithChildren
   BackofficeProposalsRouteRoute: typeof BackofficeProposalsRouteRouteWithChildren
   BackofficeSettingsRouteRoute: typeof BackofficeSettingsRouteRouteWithChildren
   BackofficeSiteVisitsRouteRoute: typeof BackofficeSiteVisitsRouteRoute
@@ -1620,6 +2169,7 @@ const BackofficeRouteRouteChildren: BackofficeRouteRouteChildren = {
   BackofficeBuildsRouteRoute: BackofficeBuildsRouteRouteWithChildren,
   BackofficeContractorsRouteRoute: BackofficeContractorsRouteRouteWithChildren,
   BackofficeDrawsRouteRoute: BackofficeDrawsRouteRoute,
+  BackofficeLendersRouteRoute: BackofficeLendersRouteRouteWithChildren,
   BackofficeProposalsRouteRoute: BackofficeProposalsRouteRouteWithChildren,
   BackofficeSettingsRouteRoute: BackofficeSettingsRouteRouteWithChildren,
   BackofficeSiteVisitsRouteRoute: BackofficeSiteVisitsRouteRoute,
@@ -1668,6 +2218,8 @@ const BuilderProposalsRouteRouteWithChildren =
 
 interface BuilderRouteRouteChildren {
   BuilderProposalsRouteRoute: typeof BuilderProposalsRouteRouteWithChildren
+  BuilderCorrectionResubmissionPrototypeRoute: typeof BuilderCorrectionResubmissionPrototypeRoute
+  BuilderMilestoneRevisionDetailPrototypeRoute: typeof BuilderMilestoneRevisionDetailPrototypeRoute
   BuilderQuoteTemplatesRoute: typeof BuilderQuoteTemplatesRoute
   BuilderIndexRoute: typeof BuilderIndexRoute
   BuilderContractorsContractorIdRoute: typeof BuilderContractorsContractorIdRoute
@@ -1677,6 +2229,10 @@ interface BuilderRouteRouteChildren {
 
 const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
   BuilderProposalsRouteRoute: BuilderProposalsRouteRouteWithChildren,
+  BuilderCorrectionResubmissionPrototypeRoute:
+    BuilderCorrectionResubmissionPrototypeRoute,
+  BuilderMilestoneRevisionDetailPrototypeRoute:
+    BuilderMilestoneRevisionDetailPrototypeRoute,
   BuilderQuoteTemplatesRoute: BuilderQuoteTemplatesRoute,
   BuilderIndexRoute: BuilderIndexRoute,
   BuilderContractorsContractorIdRoute: BuilderContractorsContractorIdRoute,
@@ -1800,6 +2356,53 @@ const HomeownerRouteRouteWithChildren = HomeownerRouteRoute._addFileChildren(
   HomeownerRouteRouteChildren,
 )
 
+interface LenderRouteRouteChildren {
+  LenderBuildDetailOverviewPrototypeRoute: typeof LenderBuildDetailOverviewPrototypeRoute
+  LenderDrawReviewPrototypeRoute: typeof LenderDrawReviewPrototypeRoute
+  LenderDrawReviewSheetPrototypeRoute: typeof LenderDrawReviewSheetPrototypeRoute
+  LenderDrawsRoute: typeof LenderDrawsRoute
+  LenderDrawsPrototypeRoute: typeof LenderDrawsPrototypeRoute
+  LenderMilestoneReviewPrototypeRoute: typeof LenderMilestoneReviewPrototypeRoute
+  LenderMilestonesRoute: typeof LenderMilestonesRoute
+  LenderMilestonesPrototypeRoute: typeof LenderMilestonesPrototypeRoute
+  LenderOrganizationRoute: typeof LenderOrganizationRoute
+  LenderOrganizationManagementPrototypeRoute: typeof LenderOrganizationManagementPrototypeRoute
+  LenderProposalConfirmationPrototypeRoute: typeof LenderProposalConfirmationPrototypeRoute
+  LenderPrototypeRoute: typeof LenderPrototypeRoute
+  LenderIndexRoute: typeof LenderIndexRoute
+  LenderBuildsBuildIdRoute: typeof LenderBuildsBuildIdRoute
+  LenderProposalsProposalIdRoute: typeof LenderProposalsProposalIdRoute
+  LenderBuildsIndexRoute: typeof LenderBuildsIndexRoute
+  LenderProposalsIndexRoute: typeof LenderProposalsIndexRoute
+}
+
+const LenderRouteRouteChildren: LenderRouteRouteChildren = {
+  LenderBuildDetailOverviewPrototypeRoute:
+    LenderBuildDetailOverviewPrototypeRoute,
+  LenderDrawReviewPrototypeRoute: LenderDrawReviewPrototypeRoute,
+  LenderDrawReviewSheetPrototypeRoute: LenderDrawReviewSheetPrototypeRoute,
+  LenderDrawsRoute: LenderDrawsRoute,
+  LenderDrawsPrototypeRoute: LenderDrawsPrototypeRoute,
+  LenderMilestoneReviewPrototypeRoute: LenderMilestoneReviewPrototypeRoute,
+  LenderMilestonesRoute: LenderMilestonesRoute,
+  LenderMilestonesPrototypeRoute: LenderMilestonesPrototypeRoute,
+  LenderOrganizationRoute: LenderOrganizationRoute,
+  LenderOrganizationManagementPrototypeRoute:
+    LenderOrganizationManagementPrototypeRoute,
+  LenderProposalConfirmationPrototypeRoute:
+    LenderProposalConfirmationPrototypeRoute,
+  LenderPrototypeRoute: LenderPrototypeRoute,
+  LenderIndexRoute: LenderIndexRoute,
+  LenderBuildsBuildIdRoute: LenderBuildsBuildIdRoute,
+  LenderProposalsProposalIdRoute: LenderProposalsProposalIdRoute,
+  LenderBuildsIndexRoute: LenderBuildsIndexRoute,
+  LenderProposalsIndexRoute: LenderProposalsIndexRoute,
+}
+
+const LenderRouteRouteWithChildren = LenderRouteRoute._addFileChildren(
+  LenderRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BackofficeRouteRoute: BackofficeRouteRouteWithChildren,
@@ -1807,6 +2410,7 @@ const rootRouteChildren: RootRouteChildren = {
   BuilderStaffRouteRoute: BuilderStaffRouteRouteWithChildren,
   ContractorRouteRoute: ContractorRouteRouteWithChildren,
   HomeownerRouteRoute: HomeownerRouteRouteWithChildren,
+  LenderRouteRoute: LenderRouteRouteWithChildren,
   CallbackRoute: CallbackRoute,
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
@@ -1814,6 +2418,8 @@ const rootRouteChildren: RootRouteChildren = {
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
+  PrototypeContractorQuotesRoute: PrototypeContractorQuotesRoute,
+  PrototypeContractorWorkRoute: PrototypeContractorWorkRoute,
   PrototypeSystemPostsRoute: PrototypeSystemPostsRoute,
   QuoteInvitationMagicTokenRoute: QuoteInvitationMagicTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,

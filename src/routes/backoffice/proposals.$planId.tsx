@@ -54,6 +54,7 @@ import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-
 import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
+import { ProposalLenderAssignmentSection } from "#/features/production-proposals/ProposalLenderAssignmentSection.tsx";
 import {
   createVisualParityCostItem,
   getVisualParityProposalDetail,
@@ -239,6 +240,8 @@ function ProposalReviewRoute() {
   const [visualCostItems, setVisualCostItems] = useState(
     () => visualProposalDetail.costItems ?? []
   );
+  const [lenderAssignmentDialogOpen, setLenderAssignmentDialogOpen] =
+    useState(false);
   useEffect(() => {
     setVisualCostItems(visualProposalDetail.costItems ?? []);
   }, [visualProposalDetail]);
@@ -319,6 +322,19 @@ function ProposalReviewRoute() {
   const productionDetail = visualFixtureEnabled
     ? { ...visualProposalDetail, costItems: visualCostItems }
     : productionDetailQuery;
+  const lenderOrganizationsQuery = useQuery(
+    api.production_proposals.listEligibleExternalLenderOrganizations,
+      visualFixtureEnabled ||
+      !lenderAssignmentDialogOpen ||
+      !productionDetail ||
+      !canManageBrokerAssignment ||
+      productionDetail.proposal.status !== "approved"
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        },
+  );
   const productionWorkspaceQuery = useQuery(
     api.production_proposals.getProductionTimelineWorkspace,
     visualFixtureEnabled || !productionDetail
@@ -397,11 +413,23 @@ function ProposalReviewRoute() {
   const rejectProductionProposal = useMutation(
     api.production_proposals.rejectProposal
   );
+  const submitProductionProposal = useMutation(
+    api.production_proposals.submitProposal
+  );
   const approveProductionProposal = useMutation(
     api.production_proposals.approveProposal
   );
   const recordProductionClosing = useMutation(
-    api.production_proposals.recordOfflineClosing
+    api.production_proposals.recordProposalClosing
+  );
+  const assignExternalLender = useMutation(
+    api.production_proposals.assignExternalLenderOrganization,
+  );
+  const withdrawExternalLender = useMutation(
+    api.production_proposals.withdrawExternalLenderAssignment,
+  );
+  const activateClosedProposal = useMutation(
+    api.production_proposals.activateClosedProposal
   );
   const createProposalCostItem = useMutation(
     api.production_proposals.createProposalCostItem
@@ -627,6 +655,42 @@ function ProposalReviewRoute() {
           />
         }
         initialActiveTab={search.tab}
+        lenderAssignmentSurface={
+          !visualFixtureEnabled &&
+          canManageBrokerAssignment ? (
+            <ProposalLenderAssignmentSection
+              assignment={productionDetail.lenderAssignment}
+              assignmentHistory={productionDetail.lenderAssignmentHistory}
+              approval={productionDetail.lenderApproval}
+              lenderOrganizations={
+                lenderOrganizationsQuery?.organizations ?? []
+              }
+              lenderOrganizationsPending={lenderOrganizationsQuery === undefined}
+              onAssign={(lenderOrganizationId, reason) =>
+                assignExternalLender({
+                  lenderOrganizationId,
+                  proposalId,
+                  reason,
+                  workosOrganizationId,
+                })
+              }
+              onDialogOpenChange={setLenderAssignmentDialogOpen}
+              onWithdraw={(assignmentId, reason) =>
+                withdrawExternalLender({
+                  assignmentId: assignmentId as Id<"proposalLenderAssignments">,
+                  proposalId,
+                  reason,
+                  workosOrganizationId,
+                })
+              }
+              proposal={{
+                buildName: productionDetail.proposal.buildName,
+                location: productionDetail.proposal.location,
+                status: productionDetail.proposal.status,
+              }}
+            />
+          ) : undefined
+        }
         materialPlanningActions={materialPlanningActions}
         milestones={
           <ProductionProposalMilestoneWorksheetContainer
@@ -690,8 +754,8 @@ function ProposalReviewRoute() {
             to: "/backoffice/proposals/$planId",
           })
         }
-        onClose={(buildStartDate, reason, ianaTimezone) =>
-          recordProductionClosing({
+        onClose={async (buildStartDate, reason, ianaTimezone) => {
+          await recordProductionClosing({
             buildStartDate,
             ianaTimezone,
             loanFacility: {
@@ -703,14 +767,18 @@ function ProposalReviewRoute() {
             proposalId,
             reason,
             workosOrganizationId,
-          }).then((result) => {
-            toast.success("Closing recorded.");
-            void navigate({
-              params: { buildId: result.buildId },
-              to: "/backoffice/builds/$buildId",
-            });
-          })
-        }
+          });
+          const result = await activateClosedProposal({
+            proposalId,
+            reason,
+            workosOrganizationId,
+          });
+          toast.success("Closing recorded and Build activated.");
+          void navigate({
+            params: { buildId: result.buildId },
+            to: "/backoffice/builds/$buildId",
+          });
+        }}
         onCommitCalendarEdit={commitCalendarEdit}
         onCreateCalendarReminderEvent={
           canUseAppPermission(appPermissions, "reminder", "create")
@@ -787,6 +855,19 @@ function ProposalReviewRoute() {
             reason,
             workosOrganizationId,
           }).then(() => toast.success("Changes requested."))
+        }
+        onSubmit={
+          visualFixtureEnabled
+            ? async () => undefined
+            : () =>
+                submitProductionProposal({
+                  proposalId: proposalId as Id<"buildProposals">,
+                  workosOrganizationId,
+                }).then(() =>
+                  toast.success("Proposal submitted.", {
+                    description: "The proposal is now ready for lender review.",
+                  })
+                )
         }
         onSaveCalendarView={(input) =>
           saveCalendarView({

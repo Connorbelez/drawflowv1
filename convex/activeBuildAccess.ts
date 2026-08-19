@@ -162,11 +162,9 @@ export async function authorizeActiveBuildAccessForViewer(
       : undefined;
   // Admin and Principal Broker authority is organization-derived, never
   // granted or revoked by a Build-local participant row.
-  const revokedGrantRole =
-    latestRemovedParticipantRole !== "admin" &&
-    latestRemovedParticipantRole !== "principle-broker"
-      ? latestRemovedParticipantRole
-      : undefined;
+  const revokedGrantRole = revocableBuildGrantRole(
+    latestRemovedParticipantRole
+  );
   const hasUnrelatedPotentialCapacity = viewerRoles.some(
     (role) =>
       role !== revokedGrantRole &&
@@ -262,6 +260,10 @@ export async function authorizeActiveBuildAccessForViewer(
     ],
     viewer,
   };
+}
+
+function revocableBuildGrantRole(role?: BuildCollaborationRole) {
+  return role !== "admin" && role !== "principle-broker" ? role : undefined;
 }
 
 async function requireOrganizationAccess(

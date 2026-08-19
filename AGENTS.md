@@ -34,6 +34,28 @@ DrawFlow is a FairLend module first, but must stay standalone-ready: tenant-scop
 - Lender operations kanban: evidence review, missing info, site visits, ready-for-admin work.
 - Mobile/tablet site-visit flow: offline draft capture, camera evidence, geofence/location attempt, structured report.
 - Admin approval flows: proposal review, milestone approval, site-visit override, budget revision, draw release.
+- Draw Request review: before changing Builder, Back Office, or lender review surfaces, read `docs/specs/lender-portal-draw-review.md`; all personas extend the same role-aware `DrawReviewSheet` over pooled Build availability.
+
+## Canonical Milestone Detail and Review Sheet
+
+The accepted Lender Milestone Review prototype Variant A is the canonical
+Milestone detail and review sheet for Builder, Back Office, and Lender personas.
+Production owns one shared `MilestoneDetailSheet` and one canonical Milestone
+record. Do not build a parallel persona-specific sheet or copy Milestone,
+Sub-milestone, Evidence Package, Site Visit, cost-document, collaboration,
+review, approval, or audit state.
+
+Preserve the locked Overview, Evidence, Receipts / invoices, and Collaboration
+information architecture. Role awareness is additive: the active route selects
+the Builder, Back Office, or Lender action set, and canonical permissions cap
+what the actor may do. Builder routes never expose reviewer identity or private
+rejection rationale. Reviewer decisions must reuse the governed review owner,
+revision checks, authorization, persistence, and audit events.
+
+Before changing this surface, read
+`docs/specs/lender-milestone-review-and-decision.md` and
+`docs/lender_milestone_detail_sheet_default_decision.md`. The prototype route is
+a locked visual and interaction contract, not a second production model.
 
 ## Tech Stack
 
@@ -74,6 +96,21 @@ Direct imports from `convex/server` are still appropriate for schema, HTTP routi
 
 ## Implementation Bias
 
+- Lender Portal promotion: before planning or implementing a lender-facing
+  surface or Back Office review-requirements surface, read
+  `docs/lender-portal-prototype-promotion.md` and the selected surface entry in
+  `src/components/prototypes/README.md`. Approved variants are implementation
+  contracts: start from their route and components, replace prototype data and
+  local actions with canonical integrations, and preserve the locked hierarchy
+  and ownership boundaries.
+- Lender Organization Management: the approved production contract is Variant
+  E at `/lender/organization-management-prototype?variant=E`. Read
+  `docs/lender_portal_mvp_feature_brief.md`,
+  `docs/lender_portal_mvp_spec.md`, and Phase 1 of
+  `docs/lender_portal_mvp_implementation_plan.md` before implementation. Reuse
+  canonical WorkOS organization, membership, role, permission, brokerage, and
+  Back Office user-management boundaries. Do not introduce a lender-manager
+  alias or an application-owned lender organization/membership system.
 - Preserve domain vocabulary from PRD: Build, Loan, Build Proposal, Budget, Construction Roadmap, Milestone, Draw, Draw Group, Evidence Package, Site Visit, Borrower Working Capital Limit, Lender Draw Policy Limit.
 - Do not collapse lender and builder roles into generic users.
 - Do not split roadmap, draw, evidence, and approval state into disconnected modules when Build Workspace should be canonical context.

@@ -5,7 +5,7 @@
 **Status:** Draft for implementation scoping  
 **Created:** May 27, 2026  
 **Primary audience:** Product, engineering, implementation agents  
-**Related documents:** `docs/vocabulary.md`, `docs/draw_flow_production_prd.md`, `docs/auth-rbac-foundation.md`, `docs/uiManifest/routeManifest.md`, `docs/drawflow-demo/timeline-setup-flow.md`
+**Related documents:** `docs/vocabulary.md`, `docs/draw_flow_prd.md`, `docs/draw_flow_production_prd.md`, `docs/auth-rbac-foundation.md`, `docs/uiManifest/routeManifest.md`, `docs/drawflow-demo/timeline-setup-flow.md`, `docs/lender-portal-prototype-promotion.md`, `docs/specs/lender-portal-draw-review.md`, `src/components/prototypes/README.md`
 
 ---
 
@@ -48,6 +48,11 @@ This slice does not attempt to productionize every demo surface. It creates the 
 12. A build can be active with a future start date.
 13. Prototype UI must not be reimplemented from scratch by inspection. Production routes and nested components must either extract, decouple, and refactor original demo components for reuse or copy the original route/component code and then iterate on the copy, while leaving the demo implementation unchanged for posterity.
 14. Workflow rules must be defined from a single centralized location. A GUI can come later, but rules must not be scattered across route handlers, Convex functions, and frontend conditionals.
+15. Back Office Review Requirements Setup directly promotes approved and locked
+    Variant A. It remains inside the existing proposal Closing workspace and
+    must not become a standalone policy route or parallel policy system.
+16. The Review Requirements policy shown in the pre-closing summary is locked
+    when closing is recorded and governs the active Build.
 
 ---
 
@@ -429,6 +434,10 @@ availableToDrawCents =
 ```
 
 A draw request cannot exceed current availability unless a future centrally configured workflow rule explicitly introduces an exception path. Draw requests and draws are build-level reimbursement records; they are not linked to a required source milestone.
+
+The shared role-aware review and decision surface is governed by
+`docs/specs/lender-portal-draw-review.md`. This proposal PRD owns availability
+unlocking and planning rules; it does not authorize a separate Draw review UI.
 
 ### 6.9 Suggested Relationship Model
 
@@ -1194,9 +1203,48 @@ Closing side effects:
 - create `buildCapitalPlans` row,
 - create active build milestones and submilestones from proposal rows,
 - create active planned draw schedule rows from proposal draw schedule,
+- hand the locked Review Requirements policy to the active Build through the
+  canonical policy and closing boundary,
 - write audit event,
 - write proposal event,
 - navigate or link to `/backoffice/builds/$buildId`.
+
+### 10.4 Review Requirements Setup And Policy Lock
+
+Before Back Office records closing, the existing proposal Closing workspace
+must include the approved Variant A Review Requirements Setup interaction.
+
+The production contract is:
+
+- Draw reviewer requirement: Back Office only, lender quorum only, or both.
+- Milestone reviewer requirement: the same three alternatives, plus separate
+  Site Visit required and receipt / invoice required controls.
+- Back Office approval is one authorized approval.
+- If both reviewer groups are required, Back Office and the lender quorum may
+  complete in either order.
+- Lender quorum is selectable from one through the count of active assigned
+  lender members.
+- The pre-closing summary clearly identifies the policy that will govern the
+  active Build.
+- Recording closing locks the policy. This PRD does not define post-closing
+  editing.
+
+Implementation must start from
+`src/components/prototypes/BackOfficeReviewRequirementsSetupPrototype.tsx` and
+Variant A at
+`/backoffice/proposals/review-requirements-prototype?variant=A`. The prototype
+is a read-only throwaway with representative membership data and local state;
+those details are not a persistence contract. Replace them with canonical
+membership, policy, audit, and closing integrations without changing the
+selected structure.
+
+Do not add a standalone policy system, deadlines or SLAs, generic comments, or
+additional reviewer roles. The detailed locked contract is in the **Back Office
+Review Requirements Setup** section of `src/components/prototypes/README.md`,
+and its implementation gate is in
+`docs/lender-portal-prototype-promotion.md`. Material divergence requires a new
+product decision and aligned updates to all referenced documents before code
+work.
 
 ---
 

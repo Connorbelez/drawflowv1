@@ -1,0 +1,3 @@
+# Lender Organization is application-owned
+
+The Lender Organization boundary must remain distinct from the WorkOS identity boundary. DrawFlow owns application-level Lender Organizations and their lender memberships; WorkOS owns users, Brokerage organizations, memberships, roles, and Brokerage-wide permissions. A Brokerage may contain multiple Lender Organizations, and a WorkOS user with the literal `lender` role may be unassigned or attached to at most one Lender Organization per Brokerage. This separation prevents WorkOS provisioning and Brokerage administration from being mistaken for lender-group provisioning or lender-specific authority.

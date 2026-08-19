@@ -3651,7 +3651,218 @@ describe("Build Collaboration operational events", () => {
     ]);
   });
 
-  test("publishes submitted and location-unverified Evidence without widening access", async () => {
+  test("automates only canonical Milestone and Draw System Posts", async () => {
+    const fixture = await seedOperationalBuild();
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.createActiveBuildTimelineEvidenceAsset,
+      {
+        asset: {
+          evidenceKey: "canonical-boundary-photo",
+          fileName: "canonical-boundary-photo.webp",
+          label: "Canonical boundary photo",
+          locationVerified: false,
+          milestoneKey: "foundation",
+          mimeType: "image/webp",
+          sizeBytes: 128_000,
+          tag: "Foundation",
+        },
+        buildId: fixture.buildId,
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      {
+        buildId: fixture.buildId,
+        idempotencyKey: "canonical-boundary-site-visit",
+        milestoneKey: "foundation",
+        requestedDay: 12,
+        requestedTime: "09:00",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.addActiveBuildDocument,
+      {
+        buildId: fixture.buildId,
+        clientOperationId: "canonical-boundary-permit",
+        documentType: "permit",
+        fileName: "Canonical boundary permit.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+
+    let snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(snapshot.posts).toHaveLength(0);
+    expect(snapshot.actionItems).toHaveLength(0);
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      {
+        actualStartedAt: Date.now() - 86_400_000,
+        buildId: fixture.buildId,
+        completedDay: 20,
+        expectedRevision: 0,
+        idempotencyKey: "canonical-boundary-milestone-submission",
+        milestoneKey: "foundation",
+        note: "Foundation work is ready for lender review.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.requestActiveBuildMilestoneInfo,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "Upload the engineer-sealed footing report.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+
+    snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(snapshot.posts).toHaveLength(1);
+    expect(snapshot.posts[0]).toMatchObject({
+      authorDisplayNameSnapshot: "DrawFlow System",
+      source: "system",
+      systemPostKind: "milestone",
+    });
+    expect(snapshot.posts[0]?.systemOccurrenceKey).toMatch(
+      /^milestone-system:/,
+    );
+    expect(snapshot.posts.every((post) => post.systemPostKind)).toBe(true);
+  });
+
+  test("retires legacy noncanonical automation while preserving canonical System Posts", async () => {
+    const fixture = await seedOperationalBuild();
+    const legacyPostId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("buildCollaborationPosts", {
+        acknowledgementRequired: false,
+        agentDrafted: false,
+        announcementProminent: false,
+        audienceFloorTier: 0,
+        audienceMode: "build_wide",
+        authorDisplayNameSnapshot: "DrawFlow Operations",
+        authorRolesSnapshot: ["system"],
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        commentCount: 0,
+        contentState: "active",
+        createdAt: now,
+        lastMeaningfulActivityAt: now,
+        openActionItemCount: 0,
+        organizationId: ORGANIZATION_ID,
+        postType: "update",
+        readRevision: 1,
+        revision: 1,
+        source: "system",
+        systemEventKey: "operational:evidence:legacy:submitted",
+        threadRevision: 0,
+        threadState: "open",
+        updatedAt: now,
+      });
+    });
+
+    expect(await feedKinds(fixture.admin, fixture.buildId)).toEqual([]);
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      {
+        actualStartedAt: Date.now() - 86_400_000,
+        buildId: fixture.buildId,
+        completedDay: 20,
+        expectedRevision: 0,
+        idempotencyKey: "canonical-boundary-retirement-milestone",
+        milestoneKey: "foundation",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(legacyPostId, {
+        lastMeaningfulActivityAt: Date.now() + 60_000,
+      });
+    });
+    const sparseFirstPage = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 1 },
+      },
+    );
+    expect(sparseFirstPage.page).toEqual([]);
+    expect(sparseFirstPage.isDone).toBe(false);
+    const sparseSecondPage = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: {
+          cursor: sparseFirstPage.continueCursor,
+          numItems: 1,
+        },
+      },
+    );
+    expect(sparseSecondPage.page.map((entry: { kind: string }) => entry.kind))
+      .toEqual(["post"]);
+
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone) {
+      const result: { continueCursor: string; isDone: boolean } =
+        await fixture.admin.mutation(
+        (internal as any)
+          .build_collaboration_system_post_boundary_migrations
+          .retireNoncanonicalAutomatedCollaborationPosts,
+        {
+          batchSize: 25,
+          cursor,
+          dryRun: false,
+          oneBatchOnly: true,
+        },
+      );
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+    }
+
+    const state = await fixture.base.run(async (ctx) => ({
+      audit: (await ctx.db.query("auditEvents").collect()).find(
+        (event) =>
+          event.entityId === String(legacyPostId) &&
+          event.eventType ===
+            "build.collaboration.noncanonical_system_post.retired",
+      ),
+      legacy: await ctx.db.get(legacyPostId),
+      posts: await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_createdAt", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .collect(),
+    }));
+    expect(state.legacy).toMatchObject({
+      contentState: "tombstoned",
+      threadState: "resolved",
+      tombstonedByWorkosUserId: "system",
+    });
+    expect(state.audit).toBeDefined();
+    expect(
+      state.posts.filter((post) => post.systemPostKind === "milestone"),
+    ).toHaveLength(1);
+    expect(await feedKinds(fixture.admin, fixture.buildId)).toEqual(["post"]);
+  });
+
+  test.skip("legacy Evidence automation contract", async () => {
     const fixture = await seedOperationalBuild();
 
     await fixture.admin.mutation(
@@ -3777,7 +3988,7 @@ describe("Build Collaboration operational events", () => {
     });
   });
 
-  test("publishes material Evidence reviews and suppresses identical no-op retries", async () => {
+  test.skip("legacy Evidence review automation contract", async () => {
     const fixture = await seedOperationalBuild();
     await fixture.admin.mutation(
       (api as any).production_proposals.createActiveBuildTimelineEvidenceAsset,
@@ -3915,7 +4126,7 @@ describe("Build Collaboration operational events", () => {
     );
   });
 
-  test("publishes Site Visit schedule transitions once and preserves failed-geofence Evidence", async () => {
+  test.skip("legacy Site Visit automation contract", async () => {
     const fixture = await seedOperationalBuild();
     const scheduled = await fixture.admin.mutation(
       (api as any).production_proposals.scheduleActiveBuildSiteVisit,
@@ -4276,7 +4487,7 @@ describe("Build Collaboration operational events", () => {
     );
   });
 
-  test("publishes material Milestone transitions and keeps blocked work duplicate-safe", async () => {
+  test.skip("legacy per-transition Milestone post contract", async () => {
     const fixture = await seedOperationalBuild();
     const submission = {
       actualStartedAt: Date.now() - 86_400_000,
@@ -4406,7 +4617,7 @@ describe("Build Collaboration operational events", () => {
     });
   });
 
-  test("publishes governing Document versions, suppresses support noise, and enforces operation binding", async () => {
+  test.skip("legacy Document automation contract", async () => {
     const fixture = await seedOperationalBuild();
     const addDocument = (input: {
       clientOperationId: string;
@@ -5304,7 +5515,7 @@ describe("Build Collaboration operational events", () => {
     ).rejects.toThrow(/open Draw request/i);
   });
 
-  test("rolls the authoritative operation back when collaboration publication violates tenant scope", async () => {
+  test.skip("legacy Document publication rollback contract", async () => {
     const fixture = await seedOperationalBuild();
     await fixture.base.run(async (ctx) => {
       const now = Date.now();
@@ -5362,7 +5573,7 @@ describe("Build Collaboration operational events", () => {
     ).toHaveLength(0);
   });
 
-  test("replays deterministic system events, rolls invalid references back, and skips inactive tenants", async () => {
+  test.skip("legacy generic system-event publisher contract", async () => {
     const fixture = await seedOperationalBuild();
     const event = {
       buildId: fixture.buildId,
@@ -5549,7 +5760,7 @@ describe("Build Collaboration operational events", () => {
     expect(inactiveAsset).toBeTruthy();
   });
 
-  test("rolls operational source mutations back while cutover snapshots are frozen", async () => {
+  test.skip("legacy operational publication freeze contract", async () => {
     const fixture = await seedOperationalBuild();
     const rehearsalId = await fixture.base.run(async (ctx) => {
       const now = Date.now();
@@ -6057,7 +6268,8 @@ describe("Build Collaboration operational events", () => {
         readRevision: 1,
         revision: 1,
         source: "system",
-        systemOccurrenceKey: "draw-coordination-occurrence",
+        systemEventKey: `draw-system:${fixture.buildId}:${fixture.proposalId}:request:draw-coordination-reference`,
+        systemOccurrenceKey: `draw-system:${fixture.buildId}:${fixture.proposalId}:request:draw-coordination-reference`,
         systemPostKind: "draw",
         threadState: "open",
         threadRevision: 0,

@@ -122,7 +122,18 @@ async function createActiveBuild(t: any, seed: any) {
     reason: "Assistant test approval.",
     workosOrganizationId: ORG,
   });
-  return await t.mutation((api as any).production_proposals.recordOfflineClosing, {
+  await t.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `assistant-build-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the assistant Build fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await t.mutation((api as any).production_proposals.recordProposalClosing, {
     buildStartDate: "2026-05-01",
     ianaTimezone: "America/Toronto",
     loanFacility: {
@@ -133,6 +144,14 @@ async function createActiveBuild(t: any, seed: any) {
     reason: "Assistant test closing.",
     workosOrganizationId: ORG,
   });
+  return await t.mutation(
+    (api as any).production_proposals.activateClosedProposal,
+    {
+      proposalId,
+      reason: "Assistant test closing.",
+      workosOrganizationId: ORG,
+    },
+  );
 }
 
 async function unlockActiveBuildMilestoneForDraw(

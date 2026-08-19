@@ -195,6 +195,10 @@ import {
   dateFromProposalDayOffset,
   isValidIsoDateOnly,
 } from "./proposalScheduleDates.ts";
+import type {
+  ProposalLenderApprovalSummary,
+  ProposalLenderAssignmentRecord,
+} from "./ProposalLenderAssignmentSection.tsx";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -208,6 +212,7 @@ interface ProductionProposal {
   borrowerCoPayCents?: number;
   borrowerStartingCashCents: number;
   buildName: string;
+  capitalSource?: "internal" | "external";
   interestAnnualBps?: number;
   lenderDrawPolicyLimitCents: number;
   location: string;
@@ -310,6 +315,23 @@ export interface ProductionProposalDetail {
   costItems?: MaterialPlanningItem[];
   documents?: ProductionDocument[];
   draws?: ProductionDraw[];
+  lenderApproval?: ProposalLenderApprovalSummary | null;
+  lenderAssignment?: ProposalLenderAssignmentRecord | null;
+  lenderAssignmentHistory?: ProposalLenderAssignmentRecord[];
+  lifecycle?: {
+    activation: "active" | "inactive";
+    backOfficeApproval:
+      | "approved"
+      | "changes_requested"
+      | "not_submitted"
+      | "pending"
+      | "rejected";
+    capitalSource: "external" | "internal";
+    closing: "closed" | "not_ready" | "pending_closing";
+    externalAssignment: "assigned" | "not_required" | "unassigned" | "withdrawn";
+    lenderConfirmation: "approved" | "declined" | "not_required" | "pending";
+    proposalState: "approved" | "closed" | "draft" | "submitted";
+  };
   loanFacility?: { interestAnnualBps?: number; principalCents?: number } | null;
   milestones?: ProductionMilestone[];
   permitWaiver?: { reason: string } | null;
@@ -1839,6 +1861,7 @@ export function ProductionProposalReviewSurface({
   calendarWorkspace,
   detail,
   initialActiveTab,
+  lenderAssignmentSurface,
   materialPlanningActions,
   onChangeCalendarTimeframe,
   onChangeReviewTab,
@@ -1974,6 +1997,7 @@ export function ProductionProposalReviewSurface({
   staff?: ReactNode;
   timeline?: ReactNode;
   initialActiveTab?: ProductionReviewTab;
+  lenderAssignmentSurface?: ReactNode;
 }) {
   const [reason, setReason] = useState("");
   const [closingReason, setClosingReason] = useState("");
@@ -2024,6 +2048,8 @@ export function ProductionProposalReviewSurface({
     onApprove && onReject && onRequestChanges
   );
   const canSubmitProposal = Boolean(onSubmit);
+  const canRenderProposalStatusPanel =
+    canRunReviewDecision || canSubmitProposal;
   const canRecordClosing = Boolean(onClose);
   const tabs = useMemo(() => {
     const nextTabs: { label: string; value: ProductionReviewTab }[] = [];
@@ -2243,9 +2269,11 @@ export function ProductionProposalReviewSurface({
       idPrefix={idPrefix}
       onReasonChange={setReason}
       onReviewDecision={runReviewDecision}
+      onSubmit={canSubmitProposal ? submitProposal : undefined}
       pendingDecision={pendingDecision}
       proposal={proposal}
       reason={reason}
+      submitPending={submitPending}
     />
   );
 
@@ -2266,7 +2294,7 @@ export function ProductionProposalReviewSurface({
       >
         {proposal.status === "approved" ? (
           <ApprovedProposalConfirmation detail={detail} />
-        ) : canRunReviewDecision ? (
+        ) : canRenderProposalStatusPanel ? (
           renderReviewDecisionPanel(idPrefix)
         ) : (
           <Section title="Review summary">
@@ -2287,6 +2315,10 @@ export function ProductionProposalReviewSurface({
             </div>
           </Section>
         )}
+
+        {detail.lifecycle ? (
+          <ProposalLifecycleSummary lifecycle={detail.lifecycle} />
+        ) : null}
 
         <Section title="Readiness">
           <ProposalReadinessList
@@ -2408,6 +2440,7 @@ export function ProductionProposalReviewSurface({
               onUpdateInterestRate={onUpdateInterestRate}
               proposal={proposal}
             />
+            {lenderAssignmentSurface}
           </FramePanel>
         </Frame>
 
@@ -2689,29 +2722,6 @@ export function ProductionProposalReviewSurface({
                   </div>
                 </Section>
               ) : null}
-              {proposal.status === "draft" && canSubmitProposal ? (
-                <Section title="Submit proposal">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <Badge variant="outline">Draft</Badge>
-                      <p className="mt-2 text-muted-foreground text-sm">
-                        {proposal.selectedPlan
-                          ? "Submit the current reimbursement plan for lender review. The selected optimizer preset is included as advisory comparison metadata."
-                          : "Submit the custom reimbursement plan for lender review when the packet, milestones, and draw schedule are ready. Optimizer presets are optional."}
-                      </p>
-                    </div>
-                    <Button
-                      className="w-full sm:w-auto"
-                      data-testid="production-proposal-submit-cta"
-                      disabled={submitPending}
-                      onClick={() => void submitProposal()}
-                    >
-                      <Send />
-                      {submitPending ? "Submitting..." : "Submit proposal"}
-                    </Button>
-                  </div>
-                </Section>
-              ) : null}
               <ProposalPacketSnapshot
                 detail={detail}
                 mergedWithReview
@@ -2844,6 +2854,49 @@ function ProposalDrawScheduleSnapshot({ draws }: { draws: ProductionDraw[] }) {
       </TableBody>
     </Table>
   );
+}
+
+function ProposalLifecycleSummary({
+  lifecycle,
+}: {
+  lifecycle: NonNullable<ProductionProposalDetail["lifecycle"]>;
+}) {
+  return (
+    <Section title="Proposal lifecycle">
+      <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <dt className="text-muted-foreground">Back Office approval</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.backOfficeApproval)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Lender confirmation</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.lenderConfirmation)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Closing</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.closing)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Build activation</dt>
+          <dd className="mt-1 font-semibold">
+            {proposalLifecycleLabel(lifecycle.activation)}
+          </dd>
+        </div>
+      </dl>
+    </Section>
+  );
+}
+
+function proposalLifecycleLabel(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function ProposalReviewHeaderSummary({
@@ -3840,26 +3893,46 @@ function ProposalReviewDecisionPanel({
   idPrefix,
   onReasonChange,
   onReviewDecision,
+  onSubmit,
   pendingDecision,
   proposal,
   reason,
+  submitPending,
 }: {
   idPrefix: string;
   onReasonChange: (value: string) => void;
   onReviewDecision: (
     decision: "approve" | "reject" | "requestChanges"
   ) => Promise<void> | void;
+  onSubmit?: () => Promise<unknown> | unknown;
   pendingDecision: "approve" | "reject" | "requestChanges" | null;
   proposal: ProductionProposal;
   reason: string;
+  submitPending: boolean;
 }) {
   const reviewAvailable = proposal.status === "submitted";
   const disabled = pendingDecision !== null;
   const reasonId = `${idPrefix}-decision-reason`;
   const reasonHelpId = `${idPrefix}-decision-reason-help`;
+  const submitAction =
+    proposal.status === "draft" && onSubmit ? (
+      <Button
+        className="w-full sm:w-auto"
+        data-testid={`${idPrefix}-submit-proposal`}
+        disabled={submitPending}
+        onClick={() => void onSubmit()}
+        size="sm"
+      >
+        <Send />
+        {submitPending ? "Submitting..." : "Submit proposal"}
+      </Button>
+    ) : null;
 
   return (
-    <Section title={reviewAvailable ? "Review decision" : "Proposal status"}>
+    <Section
+      action={submitAction}
+      title={reviewAvailable ? "Review decision" : "Proposal status"}
+    >
       <div className="grid gap-4">
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -3921,11 +3994,20 @@ function ProposalReviewDecisionPanel({
             </p>
           </div>
         ) : (
-          <p className="max-w-[65ch] text-muted-foreground text-sm">
-            {proposal.status === "draft"
-              ? "Decision controls unlock after the builder submits this proposal for lender review."
-              : "This proposal is not currently awaiting a lender review decision."}
-          </p>
+          <div className="grid max-w-[65ch] gap-2 text-muted-foreground text-sm">
+            <p>
+              {proposal.status === "draft"
+                ? "Decision controls unlock after the builder submits this proposal for lender review."
+                : "This proposal is not currently awaiting a lender review decision."}
+            </p>
+            {proposal.status === "draft" ? (
+              <p>
+                {proposal.selectedPlan
+                  ? "Submit the current reimbursement plan for lender review. The selected optimizer preset is included as advisory comparison metadata."
+                  : "Submit the custom reimbursement plan for lender review when the packet, milestones, and draw schedule are ready. Optimizer presets are optional."}
+              </p>
+            ) : null}
+          </div>
         )}
       </div>
     </Section>

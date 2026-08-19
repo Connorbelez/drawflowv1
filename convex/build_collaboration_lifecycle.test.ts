@@ -7,7 +7,6 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS } from "./build_collaboration_lifecycle_state";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
-import { publishDocumentCollaborationEvent } from "./build_collaboration_workflow_events";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -734,11 +733,12 @@ describe("Build collaboration export and lifecycle governance", () => {
           .publishBuildCollaborationSystemEvent,
         {
           buildId: fixture.buildId,
-          idempotencyKey: "closed-system-event",
+          idempotencyKey: `milestone-system:${fixture.buildId}:closed`,
           organizationId: ORGANIZATION_ID,
           plainText: "Closed system event.",
           postType: "update",
           systemLabel: "DrawFlow",
+          systemPostKind: "milestone",
         },
       ),
     ).rejects.toThrow("closed and read-only");
@@ -1001,11 +1001,31 @@ describe("Build collaboration export and lifecycle governance", () => {
         updatedAt: BASE_TIME,
         uploadedByWorkosUserId: "user_admin",
       });
-      const document = await ctx.db.get(documentId);
-      if (!document) {
-        throw new Error("Expected legacy document fixture.");
-      }
-      await publishDocumentCollaborationEvent(ctx, { document });
+      await ctx.db.insert("buildCollaborationPosts", {
+        acknowledgementRequired: false,
+        agentDrafted: false,
+        announcementProminent: false,
+        audienceFloorTier: 0,
+        audienceMode: "build_wide",
+        authorDisplayNameSnapshot: "DrawFlow Operations",
+        authorRolesSnapshot: ["system"],
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        commentCount: 0,
+        contentState: "active",
+        createdAt: BASE_TIME,
+        lastMeaningfulActivityAt: BASE_TIME,
+        openActionItemCount: 0,
+        organizationId: build.organizationId,
+        postType: "update",
+        readRevision: 1,
+        revision: 1,
+        source: "system",
+        systemEventKey: `operational:document:${documentId}:v1:added`,
+        threadRevision: 0,
+        threadState: "open",
+        updatedAt: BASE_TIME,
+      });
       const post = await ctx.db
         .query("buildCollaborationPosts")
         .withIndex("by_buildId_and_systemEventKey", (query) =>

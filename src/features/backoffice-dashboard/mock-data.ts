@@ -113,6 +113,7 @@ export interface ProposalKanbanCard extends Record<string, unknown> {
   createdAt?: number;
   href?: string;
   id: string;
+  interestAnnualBps?: number;
   isMockAddress?: boolean;
   isMockBuilder?: boolean;
   isMockLtv?: boolean;

@@ -1,5 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useAction, useMutation, useQuery } from "convex/react";
+import {
+  useAction,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -28,6 +33,7 @@ import {
 } from "#/features/builder-staff/app-permissions.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
+import type { CostDocumentSummary } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
 import type { DrawWorkflowCapabilities } from "#/features/draw-workflow/drawWorkflow.ts";
 import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
@@ -60,7 +66,9 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
 function RouteComponent() {
   const { buildId } = Route.useParams();
   const context = Route.useRouteContext();
-  const search = Route.useSearch();
+  const search = validateBuildDetailSearch(
+    Route.useSearch() as Record<string, unknown>
+  );
   const navigate = useNavigate();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const [visualParityDetail, setVisualParityDetail] =
@@ -82,139 +90,139 @@ function RouteComponent() {
         }
         setVisualParityDetail(mod.getVisualParityActiveBuildDetail(buildId));
         setVisualParityTimeline(
-          mod.getVisualParityActiveBuildTimelineWorkspace(buildId),
+          mod.getVisualParityActiveBuildTimelineWorkspace(buildId)
         );
-      },
+      }
     );
     return () => {
       cancelled = true;
     };
   }, [buildId, visualFixtureEnabled]);
   const documentOperationIntents = useRef(
-    new DocumentOperationIntentRegistry(),
+    new DocumentOperationIntentRegistry()
   );
   const siteVisitScheduleIntents = useRef(
-    new SiteVisitScheduleIntentRegistry(),
+    new SiteVisitScheduleIntentRegistry()
   );
   const addDocument = useMutation(
-    api.production_proposals.addActiveBuildDocument,
+    api.production_proposals.addActiveBuildDocument
   );
   const approveDraw = useMutation(
-    api.production_proposals.approveActiveBuildDraw,
+    api.production_proposals.approveActiveBuildDraw
   );
   const startDrawReview = useMutation(
-    api.production_proposals.startActiveBuildDrawReview,
+    api.production_proposals.startActiveBuildDrawReview
   );
   const submitDrawForAdmin = useMutation(
-    api.production_proposals.submitActiveBuildDrawForAdmin,
+    api.production_proposals.submitActiveBuildDrawForAdmin
   );
   const approveMilestone = useMutation(
-    api.production_proposals.approveActiveBuildMilestone,
+    api.production_proposals.approveActiveBuildMilestone
   );
   const assignSiteVisit = useMutation(
-    api.production_proposals.assignActiveBuildSiteVisit,
+    api.production_proposals.assignActiveBuildSiteVisit
   );
   const generateSiteVisitGuidance = useAction(
-    (api as any).assistant.generateSiteVisitGuidance,
+    (api as any).assistant.generateSiteVisitGuidance
   );
   const assignContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone
   );
   const removeContractorFromMilestone = useMutation(
-    api.production_proposals.removeActiveBuildContractorFromMilestone,
+    api.production_proposals.removeActiveBuildContractorFromMilestone
   );
   const attachAndInviteContractor = useMutation(
-    (api as any).production_proposals.attachAndInviteActiveBuildContractor,
+    (api as any).production_proposals.attachAndInviteActiveBuildContractor
   );
   const attachContractor = useMutation(
-    api.production_proposals.attachActiveBuildContractor,
+    api.production_proposals.attachActiveBuildContractor
   );
   const createContractor = useMutation(
-    api.production_proposals.createContractorProfile,
+    api.production_proposals.createContractorProfile
   );
   const sendContractorInvite = useMutation(
-    (api as any).contractorOnboarding.sendContractorProfileInvite,
+    (api as any).contractorOnboarding.sendContractorProfileInvite
   );
   const rejectDraw = useMutation(
-    api.production_proposals.rejectActiveBuildDraw,
+    api.production_proposals.rejectActiveBuildDraw
   );
   const rejectMilestone = useMutation(
-    api.production_proposals.rejectActiveBuildMilestone,
+    api.production_proposals.rejectActiveBuildMilestone
   );
   const releaseDraw = useMutation(
-    api.production_proposals.releaseActiveBuildDraw,
+    api.production_proposals.releaseActiveBuildDraw
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange,
+    (api as any).production_proposals.requestActiveBuildFacilityChange
   );
   const requestBudgetRevision = useMutation(
-    (api as any).production_proposals.requestActiveBuildBudgetRevision,
+    (api as any).production_proposals.requestActiveBuildBudgetRevision
   );
   const requestMilestoneInfo = useMutation(
-    api.production_proposals.requestActiveBuildMilestoneInfo,
+    api.production_proposals.requestActiveBuildMilestoneInfo
   );
   const reviewEvidence = useMutation(
-    api.production_proposals.reviewActiveBuildEvidence,
+    api.production_proposals.reviewActiveBuildEvidence
   );
   const reviewFacilityChangeRequest = useMutation(
-    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
+    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest
   );
   const reviewBudgetRevision = useMutation(
-    (api as any).production_proposals.reviewActiveBuildBudgetRevision,
+    (api as any).production_proposals.reviewActiveBuildBudgetRevision
   );
   const correctMilestoneStart = useMutation(
-    (api as any).production_proposals.correctActiveBuildMilestoneStart,
+    (api as any).production_proposals.correctActiveBuildMilestoneStart
   );
   const retractMilestoneStart = useMutation(
-    (api as any).production_proposals.retractActiveBuildMilestoneStart,
+    (api as any).production_proposals.retractActiveBuildMilestoneStart
   );
   const createActiveBuildCostItem = useMutation(
-    api.production_proposals.createActiveBuildCostItem,
+    api.production_proposals.createActiveBuildCostItem
   );
   const updateActiveBuildCostItem = useMutation(
-    api.production_proposals.updateActiveBuildCostItem,
+    api.production_proposals.updateActiveBuildCostItem
   );
   const updateActiveBuildNonFinancialDetails = useMutation(
-    (api as any).production_proposals.updateActiveBuildNonFinancialDetails,
+    (api as any).production_proposals.updateActiveBuildNonFinancialDetails
   );
   const deleteActiveBuildCostItem = useMutation(
-    api.production_proposals.deleteActiveBuildCostItem,
+    api.production_proposals.deleteActiveBuildCostItem
   );
   const reviseActiveBuildMilestoneSchedule = useMutation(
-    (api as any).production_proposals.reviseActiveBuildMilestoneSchedule,
+    (api as any).production_proposals.reviseActiveBuildMilestoneSchedule
   );
   const setEvidenceDueDate = useMutation(
-    (api as any).production_proposals.setEvidenceDueDate,
+    (api as any).production_proposals.setEvidenceDueDate
   );
   const setReviewTargetDate = useMutation(
-    (api as any).production_proposals.setReviewTargetDate,
+    (api as any).production_proposals.setReviewTargetDate
   );
   const setAdminDecisionTargetDate = useMutation(
-    (api as any).production_proposals.setAdminDecisionTargetDate,
+    (api as any).production_proposals.setAdminDecisionTargetDate
   );
   const setDrawReleaseTargetDate = useMutation(
-    (api as any).production_proposals.setDrawReleaseTargetDate,
+    (api as any).production_proposals.setDrawReleaseTargetDate
   );
   const scheduleActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+    (api as any).production_proposals.scheduleActiveBuildSiteVisit
   );
   const rescheduleActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.rescheduleActiveBuildSiteVisit,
+    (api as any).production_proposals.rescheduleActiveBuildSiteVisit
   );
   const cancelActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.cancelActiveBuildSiteVisit,
+    (api as any).production_proposals.cancelActiveBuildSiteVisit
   );
   const requestLoanFacilityDateChange = useMutation(
-    (api as any).production_proposals.requestLoanFacilityDateChange,
+    (api as any).production_proposals.requestLoanFacilityDateChange
   );
   const saveCalendarView = useMutation(
-    (api as any).production_proposals.saveCalendarView,
+    (api as any).production_proposals.saveCalendarView
   );
   const createCalendarSyncSubscription = useMutation(
-    (api as any).production_proposals.createCalendarSyncSubscription,
+    (api as any).production_proposals.createCalendarSyncSubscription
   );
   const recordExternalCalendarSyncChange = useMutation(
-    (api as any).production_proposals.recordExternalCalendarSyncChange,
+    (api as any).production_proposals.recordExternalCalendarSyncChange
   );
   const activeTab = search.tab ?? "details";
   const tabNeedsTimeline = activeTab === "timeline" || activeTab === "gantt";
@@ -226,7 +234,7 @@ function RouteComponent() {
       : {
           buildId,
           workosOrganizationId: context.organizationId as string,
-        },
+        }
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? visualParityDetail
@@ -238,16 +246,52 @@ function RouteComponent() {
       : {
           buildId,
           workosOrganizationId: context.organizationId as string,
-        },
+        }
   ) as BuildRouteAvailability | undefined;
   useRouteBreadcrumbProjection(
     "/backoffice/builds/$buildId",
     resolveBuildBreadcrumbLabel({
       availability: buildRouteAvailability,
       detail: effectiveProductionBuild,
-    }),
+    })
   );
   const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
+  const milestoneSiteVisitsQuery = useQuery(
+    api.production_proposals.listBrokerageSiteVisits,
+    visualFixtureEnabled || !activeBuildIdForWorkspace || !search.milestone
+      ? "skip"
+      : {
+          buildId: activeBuildIdForWorkspace,
+          milestoneKey: search.milestone,
+          workosOrganizationId: context.organizationId as string,
+        }
+  );
+  const costDocumentViewerRoles = [context.role, ...(context.roles ?? [])];
+  const costDocumentLedgerActorCapacity = costDocumentViewerRoles.includes(
+    "admin"
+  )
+    ? "admin"
+    : costDocumentViewerRoles.includes("principle-broker")
+      ? "principle-broker"
+      : undefined;
+  const costDocumentLedger = usePaginatedQuery(
+    api.cost_documents.listCostDocumentRoadmapReconciliation,
+    effectiveProductionBuild && search.milestone
+      ? ({
+          ...(costDocumentLedgerActorCapacity
+            ? { actorCapacity: costDocumentLedgerActorCapacity }
+            : {}),
+          buildId: activeBuildIdForWorkspace,
+          organizationId: context.organizationId as string,
+        } as never)
+      : "skip",
+    { initialNumItems: 5 }
+  );
+  useEffect(() => {
+    if (costDocumentLedger.status === "CanLoadMore") {
+      costDocumentLedger.loadMore(5);
+    }
+  }, [costDocumentLedger.loadMore, costDocumentLedger.status]);
   const timelineWorkspaceQuery = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
     visualFixtureEnabled || !tabNeedsTimeline
@@ -257,7 +301,7 @@ function RouteComponent() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId: context.organizationId as string,
           }
-        : "skip",
+        : "skip"
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? visualParityTimeline
@@ -271,7 +315,7 @@ function RouteComponent() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId: context.organizationId as string,
           }
-        : "skip",
+        : "skip"
   );
 
   const onChangeTab = (tab: BuildDetailSubTab, focus?: string) =>
@@ -365,7 +409,7 @@ function RouteComponent() {
                 itemId: item._id as any,
                 workosOrganizationId,
               }).then(() => toast.success("Cost item updated.")),
-          },
+          }
     );
     const actions: ProductionBuildDetailActions = {
       addDocument: canUseAppPermission(appPermissions, "evidence", "create")
@@ -420,8 +464,7 @@ function RouteComponent() {
               requestedDay: 0,
               requestedTime: input.requestedTime,
               siteVisitGuidance: input.siteVisitGuidance,
-              submilestoneGuidanceSections:
-                input.submilestoneGuidanceSections,
+              submilestoneGuidanceSections: input.submilestoneGuidanceSections,
               submilestoneKeys: input.submilestoneKeys,
               workosOrganizationId,
             });
@@ -433,7 +476,7 @@ function RouteComponent() {
       generateSiteVisitGuidance: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update",
+        "update"
       )
         ? (input) =>
             generateSiteVisitGuidance({
@@ -444,7 +487,7 @@ function RouteComponent() {
       assignContractorToMilestone: canUseAppPermission(
         appPermissions,
         "contractor",
-        "update",
+        "update"
       )
         ? ({
             assignmentCost,
@@ -466,7 +509,7 @@ function RouteComponent() {
       removeContractorFromMilestone: canUseAppPermission(
         appPermissions,
         "contractor",
-        "update",
+        "update"
       )
         ? ({ contractorId, milestoneKey, reason, submilestoneKey }) =>
             removeContractorFromMilestone({
@@ -492,7 +535,7 @@ function RouteComponent() {
       attachContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "update",
+        "update"
       )
         ? ({ contractorId, role }) =>
             attachContractor({
@@ -505,7 +548,7 @@ function RouteComponent() {
       createAndAttachContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "create",
+        "create"
       )
         ? async ({ contractor, role }) => {
             const contractorId = await createContractor({
@@ -525,7 +568,7 @@ function RouteComponent() {
       createAndAssignContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "create",
+        "create"
       )
         ? async ({ assignmentCost, contractor, milestoneKey, role }) => {
             const contractorId = await createContractor({
@@ -547,7 +590,7 @@ function RouteComponent() {
       inviteContractor: canUseAppPermission(
         appPermissions,
         "contractor",
-        "create",
+        "create"
       )
         ? (contractorId) =>
             sendContractorInvite({
@@ -610,7 +653,7 @@ function RouteComponent() {
       reviseMilestoneSchedule: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update",
+        "update"
       )
         ? (input) =>
             reviseActiveBuildMilestoneSchedule({
@@ -622,7 +665,7 @@ function RouteComponent() {
       setEvidenceDueDate: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update",
+        "update"
       )
         ? (input) =>
             setEvidenceDueDate({
@@ -634,7 +677,7 @@ function RouteComponent() {
       setReviewTargetDate: canUseAppPermission(
         appPermissions,
         "reminder",
-        "create",
+        "create"
       )
         ? (input) =>
             setReviewTargetDate({
@@ -646,7 +689,7 @@ function RouteComponent() {
       setAdminDecisionTargetDate: canUseAppPermission(
         appPermissions,
         "reminder",
-        "create",
+        "create"
       )
         ? (input) =>
             setAdminDecisionTargetDate({
@@ -658,7 +701,7 @@ function RouteComponent() {
       setDrawReleaseTargetDate: canUseAppPermission(
         appPermissions,
         "reminder",
-        "create",
+        "create"
       )
         ? (input) =>
             setDrawReleaseTargetDate({
@@ -670,7 +713,7 @@ function RouteComponent() {
       scheduleSiteVisit: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update",
+        "update"
       )
         ? async (input) => {
             const idempotencyKey =
@@ -689,7 +732,7 @@ function RouteComponent() {
       rescheduleSiteVisit: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update",
+        "update"
       )
         ? (input) =>
             rescheduleActiveBuildSiteVisit({
@@ -709,7 +752,7 @@ function RouteComponent() {
       requestLoanFacilityDateChange: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "create",
+        "create"
       )
         ? (input) =>
             requestLoanFacilityDateChange({
@@ -741,7 +784,7 @@ function RouteComponent() {
       requestFacilityChange: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "create",
+        "create"
       )
         ? (input) =>
             requestFacilityChange({
@@ -753,7 +796,7 @@ function RouteComponent() {
       requestBudgetRevision: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "create",
+        "create"
       )
         ? (input) =>
             requestBudgetRevision({
@@ -765,7 +808,7 @@ function RouteComponent() {
       reviewFacilityChangeRequest: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "update",
+        "update"
       )
         ? (input) =>
             reviewFacilityChangeRequest({
@@ -777,7 +820,7 @@ function RouteComponent() {
       reviewBudgetRevision: canUseAppPermission(
         appPermissions,
         "capitalEvent",
-        "update",
+        "update"
       )
         ? (input) =>
             reviewBudgetRevision({
@@ -789,7 +832,7 @@ function RouteComponent() {
       requestMilestoneInfo: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update",
+        "update"
       )
         ? ({ milestoneKey, note }) =>
             requestMilestoneInfo({
@@ -812,7 +855,7 @@ function RouteComponent() {
       correctMilestoneStart: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update",
+        "update"
       )
         ? (input) =>
             correctMilestoneStart({
@@ -824,7 +867,7 @@ function RouteComponent() {
       retractMilestoneStart: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update",
+        "update"
       )
         ? (input) =>
             retractMilestoneStart({
@@ -857,7 +900,7 @@ function RouteComponent() {
     };
     const costDocumentSubmilestones = buildCostDocumentSubmilestoneOptions(
       detail.milestones ?? [],
-      detail.submilestones ?? [],
+      detail.submilestones ?? []
     );
     return (
       <BuildDetailSheetHost
@@ -868,175 +911,194 @@ function RouteComponent() {
         viewerCapacity={viewerCapacity}
       >
         {(detailSheetHost) => (
-      <ProductionBuildDetailSurface
-        actions={actions}
-        activeBuildId={activeBuildId}
-        activeTab={search.tab ?? "details"}
-        calendarTimeframe={search.timeframe}
-        calendarWorkspace={calendarWorkspaceQuery as any}
-        contractorDetailHrefFor={(contractorId) =>
+          <ProductionBuildDetailSurface
+            actions={actions}
+            activeBuildId={activeBuildId}
+            activeTab={search.tab ?? "details"}
+            calendarTimeframe={search.timeframe}
+            calendarWorkspace={calendarWorkspaceQuery as any}
+            costDocuments={costDocumentLedger.results as CostDocumentSummary[]}
+            contractorDetailHrefFor={(contractorId) =>
               `/backoffice/contractors/${contractorId}`
             }
             detailSheetHost={detailSheetHost}
             drawCapabilities={drawCapabilities}
             onOpenCanonicalTarget={detailSheetHost.controller.openTarget}
+            onOpenCostDocument={(costDocument) =>
+              navigate({
+                params: { buildId },
+                replace: false,
+                search: {
+                  ...search,
+                  costDocument,
+                  milestone: undefined,
+                  tab: "costs",
+                },
+                to: "/backoffice/builds/$buildId",
+              } as never)
+            }
             costs={
               <Suspense fallback={<BuildDetailTabFallback label="costs" />}>
-            {costDocumentActorCapacity ? (
-              <LazyCostDocumentBatchWorkspace
-                actorCapacity={costDocumentActorCapacity}
-                batchId={search.costBatch}
-                buildId={activeBuildId as Id<"activeBuilds">}
-                draftId={search.costDocumentDraft}
-                onBatchIdChange={(batchId) =>
-                  navigate({
-                    params: { buildId },
-                    replace: Boolean(search.costBatch) || !batchId,
-                    search: {
-                      ...search,
-                      costBatch: batchId,
-                      costDocument: undefined,
-                      costDocumentDraft: undefined,
-                      tab: "costs",
-                    },
-                    to: "/backoffice/builds/$buildId",
-                  } as never)
-                }
-                organizationId={workosOrganizationId}
-                reconciliation={{
-                  onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
-                    navigate({
-                      params: { buildId },
-                      replace: false,
-                      search: {
-                        ...search,
-                        costBatch: batchId,
-                        costDocument: undefined,
-                        costDocumentDraft: draftId,
-                        tab: "costs",
-                      },
-                      to: "/backoffice/builds/$buildId",
-                    } as never),
-                  onCostDocumentIdChange: (costDocumentId) =>
-                    navigate({
-                      params: { buildId },
-                      replace: !costDocumentId,
-                      search: {
-                        ...search,
-                        costBatch: undefined,
-                        costDocument: costDocumentId,
-                        costDocumentDraft: undefined,
-                        tab: "costs",
-                      },
-                      to: "/backoffice/builds/$buildId",
-                    } as never),
-                  selectedCostDocumentId: search.costDocument,
-                }}
-                submilestones={costDocumentSubmilestones}
-              />
-            ) : (
-              <LazyCostDocumentRoadmapReconciliation
-                actorCapacity={costDocumentActorCapacity}
-                buildId={activeBuildId as Id<"activeBuilds">}
-                interactionMode="brokerage-review"
-                onCloseCostDocument={() =>
-                  navigate({
-                    params: { buildId },
-                    replace: true,
-                    search: {
-                      ...search,
-                      costDocument: undefined,
-                      tab: "costs",
-                    },
-                    to: "/backoffice/builds/$buildId",
-                  } as never)
-                }
-                onOpenCostDocument={(costDocument) =>
-                  navigate({
-                    params: { buildId },
-                    replace: false,
-                    search: { ...search, costDocument, tab: "costs" },
-                    to: "/backoffice/builds/$buildId",
-                  } as never)
-                }
-                organizationId={workosOrganizationId}
-                selectedCostDocumentId={search.costDocument}
-                submilestones={costDocumentSubmilestones}
-              />
-            )}
-          </Suspense>
-        }
-        detail={detail}
-        detailTab={search.detailTab}
-        focusedReference={search.focus}
-        fundingWorkspaceEnabled
-        milestoneKey={search.milestone}
-        onChangeCalendarTimeframe={onChangeCalendarTimeframe}
-        onChangeMilestone={onChangeMilestone}
-        onChangeRail={onChangeRail}
-        onChangeTab={onChangeTab}
-        quotes={
-          <Suspense fallback={<BuildDetailTabFallback label="quotes" />}>
-            {search.roundId ? (
-              <LazyQuoteRoundComparisonSurface
-                buildId={String(activeBuildId)}
-                onExit={() =>
-                  navigate({
-                    params: { buildId },
-                    replace: true,
-                    search: { ...search, roundId: undefined, tab: "quotes" },
-                    to: "/backoffice/builds/$buildId",
-                  } as never)
-                }
-                organizationId={workosOrganizationId}
-                quoteRoundId={search.roundId}
-                readerKind="backoffice"
-                readOnly
-              />
-            ) : (
-              <LazyQuoteRoundsSurface
-                buildId={String(activeBuildId)}
-                onCreate={() =>
-                  navigate({
-                    params: { buildId },
-                    search: {},
-                    to: "/backoffice/builds/$buildId/quotes/new",
-                  })
-                }
-                onOpen={(roundId) =>
-                  navigate({
-                    params: { buildId },
-                    search: { roundId },
-                    to: "/backoffice/builds/$buildId/quotes/new",
-                  })
-                }
-                organizationId={workosOrganizationId}
-              />
-            )}
-          </Suspense>
-        }
-        rail={search.rail}
-        staff={
-          visualFixtureEnabled ? undefined : (
-            <Suspense fallback={<BuildDetailTabFallback label="staff" />}>
-              <LazyBuilderStaffPermissionsPanel
-                buildId={activeBuildId as Id<"activeBuilds">}
-                initialSelectedWorkosUserId={
-                  search.focus?.startsWith("participant:")
-                    ? search.focus.slice("participant:".length)
-                    : undefined
-                }
-                scope="activeBuild"
-                workosOrganizationId={workosOrganizationId}
-              />
-            </Suspense>
-          )
-        }
-        timelineWorkspace={effectiveTimelineWorkspace as any}
-        viewerCapacity={viewerCapacity}
-        viewerRole="lender"
-        workosOrganizationId={workosOrganizationId}
-      />
+                {costDocumentActorCapacity ? (
+                  <LazyCostDocumentBatchWorkspace
+                    actorCapacity={costDocumentActorCapacity}
+                    batchId={search.costBatch}
+                    buildId={activeBuildId as Id<"activeBuilds">}
+                    draftId={search.costDocumentDraft}
+                    onBatchIdChange={(batchId) =>
+                      navigate({
+                        params: { buildId },
+                        replace: Boolean(search.costBatch) || !batchId,
+                        search: {
+                          ...search,
+                          costBatch: batchId,
+                          costDocument: undefined,
+                          costDocumentDraft: undefined,
+                          tab: "costs",
+                        },
+                        to: "/backoffice/builds/$buildId",
+                      } as never)
+                    }
+                    organizationId={workosOrganizationId}
+                    reconciliation={{
+                      onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+                        navigate({
+                          params: { buildId },
+                          replace: false,
+                          search: {
+                            ...search,
+                            costBatch: batchId,
+                            costDocument: undefined,
+                            costDocumentDraft: draftId,
+                            tab: "costs",
+                          },
+                          to: "/backoffice/builds/$buildId",
+                        } as never),
+                      onCostDocumentIdChange: (costDocumentId) =>
+                        navigate({
+                          params: { buildId },
+                          replace: !costDocumentId,
+                          search: {
+                            ...search,
+                            costBatch: undefined,
+                            costDocument: costDocumentId,
+                            costDocumentDraft: undefined,
+                            tab: "costs",
+                          },
+                          to: "/backoffice/builds/$buildId",
+                        } as never),
+                      selectedCostDocumentId: search.costDocument,
+                    }}
+                    submilestones={costDocumentSubmilestones}
+                  />
+                ) : (
+                  <LazyCostDocumentRoadmapReconciliation
+                    actorCapacity={costDocumentActorCapacity}
+                    buildId={activeBuildId as Id<"activeBuilds">}
+                    interactionMode="brokerage-review"
+                    onCloseCostDocument={() =>
+                      navigate({
+                        params: { buildId },
+                        replace: true,
+                        search: {
+                          ...search,
+                          costDocument: undefined,
+                          tab: "costs",
+                        },
+                        to: "/backoffice/builds/$buildId",
+                      } as never)
+                    }
+                    onOpenCostDocument={(costDocument) =>
+                      navigate({
+                        params: { buildId },
+                        replace: false,
+                        search: { ...search, costDocument, tab: "costs" },
+                        to: "/backoffice/builds/$buildId",
+                      } as never)
+                    }
+                    organizationId={workosOrganizationId}
+                    selectedCostDocumentId={search.costDocument}
+                    submilestones={costDocumentSubmilestones}
+                  />
+                )}
+              </Suspense>
+            }
+            detail={detail}
+            detailTab={search.detailTab}
+            focusedReference={search.focus}
+            fundingWorkspaceEnabled
+            milestoneKey={search.milestone}
+            milestoneSiteVisits={milestoneSiteVisitsQuery}
+            onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+            onChangeMilestone={onChangeMilestone}
+            onChangeRail={onChangeRail}
+            onChangeTab={onChangeTab}
+            quotes={
+              <Suspense fallback={<BuildDetailTabFallback label="quotes" />}>
+                {search.roundId ? (
+                  <LazyQuoteRoundComparisonSurface
+                    buildId={String(activeBuildId)}
+                    onExit={() =>
+                      navigate({
+                        params: { buildId },
+                        replace: true,
+                        search: {
+                          ...search,
+                          roundId: undefined,
+                          tab: "quotes",
+                        },
+                        to: "/backoffice/builds/$buildId",
+                      } as never)
+                    }
+                    organizationId={workosOrganizationId}
+                    quoteRoundId={search.roundId}
+                    readerKind="backoffice"
+                    readOnly
+                  />
+                ) : (
+                  <LazyQuoteRoundsSurface
+                    buildId={String(activeBuildId)}
+                    onCreate={() =>
+                      navigate({
+                        params: { buildId },
+                        search: {},
+                        to: "/backoffice/builds/$buildId/quotes/new",
+                      })
+                    }
+                    onOpen={(roundId) =>
+                      navigate({
+                        params: { buildId },
+                        search: { roundId },
+                        to: "/backoffice/builds/$buildId/quotes/new",
+                      })
+                    }
+                    organizationId={workosOrganizationId}
+                  />
+                )}
+              </Suspense>
+            }
+            rail={search.rail}
+            staff={
+              visualFixtureEnabled ? undefined : (
+                <Suspense fallback={<BuildDetailTabFallback label="staff" />}>
+                  <LazyBuilderStaffPermissionsPanel
+                    buildId={activeBuildId as Id<"activeBuilds">}
+                    initialSelectedWorkosUserId={
+                      search.focus?.startsWith("participant:")
+                        ? search.focus.slice("participant:".length)
+                        : undefined
+                    }
+                    scope="activeBuild"
+                    workosOrganizationId={workosOrganizationId}
+                  />
+                </Suspense>
+              )
+            }
+            timelineWorkspace={effectiveTimelineWorkspace as any}
+            viewerCapacity={viewerCapacity}
+            viewerRole="lender"
+            workosOrganizationId={workosOrganizationId}
+          />
         )}
       </BuildDetailSheetHost>
     );

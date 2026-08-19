@@ -19,15 +19,45 @@ export interface CanonicalMilestoneExecutionOwnership {
 }
 
 export function isDrawSystemPost(
-  post: Pick<Doc<"buildCollaborationPosts">, "primaryReferenceKind" | "source">
+  post: Pick<
+    Doc<"buildCollaborationPosts">,
+    | "primaryReferenceKind"
+    | "source"
+    | "systemOccurrenceKey"
+    | "systemPostKind"
+  >
 ) {
-  return post.source === "system" && post.primaryReferenceKind === "draw";
+  return (
+    post.source === "system" &&
+    post.systemPostKind === "draw" &&
+    post.primaryReferenceKind === "draw" &&
+    post.systemOccurrenceKey?.startsWith("draw-system:") === true
+  );
 }
 
 export function isMilestoneSystemPost(
-  post: Pick<Doc<"buildCollaborationPosts">, "source" | "systemPostKind">
+  post: Pick<
+    Doc<"buildCollaborationPosts">,
+    "source" | "systemOccurrenceKey" | "systemPostKind"
+  >
 ) {
-  return post.source === "system" && post.systemPostKind === "milestone";
+  return (
+    post.source === "system" &&
+    post.systemPostKind === "milestone" &&
+    post.systemOccurrenceKey?.startsWith("milestone-system:") === true
+  );
+}
+
+export function isCanonicalCollaborationSystemPost(
+  post: Pick<
+    Doc<"buildCollaborationPosts">,
+    | "primaryReferenceKind"
+    | "source"
+    | "systemOccurrenceKey"
+    | "systemPostKind"
+  >,
+) {
+  return isMilestoneSystemPost(post) || isDrawSystemPost(post);
 }
 
 export async function canReadMilestoneSystemEvent(

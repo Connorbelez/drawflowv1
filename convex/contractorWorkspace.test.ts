@@ -139,12 +139,31 @@ async function createApprovedBuild(admin: ReturnType<typeof withIdentity>, seed:
     reason: "Approved for contractor workspace test.",
     workosOrganizationId: ORG,
   });
-  const closing = await admin.mutation(
-    (api as any).production_proposals.recordOfflineClosing,
+  await admin.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `contractor-workspace-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the contractor workspace fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
+    (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-08-01",
       ianaTimezone: "America/Toronto",
       loanFacility: { interestAnnualBps: 925, principalCents: 100_000_000 },
+      proposalId,
+      reason: "Closed for contractor workspace test.",
+      workosOrganizationId: ORG,
+    },
+  );
+  const closing = await admin.mutation(
+    (api as any).production_proposals.activateClosedProposal,
+    {
       proposalId,
       reason: "Closed for contractor workspace test.",
       workosOrganizationId: ORG,

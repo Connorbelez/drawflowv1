@@ -137,6 +137,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "validate:lender-portal-execution": "bun scripts/validate-lender-portal-mvp-execution.ts",
     "prepare:e2e:build-collaboration": "bun scripts/prepare-build-collaboration-e2e.ts",
     "test:e2e:build-collaboration": "playwright test --config=playwright.build-collaboration.config.ts tests/e2e/build-collaboration-participants.spec.ts --project=chromium",
     "certify:build-collaboration-cutover": "bun scripts/build-collaboration-cutover-certification.ts",

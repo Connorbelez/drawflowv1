@@ -44,6 +44,7 @@ interface RouterContext {
   roles?: string[];
   token?: string | null;
   userId?: string | null;
+  userName?: string | null;
 }
 
 type WorkosUserInfo = Extract<
@@ -78,6 +79,7 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
       roles: ["admin", "builder", "broker"],
       token: null,
       userId: "user_visual_parity",
+      userName: "Visual parity user",
     };
     logAuthDebug("visual parity auth fixture", {
       organizationId: fixtureAuth.organizationId,
@@ -170,6 +172,11 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
     roles,
     token: auth.user ? auth.accessToken : null,
     userId: auth.user?.id ?? null,
+    userName: auth.user
+      ? [auth.user.firstName, auth.user.lastName].filter(Boolean).join(" ") ||
+        auth.user.email ||
+        "Signed-in user"
+      : null,
   };
 });
 
@@ -182,6 +189,7 @@ function emptyAuthContext() {
     roles: [],
     token: null,
     userId: null,
+    userName: null,
   };
 }
 

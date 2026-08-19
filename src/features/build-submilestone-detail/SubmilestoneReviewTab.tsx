@@ -4,12 +4,14 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
   ArrowUpRight,
+  BookOpenCheck,
   CheckCircle2,
+  CircleDollarSign,
   ClipboardCheck,
   History,
   MapPinCheck,
+  ReceiptText,
   RotateCcw,
-  ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 import { useState } from "react";
@@ -37,12 +39,24 @@ import {
   type SiteVisitOrderConfirmation,
   SiteVisitOrderDialog,
 } from "../backoffice-build-detail/SiteVisitOrderDialog.tsx";
+import type { BrokerageSiteVisitsResult } from "../backoffice-site-visits/site-visit-types.ts";
 import type { BuildDetailTarget } from "../build-detail-targets/buildDetailTarget.ts";
+import type { CostDocumentSummary } from "../cost-documents/CostDocumentRoadmapReconciliation.tsx";
 import {
+  CostDocumentFileList,
+  DocumentedCostCoverage,
+  type SubmilestoneCostDocument,
+} from "../cost-documents/SubmilestoneCostDocuments.tsx";
+import {
+  type CanonicalWorkspaceCollection,
   canonicalCommandErrorMessage,
   createCanonicalCommandKey,
+  EvidenceAssetCard,
+  evidenceAssetIdentity,
+  isCanonicalEvidenceAsset,
   isCanonicalReviewStaleConflict,
 } from "./SubmilestoneDetailCanonical.tsx";
+import { SubmilestoneSiteVisitWorkspace } from "./SubmilestoneSiteVisitWorkspace.tsx";
 
 type CanonicalReview = FunctionReturnType<
   typeof api.build_submilestone_review.getActiveBuildSubmilestoneReview
@@ -64,6 +78,7 @@ export interface ReviewTabBootstrap {
   build: {
     buildName: string;
     location: string;
+    startDate: string;
   };
   capabilities: {
     canonical: {
@@ -75,6 +90,10 @@ export interface ReviewTabBootstrap {
       recommend: ReviewCapability;
       requestChanges: ReviewCapability;
     };
+    siteVisit: {
+      cancel: ReviewCapability;
+      order: ReviewCapability;
+    };
   };
   evidence: {
     evidencePackageRevision?: number;
@@ -84,8 +103,17 @@ export interface ReviewTabBootstrap {
   };
   milestone: {
     buildMilestoneId: Id<"buildMilestones">;
+    drawAvailabilityCents: number;
     key: string;
     name: string;
+  };
+  overview: {
+    actualCompletedAt?: number;
+    actualCostCents?: number;
+    actualStartedAt?: number;
+    budgetCents?: number;
+    plannedDurationDays?: number;
+    plannedStartDay?: number;
   };
   submilestone: {
     buildSubmilestoneId: Id<"buildSubmilestones">;
@@ -98,15 +126,16 @@ export interface ReviewTabBootstrap {
 export interface SubmilestoneReviewTabProps {
   bootstrap: ReviewTabBootstrap;
   buildId: Id<"activeBuilds">;
+  collection?: CanonicalWorkspaceCollection;
+  costDocuments?: CostDocumentSummary[];
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  onOpenCostDocument?: (costDocumentId: string) => void;
+  onOpenScopeAndGuidance?: () => void;
   onOpenTarget?: (
     target: BuildDetailTarget,
     context?: { selectedTab?: string }
   ) => void;
-  onReferenceOpen?: (reference: {
-    entityId: string;
-    entityKind: string;
-    href: string;
-  }) => void;
   onRetry?: () => void;
   organizationId: string;
   readOnly: boolean;
@@ -115,8 +144,13 @@ export interface SubmilestoneReviewTabProps {
 export function SubmilestoneReviewTab({
   bootstrap,
   buildId,
+  collection,
+  costDocuments = [],
+  loadingMore = false,
+  onLoadMore,
+  onOpenCostDocument,
+  onOpenScopeAndGuidance,
   onOpenTarget,
-  onReferenceOpen,
   onRetry,
   organizationId,
   readOnly,
@@ -134,6 +168,15 @@ export function SubmilestoneReviewTab({
     api.submilestone_field_guidance.getSubmilestoneFieldGuidance,
     {
       proposalSubmilestoneId: bootstrap.submilestone.proposalSubmilestoneId,
+      workosOrganizationId: organizationId,
+    }
+  );
+  const siteVisits = useQuery(
+    api.production_proposals.listBrokerageSiteVisits,
+    {
+      buildId,
+      milestoneKey: bootstrap.milestone.key,
+      submilestoneId: bootstrap.submilestone.buildSubmilestoneId,
       workosOrganizationId: organizationId,
     }
   );
@@ -155,6 +198,9 @@ export function SubmilestoneReviewTab({
   const scheduleSiteVisit = useMutation(
     api.production_proposals.scheduleActiveBuildSiteVisit
   );
+  const cancelSiteVisit = useMutation(
+    api.production_proposals.cancelActiveBuildSiteVisit
+  );
 
   const [busy, setBusy] = useState<ReviewCommand | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -163,6 +209,8 @@ export function SubmilestoneReviewTab({
   const [remediationText, setRemediationText] = useState("");
   const [siteVisitRequired, setSiteVisitRequired] = useState(false);
   const [siteVisitOpen, setSiteVisitOpen] = useState(false);
+  const visitScopeKey = `${buildId}:${bootstrap.submilestone.buildSubmilestoneId}`;
+  const optimisticVisits = useOptimisticallyHiddenVisits(visitScopeKey);
 
   if (review === undefined) {
     return (
@@ -210,16 +258,17 @@ export function SubmilestoneReviewTab({
     !readOnly &&
     capabilities.canonical.retractChildApproval.allowed &&
     childApproved;
-  const canOrderSiteVisit =
-    !readOnly &&
-    (capabilities.review.recommend.allowed ||
-      capabilities.review.requestChanges.allowed ||
-      capabilities.canonical.waiveSiteVisit.allowed ||
-      capabilities.canonical.approveChild.allowed) &&
-    requirement?.required === true &&
-    requirement.status === "required" &&
-    currentVisit === null &&
-    fieldGuidance !== undefined;
+  const canOrderSiteVisit = !readOnly && capabilities.siteVisit.order.allowed;
+  const canCancelSiteVisit = !readOnly && capabilities.siteVisit.cancel.allowed;
+  const showApproveInterface = !readOnly && !childApproved;
+  const approvalBlocker = capabilities.canonical.approveChild.allowed
+    ? inReview
+      ? requiredVisitSatisfied
+        ? undefined
+        : "Complete or waive the required Site Visit before approving this Sub-milestone."
+      : "Builder evidence must be in review before this Sub-milestone can be approved."
+    : (capabilities.canonical.approveChild.reason ??
+      "You do not have authority to approve this Sub-milestone.");
 
   const commandArgs = {
     buildId,
@@ -352,7 +401,15 @@ export function SubmilestoneReviewTab({
             ? { requestedTime: input.requestedTime }
             : {}),
           siteVisitGuidance: input.siteVisitGuidance,
-          submilestoneGuidanceSections: input.submilestoneGuidanceSections,
+          submilestoneGuidanceSections: input.submilestoneGuidanceSections.map(
+            (section) => ({
+              ...section,
+              buildSubmilestoneId:
+                section.buildSubmilestoneId as Id<"buildSubmilestones">,
+              proposalSubmilestoneId:
+                section.proposalSubmilestoneId as Id<"proposalSubmilestones">,
+            })
+          ),
           submilestoneKeys: input.submilestoneKeys,
           workosOrganizationId: organizationId,
         }),
@@ -363,31 +420,78 @@ export function SubmilestoneReviewTab({
     }
   };
 
+  const cancelVisitOptimistically = async (input: {
+    buildId: string;
+    reason: string;
+    visitId: string;
+  }) => {
+    optimisticVisits.hide(input.visitId);
+    try {
+      await cancelSiteVisit({
+        buildId,
+        reason: input.reason,
+        visitId: input.visitId,
+        workosOrganizationId: organizationId,
+      });
+    } catch (cause) {
+      optimisticVisits.restore(input.visitId);
+      throw cause;
+    }
+  };
+
+  const visibleSiteVisits = siteVisits
+    ? {
+        ...siteVisits,
+        visits: siteVisits.visits.filter(
+          (visit) =>
+            visit.operationalStatus !== "cancelled" &&
+            !optimisticVisits.hiddenIds.has(visit.visitId)
+        ),
+      }
+    : undefined;
+  const scopedCostDocuments = costDocumentsForSubmilestone(
+    costDocuments,
+    bootstrap.submilestone.buildSubmilestoneId
+  );
+
   const showCommands =
-    canRecommend || canRequestChanges || canWaive || canApprove || canRetract;
+    canRecommend ||
+    canRequestChanges ||
+    canWaive ||
+    showApproveInterface ||
+    canRetract;
 
   return (
     <div className="space-y-5" data-testid="submilestone-review-tab">
-      <ReviewSummary bootstrap={bootstrap} review={review} />
+      <SubmilestoneReviewSummary bootstrap={bootstrap} review={review} />
+      <Separator />
+      <BuilderSubmittedEvidence
+        bootstrap={bootstrap}
+        collection={collection}
+        loadingMore={loadingMore}
+        onLoadMore={onLoadMore}
+        onOpenScopeAndGuidance={onOpenScopeAndGuidance}
+        review={review}
+      />
+      <Separator />
+      <CostDocumentReview
+        bootstrap={bootstrap}
+        documents={scopedCostDocuments}
+        onOpenCostDocument={onOpenCostDocument}
+      />
       <Separator />
       <SiteVisitReviewSection
+        canCancel={canCancelSiteVisit}
         canOrder={canOrderSiteVisit}
         canWaive={canWaive}
         currentVisit={currentVisit}
-        onOpenSiteVisit={() => {
-          if (!currentVisit) {
-            return;
-          }
-          onReferenceOpen?.({
-            entityId: String(currentVisit._id),
-            entityKind: "siteVisit",
-            href: `siteVisit:${String(currentVisit._id)}`,
-          });
-        }}
+        guidanceReady={fieldGuidance !== undefined}
+        onCancelVisit={cancelVisitOptimistically}
         onOrder={() => setSiteVisitOpen(true)}
         onWaive={waiveRequiredSiteVisit}
         pending={busy !== null}
         requirement={requirement}
+        siteVisits={visibleSiteVisits}
       />
       <Separator />
       <ParentReadinessSection
@@ -410,6 +514,7 @@ export function SubmilestoneReviewTab({
         <>
           <Separator />
           <ReviewCommands
+            approvalBlocker={approvalBlocker}
             busy={busy}
             canApprove={canApprove}
             canRecommend={canRecommend}
@@ -427,6 +532,7 @@ export function SubmilestoneReviewTab({
             onSiteVisitRequiredChange={setSiteVisitRequired}
             reason={reason}
             remediationText={remediationText}
+            showApprove={showApproveInterface}
             siteVisitRequired={siteVisitRequired}
           />
         </>
@@ -495,95 +601,336 @@ export function SubmilestoneReviewTab({
   );
 }
 
-function ReviewSummary({
+function SubmilestoneReviewSummary({
   bootstrap,
   review,
 }: {
   bootstrap: ReviewTabBootstrap;
   review: CanonicalReview;
 }) {
+  const plannedStart = plannedSubmilestoneDate(bootstrap, "start");
+  const plannedEnd = plannedSubmilestoneDate(bootstrap, "end");
+  const parentApproved = review.parent.reviewDecisionState === "approved";
+  const parentAvailability = formatReviewCents(
+    bootstrap.milestone.drawAvailabilityCents
+  );
+
   return (
-    <section aria-labelledby="child-review-heading" className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3
-            className="flex items-center gap-2 font-semibold"
-            id="child-review-heading"
-          >
-            <ShieldCheck aria-hidden="true" className="size-4" />
-            Child review
-          </h3>
-          <p className="mt-1 text-muted-foreground text-sm">
-            Canonical evidence and decisions for review round{" "}
-            {review.child.reviewRound}.
-          </p>
-        </div>
-        <Badge
-          variant={
-            review.child.reviewDecisionState === "approved"
-              ? "success"
-              : review.child.reviewDecisionState === "changes_requested" ||
-                  review.child.reviewDecisionState === "reopened"
-                ? "warning"
-                : "outline"
-          }
+    <section
+      aria-labelledby="submilestone-review-summary-heading"
+      className="space-y-4"
+      data-testid="submilestone-review-summary"
+    >
+      <div>
+        <h3
+          className="flex items-center gap-2 font-semibold"
+          id="submilestone-review-summary-heading"
         >
-          {reviewStateLabel(review.child.reviewDecisionState)}
-        </Badge>
+          <CircleDollarSign aria-hidden="true" className="size-4" />
+          Cost, schedule &amp; draw availability
+        </h3>
+        <p className="mt-1 text-muted-foreground text-sm">
+          Canonical execution facts for {bootstrap.submilestone.name}.
+        </p>
       </div>
-      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-y py-4 sm:grid-cols-4">
         <ReviewFact
-          label="Evidence Package"
-          value={
-            bootstrap.evidence.evidencePackageRevision === undefined
-              ? "No revision"
-              : `Revision ${bootstrap.evidence.evidencePackageRevision} · ${bootstrap.evidence.evidencePackageStatus ?? "draft"}`
+          label="Budgeted cost"
+          value={formatReviewCents(bootstrap.overview.budgetCents)}
+        />
+        <ReviewFact
+          label="Actual cost"
+          value={formatOptionalReviewCents(bootstrap.overview.actualCostCents)}
+        />
+        <ReviewFact label="Planned start" value={plannedStart} />
+        <ReviewFact label="Planned end" value={plannedEnd} />
+        <ReviewFact
+          label="Actual start"
+          value={formatReviewDate(bootstrap.overview.actualStartedAt)}
+        />
+        <ReviewFact
+          label="Actual end"
+          value={formatReviewDate(bootstrap.overview.actualCompletedAt)}
+        />
+        <ReviewFact
+          detail={
+            parentApproved
+              ? "Available from the approved parent Milestone."
+              : `${parentAvailability} parent Milestone availability remains locked until parent approval.`
           }
-        />
-        <ReviewFact
-          label="Evidence readiness"
-          value={`${bootstrap.evidence.itemCount} of ${bootstrap.evidence.requirementCount} evidence items`}
-        />
-        <ReviewFact
-          label="Evidence review"
-          value={reviewStateLabel(review.child.evidenceReviewState)}
-        />
-        <ReviewFact
-          label="Review revision"
-          value={String(review.child.reviewRevision)}
+          label="Draw availability unlocked"
+          value={parentApproved ? parentAvailability : formatReviewCents(0)}
         />
       </dl>
     </section>
   );
 }
 
-function ReviewFact({ label, value }: { label: string; value: string }) {
+function BuilderSubmittedEvidence({
+  bootstrap,
+  collection,
+  loadingMore,
+  onLoadMore,
+  onOpenScopeAndGuidance,
+  review,
+}: {
+  bootstrap: ReviewTabBootstrap;
+  collection?: CanonicalWorkspaceCollection;
+  loadingMore: boolean;
+  onLoadMore?: () => void;
+  onOpenScopeAndGuidance?: () => void;
+  review: CanonicalReview;
+}) {
+  const collectionRecord = collection as
+    | {
+        hasMore?: boolean;
+        page?: unknown[];
+        state?: string;
+      }
+    | undefined;
+  const assets = (collectionRecord?.page ?? [])
+    .map((asset) =>
+      asset && typeof asset === "object"
+        ? (asset as Record<string, unknown>)
+        : {}
+    )
+    .filter(isCanonicalEvidenceAsset)
+    .filter((asset) => {
+      const sourceKind = String(asset.sourceKind ?? "").toLowerCase();
+      return sourceKind !== "site_visit" && sourceKind !== "backoffice";
+    })
+    .filter((asset, index, all) => {
+      const identity = evidenceAssetIdentity(asset);
+      return (
+        !identity ||
+        all.findIndex(
+          (candidate) => evidenceAssetIdentity(candidate) === identity
+        ) === index
+      );
+    });
+
+  return (
+    <section
+      aria-labelledby="builder-submitted-evidence-heading"
+      className="space-y-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3
+            className="flex items-center gap-2 font-semibold"
+            id="builder-submitted-evidence-heading"
+          >
+            <ClipboardCheck aria-hidden="true" className="size-4" />
+            Builder Submitted Evidence
+          </h3>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Evidence tagged to {bootstrap.submilestone.name} in the canonical
+            Evidence Package.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Badge variant="outline">
+            {reviewStateLabel(review.child.evidenceReviewState)}
+          </Badge>
+          {onOpenScopeAndGuidance ? (
+            <Button
+              onClick={onOpenScopeAndGuidance}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <BookOpenCheck aria-hidden="true" />
+              Scope &amp; Field Guidance
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {collection === undefined ? (
+        <Frame data-testid="builder-submitted-evidence-loading">
+          <FramePanel
+            aria-live="polite"
+            className="min-h-24 animate-pulse text-muted-foreground text-sm motion-reduce:animate-none"
+            role="status"
+          >
+            Loading Builder Submitted Evidence…
+          </FramePanel>
+        </Frame>
+      ) : collectionRecord?.state === "visible" ? (
+        assets.length === 0 ? (
+          <p className="flex min-h-24 items-center justify-center text-center text-muted-foreground text-sm">
+            No Builder evidence has been submitted for this Sub-milestone.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {assets.map((asset, index) => (
+              <EvidenceAssetCard
+                asset={asset}
+                key={evidenceAssetIdentity(asset) || `review-evidence-${index}`}
+              />
+            ))}
+          </div>
+        )
+      ) : (
+        <Frame>
+          <FramePanel className="text-muted-foreground text-sm">
+            Builder Submitted Evidence is unavailable for this Build access.
+          </FramePanel>
+        </Frame>
+      )}
+      {collectionRecord?.state === "visible" && collectionRecord.hasMore ? (
+        <Button
+          disabled={loadingMore}
+          onClick={onLoadMore}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {loadingMore ? "Loading evidence…" : "Load more evidence"}
+        </Button>
+      ) : null}
+    </section>
+  );
+}
+
+function CostDocumentReview({
+  bootstrap,
+  documents,
+  onOpenCostDocument,
+}: {
+  bootstrap: ReviewTabBootstrap;
+  documents: SubmilestoneCostDocument[];
+  onOpenCostDocument?: (costDocumentId: string) => void;
+}) {
+  return (
+    <section
+      aria-labelledby="cost-document-review-heading"
+      className="space-y-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3
+            className="flex items-center gap-2 font-semibold text-sm"
+            id="cost-document-review-heading"
+          >
+            <ReceiptText aria-hidden="true" className="size-4" />
+            Receipts &amp; Invoices
+          </h3>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Cost Documents allocated to this Sub-milestone.
+          </p>
+        </div>
+        <Badge variant="outline">
+          {documents.length} document{documents.length === 1 ? "" : "s"}
+        </Badge>
+      </div>
+      <DocumentedCostCoverage
+        budgetCents={bootstrap.overview.budgetCents}
+        documents={documents}
+        submilestoneName={bootstrap.submilestone.name}
+      />
+      <CostDocumentFileList
+        documents={documents}
+        onOpenCostDocument={onOpenCostDocument}
+      />
+    </section>
+  );
+}
+
+function ReviewFact({
+  detail,
+  label,
+  value,
+}: {
+  detail?: string;
+  label: string;
+  value: string;
+}) {
   return (
     <div>
       <dt className="text-muted-foreground text-xs">{label}</dt>
-      <dd className="mt-1 font-medium text-sm">{value}</dd>
+      <dd className="mt-1 font-medium text-sm tabular-nums">{value}</dd>
+      {detail ? (
+        <p className="mt-1 max-w-64 text-muted-foreground text-xs">{detail}</p>
+      ) : null}
     </div>
   );
 }
 
+function formatReviewCents(cents: number | undefined) {
+  return new Intl.NumberFormat("en-CA", {
+    currency: "CAD",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format((cents ?? 0) / 100);
+}
+
+function formatOptionalReviewCents(cents: number | undefined) {
+  return cents === undefined ? "Not recorded" : formatReviewCents(cents);
+}
+
+function formatReviewDate(value: number | undefined) {
+  if (value === undefined) {
+    return "Not recorded";
+  }
+  return new Intl.DateTimeFormat("en-CA", {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
+function plannedSubmilestoneDate(
+  bootstrap: ReviewTabBootstrap,
+  boundary: "end" | "start"
+) {
+  const { plannedDurationDays, plannedStartDay } = bootstrap.overview;
+  if (plannedStartDay === undefined || !bootstrap.build.startDate) {
+    return "Not scheduled";
+  }
+  const start = Date.parse(bootstrap.build.startDate);
+  if (!Number.isFinite(start)) {
+    return boundary === "start" ? bootstrap.build.startDate : "Not scheduled";
+  }
+  const dayOffset =
+    Math.max(0, Math.round(plannedStartDay)) +
+    (boundary === "end"
+      ? Math.max(1, Math.round(plannedDurationDays ?? 1)) - 1
+      : 0);
+  const date = new Date(start);
+  date.setUTCDate(date.getUTCDate() + dayOffset);
+  return new Intl.DateTimeFormat("en-CA", {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function SiteVisitReviewSection({
+  canCancel,
   canOrder,
   canWaive,
   currentVisit,
-  onOpenSiteVisit,
+  guidanceReady,
+  onCancelVisit,
   onOrder,
   onWaive,
   pending,
   requirement,
+  siteVisits,
 }: {
+  canCancel: boolean;
   canOrder: boolean;
   canWaive: boolean;
   currentVisit: CanonicalReview["siteVisit"]["currentVisit"];
-  onOpenSiteVisit: () => void;
+  guidanceReady: boolean;
+  onCancelVisit: (input: {
+    buildId: string;
+    reason: string;
+    visitId: string;
+  }) => Promise<void>;
   onOrder: () => void;
   onWaive: () => void;
   pending: boolean;
   requirement: CanonicalReview["siteVisit"]["requirement"];
+  siteVisits: BrokerageSiteVisitsResult | undefined;
 }) {
   const signals = requirement
     ? [
@@ -593,8 +940,11 @@ function SiteVisitReviewSection({
       ]
     : [];
   return (
-    <section aria-labelledby="site-visit-review-heading" className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <section
+      aria-labelledby="site-visit-review-heading"
+      className="min-w-0 max-w-full space-y-3 overflow-hidden max-sm:w-[calc(100vw-3rem)]"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3
             className="flex items-center gap-2 font-semibold text-sm"
@@ -652,36 +1002,26 @@ function SiteVisitReviewSection({
           ))}
         </ul>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        {canOrder ? (
-          <Button disabled={pending} onClick={onOrder} size="sm" type="button">
-            <ClipboardCheck aria-hidden="true" />
-            Order Site Visit
-          </Button>
-        ) : null}
-        {currentVisit ? (
-          <Button
-            onClick={onOpenSiteVisit}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <ArrowUpRight aria-hidden="true" />
-            Manage Site Visit
-          </Button>
-        ) : null}
-        {canWaive ? (
-          <Button
-            disabled={pending}
-            onClick={onWaive}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Waive Site Visit
-          </Button>
-        ) : null}
-      </div>
+      <SubmilestoneSiteVisitWorkspace
+        canCancel={canCancel}
+        canOrder={canOrder}
+        guidanceReady={guidanceReady}
+        onCancelVisit={onCancelVisit}
+        onOrder={onOrder}
+        pending={pending}
+        siteVisits={siteVisits}
+      />
+      {canWaive ? (
+        <Button
+          disabled={pending}
+          onClick={onWaive}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Waive Site Visit
+        </Button>
+      ) : null}
     </section>
   );
 }
@@ -750,6 +1090,7 @@ function ParentReadinessSection({
 }
 
 function ReviewCommands({
+  approvalBlocker,
   busy,
   canApprove,
   canRecommend,
@@ -767,8 +1108,10 @@ function ReviewCommands({
   onSiteVisitRequiredChange,
   reason,
   remediationText,
+  showApprove,
   siteVisitRequired,
 }: {
+  approvalBlocker?: string;
   busy: ReviewCommand | null;
   canApprove: boolean;
   canRecommend: boolean;
@@ -786,19 +1129,20 @@ function ReviewCommands({
   onSiteVisitRequiredChange: (value: boolean) => void;
   reason: string;
   remediationText: string;
+  showApprove: boolean;
   siteVisitRequired: boolean;
 }) {
   return (
     <section aria-labelledby="review-command-heading" className="space-y-3">
       <div>
         <h3 className="font-semibold text-sm" id="review-command-heading">
-          Child review commands
+          Sub-milestone decision
         </h3>
         <p className="mt-1 text-muted-foreground text-xs">
-          Commands write only canonical Sub-milestone review state.
+          Record the canonical review decision for this Sub-milestone.
         </p>
       </div>
-      {canRecommend || canApprove ? (
+      {canRecommend || showApprove ? (
         <Label className="space-y-1">
           <span>Reviewer note</span>
           <Input
@@ -847,6 +1191,17 @@ function ReviewCommands({
           </FieldLabel>
         </Field>
       ) : null}
+      {showApprove && approvalBlocker ? (
+        <Frame>
+          <FramePanel className="flex items-start gap-2 p-3 text-muted-foreground text-sm">
+            <TriangleAlert
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-warning"
+            />
+            <p>{approvalBlocker}</p>
+          </FramePanel>
+        </Frame>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {canRecommend ? (
           <Button
@@ -865,14 +1220,14 @@ function ReviewCommands({
             onClick={onRequestChanges}
             size="sm"
             type="button"
-            variant="warning"
+            variant="destructive-outline"
           >
             Request changes
           </Button>
         ) : null}
-        {canApprove ? (
+        {showApprove ? (
           <Button
-            disabled={busy !== null}
+            disabled={busy !== null || !canApprove}
             onClick={onApprove}
             size="sm"
             type="button"
@@ -887,7 +1242,7 @@ function ReviewCommands({
             onClick={onRetract}
             size="sm"
             type="button"
-            variant="warning"
+            variant="destructive-outline"
           >
             Retract child approval
           </Button>
@@ -895,6 +1250,68 @@ function ReviewCommands({
       </div>
     </section>
   );
+}
+
+function costDocumentsForSubmilestone(
+  documents: CostDocumentSummary[],
+  buildSubmilestoneId: Id<"buildSubmilestones">
+): SubmilestoneCostDocument[] {
+  return documents
+    .filter(
+      (document) =>
+        document.lifecycle.state === "current" &&
+        document.allocations.some(
+          (allocation) =>
+            String(allocation.buildSubmilestoneId) ===
+            String(buildSubmilestoneId)
+        )
+    )
+    .map((document) => ({
+      _id: String(document._id),
+      allocationAmountCents: document.allocations
+        .filter(
+          (allocation) =>
+            String(allocation.buildSubmilestoneId) ===
+            String(buildSubmilestoneId)
+        )
+        .reduce((sum, allocation) => sum + allocation.amountCents, 0),
+      kind: document.kind,
+      pages: document.pages.map((page) => ({
+        assetId: String(page.assetId),
+        fileName: page.fileName,
+        mimeType: page.mimeType,
+      })),
+      title: document.title,
+    }));
+}
+
+const EMPTY_VISIT_IDS = new Set<string>();
+
+function useOptimisticallyHiddenVisits(scopeKey: string) {
+  const [state, setState] = useState<{
+    hiddenIds: Set<string>;
+    scopeKey: string;
+  }>(() => ({ hiddenIds: new Set(), scopeKey }));
+  const hiddenIds =
+    state.scopeKey === scopeKey ? state.hiddenIds : EMPTY_VISIT_IDS;
+  const update = (visitId: string, hidden: boolean) => {
+    setState((current) => {
+      const nextIds = new Set(
+        current.scopeKey === scopeKey ? current.hiddenIds : EMPTY_VISIT_IDS
+      );
+      if (hidden) {
+        nextIds.add(visitId);
+      } else {
+        nextIds.delete(visitId);
+      }
+      return { hiddenIds: nextIds, scopeKey };
+    });
+  };
+  return {
+    hiddenIds,
+    hide: (visitId: string) => update(visitId, true),
+    restore: (visitId: string) => update(visitId, false),
+  };
 }
 
 function ReviewHistory({

@@ -13,9 +13,15 @@ const navigate = vi.fn();
 const hostRender = vi.fn();
 const hostProps = vi.fn();
 const surfaceProps = vi.fn();
+let routeSearch: Record<string, unknown> = {};
 const useMutation = vi.fn();
 const useQuery = vi.fn();
 const useAction = vi.fn();
+const usePaginatedQuery = vi.fn(() => ({
+  loadMore: vi.fn(),
+  results: [],
+  status: "Exhausted",
+}));
 
 const activeBuildDetail = {
   appPermissions: { mode: "full", role: "admin" },
@@ -38,6 +44,7 @@ const activeBuildDetail = {
 vi.mock("convex/react", () => ({
   useAction: (...args: unknown[]) => useAction(...args),
   useMutation: (...args: unknown[]) => useMutation(...args),
+  usePaginatedQuery: (...args: unknown[]) => usePaginatedQuery(...args),
   useQuery: (...args: unknown[]) => useQuery(...args),
 }));
 
@@ -50,11 +57,7 @@ vi.mock("@tanstack/react-router", () => ({
       role: "admin",
       roles: ["principle-broker"],
     }),
-    useSearch: () => ({
-      detailTab: "review",
-      focus: "submilestone:submilestone-01",
-      tab: "timeline",
-    }),
+    useSearch: () => routeSearch,
   }),
   useNavigate: () => navigate,
 }));
@@ -164,6 +167,11 @@ describe("Backoffice Build route canonical detail host", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    routeSearch = {
+      detailTab: "review",
+      focus: "submilestone:submilestone-01",
+      tab: "timeline",
+    };
     useAction.mockReturnValue(vi.fn());
     useMutation.mockReturnValue(vi.fn());
     useQuery.mockReturnValue(activeBuildDetail);
@@ -208,6 +216,30 @@ describe("Backoffice Build route canonical detail host", () => {
           focus: "submilestone:submilestone-01",
           tab: "gantt",
         }),
+      }),
+    );
+  });
+
+  test("rejects duplicate focus query values before rendering route consumers", () => {
+    const RouteComponent = (Route as unknown as {
+      component: React.ComponentType;
+    }).component;
+    routeSearch = {
+      detailTab: "review",
+      focus: [
+        "submilestone:submilestone-01](http://localhost:3000/backoffice/builds/active-build-01?tab=details",
+        "submilestone:submilestone-01)",
+      ],
+      milestone: "four-plex-draw-04",
+      rail: "closed",
+      tab: "details",
+    };
+
+    expect(() => render(<RouteComponent />)).not.toThrow();
+    expect(hostProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        detailTab: "review",
+        focus: undefined,
       }),
     );
   });

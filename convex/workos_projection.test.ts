@@ -6,13 +6,62 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import schema from "./schema";
+import { LENDER_MEMBERSHIP_CONSUMER_HANDOFFS } from "./workosProjection";
 
 const modules = import.meta.glob("./**/*.ts");
 
 const sampleEvents = loadPayloadEvents();
 
 describe("WorkOS webhook projections", () => {
+  test("persists a normalized email key from mixed-case WorkOS user events", async () => {
+    const t = convexTest(schema, modules);
+    const event = userEvent("user.created", "user_mixed_case_email");
+    event.data.email = "Mixed.Case@Example.COM";
+    await t.mutation(internal.auth.authKitEvent, {
+      data: event,
+      event: event.event,
+    });
+    const user = await t.run((ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (query) =>
+          query.eq("workosUserId", "user_fixture"),
+        )
+        .unique(),
+    );
+    expect(user?.normalizedEmail).toBe("mixed.case@example.com");
+  });
+
+  test("clears the normalized email key when WorkOS explicitly clears email", async () => {
+    const t = convexTest(schema, modules);
+    const created = userEvent("user.created", "user_email_clear_created");
+    created.data.email = "Clear.Me@Example.COM";
+    await t.mutation(internal.auth.authKitEvent, {
+      data: created,
+      event: created.event,
+    });
+
+    const updated = userEvent("user.updated", "user_email_clear_updated");
+    updated.data.email = "";
+    await t.mutation(internal.auth.authKitEvent, {
+      data: updated,
+      event: updated.event,
+    });
+
+    const user = await t.run((ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (query) =>
+          query.eq("workosUserId", "user_fixture"),
+        )
+        .unique(),
+    );
+    expect(user?.email).toBe("");
+    expect(user?.normalizedEmail).toBeUndefined();
+  });
+
   test("processes every payload-file event plus user lifecycle events into projections and receipts", async () => {
     const t = convexTest(schema, modules);
     const events = [
@@ -358,6 +407,58 @@ describe("WorkOS webhook projections", () => {
         workosOrganizationId: "org_fairlend",
         workosUserId: "user_other",
       });
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "Shared Lender Identity",
+        sourceEventId: "seed_shared_lender_identity",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "lender-admin",
+        roleSlugs: ["lender-admin"],
+        sourceEventId: "seed_shared_lender_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_shared_lender",
+        workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        workosUserId: "user_builder",
+      });
+      const brokerageId = await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: "FairLend",
+        legalName: "FairLend",
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: "org_fairlend",
+      });
+      const lenderOrganizationId = await ctx.db.insert("lenderOrganizations", {
+        brokerageId,
+        createdAt: 1,
+        displayName: "FairLend Lender Organization",
+        legalName: "FairLend Lender Organization",
+        permissions: {
+          drawDecisions: true,
+          milestoneDecisions: true,
+          proposalReview: true,
+          siteVisitReview: true,
+        },
+        status: "active",
+        updatedAt: 1,
+      });
+      await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: 1,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId,
+        lenderOrganizationId,
+        normalizedEmail: "builder@example.com",
+        reason: "Lender organization context fixture.",
+        status: "active",
+        updatedAt: 1,
+        workosUserId: "user_builder",
+      });
     });
 
     await expect(
@@ -380,7 +481,46 @@ describe("WorkOS webhook projections", () => {
           roleSlugs: ["builder"],
           workosOrganizationId: "org_oakline",
         },
+        {
+          membershipId: "om_shared_lender",
+          organizationName: "Shared Lender Identity",
+          roleNames: ["Lender Admin"],
+          roleSlug: "lender-admin",
+          roleSlugs: ["lender-admin"],
+          workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        },
       ],
+    });
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      created_at: "2023-11-27T19:07:33.155Z",
+      data: {
+        created_at: "2023-11-27T19:07:33.155Z",
+        email: "builder@example.com",
+        email_verified: true,
+        first_name: "Builder",
+        id: "user_builder",
+        last_name: "User",
+        updated_at: "2023-11-27T19:07:33.155Z",
+      },
+      event: "user.created",
+      id: "seed_user_builder",
+    });
+    await expect(
+      asLenderMember(t, {
+        organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        roles: ["lender-admin"],
+        subject: "user_builder",
+      }).query(
+        api.workosProjection.getActiveLenderOrganizationContext,
+        {}
+      )
+    ).resolves.toMatchObject({
+      membershipIds: ["om_shared_lender"],
+      lenderOrganizationId: expect.any(String),
+      organizationName: "FairLend Lender Organization",
+      roles: ["lender-admin"],
+      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      workosUserId: "user_builder",
     });
   });
 
@@ -616,6 +756,392 @@ describe("WorkOS webhook projections", () => {
       workosUserId: payload("organization_membership.created").data.user_id,
     });
   });
+
+  test("rebuilds the lender membership-effect read model from canonical projection state", async () => {
+    const t = convexTest(schema, modules);
+    const organizationId = FAIRLEND_WORKOS_ORGANIZATION_ID;
+
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        domains: [],
+        id: organizationId,
+        name: "Northstar Lending",
+      },
+      event: "organization.created",
+      id: "effects_org_created",
+    });
+    for (const user of [
+      { email: "principal@example.com", id: "user_principal", name: "Principal Broker" },
+      { email: "broker@example.com", id: "user_effects_broker", name: "Broker User" },
+      { email: "pending@example.com", id: "user_pending", name: "Pending User" },
+      { email: "foreign@example.com", id: "user_foreign_effects", name: "Foreign User" },
+    ]) {
+      await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+        data: {
+          email: user.email,
+          firstName: user.name,
+          id: user.id,
+        },
+        event: "user.created",
+        id: `effects_${user.id}_created`,
+      });
+    }
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        domains: [],
+        id: "org_foreign_effects",
+        name: "Foreign Lending",
+      },
+      event: "organization.created",
+      id: "effects_foreign_org_created",
+    });
+    for (const membership of [
+      {
+        id: "om_principal_effects",
+        organizationId,
+        role: "lender-admin",
+        status: "active",
+        userId: "user_principal",
+      },
+      {
+        id: "om_broker_effects",
+        organizationId,
+        role: "lender",
+        status: "active",
+        userId: "user_effects_broker",
+      },
+      {
+        id: "om_pending_effects",
+        organizationId,
+        role: "lender-staff",
+        status: "pending",
+        userId: "user_pending",
+      },
+      {
+        id: "om_foreign_effects",
+        organizationId: "org_foreign_effects",
+        role: "admin",
+        status: "active",
+        userId: "user_foreign_effects",
+      },
+    ]) {
+      await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+        data: {
+          id: membership.id,
+          organizationId: membership.organizationId,
+          role: { slug: membership.role },
+          roles: [{ slug: membership.role }],
+          status: membership.status,
+          userId: membership.userId,
+        },
+        event: "organization_membership.created",
+        id: `effects_${membership.id}_created`,
+      });
+    }
+    await t.run(async (ctx) => {
+      const brokerageId = await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: "Northstar Lending",
+        legalName: "Northstar Lending",
+        principalBrokerWorkosUserId: "user_principal",
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: organizationId,
+      });
+      const lenderOrganizationId = await ctx.db.insert("lenderOrganizations", {
+        brokerageId,
+        createdAt: 1,
+        displayName: "Northstar Lender Organization",
+        legalName: "Northstar Lender Organization",
+        permissions: {
+          drawDecisions: true,
+          milestoneDecisions: true,
+          proposalReview: true,
+          siteVisitReview: true,
+        },
+        status: "active",
+        updatedAt: 1,
+      });
+      await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: 1,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId,
+        lenderOrganizationId,
+        normalizedEmail: "principal@example.com",
+        reason: "Membership-effect fixture assignment.",
+        status: "active",
+        updatedAt: 1,
+        workosUserId: "user_principal",
+      });
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["principle-broker"],
+        actorWorkosUserId: "user_principal",
+        brokerageId,
+        command: "membership-history-fixture",
+        createdAt: 2,
+        entityId: "om_broker_effects",
+        entityType: "organization-membership",
+        eventType: "organization.membership.changed",
+        organizationId,
+        warnings: [],
+      });
+    });
+
+    const principal = asLenderMember(t, {
+      organizationId,
+      roles: ["admin"],
+      subject: "user_principal",
+    });
+    const first = await principal.query(
+      api.workosProjection.getLenderOrganizationManagement,
+      {}
+    );
+    expect(first.projectionVersion).toBe("lender-membership-effects-v1");
+    expect(first.pageSummary).toEqual({
+      active: 2,
+      administrators: 1,
+      pending: 1,
+      principalBrokers: 1,
+      removed: 0,
+      total: 3,
+      unsupported: 0,
+    });
+    expect(first.members.map((member: any) => member.membership.workosUserId)).not.toContain(
+      "user_foreign_effects"
+    );
+    expect(first.history).toHaveLength(1);
+    expect(LENDER_MEMBERSHIP_CONSUMER_HANDOFFS).toEqual([
+      {
+        consumer: "authorization-and-access",
+        inputContract:
+          "active organization id + canonical WorkOS membership status + canonical lender role slugs",
+        owner: "Phase 1",
+        state: "implemented",
+      },
+      {
+        consumer: "collaboration-search-authority",
+        inputContract:
+          "canonical WorkOS membership id + organization id + user id + status + role slugs",
+        owner: "Phase 1",
+        state: "implemented",
+      },
+      {
+        consumer: "proposal-assignment",
+        inputContract:
+          "active organization id + current canonical membership eligibility + persisted proposal assignment",
+        owner: "Phase 2",
+        state: "unavailable",
+      },
+      {
+        consumer: "review-quorum-and-policy-eligibility",
+        inputContract:
+          "immutable review-policy snapshot + current canonical membership eligibility + persisted review assignment",
+        owner: "Phase 4",
+        state: "unavailable",
+      },
+      {
+        consumer: "participant-queues-and-counts",
+        inputContract:
+          "canonical request or review-cycle state + current canonical membership eligibility",
+        owner: "Phase 7",
+        state: "unavailable",
+      },
+      {
+        consumer: "transactional-recipients-and-notification-intent",
+        inputContract:
+          "durable domain event + resource and cycle scope + current canonical membership eligibility and access",
+        owner: "Phase 8",
+        state: "unavailable",
+      },
+      {
+        consumer: "external-api-analytics-reporting-and-support",
+        inputContract:
+          "versioned external contract + canonical organization and membership identifiers",
+        owner: "Phase 9",
+        state: "unknown",
+      },
+    ]);
+    await expect(
+      asLenderMember(t, {
+        organizationId,
+        roles: ["lender"],
+        subject: "user_effects_broker",
+      }).query(api.workosProjection.getLenderOrganizationManagement, {})
+    ).rejects.toThrow("Forbidden");
+
+    const countsBeforeRepeat = await t.run(async (ctx) => ({
+      audits: (await ctx.db.query("auditEvents").collect()).length,
+      receipts: (await ctx.db.query("workosWebhookReceipts").collect()).length,
+    }));
+    expect(
+      await principal.query(api.workosProjection.getLenderOrganizationManagement, {})
+    ).toEqual(first);
+    expect(
+      await t.run(async (ctx) => ({
+        audits: (await ctx.db.query("auditEvents").collect()).length,
+        receipts: (await ctx.db.query("workosWebhookReceipts").collect()).length,
+      }))
+    ).toEqual(countsBeforeRepeat);
+
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        id: "om_broker_effects",
+        organizationId,
+        role: { slug: "lender" },
+        roles: [{ slug: "lender" }],
+        status: "inactive",
+        userId: "user_effects_broker",
+      },
+      event: "organization_membership.updated",
+      id: "effects_broker_deactivated",
+    });
+    const deactivated = await principal.query(
+      api.workosProjection.getLenderOrganizationManagement,
+      {}
+    );
+    expect(deactivated.pageSummary).toMatchObject({ active: 1, removed: 1 });
+    expect(
+      deactivated.members.find(
+        (member: any) => member.membership.workosMembershipId === "om_broker_effects"
+      )
+    ).toMatchObject({ accessState: "removed", canManageMembers: false });
+    expect(deactivated.history).toEqual(first.history);
+
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        id: "om_broker_effects",
+        organizationId,
+        role: { slug: "lender-admin" },
+        roles: [{ slug: "lender-admin" }],
+        status: "active",
+        userId: "user_effects_broker",
+      },
+      event: "organization_membership.updated",
+      id: "effects_broker_reactivated_as_admin",
+    });
+    const reactivated = await principal.query(
+      api.workosProjection.getLenderOrganizationManagement,
+      {}
+    );
+    expect(reactivated.pageSummary).toMatchObject({
+      active: 2,
+      administrators: 2,
+      removed: 0,
+    });
+    expect(
+      reactivated.members.find(
+        (member: any) => member.membership.workosMembershipId === "om_broker_effects"
+      )
+    ).toMatchObject({
+      accessState: "active",
+      canManageMembers: true,
+      roleSlugs: ["lender-admin"],
+    });
+  });
+  test("paginates the lender directory without an organization-size failure", async () => {
+    const t = convexTest(schema, modules);
+    const organizationId = FAIRLEND_WORKOS_ORGANIZATION_ID;
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        domains: [],
+        id: organizationId,
+        name: "Paginated Lender",
+        status: "active",
+      },
+      event: "organization.created",
+      id: "paginated_lender_created",
+    });
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      data: {
+        email: "principal@paginated-lender.test",
+        firstName: "Principal",
+        id: "user_paginated_0",
+      },
+      event: "user.created",
+      id: "paginated_principal_created",
+    });
+    for (let index = 0; index < 101; index += 1) {
+      const role = index === 0 ? "lender-admin" : "lender";
+      await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+        data: {
+          id: `om_paginated_${index}`,
+          organizationId,
+          role: { slug: role },
+          roles: [{ slug: role }],
+          status: "active",
+          userId: `user_paginated_${index}`,
+        },
+        event: "organization_membership.created",
+        id: `paginated_membership_${index}`,
+      });
+    }
+    await t.run(async (ctx) => {
+      const brokerageId = await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: "Paginated Lender",
+        legalName: "Paginated Lender",
+        principalBrokerWorkosUserId: "user_paginated_0",
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: organizationId,
+      });
+      const lenderOrganizationId = await ctx.db.insert("lenderOrganizations", {
+        brokerageId,
+        createdAt: 1,
+        displayName: "Paginated Lender Organization",
+        legalName: "Paginated Lender Organization",
+        permissions: {
+          drawDecisions: true,
+          milestoneDecisions: true,
+          proposalReview: true,
+          siteVisitReview: true,
+        },
+        status: "active",
+        updatedAt: 1,
+      });
+      await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: 1,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId,
+        lenderOrganizationId,
+        normalizedEmail: "principal@paginated-lender.test",
+        reason: "Pagination fixture assignment.",
+        status: "active",
+        updatedAt: 1,
+        workosUserId: "user_paginated_0",
+      });
+    });
+
+    const principal = asLenderMember(t, {
+      organizationId,
+      roles: ["admin"],
+      subject: "user_paginated_0",
+    });
+    const firstPage = await principal.query(
+      api.workosProjection.getLenderOrganizationManagement,
+      { cursor: null }
+    );
+    expect(firstPage.members).toHaveLength(100);
+    expect(firstPage.isDone).toBe(false);
+    expect(firstPage.continueCursor).not.toBe("");
+
+    const secondPage = await principal.query(
+      api.workosProjection.getLenderOrganizationManagement,
+      { cursor: firstPage.continueCursor }
+    );
+    expect(secondPage.members).toHaveLength(1);
+    expect(secondPage.isDone).toBe(true);
+    expect(
+      new Set(
+        [...firstPage.members, ...secondPage.members].map(
+          (member) => member.membership.workosMembershipId
+        )
+      ).size
+    ).toBe(101);
+  });
+
 });
 
 function payload(type: string) {
@@ -676,6 +1202,18 @@ function asBuilder(t: any) {
   } as any);
 }
 
+function asBuilderInOrganization(t: any, organizationId: string) {
+  return t.withIdentity({
+    email: "builder@example.com",
+    name: "Builder",
+    organizationId,
+    role: "builder",
+    roles: ["builder"],
+    subject: "user_builder",
+    tokenIdentifier: "https://api.workos.com/|user_builder",
+  } as any);
+}
+
 function asBroker(t: any) {
   return t.withIdentity({
     email: "broker@example.com",
@@ -685,5 +1223,20 @@ function asBroker(t: any) {
     roles: ["broker"],
     subject: "user_broker",
     tokenIdentifier: "https://api.workos.com/|user_broker",
+  } as any);
+}
+
+function asLenderMember(
+  t: any,
+  input: { organizationId: string; roles: string[]; subject: string }
+) {
+  return t.withIdentity({
+    email: `${input.subject}@example.com`,
+    name: input.subject,
+    organizationId: input.organizationId,
+    role: input.roles[0],
+    roles: input.roles,
+    subject: input.subject,
+    tokenIdentifier: `https://api.workos.com/|${input.subject}`,
   } as any);
 }

@@ -38,6 +38,7 @@ import { validateBuildCollaborationPublicationPreconditions } from "./build_coll
 import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchPostTreeRebuild } from "./build_collaboration_search_maintenance";
+import { isCanonicalCollaborationSystemPost } from "./build_collaboration_system_event_access";
 import { persistApprovedBuildCollaborationSharedEffects } from "./build_collaboration_shared_effects";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
@@ -451,50 +452,46 @@ export const listBuildCollaborationFeed = authenticatedQuery
     // the client supplies a clock. Omit Date.now() here so paginated pages share
     // one evaluation instant for the request.
     const asOf = args.asOf ?? Date.now();
-    const page: Array<Awaited<ReturnType<typeof projectReadableBuildCollaborationPost>> | { kind: "restricted"; placeholderKey: string }> = [];
-    let cursor = args.paginationOpts.cursor ?? null;
-    let isDone = false;
-    while (!isDone && page.length < args.paginationOpts.numItems) {
-      const result = await ctx.db
-        .query("buildCollaborationPosts")
-        .withIndex("by_build_prominence_activity", (query) =>
-          query.eq("buildId", authorization.build._id)
-        )
-        .order("desc")
-        .paginate({ cursor, numItems: args.paginationOpts.numItems });
-      for (const [index, post] of result.page.entries()) {
-        if (shouldSkipBuildCollaborationFeedPost(post, args.filter)) {
-          continue;
-        }
-        const placeholderKey = stableContentHash(
-          `${cursor ?? "initial"}:${index}`
-        );
-        const canRead = await canReadCollaborationPost(
-          ctx,
-          authorization,
-          post
-        );
-        if (!canRead) {
-          page.push({
-            kind: "restricted" as const,
-            placeholderKey: `restricted-${placeholderKey}`,
-          });
-        } else {
-          page.push(
-            await projectReadableBuildCollaborationPost(ctx, {
-              asOf,
-              authorization,
-              post,
-              unavailableKey: `unavailable-${placeholderKey}`,
-            }),
-          );
-        }
-        if (page.length >= args.paginationOpts.numItems) break;
+    const result = await ctx.db
+      .query("buildCollaborationPosts")
+      .withIndex("by_build_prominence_activity", (query) =>
+        query.eq("buildId", authorization.build._id)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const page: Array<
+      | Awaited<ReturnType<typeof projectReadableBuildCollaborationPost>>
+      | { kind: "restricted"; placeholderKey: string }
+    > = [];
+    for (const [index, post] of result.page.entries()) {
+      if (shouldSkipBuildCollaborationFeedPost(post, args.filter)) {
+        continue;
       }
-      cursor = result.continueCursor;
-      isDone = result.isDone;
+      const placeholderKey = stableContentHash(
+        `${args.paginationOpts.cursor ?? "initial"}:${index}`,
+      );
+      const canRead = await canReadCollaborationPost(ctx, authorization, post);
+      if (!canRead) {
+        page.push({
+          kind: "restricted" as const,
+          placeholderKey: `restricted-${placeholderKey}`,
+        });
+      } else {
+        page.push(
+          await projectReadableBuildCollaborationPost(ctx, {
+            asOf,
+            authorization,
+            post,
+            unavailableKey: `unavailable-${placeholderKey}`,
+          }),
+        );
+      }
     }
-    return { continueCursor: cursor ?? "", isDone, page };
+    return {
+      continueCursor: result.continueCursor,
+      isDone: result.isDone,
+      page,
+    };
   })
   .public();
 
@@ -502,9 +499,17 @@ function shouldSkipBuildCollaborationFeedPost(
   post: Doc<"buildCollaborationPosts">,
   filter: "all" | "active_operations" | undefined,
 ) {
+  // Legacy operational automation (Evidence, Site Visit, Document, and
+  // transition-event posts) has no canonical occurrence identity. Keep those
+  // retired rows out of every feed while preserving ordinary human posts and
+  // the one deterministic Milestone/Draw System Post per occurrence.
+  const isRetiredAutomatedPost =
+    post.source === "system" &&
+    !isCanonicalCollaborationSystemPost(post);
   // Approved-plan companions are identity records, not activity. They become
   // feed-visible only when the canonical Milestone activates.
   return (
+    isRetiredAutomatedPost ||
     post.systemLifecycle === "latent" ||
     (filter === "active_operations" &&
       !isActiveBuildCollaborationOperation(post))

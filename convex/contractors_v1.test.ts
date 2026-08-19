@@ -137,8 +137,19 @@ async function createActiveBuild(t: any, seed: any) {
     reason: "Contractor v1 build ready.",
     workosOrganizationId: ORG,
   });
-  const closing = await t.mutation(
-    (api as any).production_proposals.recordOfflineClosing,
+  await t.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `contractors-v1-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the contractor tracking fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await t.mutation(
+    (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-08-01",
       ianaTimezone: "America/Toronto",
@@ -146,6 +157,14 @@ async function createActiveBuild(t: any, seed: any) {
         interestAnnualBps: 925,
         principalCents: 100_000_000,
       },
+      proposalId,
+      reason: "Loan closed for contractor tracking.",
+      workosOrganizationId: ORG,
+    },
+  );
+  const closing = await t.mutation(
+    (api as any).production_proposals.activateClosedProposal,
+    {
       proposalId,
       reason: "Loan closed for contractor tracking.",
       workosOrganizationId: ORG,
@@ -462,8 +481,19 @@ describe("contractors v1", () => {
       reason: "Proposal contractor plan is ready.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
+    await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `contractor-plan-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the contractor planning fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.recordProposalClosing,
       {
         buildStartDate: "2026-09-01",
         ianaTimezone: "America/Toronto",
@@ -471,6 +501,14 @@ describe("contractors v1", () => {
           interestAnnualBps: 925,
           principalCents: 90_000_000,
         },
+        proposalId,
+        reason: "Closing copies proposal contractor plan.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const closing = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
         proposalId,
         reason: "Closing copies proposal contractor plan.",
         workosOrganizationId: ORG,

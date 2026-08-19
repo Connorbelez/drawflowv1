@@ -1058,21 +1058,21 @@ describe("CostDocumentBatchWorkspace", () => {
     renderWorkspace({ batchId: "batch-1" });
 
     expect(
-      (screen.getByLabelText(
-        "Gross Document Total (CAD)"
-      ) as HTMLInputElement).value
-    ).toBe("53.");
+      (screen.getByLabelText("Subtotal (CAD)") as HTMLInputElement).value
+    ).toBe("12.");
+    expect((screen.getByLabelText("Tax (CAD)") as HTMLInputElement).value).toBe(
+      ""
+    );
     expect(
       (screen.getByLabelText(
         "Cost allocation 1 amount (CAD)"
       ) as HTMLInputElement).value
     ).toBe("41.");
     expect(
-      (screen.getByLabelText("Component 1 amount (CAD)") as HTMLInputElement)
-        .value
+      (screen.getByLabelText("Subtotal (CAD)") as HTMLInputElement).value
     ).toBe("12.");
 
-    fireEvent.change(screen.getByLabelText("Component 1 amount (CAD)"), {
+    fireEvent.change(screen.getByLabelText("Subtotal (CAD)"), {
       target: { value: "12.3" },
     });
     window.dispatchEvent(new Event("pagehide"));
@@ -1104,12 +1104,12 @@ describe("CostDocumentBatchWorkspace", () => {
       financialComponents: [
         {
           amount: "12.3",
-          id: "raw-component-1",
+          id: "draft-1-financial-subtotal",
           kind: "subtotal",
-          label: "Untallied subtotal",
+          label: "",
         },
       ],
-      grossTotal: "53.",
+      grossTotal: "12.30",
       version: 1,
     });
   });
@@ -1141,7 +1141,7 @@ describe("CostDocumentBatchWorkspace", () => {
     });
     renderWorkspace({ batchId: "batch-1" });
 
-    fireEvent.change(screen.getByLabelText("Gross Document Total (CAD)"), {
+    fireEvent.change(screen.getByLabelText("Subtotal (CAD)"), {
       target: { value: "125.00" },
     });
     fireEvent.change(
@@ -1151,16 +1151,6 @@ describe("CostDocumentBatchWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Cost allocation 1 amount (CAD)"), {
       target: { value: "125.00" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add financial component" })
-    );
-    fireEvent.change(screen.getByLabelText("Component 1 label"), {
-      target: { value: "Materials subtotal" },
-    });
-    fireEvent.change(screen.getByLabelText("Component 1 amount (CAD)"), {
-      target: { value: "125.00" },
-    });
-
     fireEvent.click(screen.getByTestId("draft-draft-after-reconciliation"));
 
     await waitFor(() =>
@@ -1177,7 +1167,6 @@ describe("CostDocumentBatchWorkspace", () => {
             {
               amountCents: 12_500,
               kind: "subtotal",
-              label: "Materials subtotal",
             },
           ],
           grossTotalCents: 12_500,
@@ -1193,9 +1182,7 @@ describe("CostDocumentBatchWorkspace", () => {
     fireEvent.click(screen.getByTestId("draft-draft-reconciliation"));
     await waitFor(() =>
       expect(
-        (screen.getByLabelText(
-          "Gross Document Total (CAD)"
-        ) as HTMLInputElement).value
+        (screen.getByLabelText("Subtotal (CAD)") as HTMLInputElement).value
       ).toBe("125.00")
     );
     expect(
@@ -1204,9 +1191,7 @@ describe("CostDocumentBatchWorkspace", () => {
       ) as HTMLInputElement).value
     ).toBe("125.00");
     expect(
-      (screen.getByLabelText(
-        "Component 1 amount (CAD)"
-      ) as HTMLInputElement).value
+      (screen.getByLabelText("Subtotal (CAD)") as HTMLInputElement).value
     ).toBe("125.00");
   });
 
@@ -1711,8 +1696,11 @@ describe("CostDocumentBatchWorkspace", () => {
     });
     renderWorkspace({ batchId: "batch-1" });
 
-    fireEvent.change(screen.getByLabelText("Gross Document Total (CAD)"), {
-      target: { value: "123.45" },
+    fireEvent.change(screen.getByLabelText("Subtotal (CAD)"), {
+      target: { value: "100.00" },
+    });
+    fireEvent.change(screen.getByLabelText("Tax (CAD)"), {
+      target: { value: "23.45" },
     });
     fireEvent.change(
       screen.getByLabelText("Cost allocation 1 Sub-milestone"),
@@ -1749,6 +1737,10 @@ describe("CostDocumentBatchWorkspace", () => {
           },
         ],
         draftId: "draft-1",
+        financialComponents: [
+          { amountCents: 10_000, kind: "subtotal" },
+          { amountCents: 2_345, kind: "tax" },
+        ],
         grossTotalCents: 12_345,
       })
     );

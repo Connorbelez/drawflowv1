@@ -4,6 +4,7 @@ import { collaborationRoleTier } from "./build_collaboration_model";
 import {
   canReadMilestoneSystemEvent,
   canReadDrawSystemEvent,
+  isCanonicalCollaborationSystemPost,
   isDrawSystemPost,
   isMilestoneSystemPost,
 } from "./build_collaboration_system_event_access";
@@ -18,6 +19,9 @@ export async function canReadCollaborationPost(
     post.organizationId !== authorization.organizationId ||
     post.buildId !== authorization.build._id
   ) {
+    return false;
+  }
+  if (post.source === "system" && !isCanonicalCollaborationSystemPost(post)) {
     return false;
   }
   if (

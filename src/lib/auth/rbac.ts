@@ -9,7 +9,12 @@ export const ROLE_SLUGS = [
   "builder",
   "builder-staff",
   "contractor",
+  "lender",
+  "lender-admin",
+  "lender-staff",
 ] as const;
+
+const ROLE_DISPLAY_SEPARATOR = /[-_\s]+/;
 
 export type RoleSlug = (typeof ROLE_SLUGS)[number];
 
@@ -18,6 +23,18 @@ export const BACKOFFICE_ROLE_SLUGS = [
   "principle-broker",
   "broker",
   "broker-staff",
+] as const satisfies readonly RoleSlug[];
+
+/**
+ * Lender Portal access is organization-scoped and uses the same canonical
+ * WorkOS lender role vocabulary as Back Office. Admin remains the lender
+ * superuser; the backend still requires an active organization and tenant.
+ */
+export const LENDER_WORKSPACE_ROLE_SLUGS = [
+  "admin",
+  "lender",
+  "lender-admin",
+  "lender-staff",
 ] as const satisfies readonly RoleSlug[];
 
 export const BUILDER_ROLE_SLUGS = [
@@ -93,7 +110,7 @@ export const CONTRACTOR_BUILD_DETAIL_ROLE_SLUGS = [
   "contractor",
 ] as const satisfies readonly RoleSlug[];
 
-export type Workspace = "backoffice" | "builder" | "contractor";
+export type Workspace = "backoffice" | "builder" | "contractor" | "lender";
 
 export type WorkspaceAccessDecision =
   | { status: "allowed" }
@@ -119,6 +136,11 @@ const ROLE_ALIASES: Record<string, RoleSlug> = {
   builder_staff: "builder-staff",
   contractor: "contractor",
   member: "member",
+  lender: "lender",
+  "lender-admin": "lender-admin",
+  lender_admin: "lender-admin",
+  "lender-staff": "lender-staff",
+  lender_staff: "lender-staff",
 };
 
 export interface AuthAccessInput {
@@ -160,6 +182,28 @@ export function roleLabel(role: RoleSlug): string {
   }
   return role
     .split("-")
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+/**
+ * Format a WorkOS role slug for user-facing controls while preserving the
+ * canonical slug as the value sent to authorization and management APIs.
+ */
+export function formatRoleSlug(role: string): string {
+  const normalized = normalizeRoleSlug(role);
+  if (normalized) {
+    return roleLabel(normalized);
+  }
+
+  const trimmed = role.trim();
+  if (!trimmed) {
+    return "Unknown role";
+  }
+
+  return trimmed
+    .split(ROLE_DISPLAY_SEPARATOR)
+    .filter(Boolean)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
 }
@@ -231,6 +275,9 @@ function getContractorWorkspaceDecision(
 function workspaceRoles(
   workspace: Exclude<Workspace, "contractor">
 ): readonly RoleSlug[] {
+  if (workspace === "lender") {
+    return LENDER_WORKSPACE_ROLE_SLUGS;
+  }
   if (workspace === "backoffice") {
     return BACKOFFICE_ROLE_SLUGS;
   }

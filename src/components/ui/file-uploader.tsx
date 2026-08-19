@@ -19,10 +19,13 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onRemove }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (file.type.startsWith("image/")) {
+    if (
+      file.type.startsWith("image/") &&
+      typeof URL.createObjectURL === "function"
+    ) {
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
+      return () => URL.revokeObjectURL?.(url);
     }
     setPreviewUrl(null);
     return undefined;
@@ -69,11 +72,13 @@ interface FileUploaderProps {
   files?: File[];
   helperText?: string;
   inputLabel?: string;
+  inputTestId?: string;
   multiple?: boolean;
   onFilesChange?: (files: File[]) => void;
   onUpload?: (files: File[]) => Promise<void> | void;
   showUploadButton?: boolean;
   title?: string;
+  variant?: "compact" | "default";
 }
 
 export const FileUploader: React.FC<FileUploaderProps> = ({
@@ -85,11 +90,13 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
   files,
   helperText = "PDF, image, spreadsheet, and document files are supported.",
   inputLabel = "Select files",
+  inputTestId,
   multiple = true,
   onFilesChange,
   onUpload,
   showUploadButton = true,
   title = "Upload files",
+  variant = "default",
 }) => {
   const [internalSelectedFiles, setInternalSelectedFiles] = useState<File[]>(
     [],
@@ -170,6 +177,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         accept={accept}
         aria-label={inputLabel}
         className="hidden"
+        data-testid={inputTestId}
         disabled={disabled}
         multiple={multiple}
         onChange={handleFileChange}
@@ -178,7 +186,10 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       />
       <div
         className={cn(
-          "group grid min-h-32 cursor-pointer place-items-center rounded-xl border border-dashed bg-muted/45 p-4 text-center shadow-xs/5 transition",
+          "group cursor-pointer rounded-xl border border-dashed bg-muted/45 p-4 shadow-xs/5 transition",
+          variant === "compact"
+            ? "flex min-h-20 items-center text-left"
+            : "grid min-h-32 place-items-center text-center",
           "hover:border-foreground/35 hover:bg-muted/60 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30",
           isDragging && "border-primary bg-primary/10",
           disabled && "cursor-not-allowed opacity-60",
@@ -204,9 +215,22 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
             fileInputRef.current?.click();
           }
         }}
+        data-variant={variant}
       >
-        <div className="flex max-w-md flex-col items-center gap-2">
-          <span className="grid size-11 place-items-center rounded-full bg-background text-foreground shadow-xs/5 ring-1 ring-border">
+        <div
+          className={cn(
+            "flex max-w-md gap-2",
+            variant === "compact"
+              ? "flex-row items-start"
+              : "flex-col items-center",
+          )}
+        >
+          <span
+            className={cn(
+              "grid shrink-0 place-items-center rounded-full bg-background text-foreground shadow-xs/5 ring-1 ring-border",
+              variant === "compact" ? "size-9" : "size-11",
+            )}
+          >
             <UploadCloud className="size-5" />
           </span>
           <div>
@@ -214,8 +238,15 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
             <div className="mt-1 text-muted-foreground text-sm">
               {description}
             </div>
+            {variant === "compact" ? (
+              <div className="mt-1 text-muted-foreground text-xs">
+                {helperText}
+              </div>
+            ) : null}
           </div>
-          <div className="text-muted-foreground text-xs">{helperText}</div>
+          {variant === "default" ? (
+            <div className="text-muted-foreground text-xs">{helperText}</div>
+          ) : null}
         </div>
       </div>
 

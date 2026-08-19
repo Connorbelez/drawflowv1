@@ -35,7 +35,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 });
 
 vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn(),
+  useMutation: () =>
+    vi.fn().mockResolvedValue("https://example.test/source-document.pdf"),
   usePaginatedQuery: () => {
     if (convexMocks.paginatedQueryError) {
       throw convexMocks.paginatedQueryError;
@@ -46,11 +47,32 @@ vi.mock("convex/react", () => ({
       status: "Exhausted",
     };
   },
-  useQuery: (reference: unknown) =>
-    getFunctionName(reference as Parameters<typeof getFunctionName>[0]) ===
-    "build_collaboration_rollout:getBuildCollaborationRolloutState"
-      ? convexMocks.collaborationRolloutState
-      : undefined,
+  useQuery: (reference: unknown) => {
+    const name = getFunctionName(
+      reference as Parameters<typeof getFunctionName>[0]
+    );
+    if (
+      name === "build_collaboration_rollout:getBuildCollaborationRolloutState"
+    ) {
+      return convexMocks.collaborationRolloutState;
+    }
+    if (
+      name ===
+      "build_submilestone_workspace:getBuildSubmilestoneWorkspaceBootstrap"
+    ) {
+      if (convexMocks.collaborationRolloutState.status !== "active") {
+        return undefined;
+      }
+      return {
+        capabilities: {
+          canonical: { approveChild: { allowed: true } },
+          review: { requestChanges: { allowed: true } },
+        },
+        submilestone: { buildSubmilestoneId: "sub-01" },
+      };
+    }
+    return undefined;
+  },
 }));
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
@@ -963,7 +985,10 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(
       screen.getAllByRole("button", { name: /Open milestone/i })[0],
     );
-    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      "milestone:milestone-01",
+    );
   });
 
   test("routes evidence that identifies one canonical sub-milestone to the shared target", () => {
@@ -1895,25 +1920,32 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(
       screen.getByTestId("draw-review-request-draw-requested-b4"),
     );
-    expect(onOpenCanonicalTarget).toHaveBeenCalledWith({
-      drawId: "draw-requested-b4",
-      kind: "draw",
-    });
+    expect(
+      screen.getByRole("heading", {
+        name: /draw-requested-b4/,
+      }),
+    ).toBeTruthy();
+    expect(onOpenCanonicalTarget).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByTestId("lender-review-start-draw-requested-b4"),
+      screen.getByTestId("draw-approval-start-draw-requested-b4"),
     );
     await waitFor(() =>
       expect(startDrawReview).toHaveBeenCalledWith(requestedDraw),
     );
+    fireEvent.click(screen.getByText("Close"));
 
     fireEvent.click(
-      screen.getByTestId("lender-review-release-draw-approved-b4"),
+      screen.getByTestId("draw-review-request-draw-approved-b4"),
+    );
+    fireEvent.click(
+      screen.getByTestId("draw-approval-release-draw-approved-b4"),
     );
     fireEvent.click(
       await screen.findByRole("button", { name: "Confirm release" }),
     );
     await waitFor(() => expect(releaseDraw).toHaveBeenCalledWith(approvedDraw));
+    fireEvent.click(screen.getByText("Close"));
 
     fireEvent.click(
       within(screen.getByTestId("lender-funding-review")).getByRole("button", {
@@ -1923,6 +1955,38 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("Milestone execution")).toBeTruthy();
     expect(screen.getByText("Sub-milestone scope")).toBeTruthy();
     expect(screen.queryByTestId("milestone-completion-review-summary")).toBeNull();
+  });
+
+  test("opens the parent Milestone Detail Sheet from a funding schedule review while a Draw is focused", () => {
+    const onChangeMilestone = vi.fn();
+    const onChangeTab = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        focusedReference="draw:draw-request-1"
+        fundingWorkspaceEnabled
+        milestoneKey="foundation"
+        onChangeMilestone={onChangeMilestone}
+        onChangeRail={vi.fn()}
+        onChangeTab={onChangeTab}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review Foundation milestone" }),
+    );
+
+    expect(screen.getByTestId("milestone-detail-sheet")).toBeTruthy();
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      `milestone:${detail.milestones[0]._id}`,
+    );
+    expect(onChangeTab).not.toHaveBeenCalled();
   });
 
   test("does not expose lender request buttons for planned draw rows", () => {
@@ -2278,6 +2342,53 @@ describe("ProductionBuildDetailSurface", () => {
       screen.queryByTestId("milestone-detail-sheet-assign-visit"),
     ).toBeNull();
     expect(screen.queryByTestId("milestone-detail-sheet-reject")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excavation actions" }));
+    expect(screen.getByRole("menuitem", { name: "Open full detail" })).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: /Approve Sub-milestone/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: /Reject Sub-milestone/ }),
+    ).toBeNull();
+  });
+
+  test("routes Back Office child decisions to the canonical governed Review tab", () => {
+    const onOpenCanonicalTarget = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        onOpenCanonicalTarget={onOpenCanonicalTarget}
+        rail="closed"
+        viewerCapacity="admin"
+        viewerRole="lender"
+        workosOrganizationId="org_1"
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "Evidence" })).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: "Receipts / invoices" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Collaboration" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excavation actions" }));
+    expect(
+      screen.getByRole("menuitem", { name: "Approve Sub-milestone" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /^Reject Sub-milestone/ }),
+    );
+
+    expect(onOpenCanonicalTarget).toHaveBeenCalledWith(
+      { kind: "submilestone", submilestoneId: "sub-01" },
+      { selectedTab: "review" },
+    );
   });
 
   test("writes clicked milestone cards back to the production route search state", () => {
@@ -2295,7 +2406,10 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("kanban-card-foundation"));
-    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      "milestone:milestone-01",
+    );
   });
 
   test("captures assignment cost data from the milestone contractor drawer", async () => {
@@ -2837,7 +2951,7 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("milestone-detail-sheet-close"));
-    expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
+    expect(onChangeMilestone).toHaveBeenCalledWith(undefined, undefined);
   });
 
   test("does not stack a parent Milestone sheet behind a typed detail target", () => {
@@ -2873,7 +2987,10 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("kanban-card-foundation"));
-    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+    expect(onChangeMilestone).toHaveBeenCalledWith(
+      "foundation",
+      "milestone:milestone-01",
+    );
   });
 
   test("renders the approved production Details composition without duplicated tab content", () => {

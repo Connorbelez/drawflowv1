@@ -140,12 +140,31 @@ describe("contractor duplicate merge (PRD §6.3)", () => {
       reason: "ok",
       workosOrganizationId: ORG,
     });
-    const closing = await admin.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
+    await admin.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `contractor-merge-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the contractor merge fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.recordProposalClosing,
       {
         buildStartDate: "2026-01-01",
         ianaTimezone: "America/Toronto",
         loanFacility: { interestAnnualBps: 925, principalCents: 100_000_000 },
+        proposalId,
+        reason: "closed",
+        workosOrganizationId: ORG,
+      },
+    );
+    const closing = await admin.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
         proposalId,
         reason: "closed",
         workosOrganizationId: ORG,

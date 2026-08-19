@@ -121,7 +121,7 @@ function drawOpenContext(input: {
   status: DrawWorkflowStatus;
 }): DrawWorkflowOpenContext {
   if (
-    input.status === "ready_for_admin" &&
+    (input.status === "in_review" || input.status === "ready_for_admin") &&
     input.routeContext === "lender_admin" &&
     (input.capabilities.canApprove || input.capabilities.canReject)
   ) {
@@ -162,6 +162,16 @@ function drawMutationActions(
         ? { primary: mutationAction("start_review", "Start review") }
         : {};
     case "in_review":
+      if (capabilities.canApprove || capabilities.canReject) {
+        return {
+          ...(capabilities.canApprove
+            ? { primary: mutationAction("approve", "Approve for release") }
+            : {}),
+          ...(capabilities.canReject
+            ? { secondary: mutationAction("reject", "Reject") }
+            : {}),
+        };
+      }
       return capabilities.canSubmitForAdmin
         ? { primary: mutationAction("submit_for_admin", "Send to admin") }
         : {};

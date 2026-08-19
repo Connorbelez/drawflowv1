@@ -3,10 +3,11 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import {
   buildWorkosMembershipRolesPayload,
+  configureFakePrincipalBrokerTransferFailureForTest,
   isWorkosConflict,
   provisionBuilderStaffUserWithWorkos,
 } from "./workosManagement";
@@ -36,43 +37,150 @@ function principalBrokerTest() {
   } as any);
 }
 
+function lenderAdminTest() {
+  return convexTest(schema, modules).withIdentity({
+    email: "lender-admin@example.com",
+    name: "Lender Admin",
+    organizationId: "org_fixture",
+    role: "admin",
+    roles: ["admin"],
+    subject: "user_lender_admin",
+    tokenIdentifier: "https://api.workos.com/|user_lender_admin",
+  } as any);
+}
+
+const fixtureTime = "2026-05-01T00:00:00.000Z";
+
+async function projectWorkosFixture(
+  t: any,
+  event: string,
+  id: string,
+  data: Record<string, unknown>,
+) {
+  await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: fixtureTime,
+    data,
+    event,
+    id,
+  });
+}
+
 async function seedScopedWorkosProjectionState(t: any) {
-  await t.run(async (ctx: any) => {
-    await ctx.db.insert("workosOrganizations", {
-      domains: [],
-      name: "FairLend",
-      sourceEventId: "seed_org_fixture",
-      sourceEventType: "organization.created",
-      status: "active",
-      workosOrganizationId: "org_fixture",
+  for (const user of [
+    {
+      email: "principal@example.com",
+      id: "user_principal",
+      name: "Principal Broker",
+    },
+    {
+      email: "lender-admin@example.com",
+      id: "user_lender_admin",
+      name: "Lender Admin",
+    },
+    {
+      email: "target@example.com",
+      id: "user_target",
+      name: "Target Broker",
+    },
+    {
+      email: "foreign@example.com",
+      id: "user_foreign",
+      name: "Foreign User",
+    },
+    {
+      email: "builder@example.com",
+      id: "user_builder_fixture",
+      name: "Builder Member",
+    },
+  ]) {
+    await projectWorkosFixture(t, "user.created", `seed_${user.id}`, {
+      created_at: fixtureTime,
+      email: user.email,
+      email_verified: true,
+      first_name: user.name,
+      id: user.id,
+      updated_at: fixtureTime,
     });
-    await ctx.db.insert("workosOrganizations", {
-      domains: [],
-      name: "Oakline Builds",
-      sourceEventId: "seed_org_foreign",
-      sourceEventType: "organization.created",
-      status: "active",
-      workosOrganizationId: "org_foreign",
-    });
-    await ctx.db.insert("workosOrganizationMemberships", {
-      roleSlug: "principle-broker",
+  }
+  await projectWorkosFixture(t, "organization.created", "seed_org_fixture", {
+    created_at: fixtureTime,
+    domains: [],
+    id: "org_fixture",
+    name: "FairLend",
+    updated_at: fixtureTime,
+  });
+  await projectWorkosFixture(t, "organization.created", "seed_org_foreign", {
+    created_at: fixtureTime,
+    domains: [],
+    id: "org_foreign",
+    name: "Oakline Builds",
+    updated_at: fixtureTime,
+  });
+  for (const membership of [
+    {
+      id: "om_principal_fixture",
+      organizationId: "org_fixture",
       roleSlugs: ["principle-broker"],
-      sourceEventId: "seed_membership_principal",
-      sourceEventType: "organization_membership.created",
-      status: "active",
-      workosMembershipId: "om_principal_fixture",
-      workosOrganizationId: "org_fixture",
-      workosUserId: "user_principal",
-    });
-    await ctx.db.insert("workosOrganizationMemberships", {
-      roleSlug: "builder",
+      userId: "user_principal",
+    },
+    {
+      id: "om_lender_admin",
+      organizationId: "org_fixture",
+      roleSlugs: ["admin"],
+      userId: "user_lender_admin",
+    },
+    {
+      id: "om_target_fixture",
+      organizationId: "org_fixture",
+      roleSlugs: ["broker"],
+      userId: "user_target",
+    },
+    {
+      id: "om_foreign",
+      organizationId: "org_foreign",
       roleSlugs: ["builder"],
-      sourceEventId: "seed_membership_foreign",
-      sourceEventType: "organization_membership.created",
+      userId: "user_foreign",
+    },
+    {
+      id: "om_builder_fixture",
+      organizationId: "org_fixture",
+      roleSlugs: ["builder"],
+      userId: "user_builder_fixture",
+    },
+  ]) {
+    await projectWorkosFixture(
+      t,
+      "organization_membership.created",
+      `seed_${membership.id}`,
+      {
+        created_at: fixtureTime,
+        directory_managed: false,
+        id: membership.id,
+        organization_id: membership.organizationId,
+        role: { slug: membership.roleSlugs[0] },
+        roles: membership.roleSlugs.map((slug) => ({ slug })),
+        status: "active",
+        updated_at: fixtureTime,
+        user_id: membership.userId,
+      },
+    );
+  }
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("brokerages", {
+      createdAt: 1,
+      displayName: "FairLend",
+      legalName: "FairLend",
       status: "active",
-      workosMembershipId: "om_foreign",
+      updatedAt: 1,
+      workosOrganizationId: "org_fixture",
+    });
+    await ctx.db.insert("brokerages", {
+      createdAt: 1,
+      displayName: "Oakline Builds",
+      legalName: "Oakline Builds",
+      status: "active",
+      updatedAt: 1,
       workosOrganizationId: "org_foreign",
-      workosUserId: "user_foreign",
     });
   });
 }
@@ -99,14 +207,19 @@ describe("WorkOS management actions", () => {
     ).toEqual({ roleSlug: "builder" });
   });
 
-  test("projects accepted WorkOS role changes immediately", async () => {
+  test("keeps accepted role changes pending until webhook reconciliation", async () => {
     const t = adminTest();
     await seedScopedWorkosProjectionState(t);
 
-    await t.action(api.workosManagement.updateMembershipRoles, {
-      membershipId: "om_principal_fixture",
-      primaryRoleSlug: "broker",
+    const result = await t.action(api.workosManagement.updateMembershipRoles, {
+      membershipId: "om_target_fixture",
+      primaryRoleSlug: "admin",
       roleSlugs: ["admin", "broker"],
+    });
+    expect(result).toMatchObject({
+      operation: "updateMembershipRoles",
+      status: "accepted",
+      sync: "waiting-for-webhook",
     });
 
     const projections = await t.query(
@@ -117,9 +230,105 @@ describe("WorkOS management actions", () => {
       expect.arrayContaining([
         expect.objectContaining({
           roleSlug: "broker",
-          roleSlugs: ["broker", "admin"],
-          sourceEventType: "organization_membership.updated",
-          workosMembershipId: "om_principal_fixture",
+          roleSlugs: ["broker"],
+          sourceEventType: "organization_membership.created",
+          workosMembershipId: "om_target_fixture",
+        }),
+      ]),
+    );
+    const audits = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "workosOrganizationMembership")
+            .eq("entityId", "om_target_fixture"),
+        )
+        .collect(),
+    );
+    expect(audits).toEqual([
+      expect.objectContaining({
+        actorRoles: ["admin"],
+        command: "updateMembershipRoles",
+        eventType: "workos.membership.updateMembershipRoles.accepted",
+        organizationId: "org_fixture",
+        warnings: ["pending_workos_projection_reconciliation"],
+      }),
+    ]);
+  });
+
+  test("audits accepted lender membership lifecycle commands without projecting them", async () => {
+    const t = adminTest();
+    await seedScopedWorkosProjectionState(t);
+
+    await t.action(api.workosManagement.inviteUser, {
+      email: "invited-broker@example.com",
+      organizationId: "org_fixture",
+      roleSlug: "broker",
+    });
+    await t.action(api.workosManagement.createMembership, {
+      organizationId: "org_fixture",
+      primaryRoleSlug: "broker-staff",
+      roleSlugs: ["broker-staff"],
+      userId: "user_invited_staff",
+    });
+    await t.action(api.workosManagement.deactivateMembership, {
+      membershipId: "om_target_fixture",
+      reason: "Temporary leave.",
+    });
+    await t.action(api.workosManagement.reactivateMembership, {
+      membershipId: "om_target_fixture",
+      reason: "Return from leave.",
+    });
+    await t.action(api.workosManagement.removeMembership, {
+      membershipId: "om_target_fixture",
+      reason: "Employment ended.",
+    });
+
+    const state = await t.run(async (ctx: any) => ({
+      audits: await ctx.db
+        .query("auditEvents")
+        .withIndex("by_organizationId_and_createdAt", (q: any) =>
+          q.eq("organizationId", "org_fixture"),
+        )
+        .collect(),
+      target: await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_workos_membership_id", (q: any) =>
+          q.eq("workosMembershipId", "om_target_fixture"),
+        )
+        .unique(),
+    }));
+    expect(state.target).toMatchObject({
+      roleSlugs: ["broker"],
+      status: "active",
+    });
+    expect(state.audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorRoles: ["admin"],
+          actorWorkosUserId: "user_admin",
+          eventType: "workos.membership.invitation.accepted",
+          warnings: ["pending_workos_projection_reconciliation"],
+        }),
+        expect.objectContaining({
+          eventType: "workos.membership.creation.accepted",
+          warnings: ["pending_workos_projection_reconciliation"],
+        }),
+        expect.objectContaining({
+          eventType: "workos.membership.deactivateMembership.accepted",
+          priorState: expect.any(String),
+          reason: "Temporary leave.",
+        }),
+        expect.objectContaining({
+          eventType: "workos.membership.reactivateMembership.accepted",
+          priorState: expect.any(String),
+          reason: "Return from leave.",
+        }),
+        expect.objectContaining({
+          eventType: "workos.membership.removeMembership.accepted",
+          priorState: expect.any(String),
+          reason: "Employment ended.",
         }),
       ]),
     );
@@ -375,6 +584,7 @@ describe("WorkOS management actions", () => {
 
   test("uses fake adapters in tests and returns waiting-for-sync accepted results", async () => {
     const t = adminTest();
+    await seedScopedWorkosProjectionState(t);
 
     await expect(
       t.action(api.workosManagement.inviteUser, {
@@ -391,7 +601,7 @@ describe("WorkOS management actions", () => {
 
     await expect(
       t.action(api.workosManagement.updateMembershipRoles, {
-        membershipId: "om_fixture",
+        membershipId: "om_target_fixture",
         primaryRoleSlug: "broker",
         roleSlugs: ["broker", "builder"],
       })
@@ -416,7 +626,7 @@ describe("WorkOS management actions", () => {
 
     await expect(
       t.action(api.workosManagement.removeMembership, {
-        membershipId: "om_fixture",
+        membershipId: "om_target_fixture",
       })
     ).resolves.toMatchObject({
       adapter: "fake",
@@ -424,13 +634,19 @@ describe("WorkOS management actions", () => {
       status: "accepted",
     });
 
-    await expect(
-      t.query(api.workosProjection.listUserManagement, {})
-    ).resolves.toMatchObject({
-      memberships: [],
-      organizations: [],
-      users: [],
-    });
+    const projections = await t.query(
+      api.workosProjection.listUserManagement,
+      {},
+    );
+    expect(projections.memberships).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          roleSlugs: ["broker"],
+          status: "active",
+          workosMembershipId: "om_target_fixture",
+        }),
+      ]),
+    );
   });
 
   test("admin can backfill WorkOS projections when webhooks missed existing records", async () => {
@@ -620,6 +836,297 @@ describe("WorkOS management actions", () => {
       await expect(invoke(t)).rejects.toThrow(/Forbidden/);
     },
   );
+
+  test("keeps platform WorkOS management scoped and protects the active Principal Broker", async () => {
+    const admin = lenderAdminTest();
+    await seedScopedWorkosProjectionState(admin);
+
+    await expect(
+      admin.action(api.workosManagement.inviteUser, {
+        email: "builder@example.com",
+        organizationId: "org_fixture",
+        roleSlug: "builder",
+      }),
+    ).resolves.toMatchObject({ status: "accepted" });
+
+    await expect(
+      admin.action(api.workosManagement.updateMembershipRole, {
+        membershipId: "om_principal_fixture",
+        roleSlug: "broker",
+      }),
+    ).resolves.toMatchObject({
+      membershipId: "om_principal_fixture",
+      reason: "principal-broker-transfer-required",
+      status: "transfer-required",
+      sync: "not-started",
+    });
+    await expect(
+      admin.action(api.workosManagement.deactivateMembership, {
+        membershipId: "om_principal_fixture",
+        reason: "Owner departed.",
+      }),
+    ).resolves.toMatchObject({
+      membershipId: "om_principal_fixture",
+      reason: "principal-broker-transfer-required",
+      status: "transfer-required",
+    });
+    await expect(
+      admin.action(api.workosManagement.updateMembershipRole, {
+        membershipId: "om_target_fixture",
+        roleSlug: "principle-broker",
+      }),
+    ).resolves.toMatchObject({
+      membershipId: "om_target_fixture",
+      reason: "principal-broker-transfer-required",
+      status: "transfer-required",
+    });
+    await expect(
+      admin.action(api.workosManagement.transferPrincipalBroker, {
+        idempotencyKey: "reject-builder-target",
+        reason: "This target is not a lender organization member.",
+        sourceMembershipId: "om_principal_fixture",
+        targetMembershipId: "om_builder_fixture",
+      }),
+    ).rejects.toThrow(/lender organization member/i);
+
+    const principalProjection = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_workos_membership_id", (q: any) =>
+          q.eq("workosMembershipId", "om_principal_fixture"),
+        )
+        .unique(),
+    );
+    expect(principalProjection).toMatchObject({
+      roleSlugs: ["principle-broker"],
+      status: "active",
+    });
+  });
+
+  test("transfers Principal Broker control idempotently without optimistic projection writes", async () => {
+    configureFakePrincipalBrokerTransferFailureForTest(null);
+    const t = principalBrokerTest();
+    await seedScopedWorkosProjectionState(t);
+
+    const args = {
+      idempotencyKey: "transfer-2026-08-14-001",
+      reason: "Transfer ownership to the designated successor.",
+      sourceMembershipId: "om_principal_fixture",
+      targetMembershipId: "om_target_fixture",
+    };
+    const first = await t.action(
+      api.workosManagement.transferPrincipalBroker,
+      args,
+    );
+    expect(first).toMatchObject({
+      operation: "transferPrincipalBroker",
+      sourceMembershipId: "om_principal_fixture",
+      status: "accepted",
+      sync: "waiting-for-webhook",
+      targetMembershipId: "om_target_fixture",
+    });
+    const repeated = await t.action(
+      api.workosManagement.transferPrincipalBroker,
+      args,
+    );
+    expect(repeated).toMatchObject({
+      commandId: first.commandId,
+      status: "accepted",
+    });
+    await expect(
+      t.action(api.workosManagement.transferPrincipalBroker, {
+        ...args,
+        idempotencyKey: "competing-before-reconciliation",
+      }),
+    ).resolves.toMatchObject({
+      commandId: first.commandId,
+      idempotencyKey: args.idempotencyKey,
+      status: "transfer-in-progress",
+      sync: "not-started",
+    });
+
+    const state = await t.run(async (ctx: any) => ({
+      audits: await ctx.db
+        .query("auditEvents")
+        .withIndex("by_organizationId_and_reconciliationKey", (q: any) =>
+          q
+            .eq("organizationId", "org_fixture")
+            .eq(
+              "reconciliationKey",
+              `principal-broker-transfer:${args.idempotencyKey}:accepted`,
+            ),
+        )
+        .collect(),
+      commands: await ctx.db
+        .query("workosManagementOperations")
+        .withIndex("by_organization_idempotency", (q: any) =>
+          q
+            .eq("organizationId", "org_fixture")
+            .eq("idempotencyKey", args.idempotencyKey),
+        )
+        .collect(),
+      memberships: await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_organization", (q: any) =>
+          q.eq("workosOrganizationId", "org_fixture"),
+        )
+        .collect(),
+    }));
+    expect(state.commands).toEqual([
+      expect.objectContaining({
+        reason: args.reason,
+        sourceMembershipId: "om_principal_fixture",
+        status: "accepted",
+        targetMembershipId: "om_target_fixture",
+      }),
+    ]);
+    expect(state.audits).toEqual([
+      expect.objectContaining({
+        actorRole: "principle-broker",
+        actorWorkosUserId: "user_principal",
+        eventType: "workos.principal-broker-transfer.accepted",
+        reason: args.reason,
+        warnings: ["pending_workos_projection_reconciliation"],
+      }),
+    ]);
+    expect(
+      state.memberships.find(
+        (membership: any) =>
+          membership.workosMembershipId === "om_principal_fixture",
+      ),
+    ).toMatchObject({ roleSlugs: ["principle-broker"], status: "active" });
+    expect(
+      state.memberships.find(
+        (membership: any) =>
+          membership.workosMembershipId === "om_target_fixture",
+      ),
+    ).toMatchObject({ roleSlugs: ["broker"], status: "active" });
+
+    await projectWorkosFixture(
+      t,
+      "organization_membership.updated",
+      "reconcile_transfer_target",
+      {
+        created_at: fixtureTime,
+        directory_managed: false,
+        id: "om_target_fixture",
+        organization_id: "org_fixture",
+        role: { slug: "principle-broker" },
+        roles: [{ slug: "principle-broker" }, { slug: "broker" }],
+        status: "active",
+        updated_at: fixtureTime,
+        user_id: "user_target",
+      },
+    );
+    await projectWorkosFixture(
+      t,
+      "organization_membership.updated",
+      "reconcile_transfer_source",
+      {
+        created_at: fixtureTime,
+        directory_managed: false,
+        id: "om_principal_fixture",
+        organization_id: "org_fixture",
+        role: { slug: "admin" },
+        roles: [{ slug: "admin" }],
+        status: "active",
+        updated_at: fixtureTime,
+        user_id: "user_principal",
+      },
+    );
+    const reconciledPrincipals = await t.run(async (ctx: any) => {
+      const memberships = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_organization", (q: any) =>
+          q.eq("workosOrganizationId", "org_fixture"),
+        )
+        .collect();
+      return memberships.filter(
+        (membership: any) =>
+          membership.status === "active" &&
+          membership.roleSlugs.includes("principle-broker"),
+      );
+    });
+    expect(reconciledPrincipals).toEqual([
+      expect.objectContaining({
+        workosMembershipId: "om_target_fixture",
+      }),
+    ]);
+  });
+
+  test("recovers a partial Principal Broker transfer and blocks competing commands", async () => {
+    const t = principalBrokerTest();
+    await seedScopedWorkosProjectionState(t);
+    const args = {
+      idempotencyKey: "transfer-partial-source-failure",
+      reason: "Exercise the recoverable external failure path.",
+      sourceMembershipId: "om_principal_fixture",
+      targetMembershipId: "om_target_fixture",
+    };
+    configureFakePrincipalBrokerTransferFailureForTest("source-demotion");
+    await expect(
+      t.action(api.workosManagement.transferPrincipalBroker, args),
+    ).resolves.toMatchObject({
+      recovery: "retry-same-command",
+      stage: "source-demotion",
+      status: "recoverable-failure",
+      sync: "waiting-for-webhook",
+    });
+    await expect(
+      t.action(api.workosManagement.transferPrincipalBroker, {
+        ...args,
+        idempotencyKey: "competing-transfer",
+      }),
+    ).resolves.toMatchObject({
+      idempotencyKey: args.idempotencyKey,
+      status: "transfer-in-progress",
+    });
+
+    configureFakePrincipalBrokerTransferFailureForTest(null);
+    await expect(
+      t.action(api.workosManagement.transferPrincipalBroker, args),
+    ).resolves.toMatchObject({
+      status: "accepted",
+      sync: "waiting-for-webhook",
+    });
+    const command = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("workosManagementOperations")
+        .withIndex("by_organization_idempotency", (q: any) =>
+          q
+            .eq("organizationId", "org_fixture")
+            .eq("idempotencyKey", args.idempotencyKey),
+        )
+        .unique(),
+    );
+    expect(command).toMatchObject({ status: "accepted" });
+    expect(command.failureStage).toBeUndefined();
+    expect(command.safeError).toBeUndefined();
+  });
+
+  test("retries from a target-promotion rejection without reporting false success", async () => {
+    const t = principalBrokerTest();
+    await seedScopedWorkosProjectionState(t);
+    const args = {
+      idempotencyKey: "transfer-target-failure",
+      reason: "Exercise the initial WorkOS rejection path.",
+      sourceMembershipId: "om_principal_fixture",
+      targetMembershipId: "om_target_fixture",
+    };
+    configureFakePrincipalBrokerTransferFailureForTest("target-promotion");
+    await expect(
+      t.action(api.workosManagement.transferPrincipalBroker, args),
+    ).resolves.toMatchObject({
+      recovery: "retry-same-command",
+      stage: "target-promotion",
+      status: "recoverable-failure",
+      sync: "not-started",
+    });
+    configureFakePrincipalBrokerTransferFailureForTest(null);
+    await expect(
+      t.action(api.workosManagement.transferPrincipalBroker, args),
+    ).resolves.toMatchObject({ status: "accepted" });
+  });
 
   test("requires user-management write capability for WorkOS-owned writes", async () => {
     const t = convexTest(schema, modules).withIdentity({

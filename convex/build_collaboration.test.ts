@@ -4759,13 +4759,14 @@ describe("Build collaboration canonical reference authorization", () => {
 
     const systemArgs = {
       buildId: fixture.buildId,
-      idempotencyKey: "reference-idempotency-1",
+      idempotencyKey: `milestone-system:${fixture.buildId}:${entities.milestoneId}`,
       organizationId: ORGANIZATION_ID,
       plainText: "Milestone changed.",
       postType: "update",
       primaryReferenceId: entities.milestoneId,
       primaryReferenceKind: "milestone",
       systemLabel: "DrawFlow",
+      systemPostKind: "milestone" as const,
     };
     const firstSystemPostId = await fixture.base.mutation(
       (internal as any).build_collaboration_system_events

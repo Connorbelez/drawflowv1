@@ -12,6 +12,44 @@ _Avoid_: Tenant-wide user access
 A Build Participant representing a property owner for that Build, distinct from Builder ownership or staff membership. The same person may hold both Homeowner and Builder capacities, but each capacity grants its own permissions.
 _Avoid_: Builder alias, unauthenticated guest
 
+## Identity and Lender Organizations
+
+**WorkOS Organization**:
+The external identity boundary that owns a user's organization membership, WorkOS roles, and organization-wide access. In DrawFlow, one WorkOS Organization backs one Brokerage; it is not a Lender Organization.
+_Avoid_: Lender Organization, lender group
+
+**Brokerage**:
+The DrawFlow tenant represented by one WorkOS Organization. Brokerage-wide membership and authority come from WorkOS, while one Brokerage may contain multiple application-level Lender Organizations.
+_Avoid_: Lender Organization, lender team
+
+**Lender**:
+A WorkOS user carrying the literal `lender` role in a Brokerage. The role identifies the lender persona and grants access to lender workflows, but does not assign a Lender Organization or grant Brokerage administration.
+_Avoid_: Lender Organization member, Brokerage administrator
+
+**Brokerage Administrator**:
+A WorkOS user carrying the `admin` role in a Brokerage. A user may be both a Brokerage Administrator and a Lender when the user carries both WorkOS roles; those authorities remain separate.
+_Avoid_: Lender administrator, lender manager
+
+**Lender Organization**:
+An application-level group of registered Lenders within one Brokerage. It provides the product boundary for lender-specific assignments and permissions and is never provisioned or represented as a WorkOS Organization.
+_Avoid_: WorkOS Organization, lender tenant
+
+**Lender Organization Membership**:
+The application-level relationship between one Lender and one Lender Organization within that Lender's Brokerage. A Lender has at most one active Lender Organization Membership per Brokerage; a Lender without one is unassigned.
+_Avoid_: WorkOS membership, Brokerage membership
+
+**Registered Lender**:
+A Lender with an active Lender Organization Membership. Registration determines the lender's application-level group, not the user's Brokerage-wide WorkOS authority.
+_Avoid_: WorkOS Organization member, Brokerage administrator
+
+**Unassigned Lender**:
+A Lender with no active Lender Organization Membership in the current Brokerage. The user remains a recognized WorkOS lender but has no Lender Organization-specific scope.
+_Avoid_: Missing WorkOS user, inactive lender
+
+**Lender Organization Permission**:
+Application-level authority scoped to one Lender Organization. It may distinguish one registered Lender from another within that group but cannot grant or change Brokerage-wide WorkOS authority.
+_Avoid_: WorkOS role, Brokerage permission
+
 ## Cost Evidence
 
 **Costs Workspace**:

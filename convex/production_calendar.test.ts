@@ -395,8 +395,19 @@ describe("production calendar workspace", () => {
       reason: "Calendar proposal approved.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
+    await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `calendar-workspace-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the calendar workspace fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.recordProposalClosing,
       {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
@@ -407,7 +418,15 @@ describe("production calendar workspace", () => {
         proposalId,
         reason: "Closed for calendar workspace.",
         workosOrganizationId: ORG,
-      }
+      },
+    );
+    const closing = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Closed for calendar workspace.",
+        workosOrganizationId: ORG,
+      },
     );
 
     await t.mutation(
@@ -545,8 +564,19 @@ describe("production calendar workspace", () => {
       reason: "Approve before non-financial edit test.",
       workosOrganizationId: ORG,
     });
-    const closing = await t.mutation(
-      (api as any).production_proposals.recordOfflineClosing,
+    await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: null,
+        expectedProposalRevisionNumber: 1,
+        idempotencyKey: `calendar-metadata-lock:${String(proposalId)}`,
+        proposalId,
+        reason: "Lock the calendar metadata fixture policy.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.recordProposalClosing,
       {
         buildStartDate: "2026-08-01",
         ianaTimezone: "America/Toronto",
@@ -557,7 +587,15 @@ describe("production calendar workspace", () => {
         proposalId,
         reason: "Closed before metadata correction.",
         workosOrganizationId: ORG,
-      }
+      },
+    );
+    const closing = await t.mutation(
+      (api as any).production_proposals.activateClosedProposal,
+      {
+        proposalId,
+        reason: "Closed before metadata correction.",
+        workosOrganizationId: ORG,
+      },
     );
 
     await t.mutation(

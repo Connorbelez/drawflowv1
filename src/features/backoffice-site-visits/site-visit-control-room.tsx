@@ -2,10 +2,8 @@
 
 import { Link } from "@tanstack/react-router";
 import {
-  AlertTriangle,
   Building2,
   CalendarDays,
-  CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock3,
@@ -15,12 +13,9 @@ import {
   MapPin,
   Search,
   Timer,
-  XCircle,
 } from "lucide-react";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
 
-import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardContent } from "#/components/ui/card.tsx";
@@ -30,15 +25,6 @@ import {
   CollapsibleTrigger,
 } from "#/components/ui/collapsible.tsx";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "#/components/ui/dialog.tsx";
-import {
   Empty,
   EmptyDescription,
   EmptyMedia,
@@ -46,15 +32,6 @@ import {
 } from "#/components/ui/empty.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
-import { Label } from "#/components/ui/label.tsx";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetPanel,
-  SheetTitle,
-} from "#/components/ui/sheet.tsx";
 import {
   Table,
   TableBody,
@@ -63,13 +40,15 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
-import { Textarea } from "#/components/ui/textarea.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
 import { richTextHtmlToPlainText } from "#/lib/rich-text-html.ts";
 import { cn } from "#/lib/utils.ts";
-
 import {
-  absoluteSiteVisitUrl,
+  copySiteVisitLink,
+  SiteVisitCancellationDialog,
+  SiteVisitDetailSheet,
+} from "./SiteVisitDetailPanel.tsx";
+import {
   formatTokenCountdown,
   operationalStatusBadgeVariant,
   operationalStatusLabel,
@@ -159,8 +138,6 @@ export function SiteVisitControlRoom({
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] =
     useState<BrokerageSiteVisitRow | null>(null);
-  const [cancelReason, setCancelReason] = useState("");
-  const [cancelPending, setCancelPending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -192,36 +169,7 @@ export function SiteVisitControlRoom({
   const summary = data?.summary;
 
   async function handleCopyLink(visit: BrokerageSiteVisitRow) {
-    try {
-      await navigator.clipboard.writeText(absoluteSiteVisitUrl(visit.url));
-      toast.success("Site visit link copied");
-    } catch {
-      toast.error("Could not copy link");
-    }
-  }
-
-  async function handleCancel() {
-    if (!cancelTarget || cancelReason.trim().length < 3) {
-      return;
-    }
-    setCancelPending(true);
-    try {
-      await onCancelVisit({
-        buildId: String(cancelTarget.buildId),
-        reason: cancelReason.trim(),
-        visitId: cancelTarget.visitId,
-      });
-      toast.success("Site visit cancelled");
-      setCancelTarget(null);
-      setCancelReason("");
-      if (selectedVisitId === cancelTarget.visitId) {
-        setSelectedVisitId(null);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Cancel failed");
-    } finally {
-      setCancelPending(false);
-    }
+    await copySiteVisitLink(visit);
   }
 
   if (pending && !data) {
@@ -322,11 +270,10 @@ export function SiteVisitControlRoom({
         </FramePanel>
       </Frame>
 
-      <VisitDetailSheet
+      <SiteVisitDetailSheet
         now={now}
         onCancel={(visit) => {
           setCancelTarget(visit);
-          setCancelReason("");
         }}
         onClose={() => setSelectedVisitId(null)}
         onCopyLink={handleCopyLink}
@@ -334,51 +281,20 @@ export function SiteVisitControlRoom({
         visit={selectedVisit}
       />
 
-      <Dialog
+      <SiteVisitCancellationDialog
+        onCancelVisit={async (input) => {
+          await onCancelVisit(input);
+          if (selectedVisitId === input.visitId) {
+            setSelectedVisitId(null);
+          }
+        }}
         onOpenChange={(open) => {
           if (!open) {
             setCancelTarget(null);
-            setCancelReason("");
           }
         }}
-        open={cancelTarget !== null}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancel site visit</DialogTitle>
-            <DialogDescription>
-              Cancelling is audited. Provide a reason brokers can defend in the
-              audit trail.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="cancel-reason">Reason</Label>
-            <Textarea
-              id="cancel-reason"
-              onChange={(event) => setCancelReason(event.target.value)}
-              placeholder="Why is this visit being cancelled?"
-              rows={3}
-              value={cancelReason}
-            />
-          </div>
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>
-              Keep visit
-            </DialogClose>
-            <Button
-              disabled={cancelReason.trim().length < 3 || cancelPending}
-              onClick={handleCancel}
-              variant="destructive"
-            >
-              {cancelPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                "Cancel visit"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        visit={cancelTarget}
+      />
     </div>
   );
 }
@@ -558,7 +474,9 @@ function VisitRowCard({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <p className="font-medium">{visit.milestoneName}</p>
-            <p className="text-muted-foreground text-xs">{visit.milestoneKey}</p>
+            <p className="text-muted-foreground text-xs">
+              {visit.milestoneKey}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge
@@ -701,153 +619,5 @@ function VisitsTable({
         </TableBody>
       </Table>
     </div>
-  );
-}
-
-function VisitDetailSheet({
-  now,
-  onCancel,
-  onClose,
-  onCopyLink,
-  open,
-  visit,
-}: {
-  now: number;
-  onCancel: (visit: BrokerageSiteVisitRow) => void;
-  onClose: () => void;
-  onCopyLink: (visit: BrokerageSiteVisitRow) => Promise<void>;
-  open: boolean;
-  visit: BrokerageSiteVisitRow | null;
-}) {
-  if (!visit) {
-    return null;
-  }
-
-  const msRemaining = Math.max(0, visit.tokenExpiresAt - now);
-  const canCancel =
-    visit.operationalStatus === "open" ||
-    visit.operationalStatus === "in_field" ||
-    visit.operationalStatus === "expired";
-
-  return (
-    <Sheet onOpenChange={(next) => !next && onClose()} open={open}>
-      <SheetContent className="w-full sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>{visit.milestoneName}</SheetTitle>
-          <SheetDescription>
-            {visit.buildName} · {visit.buildDisplayId}
-          </SheetDescription>
-        </SheetHeader>
-        <SheetPanel className="flex flex-col gap-4">
-          <div className="flex flex-wrap gap-2">
-            <Badge
-              variant={operationalStatusBadgeVariant(visit.operationalStatus)}
-            >
-              {operationalStatusLabel(visit.operationalStatus)}
-            </Badge>
-            <Badge variant="outline">{tokenStateLabel(visit.tokenState)}</Badge>
-            {visit.geofenceFlagged ? (
-              <Badge variant="warning">
-                <AlertTriangle className="size-3" />
-                Location unverified evidence
-              </Badge>
-            ) : null}
-          </div>
-
-          <dl className="grid gap-3 text-sm">
-            <div>
-              <dt className="text-muted-foreground">Builder</dt>
-              <dd>{visit.builderName}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Site</dt>
-              <dd>{visit.location || "No address on file"}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Scheduled</dt>
-              <dd>{visit.scheduledDateLabel}</dd>
-            </div>
-            {(visit.operationalStatus === "open" ||
-              visit.operationalStatus === "in_field") && (
-              <div>
-                <dt className="text-muted-foreground">Token expires in</dt>
-                <dd className="font-medium tabular-nums">
-                  {formatTokenCountdown(msRemaining)}
-                </dd>
-              </div>
-            )}
-            {visit.note ? (
-              <div>
-                <dt className="text-muted-foreground">Request note</dt>
-                <dd>{visit.note}</dd>
-              </div>
-            ) : null}
-            {visit.recordNote ? (
-              <div>
-                <dt className="text-muted-foreground">Field report</dt>
-                <dd>
-                  {visit.recordNoteFormat === "html" ? (
-                    <FieldRichTextPreview
-                      ariaLabel="Field report"
-                      className="mt-1"
-                      value={visit.recordNote}
-                    />
-                  ) : (
-                    visit.recordNote
-                  )}
-                </dd>
-              </div>
-            ) : null}
-            {visit.recommendedOutcome ? (
-              <div>
-                <dt className="text-muted-foreground">Recommended outcome</dt>
-                <dd className="capitalize">{visit.recommendedOutcome}</dd>
-              </div>
-            ) : null}
-            {visit.completedAt ? (
-              <div>
-                <dt className="text-muted-foreground">Completed</dt>
-                <dd>{new Date(visit.completedAt).toLocaleString()}</dd>
-              </div>
-            ) : null}
-          </dl>
-
-          <div className="flex flex-col gap-2">
-            <Button onClick={() => onCopyLink(visit)} variant="outline">
-              <Copy className="size-4" />
-              Copy field link
-            </Button>
-            <Button
-              render={
-                <Link
-                  params={{ buildId: String(visit.buildId) }}
-                  search={{ milestone: visit.milestoneKey }}
-                  to="/backoffice/builds/$buildId"
-                />
-              }
-            >
-              Open build workspace
-              <ExternalLink className="size-4" />
-            </Button>
-            {canCancel ? (
-              <Button onClick={() => onCancel(visit)} variant="destructive">
-                <XCircle className="size-4" />
-                Cancel visit
-              </Button>
-            ) : null}
-          </div>
-
-          {visit.operationalStatus === "complete" ? (
-            <div className="flex items-start gap-2 rounded-lg border border-success/30 bg-success/10 p-3 text-sm">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-              <p>
-                This visit is complete. Milestone decisions and draw release
-                stay in the build workspace.
-              </p>
-            </div>
-          ) : null}
-        </SheetPanel>
-      </SheetContent>
-    </Sheet>
   );
 }

@@ -71,6 +71,10 @@ const capabilitiesValidator = v.object({
     recommend: capabilityValidator,
     requestChanges: capabilityValidator,
   }),
+  siteVisit: v.object({
+    cancel: capabilityValidator,
+    order: capabilityValidator,
+  }),
 });
 
 const bootstrapVisibleValidator = v.object({
@@ -89,7 +93,7 @@ const bootstrapVisibleValidator = v.object({
       currentRevision: v.number(),
       originatingPostId: v.id("buildCollaborationPosts"),
       requestedActionItemId: v.optional(v.id("buildActionItems")),
-    }),
+    })
   ),
   collaboration: v.object({
     code: v.optional(v.string()),
@@ -99,7 +103,7 @@ const bootstrapVisibleValidator = v.object({
   evidence: v.object({
     evidencePackageRevision: v.optional(v.number()),
     evidencePackageStatus: v.optional(
-      v.union(v.literal("draft"), v.literal("frozen")),
+      v.union(v.literal("draft"), v.literal("frozen"))
     ),
     evidenceReviewState: v.string(),
     itemCount: v.number(),
@@ -112,18 +116,19 @@ const bootstrapVisibleValidator = v.object({
           v.literal("photo"),
           v.literal("document"),
           v.literal("site_visit"),
-          v.literal("any"),
+          v.literal("any")
         ),
         label: v.string(),
         locationRequired: v.boolean(),
         required: v.boolean(),
         requirementKey: v.string(),
         status: v.string(),
-      }),
+      })
     ),
   }),
   execution: v.object({
     actualCostCents: v.optional(v.number()),
+    actualCompletedAt: v.optional(v.number()),
     actualStartedAt: v.optional(v.number()),
     completionForecastDate: v.optional(v.string()),
     fieldNote: v.optional(v.string()),
@@ -131,6 +136,7 @@ const bootstrapVisibleValidator = v.object({
   }),
   milestone: v.object({
     buildMilestoneId: v.id("buildMilestones"),
+    drawAvailabilityCents: v.number(),
     key: v.string(),
     name: v.string(),
     planningState: v.string(),
@@ -138,6 +144,7 @@ const bootstrapVisibleValidator = v.object({
   }),
   overview: v.object({
     actualCostCents: v.optional(v.number()),
+    actualCompletedAt: v.optional(v.number()),
     actualStartedAt: v.optional(v.number()),
     budgetCents: v.optional(v.number()),
     executionOwnership: v.object({
@@ -162,7 +169,7 @@ const bootstrapVisibleValidator = v.object({
         city: v.optional(v.string()),
         defaultPayRateCents: v.optional(v.number()),
         defaultPayRateUnit: v.optional(
-          v.union(v.literal("hour"), v.literal("day"), v.literal("fixed")),
+          v.union(v.literal("hour"), v.literal("day"), v.literal("fixed"))
         ),
         email: v.optional(v.string()),
         name: v.string(),
@@ -170,11 +177,11 @@ const bootstrapVisibleValidator = v.object({
           v.union(
             v.literal("profile_only"),
             v.literal("invited"),
-            v.literal("account_linked"),
-          ),
+            v.literal("account_linked")
+          )
         ),
         trades: v.array(v.string()),
-      }),
+      })
     ),
     historyCount: v.number(),
     historyPartial: v.boolean(),
@@ -186,7 +193,7 @@ const bootstrapVisibleValidator = v.object({
         role: buildCollaborationRoleValidator,
         source: v.union(v.literal("derived"), v.literal("grant")),
         workosUserId: v.optional(v.string()),
-      }),
+      })
     ),
     participantsPartial: v.boolean(),
     participantCount: v.number(),
@@ -246,7 +253,7 @@ const bootstrapValidator = v.union(
     message: v.string(),
     state: v.literal("integrity_error"),
   }),
-  bootstrapVisibleValidator,
+  bootstrapVisibleValidator
 );
 
 const workspaceCollectionValidator = v.union(
@@ -261,7 +268,7 @@ const workspaceCollectionValidator = v.union(
   v.literal("collaboration_checklist"),
   v.literal("collaboration_children"),
   v.literal("collaboration_relations"),
-  v.literal("review_decisions"),
+  v.literal("review_decisions")
 );
 
 const workspaceCollectionRowValidator = v.object({
@@ -323,7 +330,7 @@ const workspaceCollectionResultValidator = v.union(
     page: v.array(workspaceCollectionRowValidator),
     partial: v.boolean(),
     state: v.union(v.literal("visible"), v.literal("superseded")),
-  }),
+  })
 );
 
 type WorkspaceContext = {
@@ -409,7 +416,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
   .handler(async (ctx, args) => {
     const resolved = await resolveCanonicalBuildSubmilestoneWorkspaceContext(
       ctx,
-      args,
+      args
     );
     if (resolved.state !== "visible") {
       return resolved;
@@ -482,7 +489,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
       ctx.db
         .query("buildSubmilestoneEvidenceRequirements")
         .withIndex("by_submilestone", (query) =>
-          query.eq("buildSubmilestoneId", submilestone._id).eq("active", true),
+          query.eq("buildSubmilestoneId", submilestone._id).eq("active", true)
         )
         .take(MAX_BOOTSTRAP_ROWS + 1),
       submilestone.evidencePackageRevisionId
@@ -494,15 +501,15 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
             .withIndex("by_package_revision", (query) =>
               query.eq(
                 "packageRevisionId",
-                submilestone.evidencePackageRevisionId!,
-              ),
+                submilestone.evidencePackageRevisionId!
+              )
             )
             .take(MAX_BOOTSTRAP_ROWS + 1)
         : [],
       ctx.db
         .query("buildSubmilestones")
         .withIndex("by_milestone", (query) =>
-          query.eq("buildMilestoneId", milestone._id),
+          query.eq("buildMilestoneId", milestone._id)
         )
         .take(MAX_BOOTSTRAP_ROWS + 1),
       submilestone.siteVisitRequirementId
@@ -515,7 +522,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
           query
             .eq("buildId", authorization.build._id)
             .eq("milestoneKey", milestone.key)
-            .eq("submilestoneKey", submilestone.key),
+            .eq("submilestoneKey", submilestone.key)
         )
         .take(MAX_BOOTSTRAP_ROWS + 1),
       ctx.db
@@ -523,7 +530,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
         .withIndex("by_build_milestone", (query) =>
           query
             .eq("buildId", authorization.build._id)
-            .eq("milestoneKey", milestone.key),
+            .eq("milestoneKey", milestone.key)
         )
         .take(MAX_BOOTSTRAP_ROWS * 5 + 1),
       loadCanonicalPeopleHistoryEvents(ctx, {
@@ -535,13 +542,13 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
         ? ctx.db
             .query("contractorProfiles")
             .withIndex("by_brokerage", (query) =>
-              query.eq("brokerageId", authorization.brokerage._id),
+              query.eq("brokerageId", authorization.brokerage._id)
             )
             // The profile table is brokerage-scoped, but the same brokerage
             // can serve multiple WorkOS organizations. Keep this bounded and
             // apply the organization/status checks below before exposing rows.
             .take(MAX_BOOTSTRAP_ROWS * 5 + 1)
-      : Promise.resolve([]),
+        : Promise.resolve([]),
     ]);
     const peopleHistoryEvents = peopleHistoryResult.events;
     const materialsPartial = materialRows.length > MAX_BOOTSTRAP_ROWS * 5;
@@ -550,11 +557,11 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
         candidate.buildId === authorization.build._id &&
         candidate.organizationId === authorization.organizationId &&
         candidate.brokerageId === authorization.brokerage._id &&
-        candidate.planningState !== "superseded",
+        candidate.planningState !== "superseded"
     );
     const boundedSiblings = scopedSiblings.slice(0, MAX_BOOTSTRAP_ROWS);
     const approvedChildCount = boundedSiblings.filter(
-      (candidate) => candidate.reviewDecisionState === "approved",
+      (candidate) => candidate.reviewDecisionState === "approved"
     ).length;
     const partial = siblings.length > MAX_BOOTSTRAP_ROWS;
     const scopeError = validateBootstrapProjectionScope({
@@ -598,12 +605,12 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
         (candidate) =>
           candidate.organizationId === authorization.organizationId &&
           candidate.brokerageId === authorization.brokerage._id &&
-          candidate.status === "active",
+          candidate.status === "active"
       )
       .sort(
         (left, right) =>
           left.name.localeCompare(right.name) ||
-          String(left._id).localeCompare(String(right._id)),
+          String(left._id).localeCompare(String(right._id))
       )
       .slice(0, MAX_BOOTSTRAP_ROWS)
       .map((candidate) => ({
@@ -680,6 +687,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
       },
       execution: {
         actualCostCents: submilestone.actualCostCents,
+        actualCompletedAt: submilestone.completedAt,
         actualStartedAt: submilestone.actualStartedAt,
         completionForecastDate: submilestone.completionForecastDate,
         fieldNote: submilestone.fieldNote,
@@ -687,6 +695,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
       },
       milestone: {
         buildMilestoneId: milestone._id,
+        drawAvailabilityCents: milestone.drawAvailabilityCents,
         key: milestone.key,
         name: milestone.name,
         planningState: milestone.planningState ?? "active",
@@ -694,6 +703,7 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
       },
       overview: {
         actualCostCents: submilestone.actualCostCents,
+        actualCompletedAt: submilestone.completedAt,
         actualStartedAt: submilestone.actualStartedAt,
         budgetCents: submilestone.budgetCents,
         executionOwnership: {
@@ -734,13 +744,13 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
                 (row) =>
                   row.itemType === "equipment" &&
                   (row.budgetSubmilestoneKey === submilestone.key ||
-                    row.relevantSubmilestoneKeys.includes(submilestone.key)),
+                    row.relevantSubmilestoneKeys.includes(submilestone.key))
               ).length,
               materialCount: materialRows.filter(
                 (row) =>
                   row.itemType === "material" &&
                   (row.budgetSubmilestoneKey === submilestone.key ||
-                    row.relevantSubmilestoneKeys.includes(submilestone.key)),
+                    row.relevantSubmilestoneKeys.includes(submilestone.key))
               ).length,
               ...(canReadMaterialCosts
                 ? {
@@ -749,12 +759,12 @@ export const getBuildSubmilestoneWorkspaceBootstrap = authenticatedQuery
                         (row) =>
                           row.budgetSubmilestoneKey === submilestone.key ||
                           row.relevantSubmilestoneKeys.includes(
-                            submilestone.key,
-                          ),
+                            submilestone.key
+                          )
                       )
                       .reduce(
                         (sum, row) => sum + row.costCents * row.quantity,
-                        0,
+                        0
                       ),
                   }
                 : {}),
@@ -816,7 +826,9 @@ function buildCapabilities(input: {
   authorization: ActiveBuildAuthorization;
   collaboration: CollaborationState;
   evidencePackageStatus?: Doc<"buildSubmilestoneEvidencePackageRevisions">["status"];
-  evidenceReviewState: NonNullable<Doc<"buildSubmilestones">["evidenceReviewState"]>;
+  evidenceReviewState: NonNullable<
+    Doc<"buildSubmilestones">["evidenceReviewState"]
+  >;
   reviewDecisionState: NonNullable<
     Doc<"buildSubmilestones">["reviewDecisionState"]
   >;
@@ -881,7 +893,7 @@ function buildCapabilities(input: {
       role === "homeowner" ||
       lenderStaff);
   const structureCapability = (
-    operation: GeneratedMilestoneCompanionStructureOperation,
+    operation: GeneratedMilestoneCompanionStructureOperation
   ) => {
     const decision = authorizeGeneratedMilestoneCompanionStructureOperation({
       activeCompanion:
@@ -899,7 +911,7 @@ function buildCapabilities(input: {
         ? disabledReason
         : input.collaboration.state === "degraded"
           ? collaborationReason
-          : decision.reason ?? structureReason,
+          : (decision.reason ?? structureReason)
     );
   };
   const reason = input.superseded
@@ -913,7 +925,7 @@ function buildCapabilities(input: {
       ? (input.collaboration.message ??
         "Collaboration is temporarily degraded.")
       : reason;
-  const canUploadEvidence = canOperate;
+  const canUploadEvidence = canOperate || lenderAdmin || lenderStaff;
   const canPromoteEvidence =
     canOperate &&
     input.collaboration.state === "available" &&
@@ -925,13 +937,13 @@ function buildCapabilities(input: {
     input.siteVisitRequirement &&
       (!input.siteVisitRequirement.required ||
         input.siteVisitRequirement.status === "satisfied" ||
-        input.siteVisitRequirement.status === "waived"),
+        input.siteVisitRequirement.status === "waived")
   );
   const childApproved = input.reviewDecisionState === "approved";
   const requiredSiteVisitCanBeWaived = Boolean(
     childReviewActive &&
       input.siteVisitRequirement?.required &&
-      input.siteVisitRequirement.status === "required",
+      input.siteVisitRequirement.status === "required"
   );
   const childReviewReason = input.superseded
     ? disabledReason
@@ -948,6 +960,18 @@ function buildCapabilities(input: {
         : "Evaluate the current Site Visit requirement before child approval."
       : "Final child approval requires an In Review Sub-milestone.";
   const canAssign = fullStructure || lenderAdmin;
+  const canWriteSiteVisits =
+    !input.superseded &&
+    (role === "admin" ||
+      role === "principle-broker" ||
+      (role === "broker" &&
+        input.authorization.proposal.assignedBrokerWorkosUserId ===
+          input.authorization.viewer.subject));
+  const siteVisitWriteReason = input.superseded
+    ? disabledReason
+    : role === "broker"
+      ? "Only the assigned Broker can manage Site Visits for this Build."
+      : "Only an authorized lender role can manage Site Visits.";
   const plannedLifecycleReason =
     "Start the Sub-milestone before updating execution or evidence.";
   const completeLifecycleReason =
@@ -965,7 +989,7 @@ function buildCapabilities(input: {
           childReviewActive &&
           siteVisitGateEvaluated &&
           siteVisitGateSatisfied,
-        approveChildReason,
+        approveChildReason
       ),
       correctStart: allowed(
         canAmendStartedAt,
@@ -973,11 +997,11 @@ function buildCapabilities(input: {
           ? disabledReason
           : input.actualStartedAt === undefined
             ? "An actual start is required before correcting the start."
-            : updateReason,
+            : updateReason
       ),
       complete: allowed(
         canComplete,
-        input.superseded ? disabledReason : updateLifecycleReason,
+        input.superseded ? disabledReason : updateLifecycleReason
       ),
       retractChildApproval: allowed(
         !input.superseded && lenderAdmin && childApproved,
@@ -985,7 +1009,7 @@ function buildCapabilities(input: {
           ? disabledReason
           : childApproved
             ? reason
-            : "Only an approved child can be retracted.",
+            : "Only an approved child can be retracted."
       ),
       retractStart: allowed(
         canAmendStartedAt,
@@ -993,27 +1017,27 @@ function buildCapabilities(input: {
           ? disabledReason
           : input.actualStartedAt === undefined
             ? "An actual start is required before retracting the start."
-            : updateReason,
+            : updateReason
       ),
       reopen: allowed(
         canReopen,
-        input.superseded ? disabledReason : reopenReason,
+        input.superseded ? disabledReason : reopenReason
       ),
       start: allowed(
         !input.superseded && planned && input.startAuthority.allowed,
-        input.superseded ? disabledReason : startReason,
+        input.superseded ? disabledReason : startReason
       ),
       submitCompletion: allowed(
         !input.superseded && inProgress && completionAuthority,
-        input.superseded ? disabledReason : updateLifecycleReason,
+        input.superseded ? disabledReason : updateLifecycleReason
       ),
       updateEvidence: allowed(
         !input.superseded && inProgress && completionAuthority,
-        input.superseded ? disabledReason : updateLifecycleReason,
+        input.superseded ? disabledReason : updateLifecycleReason
       ),
       updateExecution: allowed(
         !input.superseded && inProgress && completionAuthority,
-        input.superseded ? disabledReason : updateLifecycleReason,
+        input.superseded ? disabledReason : updateLifecycleReason
       ),
       waiveSiteVisit: allowed(
         !input.superseded && lenderAdmin && requiredSiteVisitCanBeWaived,
@@ -1021,11 +1045,11 @@ function buildCapabilities(input: {
           ? disabledReason
           : requiredSiteVisitCanBeWaived
             ? reason
-            : "Only a required Site Visit in an active review can be waived.",
+            : "Only a required Site Visit in an active review can be waived."
       ),
       uploadEvidence: allowed(
         !input.superseded && canUploadEvidence,
-        input.superseded ? disabledReason : updateLifecycleReason,
+        input.superseded ? disabledReason : updateLifecycleReason
       ),
       promoteEvidence: allowed(
         !input.superseded && canPromoteEvidence,
@@ -1036,7 +1060,7 @@ function buildCapabilities(input: {
             : input.evidenceReviewState === "in_review" ||
                 input.evidenceReviewState === "approved"
               ? "Evidence is already in review or approved."
-              : updateLifecycleReason,
+              : updateLifecycleReason
       ),
       addAssignment: allowed(!input.superseded && canAssign, reason),
       removeAssignment: allowed(!input.superseded && canAssign, reason),
@@ -1046,12 +1070,12 @@ function buildCapabilities(input: {
     collaboration: {
       addAttachment: allowed(
         input.collaboration.state === "available" && canComment,
-        collaborationReason,
+        collaborationReason
       ),
       addChecklist: structureCapability("add_checklist"),
       comment: allowed(
         input.collaboration.state === "available" && canComment,
-        collaborationReason,
+        collaborationReason
       ),
       createChild: structureCapability("create_child"),
       linkRelation: structureCapability("link_relation"),
@@ -1062,12 +1086,16 @@ function buildCapabilities(input: {
     review: {
       recommend: allowed(
         !input.superseded && lenderStaff && childReviewActive,
-        childReviewReason,
+        childReviewReason
       ),
       requestChanges: allowed(
         !input.superseded && lenderStaff && childReviewActive,
-        childReviewReason,
+        childReviewReason
       ),
+    },
+    siteVisit: {
+      cancel: allowed(canWriteSiteVisits, siteVisitWriteReason),
+      order: allowed(canWriteSiteVisits, siteVisitWriteReason),
     },
   };
 }
@@ -1087,7 +1115,7 @@ export const getBuildSubmilestoneWorkspaceCollection = authenticatedQuery
   .handler(async (ctx, args) => {
     const resolved = await resolveCanonicalBuildSubmilestoneWorkspaceContext(
       ctx,
-      args,
+      args
     );
     if (resolved.state !== "visible") {
       return resolved;
@@ -1113,7 +1141,7 @@ export const getBuildSubmilestoneWorkspaceCollection = authenticatedQuery
       return rows;
     }
     const page = rows.rows.filter(
-      (row): row is WorkspaceCollectionRow => row !== null,
+      (row): row is WorkspaceCollectionRow => row !== null
     );
     return {
       canonicalWorkflowRevision: submilestone.workflowRevision ?? 0,
@@ -1150,7 +1178,7 @@ type WorkspaceCursorDecode =
 const WORKSPACE_CURSOR_VERSION = "ws1";
 
 function workspaceCursorMode(
-  collection: WorkspaceCollection,
+  collection: WorkspaceCollection
 ): "indexed" | "offset" | "history" {
   if (collection === "materials") {
     return "offset";
@@ -1164,7 +1192,7 @@ function workspaceCursorMode(
 function encodeWorkspaceCursor(
   collection: WorkspaceCollection,
   mode: "indexed" | "offset" | "history",
-  value: string,
+  value: string
 ) {
   return [
     WORKSPACE_CURSOR_VERSION,
@@ -1176,14 +1204,14 @@ function encodeWorkspaceCursor(
 
 function decodeWorkspaceCursor(
   collection: WorkspaceCollection,
-  cursor: string | null,
+  cursor: string | null
 ): WorkspaceCursorDecode {
   if (cursor === null) return null;
   const parts = cursor.split("|");
   if (parts.length !== 4 || parts[0] !== WORKSPACE_CURSOR_VERSION) {
     return integrityError(
       "INVALID_WORKSPACE_CURSOR",
-      "The workspace cursor is malformed or from an older contract.",
+      "The workspace cursor is malformed or from an older contract."
     );
   }
   const mode = parts[1];
@@ -1192,7 +1220,7 @@ function decodeWorkspaceCursor(
   if (cursorCollection !== collection || mode !== expectedMode) {
     return integrityError(
       "WORKSPACE_CURSOR_MISMATCH",
-      "The workspace cursor belongs to a different collection.",
+      "The workspace cursor belongs to a different collection."
     );
   }
   let value: string;
@@ -1201,21 +1229,21 @@ function decodeWorkspaceCursor(
   } catch {
     return integrityError(
       "INVALID_WORKSPACE_CURSOR",
-      "The workspace cursor value is malformed.",
+      "The workspace cursor value is malformed."
     );
   }
   if (expectedMode === "offset") {
     if (!/^(0|[1-9][0-9]*)$/.test(value)) {
       return integrityError(
         "INVALID_WORKSPACE_CURSOR",
-        "The offset workspace cursor is invalid.",
+        "The offset workspace cursor is invalid."
       );
     }
     const offset = Number(value);
     if (!Number.isSafeInteger(offset)) {
       return integrityError(
         "INVALID_WORKSPACE_CURSOR",
-        "The offset workspace cursor is out of range.",
+        "The offset workspace cursor is out of range."
       );
     }
     return { mode: "offset", offset };
@@ -1227,7 +1255,7 @@ function decodeWorkspaceCursor(
     } catch {
       return integrityError(
         "INVALID_WORKSPACE_CURSOR",
-        "The people history workspace cursor is malformed.",
+        "The people history workspace cursor is malformed."
       );
     }
     if (
@@ -1241,7 +1269,7 @@ function decodeWorkspaceCursor(
     ) {
       return integrityError(
         "INVALID_WORKSPACE_CURSOR",
-        "The people history workspace cursor is invalid.",
+        "The people history workspace cursor is invalid."
       );
     }
     return {
@@ -1253,7 +1281,7 @@ function decodeWorkspaceCursor(
   if (!value) {
     return integrityError(
       "INVALID_WORKSPACE_CURSOR",
-      "The indexed workspace cursor is empty.",
+      "The indexed workspace cursor is empty."
     );
   }
   return { mode: "indexed", cursor: value };
@@ -1305,7 +1333,7 @@ function validateBootstrapProjectionScope(input: {
     input.packageItems.some(
       (record) =>
         !inScope(record) ||
-        record.packageRevisionId !== input.packageRevision?._id,
+        record.packageRevisionId !== input.packageRevision?._id
     ) ||
     (input.proposalSubmilestone !== null &&
       (input.proposalSubmilestone.organizationId !==
@@ -1327,13 +1355,13 @@ function validateBootstrapProjectionScope(input: {
         record.buildMilestoneId !== input.milestone._id ||
         record.buildSubmilestoneId !== input.submilestone._id ||
         record.milestoneKey !== input.milestone.key ||
-        record.submilestoneKey !== input.submilestone.key,
+        record.submilestoneKey !== input.submilestone.key
     ) ||
     input.materialRows
       .filter(
         (record) =>
           record.budgetSubmilestoneKey === input.submilestone.key ||
-          record.relevantSubmilestoneKeys.includes(input.submilestone.key),
+          record.relevantSubmilestoneKeys.includes(input.submilestone.key)
       )
       .some(
         (record) =>
@@ -1346,12 +1374,12 @@ function validateBootstrapProjectionScope(input: {
           !(
             record.budgetSubmilestoneKey === input.submilestone.key ||
             record.relevantSubmilestoneKeys.includes(input.submilestone.key)
-          ),
+          )
       )
   ) {
     return integrityError(
       "CANONICAL_PROJECTION_SCOPE_INVALID",
-      "A canonical Sub-milestone projection is outside the authorized Build scope.",
+      "A canonical Sub-milestone projection is outside the authorized Build scope."
     );
   }
   return null;
@@ -1368,7 +1396,7 @@ async function loadWorkspaceCollectionRows(
     limit: number;
     milestone: Doc<"buildMilestones">;
     submilestone: Doc<"buildSubmilestones">;
-  },
+  }
 ): Promise<
   | { state: "integrity_error"; code: string; message: string }
   | {
@@ -1416,15 +1444,13 @@ async function loadWorkspaceCollectionRows(
   const indexedCursor =
     decodedCursor?.mode === "indexed" ? decodedCursor.cursor : null;
   const offset = decodedCursor?.mode === "offset" ? decodedCursor.offset : 0;
-  let historyCursor:
-    | { createdAt: number; id: string }
-    | undefined;
+  let historyCursor: { createdAt: number; id: string } | undefined;
   if (decodedCursor?.mode === "history") {
     const cursorId = ctx.db.normalizeId("auditEvents", decodedCursor.id);
     if (!cursorId) {
       return integrityError(
         "INVALID_WORKSPACE_CURSOR",
-        "The people history workspace cursor references an invalid audit event.",
+        "The people history workspace cursor references an invalid audit event."
       );
     }
     historyCursor = {
@@ -1448,13 +1474,13 @@ async function loadWorkspaceCollectionRows(
   ) {
     return integrityError(
       collaboration.code ?? "COLLABORATION_DEGRADED",
-      collaboration.message ?? "Collaboration companion is unavailable.",
+      collaboration.message ?? "Collaboration companion is unavailable."
     );
   }
   if (!companion && collection.startsWith("collaboration_")) {
     return integrityError(
       "COLLABORATION_COMPANION_MISSING",
-      "Collaboration data is unavailable for this canonical target.",
+      "Collaboration data is unavailable for this canonical target."
     );
   }
 
@@ -1462,7 +1488,7 @@ async function loadWorkspaceCollectionRows(
     const result = await ctx.db
       .query("buildSubmilestoneEvidenceRequirements")
       .withIndex("by_submilestone", (query) =>
-        query.eq("buildSubmilestoneId", submilestone._id).eq("active", true),
+        query.eq("buildSubmilestoneId", submilestone._id).eq("active", true)
       )
       .paginate({ cursor: indexedCursor, numItems: limit });
     applyIndexedPagination(result);
@@ -1472,12 +1498,12 @@ async function loadWorkspaceCollectionRows(
         (record) =>
           !canonicalScope(record) ||
           record.buildMilestoneId !== milestone._id ||
-          record.buildSubmilestoneId !== submilestone._id,
+          record.buildSubmilestoneId !== submilestone._id
       )
     ) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Evidence requirements are outside the authorized Sub-milestone scope.",
+        "Evidence requirements are outside the authorized Sub-milestone scope."
       );
     }
     rows = records.map((record) => ({
@@ -1501,7 +1527,7 @@ async function loadWorkspaceCollectionRows(
         query
           .eq("buildId", authorization.build._id)
           .eq("milestoneKey", milestone.key)
-          .eq("submilestoneKey", submilestone.key),
+          .eq("submilestoneKey", submilestone.key)
       )
       .order("desc")
       .paginate({ cursor: indexedCursor, numItems: limit });
@@ -1510,7 +1536,7 @@ async function loadWorkspaceCollectionRows(
     if (source.some((record) => !canonicalScope(record))) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Evidence assets are outside the authorized Sub-milestone scope.",
+        "Evidence assets are outside the authorized Sub-milestone scope."
       );
     }
     rows = source.map((record) => ({
@@ -1525,9 +1551,7 @@ async function loadWorkspaceCollectionRows(
       ...(record.sourceDiscussionPostId
         ? { sourceDiscussionPostId: record.sourceDiscussionPostId }
         : {}),
-      ...(record.source
-        ? { sourceKind: record.source }
-        : {}),
+      ...(record.source ? { sourceKind: record.source } : {}),
       title: record.label,
     }));
   } else if (collection === "people_assignments") {
@@ -1537,7 +1561,7 @@ async function loadWorkspaceCollectionRows(
         query
           .eq("buildId", authorization.build._id)
           .eq("milestoneKey", milestone.key)
-          .eq("submilestoneKey", submilestone.key),
+          .eq("submilestoneKey", submilestone.key)
       )
       .paginate({ cursor: indexedCursor, numItems: limit });
     applyIndexedPagination(result);
@@ -1547,12 +1571,12 @@ async function loadWorkspaceCollectionRows(
         (record) =>
           !canonicalScope(record) ||
           record.buildMilestoneId !== milestone._id ||
-          record.buildSubmilestoneId !== submilestone._id,
+          record.buildSubmilestoneId !== submilestone._id
       )
     ) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "People assignments are outside the authorized Sub-milestone scope.",
+        "People assignments are outside the authorized Sub-milestone scope."
       );
     }
     const canReadAssignmentCosts =
@@ -1563,7 +1587,7 @@ async function loadWorkspaceCollectionRows(
       authorization.effectiveRole.role !== "homeowner";
     const contractorProfiles = canReadPeopleIdentity
       ? await Promise.all(
-          records.map((record) => ctx.db.get(record.contractorId)),
+          records.map((record) => ctx.db.get(record.contractorId))
         )
       : records.map(() => null);
     rows = records.map((record, index) => ({
@@ -1600,16 +1624,17 @@ async function loadWorkspaceCollectionRows(
     const pageEvents = history.events.slice(0, limit);
     hasMore = pageEvents.length < history.events.length;
     const lastEvent = pageEvents.at(-1);
-    nextCursor = hasMore && lastEvent
-      ? encodeWorkspaceCursor(
-          collection,
-          "history",
-          JSON.stringify({
-            createdAt: lastEvent.createdAt,
-            id: String(lastEvent._id),
-          }),
-        )
-      : undefined;
+    nextCursor =
+      hasMore && lastEvent
+        ? encodeWorkspaceCursor(
+            collection,
+            "history",
+            JSON.stringify({
+              createdAt: lastEvent.createdAt,
+              id: String(lastEvent._id),
+            })
+          )
+        : undefined;
     partial = history.partial;
     const canReadPeopleIdentity = viewerCanReadPeopleIdentity(authorization);
     const contractorIds = pageEvents
@@ -1619,7 +1644,7 @@ async function loadWorkspaceCollectionRows(
       ? await Promise.all(contractorIds.map((id) => ctx.db.get(id)))
       : [];
     const contractorById = new Map(
-      contractorIds.map((id, index) => [String(id), contractorProfiles[index]]),
+      contractorIds.map((id, index) => [String(id), contractorProfiles[index]])
     );
     rows = pageEvents.map((event) => {
       const contractorId = contractorIdFromAuditEvent(ctx, event);
@@ -1659,34 +1684,30 @@ async function loadWorkspaceCollectionRows(
       .withIndex("by_build_milestone", (query) =>
         query
           .eq("buildId", authorization.build._id)
-          .eq("milestoneKey", milestone.key),
+          .eq("milestoneKey", milestone.key)
       )
       .take(MAX_BOOTSTRAP_ROWS * 5 + 1)) as Doc<"buildCostItems">[];
     partial = source.length > MAX_BOOTSTRAP_ROWS * 5;
     const exact = source.filter(
       (record) =>
         record.budgetSubmilestoneKey === submilestone.key ||
-        record.relevantSubmilestoneKeys.includes(submilestone.key),
+        record.relevantSubmilestoneKeys.includes(submilestone.key)
     );
     const pageOffset = offset;
     const pageRows = exact.slice(pageOffset, pageOffset + limit);
     hasMore = pageOffset + limit < exact.length;
     nextCursor = hasMore
-      ? encodeWorkspaceCursor(
-          collection,
-          "offset",
-          String(pageOffset + limit),
-        )
+      ? encodeWorkspaceCursor(collection, "offset", String(pageOffset + limit))
       : undefined;
     if (
       pageRows.some(
         (record) =>
-          !canonicalScope(record) || record.buildMilestoneId !== milestone._id,
+          !canonicalScope(record) || record.buildMilestoneId !== milestone._id
       )
     ) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Materials are outside the authorized Sub-milestone scope.",
+        "Materials are outside the authorized Sub-milestone scope."
       );
     }
     const canReadMaterialCosts =
@@ -1720,7 +1741,7 @@ async function loadWorkspaceCollectionRows(
     const result = await ctx.db
       .query("buildActionItemComments")
       .withIndex("by_actionItemId_and_createdAt", (query) =>
-        query.eq("actionItemId", companion!._id),
+        query.eq("actionItemId", companion!._id)
       )
       .order("desc")
       .paginate({ cursor: indexedCursor, numItems: limit });
@@ -1729,7 +1750,7 @@ async function loadWorkspaceCollectionRows(
     if (records.some((record) => !companionScope(record))) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Comments are outside the authorized collaboration companion scope.",
+        "Comments are outside the authorized collaboration companion scope."
       );
     }
     rows = records.map((record) => ({
@@ -1743,7 +1764,7 @@ async function loadWorkspaceCollectionRows(
     const result = await ctx.db
       .query("buildActionItemEvents")
       .withIndex("by_actionItemId_and_createdAt", (query) =>
-        query.eq("actionItemId", companion!._id),
+        query.eq("actionItemId", companion!._id)
       )
       .order("desc")
       .paginate({ cursor: indexedCursor, numItems: limit });
@@ -1752,7 +1773,7 @@ async function loadWorkspaceCollectionRows(
     if (records.some((record) => !companionScope(record))) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Activity is outside the authorized collaboration companion scope.",
+        "Activity is outside the authorized collaboration companion scope."
       );
     }
     rows = records.map((record) => ({
@@ -1767,7 +1788,7 @@ async function loadWorkspaceCollectionRows(
     const result = await ctx.db
       .query("buildActionItemRevisions")
       .withIndex("by_actionItemId_and_revision", (query) =>
-        query.eq("actionItemId", companion!._id),
+        query.eq("actionItemId", companion!._id)
       )
       .order("desc")
       .paginate({ cursor: indexedCursor, numItems: limit });
@@ -1776,7 +1797,7 @@ async function loadWorkspaceCollectionRows(
     if (records.some((record) => !companionScope(record))) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Revisions are outside the authorized collaboration companion scope.",
+        "Revisions are outside the authorized collaboration companion scope."
       );
     }
     rows = records.map((record) => ({
@@ -1791,7 +1812,7 @@ async function loadWorkspaceCollectionRows(
     const result = await ctx.db
       .query("buildActionItemChecklistItems")
       .withIndex("by_actionItemId_and_order", (query) =>
-        query.eq("actionItemId", companion!._id),
+        query.eq("actionItemId", companion!._id)
       )
       .paginate({ cursor: indexedCursor, numItems: limit });
     applyIndexedPagination(result);
@@ -1799,7 +1820,7 @@ async function loadWorkspaceCollectionRows(
     if (records.some((record) => !companionScope(record))) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Checklist rows are outside the authorized collaboration companion scope.",
+        "Checklist rows are outside the authorized collaboration companion scope."
       );
     }
     rows = records.map((record) => ({
@@ -1815,7 +1836,7 @@ async function loadWorkspaceCollectionRows(
     const result = await ctx.db
       .query("buildActionItems")
       .withIndex("by_parentActionItemId_and_status", (query) =>
-        query.eq("parentActionItemId", companion!._id),
+        query.eq("parentActionItemId", companion!._id)
       )
       .paginate({ cursor: indexedCursor, numItems: limit });
     applyIndexedPagination(result);
@@ -1824,12 +1845,12 @@ async function loadWorkspaceCollectionRows(
       records.some(
         (record) =>
           !canonicalScope(record) ||
-          record.parentActionItemId !== companion!._id,
+          record.parentActionItemId !== companion!._id
       )
     ) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Child Action Items are outside the authorized collaboration companion scope.",
+        "Child Action Items are outside the authorized collaboration companion scope."
       );
     }
     rows = records.map((record) => ({
@@ -1844,7 +1865,7 @@ async function loadWorkspaceCollectionRows(
     const result = await ctx.db
       .query("buildActionItemRelations")
       .withIndex("by_buildId_and_status", (query) =>
-        query.eq("buildId", authorization.build._id).eq("status", "active"),
+        query.eq("buildId", authorization.build._id).eq("status", "active")
       )
       .paginate({ cursor: indexedCursor, numItems: limit });
     applyIndexedPagination(result);
@@ -1852,7 +1873,7 @@ async function loadWorkspaceCollectionRows(
     if (records.some((record) => !canonicalScope(record))) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Relations are outside the authorized collaboration companion scope.",
+        "Relations are outside the authorized collaboration companion scope."
       );
     }
     rows = records.map((record) =>
@@ -1869,13 +1890,13 @@ async function loadWorkspaceCollectionRows(
             status: record.status,
             title: record.kind.replaceAll("_", " "),
           }
-        : null,
+        : null
     );
   } else {
     const result = await ctx.db
       .query("buildSubmilestoneReviewDecisions")
       .withIndex("by_submilestone_createdAt", (query) =>
-        query.eq("buildSubmilestoneId", submilestone._id),
+        query.eq("buildSubmilestoneId", submilestone._id)
       )
       .order("desc")
       .paginate({ cursor: indexedCursor, numItems: limit });
@@ -1886,12 +1907,12 @@ async function loadWorkspaceCollectionRows(
         (record) =>
           !canonicalScope(record) ||
           record.buildMilestoneId !== milestone._id ||
-          record.buildSubmilestoneId !== submilestone._id,
+          record.buildSubmilestoneId !== submilestone._id
       )
     ) {
       return integrityError(
         "COLLECTION_SCOPE_INVALID",
-        "Review decisions are outside the authorized Sub-milestone scope.",
+        "Review decisions are outside the authorized Sub-milestone scope."
       );
     }
     rows = records.map((record) => ({
@@ -1923,11 +1944,11 @@ function parseAuditState(value: string | undefined): unknown {
 
 function auditStateTouchesSubmilestone(
   value: unknown,
-  submilestoneKey: string,
+  submilestoneKey: string
 ): boolean {
   if (Array.isArray(value)) {
     return value.some((entry) =>
-      auditStateTouchesSubmilestone(entry, submilestoneKey),
+      auditStateTouchesSubmilestone(entry, submilestoneKey)
     );
   }
   if (!value || typeof value !== "object") return false;
@@ -1952,10 +1973,7 @@ function stringFromState(value: unknown, key: string) {
     : undefined;
 }
 
-function contractorIdFromAuditEvent(
-  ctx: QueryCtx,
-  event: Doc<"auditEvents">,
-) {
+function contractorIdFromAuditEvent(ctx: QueryCtx, event: Doc<"auditEvents">) {
   const state = parseAuditState(event.newState);
   const candidate = stringFromState(state, "contractorId");
   return candidate
@@ -1970,8 +1988,8 @@ async function loadCanonicalPeopleHistoryEvents(
     milestone: Doc<"buildMilestones">;
     submilestone: Doc<"buildSubmilestones">;
     after?: { createdAt: number; id: string };
-  },
-) : Promise<{
+  }
+): Promise<{
   events: Doc<"auditEvents">[];
   partial: boolean;
 }> {
@@ -1980,7 +1998,7 @@ async function loadCanonicalPeopleHistoryEvents(
     .withIndex("by_entity", (query) =>
       query
         .eq("entityType", "activeBuild")
-        .eq("entityId", String(input.authorization.build._id)),
+        .eq("entityId", String(input.authorization.build._id))
     )
     .order("desc")
     .take(MAX_BOOTSTRAP_ROWS * 5 + 1);
@@ -1990,7 +2008,7 @@ async function loadCanonicalPeopleHistoryEvents(
         event.organizationId === input.authorization.organizationId &&
         event.brokerageId === input.authorization.brokerage._id &&
         event.eventType.startsWith(
-          "active_build.contractor.milestone_assignment_",
+          "active_build.contractor.milestone_assignment_"
         ) &&
         [
           parseAuditState(event.newState),
@@ -1998,14 +2016,12 @@ async function loadCanonicalPeopleHistoryEvents(
         ].some(
           (state) =>
             auditStateTouchesSubmilestone(state, input.submilestone.key) &&
-            stringFromState(state, "milestoneKey") === input.milestone.key,
-        ),
-      )
+            stringFromState(state, "milestoneKey") === input.milestone.key
+        )
+    )
     .sort(compareAuditEventsDescending)
     .filter((event) =>
-      input.after
-        ? compareAuditEventKey(event, input.after) < 0
-        : true,
+      input.after ? compareAuditEventKey(event, input.after) < 0 : true
     )
     .slice(0, MAX_BOOTSTRAP_ROWS * 5 + 1);
   return {
@@ -2020,7 +2036,7 @@ async function loadCanonicalPeopleHistoryEvents(
 
 function compareAuditEventKey(
   event: Doc<"auditEvents">,
-  cursor: { createdAt: number; id: string },
+  cursor: { createdAt: number; id: string }
 ) {
   if (event.createdAt !== cursor.createdAt) {
     return event.createdAt - cursor.createdAt;
@@ -2033,7 +2049,7 @@ function compareAuditEventKey(
 
 function compareAuditEventsDescending(
   left: Doc<"auditEvents">,
-  right: Doc<"auditEvents">,
+  right: Doc<"auditEvents">
 ) {
   return compareAuditEventKey(right, {
     createdAt: left.createdAt,
@@ -2049,7 +2065,7 @@ function viewerCanReadPeopleIdentity(authorization: ActiveBuildAuthorization) {
 }
 
 function viewerCanReadContractorCandidates(
-  authorization: ActiveBuildAuthorization,
+  authorization: ActiveBuildAuthorization
 ) {
   // Candidate identities are only needed by roles that can add/remove a
   // canonical milestone assignment. Lender/broker viewers can inspect the
@@ -2104,13 +2120,13 @@ export async function resolveCanonicalBuildSubmilestoneWorkspaceContext(
     companionActionItemId?: Id<"buildActionItems">;
     organizationId: string;
     viewerCapacity?: BuildCollaborationRole;
-  },
+  }
 ): Promise<{ state: "revoked" } | ({ state: "visible" } & WorkspaceContext)> {
   let authorization: ActiveBuildAuthorization;
   try {
     authorization = selectActiveBuildAuthorizationCapacity(
       await authorizeActiveBuildAccess(ctx, args),
-      args.viewerCapacity,
+      args.viewerCapacity
     );
   } catch (error) {
     if (isWorkspaceAccessDenial(error)) {
@@ -2163,7 +2179,7 @@ async function canReadCanonicalWorkspaceTarget(
     authorization: ActiveBuildAuthorization;
     milestone: Doc<"buildMilestones">;
     submilestone: Doc<"buildSubmilestones">;
-  },
+  }
 ) {
   if (input.authorization.effectiveRole.role === "homeowner") {
     // Homeowner read access is an explicit active Build audience grant. A
@@ -2172,7 +2188,7 @@ async function canReadCanonicalWorkspaceTarget(
       (participant) =>
         participant.workosUserId === input.authorization.viewer.subject &&
         participant.role === "homeowner" &&
-        participant.source === "grant",
+        participant.source === "grant"
     );
   }
   return canReadCanonicalMilestoneSubmilestone(ctx, {
@@ -2191,7 +2207,7 @@ async function resolveOptionalCompanion(
     args: { companionActionItemId?: Id<"buildActionItems"> };
     milestone: Doc<"buildMilestones">;
     submilestone: Doc<"buildSubmilestones">;
-  },
+  }
 ): Promise<{
   companion?: Doc<"buildActionItems">;
   post?: Doc<"buildCollaborationPosts">;
@@ -2200,7 +2216,7 @@ async function resolveOptionalCompanion(
   const tenant = await ctx.db
     .query("buildCollaborationTenantSettings")
     .withIndex("by_organizationId", (query) =>
-      query.eq("organizationId", input.authorization.organizationId),
+      query.eq("organizationId", input.authorization.organizationId)
     )
     .unique();
   if (tenant?.status !== "active") {
@@ -2218,7 +2234,7 @@ async function resolveOptionalCompanion(
     .withIndex("by_canonicalBuildSubmilestoneId_and_systemMode", (query) =>
       query
         .eq("canonicalBuildSubmilestoneId", input.submilestone._id)
-        .eq("systemMode", "generated_milestone_submilestone"),
+        .eq("systemMode", "generated_milestone_submilestone")
     )
     .take(MAX_COMPANION_CANDIDATES + 1);
   if (candidates.length > MAX_COMPANION_CANDIDATES) {
@@ -2236,7 +2252,7 @@ async function resolveOptionalCompanion(
         candidate.canonicalCompanionDisposition === "historical"
       : candidate.canonicalPlanningState !== "superseded" &&
         (candidate.canonicalCompanionDisposition === undefined ||
-          candidate.canonicalCompanionDisposition === "active"),
+          candidate.canonicalCompanionDisposition === "active")
   );
   if (eligible.length === 0) {
     return {
@@ -2263,7 +2279,7 @@ async function resolveOptionalCompanion(
     input.args.companionActionItemId !== companion._id
   ) {
     const requestedCompanion = await ctx.db.get(
-      input.args.companionActionItemId,
+      input.args.companionActionItemId
     );
     const validatesHistoricalIdentity =
       requestedCompanion?.systemMode === "generated_milestone_submilestone" &&
@@ -2320,7 +2336,7 @@ export async function resolveBuildSubmilestoneWorkspaceContext(
     companionActionItemId?: Id<"buildActionItems">;
     organizationId: string;
     viewerCapacity?: BuildCollaborationRole;
-  },
+  }
 ): Promise<
   | { state: "revoked" }
   | { code: string; message: string; state: "integrity_error" }
@@ -2330,7 +2346,7 @@ export async function resolveBuildSubmilestoneWorkspaceContext(
   try {
     authorization = selectActiveBuildAuthorizationCapacity(
       await authorizeActiveBuildCollaborationAccess(ctx, args),
-      args.viewerCapacity,
+      args.viewerCapacity
     );
   } catch (error) {
     if (isWorkspaceAccessDenial(error)) {
@@ -2370,7 +2386,7 @@ export async function resolveBuildSubmilestoneWorkspaceContext(
     .withIndex("by_canonicalBuildSubmilestoneId_and_systemMode", (query) =>
       query
         .eq("canonicalBuildSubmilestoneId", submilestone._id)
-        .eq("systemMode", "generated_milestone_submilestone"),
+        .eq("systemMode", "generated_milestone_submilestone")
     )
     .take(MAX_COMPANION_CANDIDATES + 1);
   if (candidates.length > MAX_COMPANION_CANDIDATES) {
@@ -2387,7 +2403,7 @@ export async function resolveBuildSubmilestoneWorkspaceContext(
         candidate.canonicalCompanionDisposition === "historical"
       : candidate.canonicalPlanningState !== "superseded" &&
         (candidate.canonicalCompanionDisposition === undefined ||
-          candidate.canonicalCompanionDisposition === "active"),
+          candidate.canonicalCompanionDisposition === "active")
   );
   if (eligible.length !== 1) {
     return {

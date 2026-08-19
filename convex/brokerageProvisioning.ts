@@ -761,14 +761,10 @@ export const provisionBrokerageProfile = userManagementWriteMutation
       args.workosOrganizationId,
     );
     const now = Date.now();
-    const organization = await getOrCreateWorkosOrganization(ctx, {
-      name:
-        args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
-          ? FAIRLEND_BROKERAGE_NAME
-          : (args.displayName?.trim() ?? "DrawFlow Brokerage"),
-      now,
-      workosOrganizationId: args.workosOrganizationId,
-    });
+    const organization = await requireWorkosOrganizationProjection(
+      ctx,
+      args.workosOrganizationId,
+    );
     const existing = await ctx.db
       .query("brokerages")
       .withIndex("by_workos_organization", (q) =>
@@ -815,6 +811,13 @@ export const provisionBrokerageProfile = userManagementWriteMutation
     const legalName = args.legalName?.trim() || displayName;
 
     if (existing) {
+      const priorState = {
+        displayName: existing.displayName,
+        legalName: existing.legalName,
+        principalBrokerEmail: existing.principalBrokerEmail,
+        principalBrokerWorkosUserId: existing.principalBrokerWorkosUserId,
+        status: existing.status,
+      };
       await ctx.db.patch(existing._id, {
         displayName,
         legalName,
@@ -822,6 +825,19 @@ export const provisionBrokerageProfile = userManagementWriteMutation
         principalBrokerWorkosUserId: principal.workosUserId,
         status: "active",
         updatedAt: now,
+      });
+      await recordBrokerageProvisioningAudit(ctx, {
+        brokerageId: existing._id,
+        newState: {
+          displayName,
+          legalName,
+          principalBrokerEmail,
+          principalBrokerWorkosUserId: principal.workosUserId,
+          status: "active",
+        },
+        operation: "updated",
+        organizationId: args.workosOrganizationId,
+        priorState,
       });
       return { brokerageId: existing._id, operation: "updated" as const };
     }
@@ -836,6 +852,18 @@ export const provisionBrokerageProfile = userManagementWriteMutation
       updatedAt: now,
       workosOrganizationId: args.workosOrganizationId,
     });
+    await recordBrokerageProvisioningAudit(ctx, {
+      brokerageId,
+      newState: {
+        displayName,
+        legalName,
+        principalBrokerEmail,
+        principalBrokerWorkosUserId: principal.workosUserId,
+        status: "active",
+      },
+      operation: "created",
+      organizationId: args.workosOrganizationId,
+    });
     return { brokerageId, operation: "created" as const };
   })
   .public();
@@ -849,11 +877,10 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
   )
   .handler(async (ctx) => {
     const now = Date.now();
-    await getOrCreateWorkosOrganization(ctx, {
-      name: FAIRLEND_BROKERAGE_NAME,
-      now,
-      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
-    });
+    await requireWorkosOrganizationProjection(
+      ctx,
+      FAIRLEND_WORKOS_ORGANIZATION_ID,
+    );
     const principal = await requireDefaultBrokerMember(ctx, {
       principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
       principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
@@ -867,6 +894,13 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
       )
       .unique();
     if (existing) {
+      const priorState = {
+        displayName: existing.displayName,
+        legalName: existing.legalName,
+        principalBrokerEmail: existing.principalBrokerEmail,
+        principalBrokerWorkosUserId: existing.principalBrokerWorkosUserId,
+        status: existing.status,
+      };
       await ctx.db.patch(existing._id, {
         displayName: FAIRLEND_BROKERAGE_NAME,
         legalName: FAIRLEND_BROKERAGE_NAME,
@@ -874,6 +908,19 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
         principalBrokerWorkosUserId: principal.workosUserId,
         status: "active",
         updatedAt: now,
+      });
+      await recordBrokerageProvisioningAudit(ctx, {
+        brokerageId: existing._id,
+        newState: {
+          displayName: FAIRLEND_BROKERAGE_NAME,
+          legalName: FAIRLEND_BROKERAGE_NAME,
+          principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+          principalBrokerWorkosUserId: principal.workosUserId,
+          status: "active",
+        },
+        operation: "updated",
+        organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        priorState,
       });
       return { brokerageId: existing._id, operation: "updated" as const };
     }
@@ -887,6 +934,18 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
       status: "active",
       updatedAt: now,
       workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+    });
+    await recordBrokerageProvisioningAudit(ctx, {
+      brokerageId,
+      newState: {
+        displayName: FAIRLEND_BROKERAGE_NAME,
+        legalName: FAIRLEND_BROKERAGE_NAME,
+        principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        principalBrokerWorkosUserId: principal.workosUserId,
+        status: "active",
+      },
+      operation: "created",
+      organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
     });
     return { brokerageId, operation: "created" as const };
   })
@@ -937,19 +996,10 @@ export const provisionBuilderProfile = userManagementWriteMutation
       );
     }
     const now = Date.now();
-    // Ensure the org projection exists without renaming it: a builder shares the
-    // lender's organization, so its name must remain the lender's.
-    const existingOrg = await ctx.db
-      .query("workosOrganizations")
-      .withIndex("by_workos_organization_id", (q) =>
-        q.eq("workosOrganizationId", args.workosOrganizationId),
-      )
-      .unique();
-    await getOrCreateWorkosOrganization(ctx, {
-      name: existingOrg?.name ?? brokerage.displayName,
-      now,
-      workosOrganizationId: args.workosOrganizationId,
-    });
+    await requireWorkosOrganizationProjection(
+      ctx,
+      args.workosOrganizationId,
+    );
     const existing = await ctx.db
       .query("builderProfiles")
       .withIndex("by_organization", (q) =>
@@ -1197,16 +1247,13 @@ export const provisionNewBuilder = userManagementWriteAction
       args.ownerWorkosUserId?.trim() ||
       provisionedBuilderWorkosUserId(ownerEmail);
     // Step 1: create the WorkOS account (invitation) for the builder owner.
-    const invite: {
-      adapter: string;
-      status: string;
-      sync: string;
-      workosId?: string;
-    } = await ctx.runAction(api.workosManagement.inviteUser, {
-      email: ownerEmail,
-      organizationId: workosOrganizationId,
-      roleSlug: "builder",
-    });
+    const invite = await ctx.runAction(
+      internal.workosManagement.inviteBuilderUser,
+      {
+        email: ownerEmail,
+        organizationId: workosOrganizationId,
+      },
+    );
 
     // Step 2: commit the brokerage-scoped builder profile + owner link locally.
     const committed: {
@@ -1264,28 +1311,15 @@ export const finalizeNewBuilderProvisioning = internalMutation
   )
   .handler(async (ctx, args) => {
     const now = Date.now();
-    await getOrCreateWorkosOrganization(ctx, {
-      name:
-        args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
-          ? FAIRLEND_BROKERAGE_NAME
-          : args.displayName,
-      now,
-      workosOrganizationId: args.workosOrganizationId,
-    });
+    await requireWorkosOrganizationProjection(
+      ctx,
+      args.workosOrganizationId,
+    );
     const brokerage = await ensureBrokerage(
       ctx,
       args.workosOrganizationId,
       now,
     );
-
-    await ensureWorkosUserAndMembership(ctx, {
-      email: args.ownerEmail,
-      name: args.ownerName,
-      now,
-      roleSlugs: ["builder"],
-      workosOrganizationId: args.workosOrganizationId,
-      workosUserId: args.ownerWorkosUserId,
-    });
 
     const existingProfile = await ctx.db
       .query("builderProfiles")
@@ -1639,105 +1673,22 @@ async function requireProvisioningScope(
   return membership;
 }
 
-async function getOrCreateWorkosOrganization(
+async function requireWorkosOrganizationProjection(
   ctx: MutationCtx,
-  input: { name: string; now: number; workosOrganizationId: string },
+  workosOrganizationId: string,
 ) {
-  const existing = await ctx.db
+  const organization = await ctx.db
     .query("workosOrganizations")
     .withIndex("by_workos_organization_id", (q) =>
-      q.eq("workosOrganizationId", input.workosOrganizationId),
+      q.eq("workosOrganizationId", workosOrganizationId),
     )
     .unique();
-  if (existing) {
-    return existing;
-  }
-
-  const id = await ctx.db.insert("workosOrganizations", {
-    createdAt: input.now,
-    domains: [],
-    name: input.name,
-    sourceEventId: `brokerage_provisioning:${input.workosOrganizationId}`,
-    sourceEventType: "brokerage.provisioning",
-    status: "active",
-    updatedAt: input.now,
-    workosOrganizationId: input.workosOrganizationId,
-  });
-  const organization = await ctx.db.get(id);
-  if (!organization) {
-    throw new Error("Unable to provision WorkOS organization projection");
+  if (!organization || organization.status !== "active") {
+    throw new Error(
+      "Wait for the authoritative WorkOS organization projection before provisioning.",
+    );
   }
   return organization;
-}
-
-async function ensureWorkosUserAndMembership(
-  ctx: MutationCtx,
-  input: {
-    email: string;
-    name: string;
-    now: number;
-    roleSlugs: RoleSlug[];
-    workosOrganizationId: string;
-    workosUserId: string;
-  },
-) {
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_workos_user_id", (q) =>
-      q.eq("workosUserId", input.workosUserId),
-    )
-    .unique();
-  if (user) {
-    await ctx.db.patch(user._id, {
-      email: user.email || input.email,
-      name: user.name || input.name,
-      status: "active",
-      updatedAt: input.now,
-    });
-  } else {
-    await ctx.db.insert("users", {
-      authId: input.workosUserId,
-      createdAt: input.now,
-      email: input.email,
-      emailVerified: true,
-      name: input.name,
-      sourceEventId: `brokerage_provisioning:${input.workosUserId}`,
-      sourceEventType: "brokerage.provisioning",
-      status: "active",
-      updatedAt: input.now,
-      workosUserId: input.workosUserId,
-    });
-  }
-
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (q) => q.eq("workosUserId", input.workosUserId))
-    .filter((q) =>
-      q.eq(q.field("workosOrganizationId"), input.workosOrganizationId),
-    )
-    .first();
-  if (membership) {
-    await ctx.db.patch(membership._id, {
-      roleSlug: input.roleSlugs[0],
-      roleSlugs: input.roleSlugs,
-      status: "active",
-      updatedAt: input.now,
-    });
-    return;
-  }
-
-  await ctx.db.insert("workosOrganizationMemberships", {
-    createdAt: input.now,
-    roleSlug: input.roleSlugs[0],
-    roleSlugs: input.roleSlugs,
-    sourceEventId: `brokerage_provisioning:${input.workosOrganizationId}:${input.workosUserId}`,
-    sourceEventType: "brokerage.provisioning",
-    status: "active",
-    updatedAt: input.now,
-    workosMembershipId: `brokerage_provisioning_${input.workosOrganizationId}_${input.workosUserId}`,
-    workosOrganizationId: input.workosOrganizationId,
-    workosUserId: input.workosUserId,
-  });
 }
 
 function membershipRoleSlugs(
@@ -1759,6 +1710,41 @@ function hasAnyRole(
   return actual.some((role) => expected.includes(role));
 }
 
+async function recordBrokerageProvisioningAudit(
+  ctx: MutationCtx & { viewer: { roles: string[]; subject: string } },
+  input: {
+    brokerageId: Id<"brokerages">;
+    newState: unknown;
+    operation: "created" | "updated";
+    organizationId: string;
+    priorState?: unknown;
+  },
+) {
+  const now = Date.now();
+  await ctx.db.insert("auditEvents", {
+    actorRole: ctx.viewer.roles.includes("principle-broker")
+      ? "principle-broker"
+      : "admin",
+    actorRoles: ctx.viewer.roles,
+    actorWorkosUserId: ctx.viewer.subject,
+    brokerageId: input.brokerageId,
+    command: "provisionBrokerageProfile",
+    entityId: input.brokerageId,
+    entityType: "brokerage",
+    eventType: `brokerage.provisioning.${input.operation}`,
+    newState: JSON.stringify(input.newState),
+    organizationId: input.organizationId,
+    ...(input.priorState === undefined
+      ? {}
+      : { priorState: JSON.stringify(input.priorState) }),
+    reason:
+      "Provision or reconcile the canonical brokerage and Principal Broker mapping.",
+    reconciliationKey: `brokerage-provisioning:${input.organizationId}:${input.operation}:${now}`,
+    warnings: [],
+    createdAt: now,
+  });
+}
+
 function normalizeEmail(value: string): string {
   const trimmed = value.trim().toLowerCase();
   // Minimal structural check: exactly one @ with non-empty local and domain parts.
@@ -1773,9 +1759,9 @@ function normalizeEmail(value: string): string {
 }
 
 /**
- * Deterministic provisional WorkOS user id for an invited builder owner, so the
- * owner account link and projection resolve immediately and idempotently before
- * the real WorkOS user id arrives by webhook. Stable for a given email.
+ * Deterministic provisional WorkOS user id for the product-owned builder link.
+ * Authoritative WorkOS user and membership projections still arrive only from
+ * WorkOS webhook reconciliation. Stable for a given email.
  */
 function provisionedBuilderWorkosUserId(email: string): string {
   const slug = email.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");

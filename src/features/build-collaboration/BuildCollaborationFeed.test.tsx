@@ -1651,6 +1651,18 @@ describe("BuildCollaborationFeed", () => {
     ).toBe(true);
   });
 
+  test("prominently identifies a user-authored post", () => {
+    mocks.feedRows = [
+      focusedPostEntryFixture("user-post-1", "Framing inspection confirmed."),
+    ];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    expect(screen.getByRole("heading", { name: "User post" })).toBeTruthy();
+    expect(screen.getByText("Priya Raman")).toBeTruthy();
+    expect(screen.getByText("Broker")).toBeTruthy();
+  });
+
   test("renders Variant A Milestone System Post board and locks generated card workflow", () => {
     mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
 
@@ -1675,7 +1687,23 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
     expect(screen.queryByText("Builder evidence")).toBeNull();
     expect(screen.queryByText("Trades & suppliers")).toBeNull();
-    expect(screen.getAllByText("System post").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("heading", { name: "Milestone system post" }),
+    ).toBeTruthy();
+    const milestoneHeader = screen
+      .getByTestId("collaboration-post-system-post-1")
+      .querySelector('[data-slot="card-header"]');
+    if (!milestoneHeader) {
+      throw new Error("Expected the Milestone System Post header.");
+    }
+    expect(
+      within(milestoneHeader).getByText("foundation · Foundation"),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Foundation started. Canonical Sub-milestone cards are synchronized.",
+      ),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
     expect(screen.getByText("Edit post")).toBeTruthy();
 
@@ -1771,7 +1799,7 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
-  test("uses the same feed for Active operations and renders archived historical facts as read-only", () => {
+  test("uses the same feed for Active operations without exposing migration diagnostics", () => {
     const activeEntry = canonicalMilestoneSystemPostEntryFixture() as any;
     activeEntry.post._id = "active-system-post";
     activeEntry.revision.plainText = "Active canonical milestone operation.";
@@ -1818,14 +1846,15 @@ describe("BuildCollaborationFeed", () => {
       filter: "all",
       organizationId: "org-1",
     });
-    expect(screen.getByText("Historical backfill")).toBeTruthy();
-    expect(screen.getByText(/Unknown historical facts:/i)).toBeTruthy();
+    expect(screen.queryByText("Historical backfill")).toBeNull();
+    expect(screen.queryByText(/Unknown historical facts:/i)).toBeNull();
+    expect(screen.queryByText("Domain provenance & planning")).toBeNull();
+    expect(screen.queryByText("Canonical milestone is complete.")).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Active operations" }));
     expect(mocks.feedQueryArgs).toMatchObject({ filter: "active_operations" });
-    expect(
-      screen.getByText("Active canonical milestone operation."),
-    ).toBeTruthy();
+    expect(screen.getByText("foundation · Foundation")).toBeTruthy();
+    expect(screen.queryByText("Active canonical milestone operation.")).toBeNull();
     expect(
       screen.queryByText("Historical canonical milestone record."),
     ).toBeNull();
@@ -1833,6 +1862,11 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(screen.getByRole("tab", { name: "All" }));
     const archivedCard = screen.getByTestId(
       "collaboration-post-archived-backfilled-post",
+    );
+    fireEvent.click(
+      within(archivedCard).getByRole("button", {
+        name: "Expand resolved system post: foundation · Foundation",
+      }),
     );
     fireEvent.click(
       within(archivedCard).getByRole("button", { name: "Post actions" }),
@@ -1869,20 +1903,36 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Active operations" }));
 
     expect(screen.getByText("Restricted update")).toBeTruthy();
+    expect(screen.getByText("foundation · Foundation")).toBeTruthy();
     expect(
-      screen.getByText(
+      screen.queryByText(
         "Foundation started. Canonical Sub-milestone cards are synchronized.",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
   });
 
-  test("renders live Draw facts and an explicit absence of generated work or a Draw board", () => {
+  test("renders live Draw facts with an empty user-defined Action Item list and no Draw board", () => {
     mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
 
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(screen.getAllByText("System post").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Draw").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("heading", { name: "Draw system post" }),
+    ).toBeTruthy();
+    const drawHeader = screen
+      .getByTestId("collaboration-post-draw-system-post-1")
+      .querySelector('[data-slot="card-header"]');
+    if (!drawHeader) {
+      throw new Error("Expected the Draw System Post header.");
+    }
+    expect(
+      within(drawHeader).getByText("Foundation reimbursement"),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Foundation reimbursement is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.",
+      ),
+    ).toBeNull();
     expect(screen.getByTestId("system-post-draw-facts")).toBeTruthy();
     expect(screen.getByText("Canonical Draw lifecycle")).toBeTruthy();
     expect(
@@ -1890,12 +1940,45 @@ describe("BuildCollaborationFeed", () => {
     ).toBeGreaterThan(0);
     expect(screen.getByText("Evidence · Location unverified")).toBeTruthy();
     expect(screen.getByText("Site Visits · 1")).toBeTruthy();
+    expect(screen.queryByText("Internal coordination")).toBeNull();
+    expect(screen.queryByText("No coordination items")).toBeNull();
     expect(
-      screen.getByText(
-        "No generated Action Items or Draw board. Discussion remains available; all workflow commands stay in the canonical Draw surfaces.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Action Items/ })).toBeNull();
+      screen.queryByText("Domain provenance", { exact: true }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 0" }));
+    expect(screen.getByText("No Action Items on this post yet.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add Action Item" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Show Action Items as a board/ }),
+    ).toBeNull();
+  });
+
+  test("shows only user-defined Action Items on a Draw System Post", () => {
+    const entry = canonicalDrawSystemPostEntryFixture();
+    entry.actionItems = [
+      {
+        _id: "draw-action-1",
+        actionableUnreadCount: 0,
+        assignmentState: "unassigned",
+        createdAt: Date.parse("2026-08-03T12:10:00.000Z"),
+        currentRevision: 1,
+        dependencyCount: 0,
+        priority: "none",
+        requiresAcceptance: false,
+        status: "todo",
+        title: "Confirm draw inspection time",
+        unblocksCount: 0,
+        unreadCommentCount: 0,
+      },
+      canonicalMilestoneSystemPostEntryFixture().actionItems[0],
+    ] as typeof entry.actionItems;
+    mocks.feedRows = [entry];
+
+    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    expect(screen.getAllByText("Confirm draw inspection time").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Excavate")).toBeNull();
     expect(
       screen.queryByRole("button", { name: /Show Action Items as a board/ }),
     ).toBeNull();
@@ -2044,7 +2127,7 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByTestId("system-post-draw-open")).toBeNull();
   });
 
-  test("surfaces a conservative lower bound when the Draw working audience is saturated", () => {
+  test("omits Draw internal coordination even when coordination data is present", () => {
     mocks.feedRows = [
       canonicalDrawSystemPostEntryFixture({
         coordination: {
@@ -2061,10 +2144,12 @@ describe("BuildCollaborationFeed", () => {
 
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(screen.getByText("Working audience · 100+")).toBeTruthy();
+    expect(screen.queryByText("Internal coordination")).toBeNull();
+    expect(screen.queryByText("Working audience · 100+")).toBeNull();
+    expect(screen.queryByTestId("draw-coordination-audience-truncated")).toBeNull();
     expect(
-      screen.getByTestId("draw-coordination-audience-truncated"),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Join coordination" }),
+    ).toBeNull();
   });
 
   test("keeps a Draw System Post on its kind branch when Draw facts are unavailable", () => {
@@ -2081,20 +2166,18 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByTestId("system-post-planning-comparison")).toBeNull();
   });
 
-  test("keeps planning branches on a non-Draw System Post even if Draw facts are present", () => {
+  test("keeps the milestone summary branch without diagnostics when Draw facts are present", () => {
     const entry = canonicalMilestoneSystemPostEntryFixture();
     (entry.post.systemPost as { drawFacts?: unknown }).drawFacts = {};
     mocks.feedRows = [entry];
-    mocks.planningReconciliation = planningReconciliationFixture();
-
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("system-post-planning-summary")).toBeTruthy();
-    expect(screen.getByTestId("system-post-planning-comparison")).toBeTruthy();
+    expect(screen.queryByTestId("system-post-planning-comparison")).toBeNull();
     expect(screen.queryByTestId("system-post-draw-facts")).toBeNull();
   });
 
-  test("lets eligible internal readers join and create ordinary Draw coordination work", async () => {
+  test("keeps ordinary Action Items available without a Draw coordination panel", () => {
     mocks.feedRows = [
       canonicalDrawSystemPostEntryFixture({
         coordination: {
@@ -2110,43 +2193,15 @@ describe("BuildCollaborationFeed", () => {
 
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(screen.getByText("Working audience · 2")).toBeTruthy();
-    mocks.mutate.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Join coordination" }));
-    await waitFor(() =>
-      expect(mocks.mutate).toHaveBeenCalledWith({
-        buildId: "build-1",
-        organizationId: "org-1",
-        postId: "draw-system-post-1",
-      }),
-    );
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add coordination Action Item" }),
-    );
+    expect(screen.queryByText("Working audience · 2")).toBeNull();
     expect(
-      screen.getByRole("heading", { name: "Create accountable work" }),
-    ).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Action Item title"), {
-      target: { value: "Coordinate Draw evidence" },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Mock Action Item description" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Create Action Item" }));
-    await waitFor(() =>
-      expect(mocks.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          buildId: "build-1",
-          organizationId: "org-1",
-          postId: "draw-system-post-1",
-          title: "Coordinate Draw evidence",
-        }),
-      ),
-    );
+      screen.queryByRole("button", { name: "Join coordination" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 0" }));
+    expect(screen.getByRole("button", { name: "Add Action Item" })).toBeTruthy();
   });
 
-  test("lets an explicit coordination member leave while keeping ordinary follow independent", async () => {
+  test("keeps ordinary follow independent after removing Draw coordination controls", () => {
     mocks.feedRows = [
       canonicalDrawSystemPostEntryFixture({
         coordination: {
@@ -2163,25 +2218,16 @@ describe("BuildCollaborationFeed", () => {
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(
-      screen.getByRole("button", { name: "Leave coordination" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Leave coordination" }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
     expect(
       screen.getByRole("menuitem", { name: "Follow thread" }),
     ).toBeTruthy();
-    mocks.mutate.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Leave coordination" }));
-    await waitFor(() =>
-      expect(mocks.mutate).toHaveBeenCalledWith({
-        buildId: "build-1",
-        organizationId: "org-1",
-        postId: "draw-system-post-1",
-      }),
-    );
   });
 
   test.each(["admin", "principal-broker"] as const)(
-    "shows silent oversight for %s without joining or creating coordination work",
+    "omits Draw coordination details for %s",
     (role) => {
       mocks.viewerBinding = {
         buildId: "build-1",
@@ -2206,7 +2252,7 @@ describe("BuildCollaborationFeed", () => {
         <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
       );
 
-      expect(screen.getByText("Oversight only")).toBeTruthy();
+      expect(screen.queryByText("Oversight only")).toBeNull();
       expect(
         screen.queryByRole("button", { name: "Join coordination" }),
       ).toBeNull();
@@ -2241,11 +2287,7 @@ describe("BuildCollaborationFeed", () => {
 
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
-    expect(
-      screen.getByText(
-        "Canonical Draw facts remain visible. Internal coordination, discussion, and related work are restricted to eligible Build participants.",
-      ),
-    ).toBeTruthy();
+    expect(screen.queryByText("Internal coordination")).toBeNull();
     expect(screen.queryByRole("button", { name: /Discussion/ })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Add coordination Action Item" }),
@@ -2316,7 +2358,7 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByRole("button", { name: "Save revision" })).toBeNull();
   });
 
-  test("disables Draw coordination controls in an archived Build", () => {
+  test("keeps Draw coordination controls absent in an archived Build", () => {
     mocks.lifecycleState = "closed";
     mocks.feedRows = [
       canonicalDrawSystemPostEntryFixture({
@@ -2336,29 +2378,19 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.getByTestId("build-collaboration-read-only-banner"),
     ).toBeTruthy();
-    const join = screen.getByRole("button", { name: "Join coordination" });
-    const create = screen.getByRole("button", {
-      name: "Add coordination Action Item",
-    });
     expect(
-      join.getAttribute("data-disabled") ?? join.getAttribute("disabled"),
-    ).not.toBeNull();
+      screen.queryByRole("button", { name: "Join coordination" }),
+    ).toBeNull();
     expect(
-      create.getAttribute("data-disabled") ?? create.getAttribute("disabled"),
-    ).not.toBeNull();
-    mocks.mutate.mockClear();
-    fireEvent.click(join);
-    fireEvent.click(create);
-    expect(mocks.mutate).not.toHaveBeenCalled();
+      screen.queryByRole("button", { name: "Add coordination Action Item" }),
+    ).toBeNull();
   });
 
-  test("renders mixed canonical planning counts and typed activation/current changes", () => {
+  test("keeps canonical planning summary while omitting planning diagnostics", () => {
     const entry = canonicalMilestoneSystemPostEntryFixture();
     entry.post.planningSummary.counts.superseded = 1;
     entry.post.systemPost.currentPlanningRevision = 3;
     mocks.feedRows = [entry];
-    mocks.planningReconciliation = planningReconciliationFixture();
-
     render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
 
     expect(screen.getByTestId("system-post-planning-summary")).toBeTruthy();
@@ -2369,213 +2401,54 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Required site visits · 1")).toBeTruthy();
     expect(screen.getByText("Not ready for approval")).toBeTruthy();
 
-    expect(screen.getByTestId("system-post-planning-comparison")).toBeTruthy();
-    expect(screen.getByText("Changed since activation")).toBeTruthy();
-    expect(screen.getByText("Activation revision")).toBeTruthy();
-    expect(screen.getByText("Current revision")).toBeTruthy();
-    expect(screen.getByText("v1")).toBeTruthy();
-    expect(screen.getByText("v3")).toBeTruthy();
-    expect(screen.getByText("Schedule")).toBeTruthy();
-    expect(screen.getByText("Assignments")).toBeTruthy();
-    expect(screen.getByText("Structured changes · 2")).toBeTruthy();
+    expect(screen.queryByTestId("system-post-planning-comparison")).toBeNull();
+    expect(screen.queryByText("Changed since activation")).toBeNull();
   });
 
-  test("surfaces when the planning diff window is truncated", () => {
-    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
-    mocks.planningReconciliation = planningReconciliationFixture({
-      truncated: true,
-    });
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(
-      screen.getByTestId("planning-diffs-truncated").textContent,
-    ).toContain("Structured planning diffs are truncated at 10,000 changes");
-  });
-
-  test.each([
-    {
-      diffStatus: "Exhausted" as const,
-      name: "canonical server truncation",
-      truncated: true,
-      expectMore: false,
-      expectTruncated: true,
-    },
-    {
-      diffStatus: "CanLoadMore" as const,
-      name: "client pagination",
-      truncated: false,
-      expectMore: true,
-      expectTruncated: false,
-    },
-    {
-      diffStatus: "CanLoadMore" as const,
-      name: "both canonical and client truncation",
-      truncated: true,
-      expectMore: true,
-      expectTruncated: true,
-    },
-  ])(
-    "keeps $name planning status independent",
-    ({ diffStatus, expectMore, expectTruncated, truncated }) => {
-      mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
-      mocks.planningDiffStatus = diffStatus;
-      mocks.planningReconciliation = planningReconciliationFixture({
-        truncated,
-      });
+  test.each(["milestone", "draw"] as const)(
+    "collapses a resolved %s System Post to its header",
+    (kind) => {
+      const entry =
+        kind === "milestone"
+          ? canonicalMilestoneSystemPostEntryFixture()
+          : canonicalDrawSystemPostEntryFixture();
+      entry.post.systemPost.lifecycle = "resolved";
+      entry.post.threadState = "resolved";
+      const entityTitle =
+        kind === "milestone"
+          ? "foundation · Foundation"
+          : "Foundation reimbursement";
+      mocks.feedRows = [entry];
 
       render(
         <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
       );
 
-      expect(screen.queryByTestId("planning-diffs-truncated") !== null).toBe(
-        expectTruncated,
-      );
+      const card = screen.getByTestId(`collaboration-post-${entry.post._id}`);
+      expect(within(card).getByText(entityTitle)).toBeTruthy();
+      expect(within(card).queryByTestId("system-post-experience")).toBeNull();
       expect(
-        screen.queryByTestId("planning-diffs-more-available") !== null,
-      ).toBe(expectMore);
-      if (expectMore) {
-        expect(
-          screen.getByRole("button", { name: "Load more changes" }),
-        ).toBeTruthy();
-      } else {
-        expect(
-          screen.queryByRole("button", { name: "Load more changes" }),
-        ).toBeNull();
-      }
+        within(card).queryByRole("button", { name: /Discussion/ }),
+      ).toBeNull();
+
+      fireEvent.click(
+        within(card).getByRole("button", {
+          name: `Expand resolved system post: ${entityTitle}`,
+        }),
+      );
+
+      expect(within(card).getByTestId("system-post-experience")).toBeTruthy();
+      expect(
+        within(card).getByRole("button", { name: /Discussion/ }),
+      ).toBeTruthy();
+      fireEvent.click(
+        within(card).getByRole("button", {
+          name: `Collapse resolved system post: ${entityTitle}`,
+        }),
+      );
+      expect(within(card).queryByTestId("system-post-experience")).toBeNull();
     },
   );
-
-  test("does not turn an empty client diff page into an indeterminate canonical result", () => {
-    const reconciliation = planningReconciliationFixture();
-    reconciliation.diffs = [];
-    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
-    mocks.planningDiffStatus = "CanLoadMore";
-    mocks.planningReconciliation = reconciliation;
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(screen.getByTestId("planning-diffs-more-available")).toBeTruthy();
-    expect(screen.queryByTestId("planning-diffs-indeterminate")).toBeNull();
-    expect(
-      screen.queryByText(
-        "No structured planning changes are recorded after activation.",
-      ),
-    ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Load more changes" }));
-    expect(mocks.loadMore).toHaveBeenCalledWith(100);
-  });
-
-  test("keeps a loading-more client page distinct from canonical truncation", () => {
-    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
-    mocks.planningDiffStatus = "LoadingMore";
-    mocks.planningReconciliation = planningReconciliationFixture();
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(
-      screen.getByTestId("planning-diffs-more-available").textContent,
-    ).toContain("Loading more structured planning changes");
-    expect(screen.queryByTestId("planning-diffs-truncated")).toBeNull();
-  });
-
-  test("distinguishes truncated revision history from a complete empty diff set", () => {
-    const reconciliation = planningReconciliationFixture();
-    reconciliation.diffs = [];
-    reconciliation.revisionsTruncated = true;
-    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
-    mocks.planningReconciliation = reconciliation;
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(
-      screen.getByTestId("planning-revisions-truncated").textContent,
-    ).toContain("Only the latest 100 planning revisions are shown");
-    expect(
-      screen.getByText(
-        "No structured planning changes are recorded after activation.",
-      ),
-    ).toBeTruthy();
-  });
-
-  test("treats an empty truncated diff window as indeterminate", () => {
-    const reconciliation = planningReconciliationFixture({ truncated: true });
-    reconciliation.diffs = [];
-    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
-    mocks.planningReconciliation = reconciliation;
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(screen.getByTestId("planning-diffs-indeterminate")).toBeTruthy();
-    expect(
-      screen.queryByText(
-        "No structured planning changes are recorded after activation.",
-      ),
-    ).toBeNull();
-  });
-
-  test("shows a loading comparison badge while structured reconciliation is unresolved", () => {
-    const entry = canonicalMilestoneSystemPostEntryFixture();
-    entry.post.systemPost = {
-      ...entry.post.systemPost,
-      currentPlanningRevision: 3,
-    };
-    mocks.feedRows = [entry];
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(screen.getByText("Loading comparison…")).toBeTruthy();
-    expect(screen.queryByText("Changed since activation")).toBeNull();
-    expect(screen.queryByText("Matches activation")).toBeNull();
-    expect(
-      screen.getByText("Loading structured planning changes…"),
-    ).toBeTruthy();
-  });
-
-  test("treats a missing milestone binding as indeterminate planning data", () => {
-    const entry = canonicalMilestoneSystemPostEntryFixture();
-    delete (entry.post.systemPost as { milestoneKey?: string }).milestoneKey;
-    mocks.feedRows = [entry];
-    mocks.planningReconciliation = planningReconciliationFixture();
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(screen.getByTestId("planning-diffs-indeterminate")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Structured planning changes cannot be determined because the available diff window is truncated. The canonical planning record remains authoritative.",
-      ),
-    ).toBeTruthy();
-    expect(
-      screen.queryByText(
-        "No structured planning changes are recorded after activation.",
-      ),
-    ).toBeNull();
-    expect(screen.queryByText(/Structured changes ·/)).toBeNull();
-  });
-
-  test("keeps restricted planning reconciliation fields out of a Contractor System Post", () => {
-    const entry = canonicalMilestoneSystemPostEntryFixture();
-    entry.post.planningSummary.counts.superseded = 1;
-    mocks.feedRows = [entry];
-    mocks.viewerBinding = {
-      buildId: "build-1",
-      organizationId: "org-1",
-      role: "contractor",
-      workosUserId: "user_contractor",
-    };
-    mocks.authUserId = "user_contractor";
-    mocks.planningReconciliation = planningReconciliationFixture({
-      restricted: true,
-    });
-
-    render(<BuildCollaborationFeed buildId="build-1" organizationId="org-1" />);
-
-    expect(screen.getByText("Schedule")).toBeTruthy();
-    expect(screen.queryByText("Assignments")).toBeNull();
-    expect(screen.queryByText("Budget")).toBeNull();
-    expect(screen.queryByText("Draw")).toBeNull();
-  });
 
   test("surfaces resolved and reopened lifecycle state on the same System Post", () => {
     mocks.planningLifecycle = "resolved";
@@ -2588,9 +2461,7 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getAllByText("Resolved").length).toBeGreaterThan(0);
-    expect(
-      screen.getByText("Milestone approved by Lender Admin."),
-    ).toBeTruthy();
+    expect(screen.queryByText("Milestone approved by Lender Admin.")).toBeNull();
 
     mocks.planningLifecycle = "reopened";
     mocks.postThreadState = "open";

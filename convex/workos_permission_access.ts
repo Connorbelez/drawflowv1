@@ -7,7 +7,7 @@ import type { MutationCtx, QueryCtx } from "./types";
  * authority that changes role and permission membership.
  */
 export async function hasProjectedWorkosPermission(
-  ctx: QueryCtx | MutationCtx,
+  ctx: Pick<QueryCtx | MutationCtx, "db">,
   workosOrganizationId: string,
   roles: readonly RoleSlug[],
   permission: string

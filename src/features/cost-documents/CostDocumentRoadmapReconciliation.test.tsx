@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -42,6 +49,12 @@ type Summary = {
   integrity: { healthy: boolean; openExceptionKinds: string[] };
   kind: "invoice" | "receipt";
   lifecycle: { state: "current" | "superseded" | "voided" };
+  pages: Array<{
+    assetId: Id<"buildCollaborationAssets">;
+    fileName: string;
+    mimeType: string;
+    order: number;
+  }>;
   reviewAttention:
     | "needs_correction"
     | "partially_reviewed"
@@ -73,6 +86,14 @@ const materialsDocument: Summary = {
   integrity: { healthy: true, openExceptionKinds: [] },
   kind: "receipt",
   lifecycle: { state: "current" },
+  pages: [
+    {
+      assetId: "asset-materials" as Id<"buildCollaborationAssets">,
+      fileName: "waterproofing-receipt.pdf",
+      mimeType: "application/pdf",
+      order: 1,
+    },
+  ],
   reviewAttention: "needs_correction",
   state: "submitted",
   submittedAt: 1_754_000_000_000,
@@ -100,6 +121,14 @@ const labourDocument: Summary = {
   integrity: { healthy: true, openExceptionKinds: [] },
   kind: "invoice",
   lifecycle: { state: "current" },
+  pages: [
+    {
+      assetId: "asset-labour" as Id<"buildCollaborationAssets">,
+      fileName: "foundation-labour-invoice.pdf",
+      mimeType: "application/pdf",
+      order: 1,
+    },
+  ],
   reviewAttention: "unreviewed",
   state: "submitted",
   submittedAt: 1_754_000_100_000,
@@ -327,7 +356,8 @@ describe("CostDocumentRoadmapReconciliation", () => {
   test("organizes the selected Milestone by Sub-milestone with Materials and Labour budget comparisons, including empty Sub-milestones", () => {
     renderWorkspace();
 
-    expect(screen.getByText("Roadmap reconciliation")).toBeTruthy();
+    expect(screen.queryByText("Roadmap reconciliation")).toBeNull();
+    expect(screen.queryByText("Supporting cost context only")).toBeNull();
     expect(screen.getAllByText("Site prep & foundation").length).toBeGreaterThan(0);
     expect(screen.getByText("Days 0–20")).toBeTruthy();
     expect(screen.getByText("of $5,000.00 planned budget")).toBeTruthy();
@@ -464,18 +494,19 @@ describe("CostDocumentRoadmapReconciliation", () => {
     ).toBeTruthy();
 
     expect(screen.getByText("$4,391.80 claimed without receipt")).toBeTruthy();
-    expect(
-      screen.getAllByText("Documentation coverage").length
-    ).toBeGreaterThan(3);
+    expect(screen.getAllByText("Documentation coverage").length).toBeGreaterThan(
+      0
+    );
 
     const footings = screen.getByTestId(
       "roadmap-submilestone-sub-foundation-footings"
     );
+    expect(
+      within(
+        within(footings).getByLabelText("Materials for this Sub-milestone")
+      ).queryByText("Documentation coverage")
+    ).toBeNull();
     expect(footings.textContent).toMatch(/\$755\.00 without receipt/);
-    expect(footings.textContent).toMatch(
-      /\$1,245\.00 of \$2,000\.00 actual cost/
-    );
-    expect(footings.textContent).toMatch(/\$0\.00 of \$2,000\.00 actual cost/);
 
     const excavation = screen.getByTestId(
       "roadmap-submilestone-sub-foundation-excavation"

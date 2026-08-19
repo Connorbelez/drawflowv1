@@ -47,6 +47,16 @@ import {
   buildCollaborationWebhookEndpointStatusValidator,
   buildCollaborationWebhookEventTypeValidator,
 } from "./build_collaboration_webhook_contracts";
+import {
+  lenderProposalSnapshotDecisionValidator,
+  lenderProposalSnapshotDocumentValidator,
+  lenderProposalSnapshotRevisionValidator,
+  proposalLifecycleProjectionValidator,
+  proposalReviewPolicySnapshotValidator,
+  proposalRevisionCheckpointNameValidator,
+  proposalRevisionCheckpointSnapshotValidator,
+  proposalRevisionMilestoneValidator,
+} from "./lender_portal_phase3";
 
 const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
@@ -435,6 +445,20 @@ const systemPostHistoricalBackfillValidator = v.object({
   historicalActorRole: v.optional(buildCollaborationRoleValidator),
   unknownFacts: v.array(systemPostBackfillUnknownFactValidator),
 });
+
+const auditActorRoleValidator = v.union(
+  v.literal("admin"),
+  v.literal("principle-broker"),
+  v.literal("broker"),
+  v.literal("builder"),
+  v.literal("broker-staff"),
+  v.literal("builder-staff"),
+  v.literal("homeowner"),
+  v.literal("contractor"),
+  v.literal("lender"),
+  v.literal("lender-admin"),
+  v.literal("lender-staff")
+);
 
 const contractorKindValidator = v.union(
   v.literal("company"),
@@ -1967,6 +1991,7 @@ export default defineSchema({
     workosOrganizationId: v.string(),
     legalName: v.string(),
     displayName: v.string(),
+    legacyWorkosOrganizationId: v.optional(v.string()),
     principalBrokerEmail: v.optional(v.string()),
     principalBrokerWorkosUserId: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("inactive")),
@@ -1974,6 +1999,93 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_workos_organization", ["workosOrganizationId"])
+    .index("by_status", ["status"]),
+
+  /**
+   * Application-owned lender organizations. A lender organization is a
+   * child of a Brokerage and is deliberately not a WorkOS organization.
+   * WorkOS remains the shared identity/membership container; this record
+   * owns the lender workflow boundary and its organization-wide policy.
+   */
+  lenderOrganizations: defineTable({
+    brokerageId: v.id("brokerages"),
+    legalName: v.string(),
+    displayName: v.string(),
+    /** Legacy WorkOS-derived identifier used only during cutover/reconciliation. */
+    legacyWorkosOrganizationId: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    permissions: v.object({
+      proposalReview: v.boolean(),
+      milestoneDecisions: v.boolean(),
+      drawDecisions: v.boolean(),
+      siteVisitReview: v.boolean(),
+    }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_brokerage_and_status", ["brokerageId", "status"])
+    .index("by_brokerage_and_legacy_workos_organization", [
+      "brokerageId",
+      "legacyWorkosOrganizationId",
+    ])
+    .index("by_legacy_workos_organization", ["legacyWorkosOrganizationId"])
+    .index("by_status", ["status"]),
+
+  lenderOrganizationReconciliationCandidates: defineTable({
+    brokerageId: v.optional(v.id("brokerages")),
+    legacyWorkosOrganizationId: v.string(),
+    sourceTable: v.union(
+      v.literal("proposalLenderAssignments"),
+      v.literal("proposalLenderApprovals")
+    ),
+    sourceRecordId: v.string(),
+    snapshotName: v.optional(v.string()),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    reason: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_legacy_workos_organization", ["legacyWorkosOrganizationId"])
+    .index("by_brokerage_and_status", ["brokerageId", "status"])
+    .index("by_status", ["status"]),
+
+  /**
+   * Thin application assignment relation. Identity, roles, and WorkOS
+   * membership state stay in webhook-owned projection tables.
+   */
+  lenderOrganizationAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    lenderOrganizationId: v.id("lenderOrganizations"),
+    workosUserId: v.optional(v.string()),
+    normalizedEmail: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("active"),
+      v.literal("inactive")
+    ),
+    assignedByWorkosUserId: v.string(),
+    assignedByRole: v.string(),
+    reason: v.string(),
+    assignedAt: v.number(),
+    updatedAt: v.number(),
+    unassignedAt: v.optional(v.number()),
+    unassignedByWorkosUserId: v.optional(v.string()),
+    reconciledAt: v.optional(v.number()),
+    reconciledToAssignmentId: v.optional(v.id("lenderOrganizationAssignments")),
+    reconciliationOutcome: v.optional(
+      v.union(v.literal("bound"), v.literal("conflict_rejected"))
+    ),
+    reconciliationReason: v.optional(v.string()),
+  })
+    .index("by_lender_organization", ["lenderOrganizationId"])
+    .index("by_lender_organization_and_status", [
+      "lenderOrganizationId",
+      "status",
+    ])
+    .index("by_workos_user_and_status", ["workosUserId", "status"])
+    .index("by_normalized_email_and_status", ["normalizedEmail", "status"])
+    .index("by_brokerage_and_status", ["brokerageId", "status"])
     .index("by_status", ["status"]),
   builderProfiles: defineTable({
     brokerageId: v.id("brokerages"),
@@ -3482,6 +3594,9 @@ export default defineSchema({
     borrowerWorkingCapitalLimitCents: v.number(),
     lenderDrawPolicyLimitCents: v.number(),
     borrowerCoPayBps: v.number(),
+    capitalSource: v.optional(
+      v.union(v.literal("internal"), v.literal("external"))
+    ),
     borrowerCoPayCents: v.optional(v.number()),
     interestAnnualBps: v.optional(v.number()),
     timelineCurrentDay: v.optional(v.number()),
@@ -3495,9 +3610,19 @@ export default defineSchema({
     proposedStartDate: v.optional(v.string()),
     templateId: v.optional(v.id("proposalTemplates")),
     workflowRuleSnapshotId: v.optional(v.id("workflowRuleSnapshots")),
+    currentProposalRevisionId: v.optional(v.id("proposalRevisions")),
+    currentProposalRevisionNumber: v.optional(v.number()),
+    latestLenderReviewedRevisionId: v.optional(v.id("proposalRevisions")),
+    latestLenderReviewedRevisionNumber: v.optional(v.number()),
+    latestLenderApprovalId: v.optional(v.id("proposalLenderApprovals")),
+    currentReviewPolicyVersionId: v.optional(
+      v.id("proposalReviewPolicyVersions")
+    ),
+    lockedReviewPolicyId: v.optional(v.id("proposalReviewPolicyLocks")),
     activeBuildId: v.optional(v.id("activeBuilds")),
     submittedAt: v.optional(v.number()),
     approvedAt: v.optional(v.number()),
+    backOfficeApprovedByWorkosUserId: v.optional(v.string()),
     closedAt: v.optional(v.number()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
@@ -3513,6 +3638,252 @@ export default defineSchema({
     ])
     .index("by_builder", ["builderProfileId"])
     .index("by_active_build", ["activeBuildId"]),
+  proposalLenderAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    lenderBrokerageId: v.id("brokerages"),
+    // During the cutover this accepts the legacy WorkOS id so the migration
+    // can normalize existing history in place. New records always contain
+    // an Id<"lenderOrganizations"> and preserve the legacy id separately.
+    lenderOrganizationId: v.union(v.string(), v.id("lenderOrganizations")),
+    legacyLenderOrganizationId: v.optional(v.string()),
+    lenderOrganizationName: v.string(),
+    status: v.union(
+      v.literal("current"),
+      v.literal("archiving"),
+      v.literal("withdrawn"),
+    ),
+    archiveManifestId: v.optional(v.id("proposalLenderAssignmentManifests")),
+    assignedAt: v.number(),
+    assignedByWorkosUserId: v.string(),
+    assignedByRole: v.string(),
+    withdrawnAt: v.optional(v.number()),
+    withdrawnByWorkosUserId: v.optional(v.string()),
+    withdrawnByRole: v.optional(v.string()),
+    withdrawalReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_status", ["proposalId", "status"])
+    .index("by_proposal_lender_organization", [
+      "proposalId",
+      "lenderOrganizationId",
+    ])
+    .index("by_lender_organization", ["lenderOrganizationId"]),
+  proposalLenderAssignmentManifests: defineTable({
+    assignmentId: v.id("proposalLenderAssignments"),
+    brokerageId: v.id("brokerages"),
+    capturedAt: v.number(),
+    lenderOrganizationId: v.id("lenderOrganizations"),
+    lifecycleSnapshot: proposalLifecycleProjectionValidator,
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalSnapshot: v.object({
+      buildName: v.string(),
+      location: v.string(),
+      status: productionProposalStatusValidator,
+    }),
+    status: v.union(
+      v.literal("building"),
+      v.literal("failed"),
+      v.literal("sealed"),
+    ),
+    phase: v.union(
+      v.literal("documents"),
+      v.literal("revisions"),
+      v.literal("decisions"),
+      v.literal("complete"),
+    ),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    documentCreationTimeCutoff: v.optional(v.number()),
+    documentCutoffVersion: v.optional(v.literal(1)),
+    attemptCount: v.optional(v.number()),
+    failedAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    lastAttemptAt: v.optional(v.number()),
+    lastRetryReason: v.optional(v.string()),
+    lastRetryRequestedAt: v.optional(v.number()),
+    lastRetryRequestedByWorkosUserId: v.optional(v.string()),
+    reviewPolicyVersionId: v.optional(v.id("proposalReviewPolicyVersions")),
+    sealedAt: v.optional(v.number()),
+    version: v.literal(2),
+  })
+    .index("by_assignment", ["assignmentId"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_lender_organization", ["lenderOrganizationId"]),
+  proposalLenderAssignmentManifestDocuments: defineTable(
+    lenderProposalSnapshotDocumentValidator.omit("storageUrl").extend({
+      manifestId: v.id("proposalLenderAssignmentManifests"),
+    })
+  )
+    .index("by_manifest", ["manifestId"])
+    .index("by_manifest_and_document", ["manifestId", "documentId"]),
+  proposalLenderAssignmentManifestRevisions: defineTable(
+    lenderProposalSnapshotRevisionValidator.extend({
+      manifestId: v.id("proposalLenderAssignmentManifests"),
+    })
+  )
+    .index("by_manifest", ["manifestId"])
+    .index("by_manifest_and_revision", ["manifestId", "revisionId"]),
+  proposalLenderAssignmentManifestDecisions: defineTable(
+    lenderProposalSnapshotDecisionValidator.extend({
+      manifestId: v.id("proposalLenderAssignmentManifests"),
+    })
+  )
+    .index("by_manifest", ["manifestId"])
+    .index("by_manifest_and_approval", ["manifestId", "approvalId"]),
+  proposalReviewPolicyVersions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    version: v.number(),
+    policy: proposalReviewPolicySnapshotValidator,
+    configuredByWorkosUserId: v.string(),
+    configuredByRole: v.string(),
+    configuredAt: v.number(),
+    reason: v.string(),
+    idempotencyKey: v.string(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_and_version", ["proposalId", "version"])
+    .index("by_proposal_and_idempotency_key", ["proposalId", "idempotencyKey"]),
+  proposalRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    assignmentId: v.optional(v.id("proposalLenderAssignments")),
+    revisionNumber: v.number(),
+    checkpoints: proposalRevisionCheckpointSnapshotValidator,
+    changedCheckpoints: v.array(proposalRevisionCheckpointNameValidator),
+    priorLenderReviewedRevisionId: v.optional(v.id("proposalRevisions")),
+    reviewPolicyVersionId: v.id("proposalReviewPolicyVersions"),
+    backOfficeApprovedByWorkosUserId: v.string(),
+    createdByWorkosUserId: v.string(),
+    createdByRole: v.string(),
+    createdAt: v.number(),
+    reason: v.string(),
+    idempotencyKey: v.string(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_and_revision_number", ["proposalId", "revisionNumber"])
+    .index("by_proposal_and_idempotency_key", ["proposalId", "idempotencyKey"])
+    .index("by_assignment_and_revision_number", [
+      "assignmentId",
+      "revisionNumber",
+    ])
+    .index("by_assignment_and_created_at", ["assignmentId", "createdAt"]),
+  proposalRevisionMilestones: defineTable(proposalRevisionMilestoneValidator.extend({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    revisionId: v.id("proposalRevisions"),
+  }))
+    .index("by_revision", ["revisionId"])
+    .index("by_revision_and_order", ["revisionId", "order"]),
+  proposalLenderApprovals: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    assignmentId: v.id("proposalLenderAssignments"),
+    proposalRevisionId: v.optional(v.id("proposalRevisions")),
+    proposalRevisionNumber: v.optional(v.number()),
+    lenderOrganizationId: v.union(v.string(), v.id("lenderOrganizations")),
+    legacyLenderOrganizationId: v.optional(v.string()),
+    approverWorkosUserId: v.string(),
+    approverRole: v.string(),
+    status: v.union(v.literal("approved"), v.literal("declined")),
+    reason: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    declinedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_assignment", ["proposalId", "assignmentId"])
+    .index("by_proposal_assignment_status", [
+      "proposalId",
+      "assignmentId",
+      "status",
+    ])
+    .index("by_proposal_assignment_revision_status", {
+      fields: [
+        "proposalId",
+        "assignmentId",
+        "proposalRevisionId",
+        "status",
+      ],
+      staged: true,
+    })
+    .index("by_assignment", ["assignmentId"]),
+  proposalReviewPolicyLocks: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    policyVersionId: v.id("proposalReviewPolicyVersions"),
+    proposalRevisionId: v.id("proposalRevisions"),
+    proposalRevisionNumber: v.number(),
+    assignmentId: v.optional(v.id("proposalLenderAssignments")),
+    lenderOrganizationId: v.optional(v.id("lenderOrganizations")),
+    activeLenderMemberCount: v.number(),
+    eligibleLenderApproverCount: v.optional(v.number()),
+    eligibleLenderApproverCounts: v.optional(v.object({
+      draw: v.number(),
+      milestone: v.number(),
+      proposalReview: v.number(),
+    })),
+    policy: proposalReviewPolicySnapshotValidator,
+    lockedAt: v.number(),
+    lockedByWorkosUserId: v.string(),
+    lockedByRole: v.string(),
+    reason: v.string(),
+    idempotencyKey: v.string(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_and_idempotency_key", ["proposalId", "idempotencyKey"]),
+  proposalPhase3MigrationIssues: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    sourceRecordId: v.string(),
+    sourceTable: v.union(
+      v.literal("buildProposals"),
+      v.literal("proposalLenderApprovals"),
+      v.literal("proposalClosings"),
+      v.literal("activeBuilds")
+    ),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    resolutionMode: v.optional(v.literal("operator_activation_override")),
+    resolutionEvidenceReference: v.optional(v.string()),
+    resolutionReason: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolvedByRole: v.optional(v.string()),
+    resolvedByWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposal_and_status", ["proposalId", "status"])
+    .index("by_source_table_and_record", ["sourceTable", "sourceRecordId"]),
+  proposalClosings: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    buildStartDate: v.string(),
+    ianaTimezone: v.string(),
+    loanFacility: v.object({
+      interestAnnualBps: v.number(),
+      principalCents: v.number(),
+    }),
+    closedAt: v.number(),
+    closedByWorkosUserId: v.string(),
+    closedByRole: v.string(),
+    reason: v.string(),
+    legacyPolicyResolutionIssueId: v.optional(
+      v.id("proposalPhase3MigrationIssues")
+    ),
+    reviewPolicyLockId: v.optional(v.id("proposalReviewPolicyLocks")),
+    createdAt: v.number(),
+  }).index("by_proposal", ["proposalId"]),
   proposalDocuments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3969,6 +4340,7 @@ export default defineSchema({
     .index("by_brokerage", ["brokerageId"]),
   auditEvents: defineTable({
     brokerageId: v.id("brokerages"),
+    lenderOrganizationId: v.optional(v.id("lenderOrganizations")),
     organizationId: v.string(),
     // Canonical audit producers may include Build-scoped actor/capacity and
     // revision context. Keep these optional so legacy producers and records
@@ -3981,7 +4353,7 @@ export default defineSchema({
     command: v.string(),
     actorWorkosUserId: v.string(),
     actorKind: v.optional(buildCollaborationActorKindValidator),
-    actorRole: v.optional(buildCollaborationRoleValidator),
+    actorRole: v.optional(auditActorRoleValidator),
     actorRoles: v.array(v.string()),
     effectiveCapacity: v.optional(buildCollaborationRoleValidator),
     targetRevisions: v.optional(
@@ -4985,6 +5357,29 @@ export default defineSchema({
     totalBudgetCents: v.number(),
     permitDocumentId: v.optional(v.id("proposalDocuments")),
     permitWaiverId: v.optional(v.id("documentWaivers")),
+    legacyPolicyResolutionIssueId: v.optional(
+      v.id("proposalPhase3MigrationIssues")
+    ),
+    reviewPolicyLockId: v.optional(v.id("proposalReviewPolicyLocks")),
+    reviewPolicySnapshot: v.optional(proposalReviewPolicySnapshotValidator),
+    reviewPolicyLockEvidence: v.optional(
+      v.object({
+        activeLenderMemberCount: v.number(),
+        eligibleLenderApproverCount: v.optional(v.number()),
+        eligibleLenderApproverCounts: v.optional(v.object({
+          draw: v.number(),
+          milestone: v.number(),
+          proposalReview: v.number(),
+        })),
+        assignmentId: v.union(v.id("proposalLenderAssignments"), v.null()),
+        lenderOrganizationId: v.union(v.id("lenderOrganizations"), v.null()),
+        lockedAt: v.number(),
+        lockedByWorkosUserId: v.string(),
+        policyVersionId: v.id("proposalReviewPolicyVersions"),
+        proposalRevisionId: v.id("proposalRevisions"),
+        proposalRevisionNumber: v.number(),
+      })
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -8406,6 +8801,7 @@ export default defineSchema({
   users: defineTable({
     authId: v.string(),
     email: v.string(),
+    normalizedEmail: v.optional(v.string()),
     name: v.string(),
     status: v.optional(v.union(v.literal("active"), v.literal("deleted"))),
     workosUserId: v.optional(v.string()),
@@ -8420,7 +8816,12 @@ export default defineSchema({
     sourceEventType: v.optional(v.string()),
   })
     .index("authId", ["authId"])
-    .index("by_workos_user_id", ["workosUserId"]),
+    .index("by_workos_user_id", ["workosUserId"])
+    .index("by_email", ["email"])
+    .index("by_normalized_email", {
+      fields: ["normalizedEmail"],
+      staged: true,
+    }),
   workosOrganizations: defineTable({
     workosOrganizationId: v.string(),
     name: v.string(),
@@ -8431,7 +8832,40 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     sourceEventId: v.string(),
     sourceEventType: v.string(),
-  }).index("by_workos_organization_id", ["workosOrganizationId"]),
+  })
+    .index("by_workos_organization_id", ["workosOrganizationId"])
+    .index("by_status_and_name", ["status", "name"]),
+  workosManagementOperations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    operation: v.literal("principal-broker-transfer"),
+    idempotencyKey: v.string(),
+    sourceMembershipId: v.string(),
+    targetMembershipId: v.string(),
+    sourceRoleSlugs: v.array(v.string()),
+    targetRoleSlugs: v.array(v.string()),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    reason: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("target-promoted"),
+      v.literal("accepted"),
+      v.literal("failed")
+    ),
+    failureStage: v.optional(
+      v.union(v.literal("target-promotion"), v.literal("source-demotion"))
+    ),
+    safeError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organization_idempotency", ["organizationId", "idempotencyKey"])
+    .index("by_organization_operation_status", [
+      "organizationId",
+      "operation",
+      "status",
+    ]),
   workosOrganizationMemberships: defineTable({
     workosMembershipId: v.string(),
     workosUserId: v.string(),
@@ -8455,6 +8889,7 @@ export default defineSchema({
     .index("by_user", ["workosUserId"])
     .index("by_user_and_organization", ["workosUserId", "workosOrganizationId"])
     .index("by_organization", ["workosOrganizationId"])
+    .index("by_status", ["status"])
     .index("by_organization_and_status_and_roleSlug", [
       "workosOrganizationId",
       "status",

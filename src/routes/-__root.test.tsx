@@ -163,6 +163,7 @@ describe("root auth boundary", () => {
       roles: [],
       token: null,
       userId: null,
+      userName: null,
     });
   });
 
@@ -198,5 +199,6 @@ describe("root auth boundary", () => {
     expect(auth.initialAuth.user.id).toBe("user_123");
     expect(auth.initialAuth.sessionId).toBe("session_123");
     expect(auth.initialAuth.organizationId).toBe("org_123");
+    expect((auth as { userName?: string }).userName).toBe("admin@example.com");
   });
 });

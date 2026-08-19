@@ -392,6 +392,18 @@ export function BuilderBuildWorkspaceRoute({
     ? getVisualParityActiveBuildDetail(buildId)
     : productionBuildQuery;
   const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
+  const milestoneSiteVisitsQuery = useQuery(
+    api.production_proposals.listBrokerageSiteVisits,
+    visualFixtureEnabled ||
+      !activeBuildIdForWorkspace ||
+      !search.milestone
+      ? "skip"
+      : {
+          buildId: activeBuildIdForWorkspace,
+          milestoneKey: search.milestone,
+          workosOrganizationId,
+        },
+  );
   const timelineWorkspaceQuery = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
     visualFixtureEnabled
@@ -495,11 +507,11 @@ export function BuilderBuildWorkspaceRoute({
       search: { ...search, rail },
       to: `${routeBase}/builds/$buildId`,
     } as never);
-  const onChangeMilestone = (milestone?: string) =>
+  const onChangeMilestone = (milestone?: string, focus?: string) =>
     navigate({
       params: { buildId },
       replace: true,
-      search: { ...search, milestone },
+      search: { ...search, focus: focus ?? search.focus, milestone },
       to: `${routeBase}/builds/$buildId`,
     } as never);
   const onChangeCalendarTimeframe = (timeframe: CalendarTimeframe) =>
@@ -951,6 +963,7 @@ export function BuilderBuildWorkspaceRoute({
               ? undefined
               : search.milestone
         }
+        milestoneSiteVisits={milestoneSiteVisitsQuery}
         onChangeCalendarTimeframe={onChangeCalendarTimeframe}
         onChangeMilestone={onChangeMilestone}
         onChangeRail={onChangeRail}

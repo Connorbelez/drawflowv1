@@ -39,11 +39,23 @@ const inReviewDraw = {
   buildDisplayId: "BLD-001",
   buildId: "build-01",
   buildName: "Control Room Build",
+  builderContact: {
+    contactName: "Avery Builder",
+    displayName: "Builder One",
+    email: "avery@example.com",
+    role: "Builder owner",
+  },
   builderName: "Builder One",
   drawId: "draw-01",
   drawKey: "draw-01",
   label: "Draw 01",
   location: "Toronto",
+  funding: {
+    availableCents: 2_500_000,
+    drawnCents: 7_500_000,
+    totalApprovedCents: 10_000_000,
+  },
+  requestedAt: "2026-08-12T14:00:00.000Z",
   scheduledDateLabel: "Aug 12, 2026",
   status: "in_review",
 } as unknown as BrokerageDrawRow;
@@ -125,6 +137,10 @@ describe("DrawControlRoom", () => {
 
     fireEvent.click(screen.getAllByText("Draw 01")[0]);
 
+    expect(screen.getByRole("heading", { name: /Draw 01/ })).toBeTruthy();
+    expect(screen.getByText("Avery Builder")).toBeTruthy();
+    expect(screen.getByText("Total approved")).toBeTruthy();
+    expect(screen.queryByText("Attributed reimbursement sources")).toBeNull();
     expect(
       screen.getByRole("link", { name: "Open build workspace" }),
     ).toBeTruthy();

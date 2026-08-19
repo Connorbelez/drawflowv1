@@ -103,8 +103,19 @@ async function seedClosedBuild() {
     reason: "Scope workspace fixture is ready to close.",
     workosOrganizationId: ORG,
   });
-  const closing = await admin.mutation(
-    (api as any).production_proposals.recordOfflineClosing,
+  await admin.mutation(
+    (api as any).production_proposals.lockProposalReviewPolicy,
+    {
+      expectedAssignmentId: null,
+      expectedProposalRevisionNumber: 1,
+      idempotencyKey: `submilestone-workspace-lock:${String(proposalId)}`,
+      proposalId,
+      reason: "Lock the Sub-milestone workspace fixture policy.",
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
+    (api as any).production_proposals.recordProposalClosing,
     {
       buildStartDate: "2026-05-01",
       ianaTimezone: "America/Toronto",
@@ -112,6 +123,14 @@ async function seedClosedBuild() {
         interestAnnualBps: 925,
         principalCents: 55_000_000,
       },
+      proposalId,
+      reason: "Scope workspace fixture loan closed.",
+      workosOrganizationId: ORG,
+    },
+  );
+  const closing = await admin.mutation(
+    (api as any).production_proposals.activateClosedProposal,
+    {
       proposalId,
       reason: "Scope workspace fixture loan closed.",
       workosOrganizationId: ORG,
@@ -136,8 +155,10 @@ async function seedClosedBuild() {
 describe("active Build Sub-milestone workspace Scope boundary", () => {
   test("returns the canonical Proposal Sub-milestone ID and never projects legacy Scope or description", async () => {
     const fixture = await seedClosedBuild();
+    const completedAt = Date.parse("2026-05-08T16:00:00.000Z");
     await fixture.base.run(async (ctx: any) => {
       await ctx.db.patch(fixture.buildSubmilestone._id, {
+        completedAt,
         fieldNote: "Execution note only",
       });
     });
@@ -162,7 +183,45 @@ describe("active Build Sub-milestone workspace Scope boundary", () => {
     expect(bootstrap.overview).not.toHaveProperty("description");
     expect(bootstrap.submilestone).not.toHaveProperty("description");
     expect(bootstrap.execution).toMatchObject({ fieldNote: "Execution note only" });
-    expect(bootstrap.overview).toMatchObject({ fieldNote: "Execution note only" });
+    expect(bootstrap.execution.actualCompletedAt).toBe(completedAt);
+    expect(bootstrap.overview).toMatchObject({
+      actualCompletedAt: completedAt,
+      fieldNote: "Execution note only",
+    });
+    expect(bootstrap.milestone.drawAvailabilityCents).toBe(8_000_000);
+    expect(bootstrap.capabilities.siteVisit).toEqual({
+      cancel: { allowed: true },
+      order: { allowed: true },
+    });
+    expect(bootstrap.capabilities.canonical.uploadEvidence).toEqual({
+      allowed: true,
+    });
+    await fixture.base.run((ctx: any) =>
+      ctx.db.patch(fixture.buildSubmilestone._id, {
+        planningState: "superseded",
+        supersededAt: Date.now(),
+        supersededByPlanningRevision: 2,
+      }),
+    );
+    const supersededBootstrap = await fixture.admin.query(
+      (api as any).build_submilestone_workspace
+        .getBuildSubmilestoneWorkspaceBootstrap,
+      {
+        buildId: fixture.buildId,
+        buildSubmilestoneId: fixture.buildSubmilestone._id,
+        organizationId: ORG,
+      },
+    );
+    expect(supersededBootstrap.capabilities.siteVisit).toEqual({
+      cancel: {
+        allowed: false,
+        reason: "Historical Sub-milestones are read-only.",
+      },
+      order: {
+        allowed: false,
+        reason: "Historical Sub-milestones are read-only.",
+      },
+    });
   });
 
   test("does not leak a successor draft through the active Build bootstrap", async () => {
