@@ -426,5 +426,6 @@ export declare const components: {
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
   presence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"presence">;
   resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
+  buildCollaborationSearchWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"buildCollaborationSearchWorkpool">;
   timeline: import("convex-timeline/_generated/component.js").ComponentApi<"timeline">;
 };

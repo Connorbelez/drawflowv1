@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -182,7 +183,10 @@ describe("Build collaboration scheduled publication", () => {
         .reconcileDueMilestoneSystemPosts,
       { asOf: springStart }
     );
-    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await (fixture.base.finishAllScheduledFunctions as any)(
+      () => vi.runAllTimers(),
+      5000,
+    );
 
     const first = await fixture.base.run(async (ctx) => {
       const post = await ctx.db
@@ -385,7 +389,10 @@ describe("Build collaboration scheduled publication", () => {
         .reconcileDueDrawSystemPosts,
       { asOf },
     );
-    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await (fixture.base.finishAllScheduledFunctions as any)(
+      () => vi.runAllTimers(),
+      5000,
+    );
 
     const firstPass = await fixture.base.run(async (ctx) => {
       const posts = await ctx.db.query("buildCollaborationPosts").collect();
@@ -408,7 +415,10 @@ describe("Build collaboration scheduled publication", () => {
         .reconcileDueDrawSystemPosts,
       { asOf },
     );
-    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await (fixture.base.finishAllScheduledFunctions as any)(
+      () => vi.runAllTimers(),
+      5000,
+    );
     const secondPass = await fixture.base.run(async (ctx) => {
       const posts = await ctx.db.query("buildCollaborationPosts").collect();
       return posts.filter((post) => post.systemPostKind === "draw");
@@ -1751,6 +1761,7 @@ async function seedCanonicalSchedulingMilestone(
 
 async function seedSchedulingBuild() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, {
     roles: ["admin", "principle-broker"],
     subject: "user_admin",

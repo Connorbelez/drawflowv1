@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import resendTest from "@convex-dev/resend/test";
 import { describe, expect, test, vi } from "vitest";
@@ -16,6 +17,12 @@ import { assertProposalLenderApprovalTimestamps } from "./production_proposals";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+
+function productionConvexTest() {
+  const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
+  return base;
+}
 
 const ORG = "org_production_foundation";
 const APP_PERMISSION_RESOURCES = [
@@ -4668,7 +4675,7 @@ function asIdentity(
   subject = "user_builder",
   organizationId = ORG,
 ) {
-  return convexTest(schema, modules).withIdentity({
+  return productionConvexTest().withIdentity({
     email: `${subject}@example.com`,
     name: subject,
     organizationId,
@@ -4718,7 +4725,7 @@ async function directAdminProposalFixture(
   buildName: string,
   location: string,
 ) {
-  const base = convexTest(schema, modules);
+  const base = productionConvexTest();
   const t = withIdentity(base, ["admin"], "user_admin", ORG);
   const fixture = await base.run(async (ctx: any) => {
     const now = Date.now();
@@ -4780,7 +4787,7 @@ async function directAdminProposalFixture(
 }
 
 async function seeded(roles: string[], subject?: string, organizationId = ORG) {
-  const base = convexTest(schema, modules);
+  const base = productionConvexTest();
   const workosUserId = subject ?? "user_builder";
   await projectProductionSeedAuthorization(base, {
     organizationId,
@@ -6313,6 +6320,11 @@ describe("production proposal foundation", () => {
       },
     );
     expect(activated.buildId).toBeDefined();
+    await base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: activated.buildId, organizationId: ORG },
+    );
     const replay = await t.mutation(
       (api as any).production_proposals.activateClosedProposal,
       {
@@ -6322,6 +6334,23 @@ describe("production proposal foundation", () => {
       },
     );
     expect(replay).toEqual(activated);
+    const activationSearch = await base.run(async (ctx: any) => ({
+      jobs: (await ctx.db.query("buildCollaborationSearchJobs").collect()).filter(
+        (job: any) => job.buildId === activated.buildId,
+      ),
+      state: await ctx.db
+        .query("buildCollaborationSearchStates")
+        .withIndex("by_buildId", (query: any) =>
+          query.eq("buildId", activated.buildId),
+        )
+        .unique(),
+    }));
+    expect(activationSearch.state).toMatchObject({
+      buildId: activated.buildId,
+      generation: expect.any(Number),
+      status: "building",
+    });
+    expect(activationSearch.jobs.length).toBeGreaterThan(0);
     await expect(
       t.mutation((api as any).production_proposals.recordProposalClosing, {
         buildStartDate: "2026-08-02",
@@ -10583,7 +10612,7 @@ describe("production proposal foundation", () => {
   });
 
   test("preserves the WorkOS organization name when seeding production defaults", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base, {
       organizationName: "TestOrganization",
     });
@@ -10639,7 +10668,7 @@ describe("production proposal foundation", () => {
   });
 
   test("rejects unauthenticated production default seeding", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base);
 
     await expect(
@@ -10651,7 +10680,7 @@ describe("production proposal foundation", () => {
   });
 
   test("rejects client-supplied organization targeting for production defaults", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base);
     const t = withIdentity(base, ["admin"], "user_admin");
 
@@ -10664,7 +10693,7 @@ describe("production proposal foundation", () => {
   });
 
   test("requires the projected membership to authorize production seeding", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base, {
       roleSlugs: ["builder"],
     });

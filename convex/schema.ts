@@ -6979,6 +6979,8 @@ export default defineSchema({
     targetReaderFingerprint: v.optional(v.string()),
     requestedAt: v.number(),
     readyAt: v.optional(v.number()),
+    drainScheduled: v.optional(v.boolean()),
+    drainToken: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_buildId", ["buildId"])
@@ -7023,14 +7025,21 @@ export default defineSchema({
       v.union(v.literal("base"), v.literal("references"), v.literal("assets"))
     ),
     cursor: v.optional(v.union(v.string(), v.null())),
+    attemptVersion: v.optional(v.number()),
     failureCount: v.optional(v.number()),
     lastError: v.optional(v.string()),
     lastScheduledAt: v.optional(v.number()),
     leaseExpiresAt: v.optional(v.number()),
+    retryAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_buildId_and_status_and_retryAt", [
+      "buildId",
+      "status",
+      "retryAt",
+    ])
     .index("by_brokerageId_and_status", ["brokerageId", "status"])
     .index("by_organizationId_and_status", ["organizationId", "status"])
     .index("by_buildId_and_scope_and_status", ["buildId", "scope", "status"])

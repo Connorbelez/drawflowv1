@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -988,6 +989,7 @@ function withIdentity(
 
 async function seedWebhookFixture() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, "admin", "user_admin");
   const builder = withIdentity(base, "builder", "user_builder");
   const foundation = await admin.mutation(
