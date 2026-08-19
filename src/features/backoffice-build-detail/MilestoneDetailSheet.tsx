@@ -86,6 +86,7 @@ import { formatDate, formatRelative } from "./format";
 import type { ScheduleHealthResult } from "./scheduleHealth";
 
 type WorkState = "planned" | "in_progress" | "complete";
+type MilestoneDisplayState = WorkState | "needs_revision";
 type SubmilestoneReviewState = "approved" | "pending_review" | "rejected";
 
 export interface SubmilestoneReviewSummary {
@@ -180,7 +181,7 @@ export interface MilestoneSheetData {
   column: string;
   contractors: { name: string; initials: string; role?: string }[];
   currentDay?: number;
-  drawGroupKey: string;
+  drawGroupKey?: string;
   milestoneKey: string;
   name: string;
   plannedBudgetCents?: number;
@@ -197,7 +198,7 @@ export interface MilestoneSheetData {
     note: string;
     requestedAt?: number;
   };
-  status?: WorkState;
+  status?: MilestoneDisplayState;
   submilestones?: MilestoneSheetSubmilestone[];
   submittedAt?: number;
 }
@@ -226,6 +227,8 @@ export interface MilestoneDetailSheetProps {
   eventsSourceLabel?: string;
   focusedSubmilestoneId?: string;
   focusedSubmilestoneKey?: string;
+  /** Route-owned footer for a governed workflow extension such as Builder resubmission. */
+  footer?: ReactNode;
   onAmendStart?: (
     action: "correct" | "retract",
     milestoneKey: string,
@@ -253,12 +256,16 @@ export interface MilestoneDetailSheetProps {
     note?: string;
   }) => Promise<unknown> | unknown;
   pending?: boolean;
+  /** Hides every workflow mutation and decision control for projection-only consumers. */
+  readOnly?: boolean;
   /** Canonical route adapter for capability-aware child decision menu items. */
   renderSubmilestoneReviewItems?: (
     row: MilestoneSheetSubmilestone
   ) => ReactNode;
   /** Optional route-specific review facts composed into the shared Overview. */
   reviewLayer?: ReactNode;
+  /** Hides the expiring field-token URL for read-only consumers such as lenders. */
+  showSiteVisitFieldLink?: boolean;
   siteVisits?: BrokerageSiteVisitsResult;
   /** Governed reviewer entrypoints. Omit for Builder and read-only routes. */
   submilestoneReviewActions?: {
@@ -274,6 +281,7 @@ export function MilestoneDetailSheet({
   errorMessage,
   eventsSourceLabel,
   focusedSubmilestoneId,
+  footer,
   onApprove,
   onAmendStart,
   onAssignVisit,
@@ -286,9 +294,11 @@ export function MilestoneDetailSheet({
   onStartWork,
   onSubmitCompletion,
   pending: externalPending,
+  readOnly = false,
   collaboration,
   reviewLayer,
   renderSubmilestoneReviewItems,
+  showSiteVisitFieldLink = true,
   submilestoneReviewActions,
   siteVisits,
 }: MilestoneDetailSheetProps) {
@@ -394,7 +404,10 @@ export function MilestoneDetailSheet({
             </p>
             <SheetTitle className="mt-1">{data.name}</SheetTitle>
             <SheetDescription className="mt-1">
-              {data.column} · Linked draw {data.drawGroupKey.toUpperCase()}
+              {data.column}
+              {data.drawGroupKey
+                ? ` · Linked draw ${data.drawGroupKey.toUpperCase()}`
+                : null}
             </SheetDescription>
             <div className="mt-3 flex flex-wrap gap-2">
               <Badge variant="outline">{data.milestoneKey.toUpperCase()}</Badge>
@@ -414,7 +427,8 @@ export function MilestoneDetailSheet({
                 <Badge variant="info">
                   Actual start {formatDate(data.actualStartedAt)}
                 </Badge>
-              ) : data.status && data.status !== "planned" ? (
+              ) : data.status === "in_progress" ||
+                data.status === "complete" ? (
                 <Badge variant="warning">Actual start unknown</Badge>
               ) : null}
             </div>
@@ -456,6 +470,7 @@ export function MilestoneDetailSheet({
                 renderSubmilestoneReviewItems={renderSubmilestoneReviewItems}
                 reviewLayer={reviewLayer}
                 rows={rows}
+                showSiteVisitFieldLink={showSiteVisitFieldLink}
                 siteVisits={siteVisits}
                 submilestoneReviewActions={submilestoneReviewActions}
               />
@@ -485,89 +500,108 @@ export function MilestoneDetailSheet({
           </SheetPanel>
         </Tabs>
 
-        <SheetFooter className="z-20 flex-col items-stretch gap-3 bg-background/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:flex-col sm:items-stretch sm:px-6">
-          <div
-            className="flex w-full min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-center"
-            data-testid="milestone-footer-summary"
-          >
-            <div className="min-w-0 flex-1 text-left">
-              <p className="font-medium text-sm">
+        {footer ? (
+          <SheetFooter className="z-20 flex-col items-stretch gap-3 bg-background/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:flex-col sm:items-stretch sm:px-6">
+            {footer}
+          </SheetFooter>
+        ) : readOnly ? (
+          <SheetFooter className="z-20 bg-background/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:px-6">
+            <div className="flex w-full items-center justify-between gap-3">
+              <p className="text-muted-foreground text-xs">
+                This lender record is read-only.
+              </p>
+              <Button onClick={onClose} size="sm" variant="outline">
+                Close
+              </Button>
+            </div>
+          </SheetFooter>
+        ) : (
+          <SheetFooter className="z-20 flex-col items-stretch gap-3 bg-background/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:flex-col sm:items-stretch sm:px-6">
+            <div
+              className="flex w-full min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-center"
+              data-testid="milestone-footer-summary"
+            >
+              <div className="min-w-0 flex-1 text-left">
+                <p className="font-medium text-sm">
+                  {eligible
+                    ? data.submittedAt
+                      ? "Completion submitted"
+                      : "All submilestones are complete"
+                    : `${incomplete.length} submilestone${incomplete.length === 1 ? "" : "s"} still incomplete`}
+                </p>
+                <p className="text-muted-foreground text-xs sm:truncate">
+                  {eligible
+                    ? data.submittedAt
+                      ? `Submitted ${formatDate(data.submittedAt)} for lender review.`
+                      : "Ready to submit the builder completion claim."
+                    : "Open the first incomplete Sub-milestone to continue its canonical review."}
+                </p>
+              </div>
+              {data.canStartWork && onStartWork ? (
+                <Button
+                  data-testid="milestone-detail-sheet-start-work"
+                  disabled={Boolean(externalPending || pendingKey)}
+                  onClick={() =>
+                    onStartWork(
+                      data.milestoneKey,
+                      milestoneNote.trim() || undefined
+                    )
+                  }
+                  variant="outline"
+                >
+                  <Play /> Start work
+                </Button>
+              ) : null}
+              {data.actualStartedAt && onAmendStart ? (
+                <>
+                  <Button
+                    onClick={() => onAmendStart("correct", data.milestoneKey)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Correct start
+                  </Button>
+                  <Button
+                    onClick={() => onAmendStart("retract", data.milestoneKey)}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Retract start
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                className="shrink-0"
+                data-testid="milestone-primary-completion-action"
+                disabled={Boolean(
+                  (eligible && data.submittedAt) ||
+                    externalPending ||
+                    pendingKey
+                )}
+                loading={pendingKey === "milestone-submit"}
+                onClick={eligible ? submitCompletion : openRemainingScope}
+              >
+                {eligible ? <ClipboardCheck /> : <ListChecks />}
                 {eligible
                   ? data.submittedAt
                     ? "Completion submitted"
-                    : "All submilestones are complete"
-                  : `${incomplete.length} submilestone${incomplete.length === 1 ? "" : "s"} still incomplete`}
-              </p>
-              <p className="text-muted-foreground text-xs sm:truncate">
-                {eligible
-                  ? data.submittedAt
-                    ? `Submitted ${formatDate(data.submittedAt)} for lender review.`
-                    : "Ready to submit the builder completion claim."
-                  : "Open the first incomplete Sub-milestone to continue its canonical review."}
-              </p>
-            </div>
-            {data.canStartWork && onStartWork ? (
-              <Button
-                data-testid="milestone-detail-sheet-start-work"
-                disabled={Boolean(externalPending || pendingKey)}
-                onClick={() =>
-                  onStartWork(
-                    data.milestoneKey,
-                    milestoneNote.trim() || undefined
-                  )
-                }
-                variant="outline"
-              >
-                <Play /> Start work
+                    : "Submit milestone completion"
+                  : "Complete remaining scope"}
               </Button>
+            </div>
+            {onApprove || onRequestInfo || onAssignVisit || onReject ? (
+              <LegacyReviewActions
+                data={data}
+                note={milestoneNote}
+                onApprove={onApprove}
+                onAssignVisit={onAssignVisit}
+                onNoteChange={setMilestoneNote}
+                onReject={onReject}
+                onRequestInfo={onRequestInfo}
+              />
             ) : null}
-            {data.actualStartedAt && onAmendStart ? (
-              <>
-                <Button
-                  onClick={() => onAmendStart("correct", data.milestoneKey)}
-                  size="sm"
-                  variant="outline"
-                >
-                  Correct start
-                </Button>
-                <Button
-                  onClick={() => onAmendStart("retract", data.milestoneKey)}
-                  size="sm"
-                  variant="ghost"
-                >
-                  Retract start
-                </Button>
-              </>
-            ) : null}
-            <Button
-              className="shrink-0"
-              data-testid="milestone-primary-completion-action"
-              disabled={Boolean(
-                (eligible && data.submittedAt) || externalPending || pendingKey
-              )}
-              loading={pendingKey === "milestone-submit"}
-              onClick={eligible ? submitCompletion : openRemainingScope}
-            >
-              {eligible ? <ClipboardCheck /> : <ListChecks />}
-              {eligible
-                ? data.submittedAt
-                  ? "Completion submitted"
-                  : "Submit milestone completion"
-                : "Complete remaining scope"}
-            </Button>
-          </div>
-          {onApprove || onRequestInfo || onAssignVisit || onReject ? (
-            <LegacyReviewActions
-              data={data}
-              note={milestoneNote}
-              onApprove={onApprove}
-              onAssignVisit={onAssignVisit}
-              onNoteChange={setMilestoneNote}
-              onReject={onReject}
-              onRequestInfo={onRequestInfo}
-            />
-          ) : null}
-        </SheetFooter>
+          </SheetFooter>
+        )}
       </SheetPopup>
     </Sheet>
   );
@@ -583,6 +617,7 @@ function MilestoneOverviewContent({
   reviewLayer,
   renderSubmilestoneReviewItems,
   rows,
+  showSiteVisitFieldLink,
   siteVisits,
   submilestoneReviewActions,
 }: {
@@ -598,6 +633,7 @@ function MilestoneOverviewContent({
   reviewLayer?: ReactNode;
   renderSubmilestoneReviewItems?: MilestoneDetailSheetProps["renderSubmilestoneReviewItems"];
   rows: MilestoneSheetSubmilestone[];
+  showSiteVisitFieldLink: boolean;
   siteVisits?: BrokerageSiteVisitsResult;
   submilestoneReviewActions?: MilestoneDetailSheetProps["submilestoneReviewActions"];
 }) {
@@ -609,8 +645,7 @@ function MilestoneOverviewContent({
             <div>
               <h2 className="font-semibold text-base">Sub-milestone scope</h2>
               <p className="text-muted-foreground text-sm">
-                Child execution, evidence, assignments, materials, and review
-                are owned by the unified detail surface.
+                Work scope, evidence, costs, and Site Visits for this Milestone.
               </p>
             </div>
             <Badge variant="outline">
@@ -640,7 +675,11 @@ function MilestoneOverviewContent({
       </Frame>
 
       {siteVisits ? (
-        <MilestoneSiteVisits rows={rows} siteVisits={siteVisits.visits} />
+        <MilestoneSiteVisits
+          rows={rows}
+          showFieldLink={showSiteVisitFieldLink}
+          siteVisits={siteVisits.visits}
+        />
       ) : null}
 
       {localError || errorMessage ? (
@@ -662,9 +701,11 @@ function MilestoneOverviewContent({
 
 function MilestoneSiteVisits({
   rows,
+  showFieldLink,
   siteVisits,
 }: {
   rows: MilestoneSheetSubmilestone[];
+  showFieldLink: boolean;
   siteVisits: BrokerageSiteVisitRow[];
 }) {
   const [selectedVisit, setSelectedVisit] =
@@ -790,6 +831,7 @@ function MilestoneSiteVisits({
         onCopyLink={copySiteVisitLink}
         open={selectedVisit !== null}
         showBuildLink={false}
+        showFieldLink={showFieldLink}
         visit={selectedVisit}
       />
     </>

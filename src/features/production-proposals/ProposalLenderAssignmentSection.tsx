@@ -59,7 +59,7 @@ export interface ProposalLenderApprovalSummary {
   status: "approved" | "declined";
 }
 
-type AssignmentDialogView = "assign" | "details" | "withdraw";
+type AssignmentDialogView = "assign" | "details" | "repair" | "withdraw";
 
 export function ProposalLenderAssignmentSection({
   assignment,
@@ -70,8 +70,10 @@ export function ProposalLenderAssignmentSection({
   onAssign,
   onDialogOpenChange,
   onEditReviewPolicy,
+  onRepairLenderConfirmation,
   onWithdraw,
   proposal,
+  needsConfirmationRepair = false,
 }: {
   assignment?: ProposalLenderAssignmentRecord | null;
   assignmentHistory?: readonly ProposalLenderAssignmentRecord[];
@@ -84,6 +86,7 @@ export function ProposalLenderAssignmentSection({
   ) => Promise<unknown> | unknown;
   onDialogOpenChange?: (open: boolean) => void;
   onEditReviewPolicy?: () => void;
+  onRepairLenderConfirmation?: (reason: string) => Promise<unknown> | unknown;
   onWithdraw?: (
     assignmentId: string,
     reason: string
@@ -93,6 +96,7 @@ export function ProposalLenderAssignmentSection({
     location: string;
     status: "approved" | "closed" | "draft" | "submitted";
   };
+  needsConfirmationRepair?: boolean;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -102,6 +106,7 @@ export function ProposalLenderAssignmentSection({
   const [assignmentAcknowledged, setAssignmentAcknowledged] = useState(false);
   const [withdrawalReason, setWithdrawalReason] = useState("");
   const [withdrawalAcknowledged, setWithdrawalAcknowledged] = useState(false);
+  const [repairReason, setRepairReason] = useState("");
   const [pending, setPending] = useState(false);
   const [announcement, setAnnouncement] = useState("");
 
@@ -112,14 +117,16 @@ export function ProposalLenderAssignmentSection({
     (organization) =>
       organization.lenderOrganizationId === selectedOrganizationId
   );
-  const canAssign = Boolean(
-    onAssign &&
-      proposal.status === "approved" &&
-      !currentAssignment
-  );
-  const canWithdraw = Boolean(
-    onWithdraw && currentAssignment && proposal.status === "approved"
-  );
+  const canAssign = canAssignLender({
+    currentAssignment,
+    onAssign,
+    proposalStatus: proposal.status,
+  });
+  const canWithdraw = canWithdrawLender({
+    currentAssignment,
+    onWithdraw,
+    proposalStatus: proposal.status,
+  });
 
   const openDialog = () => {
     setSelectedOrganizationId("");
@@ -127,6 +134,7 @@ export function ProposalLenderAssignmentSection({
     setAssignmentAcknowledged(false);
     setWithdrawalReason("");
     setWithdrawalAcknowledged(false);
+    setRepairReason("");
     setDialogView(visibleAssignment ? "details" : "assign");
     setDialogOpen(true);
     onDialogOpenChange?.(true);
@@ -138,6 +146,11 @@ export function ProposalLenderAssignmentSection({
     if (!open) {
       requestAnimationFrame(() => triggerRef.current?.focus());
     }
+  };
+
+  const openReviewPolicy = () => {
+    handleOpenChange(false);
+    onEditReviewPolicy?.();
   };
 
   const handleOrganizationChange = (organizationId: string) => {
@@ -202,6 +215,30 @@ export function ProposalLenderAssignmentSection({
     }
   };
 
+  const confirmRepair = async () => {
+    if (!(onRepairLenderConfirmation && needsConfirmationRepair)) {
+      return;
+    }
+    const reason = repairReason.trim();
+    if (!reason) {
+      toast.error("Repair reason required.");
+      return;
+    }
+    setPending(true);
+    try {
+      await onRepairLenderConfirmation(reason);
+      setAnnouncement(
+        "The current proposal revision and lender confirmation cycle are ready for review."
+      );
+      toast.success("Lender confirmation restored.");
+      handleOpenChange(false);
+    } catch (error) {
+      toast.error(proposalActionErrorMessage(error));
+    } finally {
+      setPending(false);
+    }
+  };
+
   let supportingText =
     "Optional · assigning a lender adds confirmation before closing";
   if (proposal.status !== "approved" && proposal.status !== "closed") {
@@ -228,9 +265,7 @@ export function ProposalLenderAssignmentSection({
           <Landmark className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="font-semibold text-sm">
-                Lender assignment
-              </p>
+              <p className="font-semibold text-sm">Lender assignment</p>
               {currentAssignment ? (
                 <Badge
                   size="sm"
@@ -270,12 +305,15 @@ export function ProposalLenderAssignmentSection({
         canWithdraw={canWithdraw}
         lenderOrganizations={lenderOrganizations}
         lenderOrganizationsPending={lenderOrganizationsPending}
+        needsConfirmationRepair={needsConfirmationRepair}
         onAcknowledgedChange={setAssignmentAcknowledged}
         onAssignmentReasonChange={setAssignmentReason}
         onConfirmAssignment={confirmAssignment}
+        onConfirmRepair={confirmRepair}
         onConfirmWithdrawal={confirmWithdrawal}
-        onEditReviewPolicy={onEditReviewPolicy}
+        onEditReviewPolicy={onEditReviewPolicy ? openReviewPolicy : undefined}
         onOpenChange={handleOpenChange}
+        onRepairReasonChange={setRepairReason}
         onSelectedOrganizationChange={handleOrganizationChange}
         onViewChange={setDialogView}
         onWithdrawalAcknowledgedChange={setWithdrawalAcknowledged}
@@ -283,6 +321,7 @@ export function ProposalLenderAssignmentSection({
         open={dialogOpen}
         pending={pending}
         proposal={proposal}
+        repairReason={repairReason}
         selectedOrganization={selectedOrganization}
         selectedOrganizationId={selectedOrganizationId}
         view={dialogView}
@@ -294,6 +333,36 @@ export function ProposalLenderAssignmentSection({
         {announcement}
       </p>
     </>
+  );
+}
+
+function canAssignLender(input: {
+  currentAssignment: ProposalLenderAssignmentRecord | null;
+  onAssign?: (
+    lenderOrganizationId: string,
+    reason: string
+  ) => Promise<unknown> | unknown;
+  proposalStatus: "approved" | "closed" | "draft" | "submitted";
+}) {
+  return Boolean(
+    input.onAssign &&
+      input.proposalStatus === "approved" &&
+      !input.currentAssignment
+  );
+}
+
+function canWithdrawLender(input: {
+  currentAssignment: ProposalLenderAssignmentRecord | null;
+  onWithdraw?: (
+    assignmentId: string,
+    reason: string
+  ) => Promise<unknown> | unknown;
+  proposalStatus: "approved" | "closed" | "draft" | "submitted";
+}) {
+  return Boolean(
+    input.onWithdraw &&
+      input.currentAssignment &&
+      input.proposalStatus === "approved"
   );
 }
 
@@ -310,9 +379,11 @@ function AssignmentDialog({
   onAcknowledgedChange,
   onAssignmentReasonChange,
   onConfirmAssignment,
+  onConfirmRepair,
   onConfirmWithdrawal,
   onEditReviewPolicy,
   onOpenChange,
+  onRepairReasonChange,
   onSelectedOrganizationChange,
   onViewChange,
   onWithdrawalAcknowledgedChange,
@@ -320,11 +391,13 @@ function AssignmentDialog({
   open,
   pending,
   proposal,
+  repairReason,
   selectedOrganization,
   selectedOrganizationId,
   view,
   withdrawalAcknowledged,
   withdrawalReason,
+  needsConfirmationRepair,
 }: {
   acknowledged: boolean;
   assigned: ProposalLenderAssignmentRecord | null;
@@ -338,9 +411,11 @@ function AssignmentDialog({
   onAcknowledgedChange: (checked: boolean) => void;
   onAssignmentReasonChange: (reason: string) => void;
   onConfirmAssignment: () => void;
+  onConfirmRepair: () => void;
   onConfirmWithdrawal: () => void;
   onEditReviewPolicy?: () => void;
   onOpenChange: (open: boolean) => void;
+  onRepairReasonChange: (reason: string) => void;
   onSelectedOrganizationChange: (organizationId: string) => void;
   onViewChange: (view: AssignmentDialogView) => void;
   onWithdrawalAcknowledgedChange: (checked: boolean) => void;
@@ -352,11 +427,13 @@ function AssignmentDialog({
     location: string;
     status: "approved" | "closed" | "draft" | "submitted";
   };
+  repairReason: string;
   selectedOrganization?: ProposalLenderOrganizationOption;
   selectedOrganizationId: string;
   view: AssignmentDialogView;
   withdrawalAcknowledged: boolean;
   withdrawalReason: string;
+  needsConfirmationRepair: boolean;
 }) {
   if (assigned && view === "withdraw") {
     return (
@@ -382,12 +459,29 @@ function AssignmentDialog({
         assigned={assigned}
         assignmentHistory={assignmentHistory}
         canWithdraw={canWithdraw}
+        needsConfirmationRepair={needsConfirmationRepair}
         onAssign={() => onViewChange("assign")}
         onEditReviewPolicy={onEditReviewPolicy}
         onOpenChange={onOpenChange}
+        onRepair={() => onViewChange("repair")}
         onWithdraw={() => onViewChange("withdraw")}
         open={open}
         pending={pending}
+      />
+    );
+  }
+
+  if (assigned && view === "repair") {
+    return (
+      <RepairLenderConfirmationDialog
+        assigned={assigned}
+        onBack={() => onViewChange("details")}
+        onConfirm={onConfirmRepair}
+        onOpenChange={onOpenChange}
+        onReasonChange={onRepairReasonChange}
+        open={open}
+        pending={pending}
+        reason={repairReason}
       />
     );
   }
@@ -463,9 +557,7 @@ function FocusedAssignmentDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-6">
-          <ProposalAssignmentContext
-            status={proposal.status}
-          />
+          <ProposalAssignmentContext status={proposal.status} />
           <div className="grid gap-2">
             <Label htmlFor="production-lender-organization">
               Lender Organization
@@ -576,9 +668,11 @@ function AssignedLenderDialog({
   assignmentHistory,
   approval,
   canWithdraw,
+  needsConfirmationRepair,
   onAssign,
   onEditReviewPolicy,
   onOpenChange,
+  onRepair,
   onWithdraw,
   open,
   pending,
@@ -587,9 +681,11 @@ function AssignedLenderDialog({
   assignmentHistory: readonly ProposalLenderAssignmentRecord[];
   approval?: ProposalLenderApprovalSummary | null;
   canWithdraw: boolean;
+  needsConfirmationRepair: boolean;
   onAssign?: () => void;
   onEditReviewPolicy?: () => void;
   onOpenChange: (open: boolean) => void;
+  onRepair: () => void;
   onWithdraw: () => void;
   open: boolean;
   pending: boolean;
@@ -621,8 +717,8 @@ function AssignedLenderDialog({
                 {withdrawn
                   ? "Assignment withdrawn"
                   : confirmed
-                  ? "Lender confirmation recorded"
-                  : "Awaiting guided lender confirmation"}
+                    ? "Lender confirmation recorded"
+                    : "Awaiting guided lender confirmation"}
               </p>
             </div>
           </div>
@@ -649,6 +745,22 @@ function AssignedLenderDialog({
             </div>
           </dl>
           <ReviewPolicySnapshot onEditReviewPolicy={onEditReviewPolicy} />
+          {needsConfirmationRepair && !withdrawn ? (
+            <div className="grid gap-3 border-t pt-4">
+              <div>
+                <h3 className="font-semibold text-sm">
+                  Lender confirmation needs restoration
+                </h3>
+                <p className="mt-1 text-muted-foreground text-xs leading-relaxed">
+                  The approved proposal is assigned, but its current review
+                  cycle is missing.
+                </p>
+              </div>
+              <Button onClick={onRepair} size="sm" variant="outline">
+                Restore lender confirmation
+              </Button>
+            </div>
+          ) : null}
           {priorAssignments.length > 0 ? (
             <div className="grid gap-3 border-t pt-4">
               <div className="flex items-center gap-2">
@@ -685,7 +797,7 @@ function AssignedLenderDialog({
             {withdrawn && onAssign ? (
               <Button onClick={onAssign}>Assign another lender</Button>
             ) : null}
-            {!withdrawn ? (
+            {withdrawn ? null : (
               <Button
                 disabled={pending || !canWithdraw}
                 onClick={onWithdraw}
@@ -693,9 +805,74 @@ function AssignedLenderDialog({
               >
                 Withdraw assignment
               </Button>
-            ) : null}
+            )}
           </div>
           <DialogClose render={<Button disabled={pending}>Done</Button>} />
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RepairLenderConfirmationDialog({
+  assigned,
+  onBack,
+  onConfirm,
+  onOpenChange,
+  onReasonChange,
+  open,
+  pending,
+  reason,
+}: {
+  assigned: ProposalLenderAssignmentRecord;
+  onBack: () => void;
+  onConfirm: () => void;
+  onOpenChange: (open: boolean) => void;
+  onReasonChange: (reason: string) => void;
+  open: boolean;
+  pending: boolean;
+  reason: string;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Restore lender confirmation</DialogTitle>
+          <DialogDescription>
+            Recreate the missing review revision and confirmation cycle for{" "}
+            {assigned.lenderOrganizationName}.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-5">
+          <div className="space-y-2 text-sm leading-relaxed">
+            <p>
+              This keeps the approved proposal unchanged and opens a fresh
+              lender review of its current terms.
+            </p>
+            <p className="text-muted-foreground">
+              The repair is recorded in the proposal history and notifies
+              eligible lender reviewers.
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="production-lender-confirmation-repair-reason">
+              Repair reason
+            </Label>
+            <Textarea
+              id="production-lender-confirmation-repair-reason"
+              onChange={(event) => onReasonChange(event.target.value)}
+              placeholder="Explain why the missing lender review state is being restored."
+              value={reason}
+            />
+          </div>
+        </DialogPanel>
+        <DialogFooter>
+          <Button disabled={pending} onClick={onBack} variant="outline">
+            Back
+          </Button>
+          <Button disabled={pending || !reason.trim()} onClick={onConfirm}>
+            {pending ? "Restoring..." : "Restore confirmation"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

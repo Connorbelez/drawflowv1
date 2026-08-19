@@ -23,7 +23,7 @@ const proposalIdentityValidator = v.object({
   workosUserId: v.string(),
 });
 
-const proposalAssignmentValidator = v.object({
+export const proposalAssignmentValidator = v.object({
   broker: v.optional(v.union(proposalIdentityValidator, v.null())),
   brokerage: v.optional(
     v.union(
@@ -87,7 +87,7 @@ const appPermissionValidator = v.object({
   ),
 });
 
-const proposalValidator = v.object({
+export const proposalValidator = v.object({
   _id: v.id("buildProposals"),
   activeBuildId: v.optional(v.id("activeBuilds")),
   approvedAt: v.optional(v.number()),
@@ -156,7 +156,7 @@ const proposalValidator = v.object({
   workflowRuleSnapshotId: v.optional(v.id("workflowRuleSnapshots")),
 });
 
-const documentValidator = v.object({
+export const documentValidator = v.object({
   _id: v.id("proposalDocuments"),
   contractorVisible: v.optional(v.boolean()),
   createdAt: v.number(),
@@ -180,7 +180,7 @@ const documentValidator = v.object({
   uploadedByWorkosUserId: v.optional(v.string()),
 });
 
-const milestoneValidator = v.object({
+export const milestoneValidator = v.object({
   _id: v.id("proposalMilestones"),
   budgetCents: v.number(),
   createdAt: v.number(),
@@ -202,7 +202,7 @@ const milestoneValidator = v.object({
   updatedAt: v.number(),
 });
 
-const submilestoneValidator = v.object({
+export const submilestoneValidator = v.object({
   _id: v.id("proposalSubmilestones"),
   budgetCents: v.optional(v.number()),
   createdAt: v.number(),
@@ -268,7 +268,7 @@ const buildSubmilestoneValidator = v.object({
   workflowRevision: v.optional(v.number()),
 });
 
-const costItemValidator = v.object({
+export const costItemValidator = v.object({
   _id: v.id("proposalCostItems"),
   budgetSubmilestoneKey: v.optional(v.string()),
   budgetTreatment: v.optional(
@@ -296,7 +296,7 @@ const costItemValidator = v.object({
   updatedByWorkosUserId: v.optional(v.string()),
 });
 
-const proposalDrawValidator = v.object({
+export const proposalDrawValidator = v.object({
   _id: v.id("proposalDrawScheduleRows"),
   amountCents: v.number(),
   createdAt: v.number(),
@@ -406,16 +406,51 @@ const proposalEventValidator = v.object({
   warnings: v.array(v.string()),
 });
 
+export const permitWaiverValidator = v.union(
+  v.null(),
+  v.object({
+    _id: v.id("documentWaivers"),
+    createdAt: v.number(),
+    documentType: v.union(
+      v.literal("permit"),
+      v.literal("budget"),
+      v.literal("plan"),
+      v.literal("supporting")
+    ),
+    grantedByRole: v.optional(v.string()),
+    grantedByWorkosUserId: v.optional(v.string()),
+    reason: v.string(),
+  })
+);
+
+export const proposalActiveBuildValidator = v.union(
+  v.null(),
+  v.object({
+    _id: v.id("activeBuilds"),
+    startDate: v.string(),
+    status: v.union(v.literal("active"), v.literal("future_start")),
+    timezone: v.optional(v.string()),
+  })
+);
+
+export const proposalRevisionLenderContentSnapshotValidator = v.object({
+  // Optional only so the schema can deploy before legacy snapshots are
+  // republished. The canonical integrity check rejects a missing value.
+  activeBuild: v.optional(proposalActiveBuildValidator),
+  assignment: proposalAssignmentValidator,
+  counts: v.object({
+    costItems: v.number(),
+    documents: v.number(),
+    draws: v.number(),
+    milestones: v.number(),
+    submilestones: v.number(),
+  }),
+  permitWaiver: permitWaiverValidator,
+  proposal: proposalValidator,
+});
+
 export const productionProposalDetailValidator = v.object({
-  activeBuild: v.union(
-    v.null(),
-    v.object({
-      _id: v.id("activeBuilds"),
-      startDate: v.string(),
-      status: v.union(v.literal("active"), v.literal("future_start")),
-      timezone: v.optional(v.string()),
-    })
-  ),
+  activeBuild: proposalActiveBuildValidator,
   appPermissions: appPermissionValidator,
   assignment: proposalAssignmentValidator,
   auditEvents: v.optional(v.array(auditEventValidator)),
@@ -430,22 +465,7 @@ export const productionProposalDetailValidator = v.object({
   lenderAssignmentHistory: v.array(lenderAssignmentValidator),
   lifecycle: proposalLifecycleProjectionValidator,
   milestones: v.array(milestoneValidator),
-  permitWaiver: v.union(
-    v.null(),
-    v.object({
-      _id: v.id("documentWaivers"),
-      createdAt: v.number(),
-      documentType: v.union(
-        v.literal("permit"),
-        v.literal("budget"),
-        v.literal("plan"),
-        v.literal("supporting")
-      ),
-      grantedByRole: v.optional(v.string()),
-      grantedByWorkosUserId: v.optional(v.string()),
-      reason: v.string(),
-    })
-  ),
+  permitWaiver: permitWaiverValidator,
   plannedDraws: v.array(plannedDrawValidator),
   proposal: proposalValidator,
   submilestones: v.array(submilestoneValidator),

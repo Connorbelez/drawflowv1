@@ -9,7 +9,20 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+const lifecycleMocks = vi.hoisted(() => ({
+  activateClosedProposal: vi.fn(),
+  recordProposalClosing: vi.fn(),
+  toast: { error: vi.fn(), success: vi.fn() },
+  useMutation: vi.fn(),
+}));
+
+vi.mock("convex/react", () => ({
+  useMutation: lifecycleMocks.useMutation,
+  useQuery: vi.fn(),
+}));
+vi.mock("sonner", () => ({ toast: lifecycleMocks.toast }));
 
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 
@@ -69,6 +82,7 @@ import {
   buildProposalTimelineItems,
   buildProposalTimelineMarkers,
   buildReviewChartData,
+  BackofficeProposalLifecycleActions,
   getDefaultApprovalStartDateInput,
   ProposalReviewSurface,
   resolveProposalReviewRouteTab,
@@ -95,6 +109,18 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 afterEach(() => cleanup());
+
+beforeEach(() => {
+  lifecycleMocks.useMutation.mockReset().mockImplementation(() =>
+    lifecycleMocks.useMutation.mock.calls.length % 2 === 1
+      ? lifecycleMocks.recordProposalClosing
+      : lifecycleMocks.activateClosedProposal
+  );
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 const submittedViewModel = {
   build: { key: "demo-timeline-build" },
@@ -539,6 +565,125 @@ describe("ProposalReviewSurface", () => {
 });
 
 describe("ProductionProposalReviewSurface packet CTAs", () => {
+  test("wires the supported Back Office detail route to explicit closing terms and separate activation", async () => {
+    lifecycleMocks.recordProposalClosing.mockResolvedValue({
+      closingId: "closing_1",
+    });
+    lifecycleMocks.activateClosedProposal.mockResolvedValue({
+      buildId: "build_1",
+    });
+    const onActivated = vi.fn();
+    const approvedDetail = {
+      ...productionProposalDetail("submitted"),
+      activeBuild: null,
+      proposal: {
+        ...productionProposalDetail("submitted").proposal,
+        status: "approved",
+      },
+    };
+    const { rerender } = render(
+      <ProductionProposalReviewSurface
+        detail={approvedDetail as any}
+        initialActiveTab="closing"
+        lifecycleActions={
+          <BackofficeProposalLifecycleActions
+            activeBuildId={null}
+            closingPolicyReady
+            onActivated={onActivated}
+            proposal={{
+              _id: "proposal_1",
+              buildName: "Elm Street proposal",
+              interestAnnualBps: 925,
+              status: "approved",
+            }}
+            workosOrganizationId="org_backoffice"
+          />
+        }
+      />
+    );
+
+    expect(
+      screen.getByTestId("backoffice-proposal-lifecycle-actions")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Record closing/ }));
+    expect(
+      (screen.getByLabelText("Loan principal (USD)") as HTMLInputElement).value
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Build start date") as HTMLInputElement).value
+    ).toBe("");
+    fireEvent.change(screen.getByLabelText("Loan principal (USD)"), {
+      target: { value: "575000.25" },
+    });
+    fireEvent.change(screen.getByLabelText("Annual interest rate (%)"), {
+      target: { value: "8.75" },
+    });
+    fireEvent.change(screen.getByLabelText("Build start date"), {
+      target: { value: "2026-10-01" },
+    });
+    fireEvent.change(screen.getByLabelText("Build timezone (IANA)"), {
+      target: { value: "America/Toronto" },
+    });
+    fireEvent.change(screen.getByLabelText("Audit reason"), {
+      target: { value: "Signed closing documents verified by Back Office." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm closing" }));
+
+    await waitFor(() =>
+      expect(lifecycleMocks.recordProposalClosing).toHaveBeenCalledWith({
+        buildStartDate: "2026-10-01",
+        ianaTimezone: "America/Toronto",
+        loanFacility: {
+          interestAnnualBps: 875,
+          principalCents: 57_500_025,
+        },
+        proposalId: "proposal_1",
+        reason: "Signed closing documents verified by Back Office.",
+        workosOrganizationId: "org_backoffice",
+      })
+    );
+    expect(lifecycleMocks.activateClosedProposal).not.toHaveBeenCalled();
+
+    rerender(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...approvedDetail,
+          proposal: { ...approvedDetail.proposal, status: "closed" },
+        } as any}
+        initialActiveTab="closing"
+        lifecycleActions={
+          <BackofficeProposalLifecycleActions
+            activeBuildId={null}
+            closingPolicyReady
+            onActivated={onActivated}
+            proposal={{
+              _id: "proposal_1",
+              buildName: "Elm Street proposal",
+              interestAnnualBps: 875,
+              status: "closed",
+            }}
+            workosOrganizationId="org_backoffice"
+          />
+        }
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Activate Build/ }));
+    fireEvent.change(screen.getByLabelText("Audit reason"), {
+      target: { value: "Closed loan cleared for live Build activation." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Activate Build" }));
+
+    await waitFor(() =>
+      expect(lifecycleMocks.activateClosedProposal).toHaveBeenCalledWith({
+        proposalId: "proposal_1",
+        reason: "Closed loan cleared for live Build activation.",
+        workosOrganizationId: "org_backoffice",
+      })
+    );
+    expect(onActivated).toHaveBeenCalledWith("build_1");
+  });
+
   test("renders lender decision controls on the submitted packet tab", async () => {
     const approveProposal = vi.fn().mockResolvedValue({ ok: true });
 

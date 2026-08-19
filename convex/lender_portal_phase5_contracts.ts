@@ -214,7 +214,9 @@ export const lenderPortalBuilderRequestProjectionValidator = v.object({
       v.literal("review_completed")
     ),
   }),
-  history: paginationResultValidator(lenderPortalBuilderCycleProjectionValidator),
+  history: paginationResultValidator(
+    lenderPortalBuilderCycleProjectionValidator
+  ),
   kind: lenderPortalReviewRequestKindValidator,
   notice: v.object({ body: v.string(), title: v.string() }),
   requestIdentity: v.string(),
@@ -227,11 +229,23 @@ export const lenderPortalReviewerRequestProjectionValidator = v.object({
   buildName: v.string(),
   currentCycle: lenderPortalReviewerCycleProjectionValidator,
   currentCycleNumber: v.number(),
-  cycles: paginationResultValidator(lenderPortalReviewerCycleProjectionValidator),
+  cycles: paginationResultValidator(
+    lenderPortalReviewerCycleProjectionValidator
+  ),
   kind: lenderPortalReviewRequestKindValidator,
   label: v.string(),
   requestIdentity: v.string(),
   state: lenderPortalReviewRequestStateValidator,
+  targetAvailability: v.union(v.literal("available"), v.literal("unavailable")),
+  viewerActionState: v.union(
+    v.literal("needs_action"),
+    v.literal("acted"),
+    v.literal("not_required"),
+    v.literal("ineligible"),
+    v.literal("closed"),
+    v.literal("unavailable")
+  ),
+  viewerDecision: v.union(lenderPortalReviewDecisionValidator, v.null()),
 });
 
 export const lenderPortalReviewerQueueRowValidator = v.object({
@@ -257,15 +271,76 @@ export const lenderPortalReviewerQueueRowValidator = v.object({
     v.literal("unavailable")
   ),
   viewerDecision: v.union(lenderPortalReviewDecisionValidator, v.null()),
-  targetAvailability: v.union(
-    v.literal("available"),
-    v.literal("unavailable")
-  ),
+  targetAvailability: v.union(v.literal("available"), v.literal("unavailable")),
 });
 
 export const lenderPortalReviewerQueuePageValidator = paginationResultValidator(
   lenderPortalReviewerQueueRowValidator
 );
+
+const lenderPortalMilestoneQueueEvidenceValidator = v.object({
+  kind: v.union(
+    v.literal("asset"),
+    v.literal("package_revision"),
+    v.literal("cost_document"),
+    v.literal("cost_document_page"),
+    v.literal("site_visit")
+  ),
+  label: v.string(),
+});
+
+const lenderPortalMilestoneQueueSubmilestoneValidator = v.object({
+  builderEvidence: v.boolean(),
+  name: v.string(),
+  receiptCoverageCents: v.union(v.number(), v.null()),
+  siteVisitAddressed: v.boolean(),
+  siteVisitRequired: v.boolean(),
+});
+
+export const lenderPortalMilestoneQueueRowValidator = v.object({
+  actionRequired: v.boolean(),
+  actualCostCents: v.union(v.number(), v.null()),
+  actualEndDate: v.union(v.string(), v.null()),
+  actualStartDate: v.union(v.string(), v.null()),
+  approvedGroups: v.array(lenderPortalReviewGroupValidator),
+  buildId: v.id("activeBuilds"),
+  buildName: v.string(),
+  currentEligibleLenderCount: v.number(),
+  evidence: v.array(lenderPortalMilestoneQueueEvidenceValidator),
+  lenderApprovalCount: v.number(),
+  lenderQuorum: v.union(v.number(), v.null()),
+  milestoneId: v.id("buildMilestones"),
+  milestoneName: v.string(),
+  plannedBudgetCents: v.union(v.number(), v.null()),
+  plannedEndDate: v.union(v.string(), v.null()),
+  plannedStartDate: v.union(v.string(), v.null()),
+  receiptCoverageCents: v.union(v.number(), v.null()),
+  receiptInvoiceRequired: v.boolean(),
+  requiredGroups: v.array(lenderPortalReviewGroupValidator),
+  reviewCycleId: v.id("lenderPortalReviewCycles"),
+  reviewCycleNumber: v.number(),
+  siteVisitRequired: v.boolean(),
+  state: lenderPortalReviewRequestStateValidator,
+  submittedAt: v.number(),
+  submilestones: v.array(lenderPortalMilestoneQueueSubmilestoneValidator),
+  targetAvailability: v.union(v.literal("available"), v.literal("unavailable")),
+  viewerActionState: v.union(
+    v.literal("needs_action"),
+    v.literal("acted"),
+    v.literal("not_required"),
+    v.literal("ineligible"),
+    v.literal("closed"),
+    v.literal("unavailable")
+  ),
+  viewerDecision: v.union(lenderPortalReviewDecisionValidator, v.null()),
+});
+
+export const lenderPortalMilestoneQueuePageValidator =
+  paginationResultValidator(lenderPortalMilestoneQueueRowValidator);
+
+export type LenderPortalMilestoneQueueRow = Infer<
+  typeof lenderPortalMilestoneQueueRowValidator
+>;
 
 export const lenderPortalSubmitReviewResultValidator = v.object({
   cycleId: v.id("lenderPortalReviewCycles"),
@@ -288,6 +363,23 @@ export const lenderPortalSiteVisitCompletionResultValidator = v.object({
   siteVisitId: v.id("buildSiteVisits"),
   status: v.literal("complete"),
 });
+
+export const lenderPortalSiteVisitCompletionCandidateValidator = v.object({
+  canComplete: v.boolean(),
+  completionBlocker: v.union(
+    v.literal("permission_required"),
+    v.literal("photo_required"),
+    v.null()
+  ),
+  locationUnverifiedPhotoCount: v.number(),
+  photoCount: v.number(),
+  requestedAt: v.string(),
+  siteVisitId: v.id("buildSiteVisits"),
+  updatedAt: v.number(),
+});
+
+export const lenderPortalSiteVisitCompletionPageValidator =
+  paginationResultValidator(lenderPortalSiteVisitCompletionCandidateValidator);
 
 export type LenderPortalReviewTarget = Infer<
   typeof lenderPortalReviewTargetValidator

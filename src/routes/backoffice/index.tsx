@@ -139,6 +139,12 @@ import {
   type ProposalDirectoryFilterOptions,
   useBackofficeProposalDirectory,
 } from "#/features/production-proposals/ProposalDirectoryControls.tsx";
+import {
+  type ClosingConfirmationInput,
+  ProposalActivationDialog,
+  ProposalClosingDialog,
+} from "#/features/production-proposals/ProposalLifecycleDialogs.tsx";
+export type { ClosingConfirmationInput } from "#/features/production-proposals/ProposalLifecycleDialogs.tsx";
 import type { ProductionKanbanCard } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
@@ -219,12 +225,6 @@ type ProductionBackofficeDashboardData = BackofficeDashboardData & {
   submittedProposals: ProposalKanbanCard[];
 };
 
-export interface ClosingConfirmationInput {
-  buildStartDate: string;
-  ianaTimezone: string;
-  reason: string;
-}
-
 export interface OperationsEscalationInput {
   decisionPreview: string;
   evidenceSummary: string;
@@ -245,6 +245,91 @@ export interface ProductionBuilderOption {
   displayName: string;
   email?: string;
   workosUserIds?: string[];
+}
+
+export function ClosingConfirmationDialog({
+  proposal,
+  ...props
+}: {
+  onConfirm: (input: ClosingConfirmationInput) => Promise<void>;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  pending: boolean;
+  proposal: ProposalKanbanCard | null;
+}) {
+  return (
+    <ProposalClosingDialog
+      {...props}
+      proposal={
+        proposal
+          ? {
+              buildName: proposal.name,
+              interestAnnualBps: proposal.interestAnnualBps,
+            }
+          : null
+      }
+    />
+  );
+}
+
+export function createBackofficeDashboardLifecycleHandlers({
+  activateClosedProposal,
+  navigateToBuild,
+  recordClosing,
+  workosOrganizationId,
+}: {
+  activateClosedProposal: (input: {
+    proposalId: Id<"buildProposals">;
+    reason: string;
+    workosOrganizationId: string;
+  }) => Promise<{ buildId: Id<"activeBuilds"> }>;
+  navigateToBuild: (buildId: string) => Promise<void> | void;
+  recordClosing: (input: {
+    buildStartDate: string;
+    ianaTimezone: string;
+    loanFacility: {
+      interestAnnualBps: number;
+      principalCents: number;
+    };
+    proposalId: Id<"buildProposals">;
+    reason: string;
+    workosOrganizationId: string;
+  }) => Promise<unknown>;
+  workosOrganizationId: string;
+}) {
+  return {
+    onActivateClosedProposal: async (
+      proposal: ProposalKanbanCard,
+      reason: string
+    ) => {
+      const proposalId = (proposal.proposalId ??
+        proposal.id) as Id<"buildProposals">;
+      const result = await activateClosedProposal({
+        proposalId,
+        reason,
+        workosOrganizationId,
+      });
+      await navigateToBuild(String(result.buildId));
+    },
+    onRecordClosing: async (
+      proposal: ProposalKanbanCard,
+      input: ClosingConfirmationInput
+    ) => {
+      const proposalId = (proposal.proposalId ??
+        proposal.id) as Id<"buildProposals">;
+      await recordClosing({
+        buildStartDate: input.buildStartDate,
+        ianaTimezone: input.ianaTimezone,
+        loanFacility: {
+          interestAnnualBps: input.interestAnnualBps,
+          principalCents: input.principalCents,
+        },
+        proposalId,
+        reason: input.reason,
+        workosOrganizationId,
+      });
+    },
+  };
 }
 
 export function normalizeProductionBackofficeDashboard(
@@ -279,6 +364,7 @@ function dashboardProposalDirectoryCard(
   card: ProductionKanbanCard
 ): ProposalKanbanCard {
   return {
+    activeBuildId: card.activeBuildId,
     address: card.location ?? card.subtitle ?? "Location unavailable",
     approvedAt: card.approvedAt,
     borrowerStartingCashCents: card.borrowerStartingCashCents,
@@ -289,7 +375,9 @@ function dashboardProposalDirectoryCard(
     closeLabel:
       card.column === "approved" && !card.activeBuildId
         ? "Pending closing"
-        : undefined,
+        : card.column === "closed" && !card.activeBuildId
+          ? "Pending activation"
+          : undefined,
     column: card.column,
     createdAt: card.createdAt,
     href: card.href,
@@ -344,10 +432,19 @@ function RouteComponent() {
   const acknowledgeOperationsEscalationReturn = useMutation(
     api.production_proposals.acknowledgeOperationsEscalationReturn
   );
-  const proposalDirectory = useBackofficeProposalDirectory(
-    workosOrganizationId
-  );
+  const proposalDirectory =
+    useBackofficeProposalDirectory(workosOrganizationId);
   const navigate = useNavigate();
+  const lifecycleHandlers = createBackofficeDashboardLifecycleHandlers({
+    activateClosedProposal,
+    navigateToBuild: (buildId) =>
+      navigate({
+        params: { buildId },
+        to: "/backoffice/builds/$buildId",
+      }),
+    recordClosing,
+    workosOrganizationId,
+  });
 
   const dashboard = useMemo(
     () =>
@@ -395,6 +492,7 @@ function RouteComponent() {
           workosOrganizationId,
         })
       }
+      onActivateClosedProposal={lifecycleHandlers.onActivateClosedProposal}
       onArchiveProposal={(proposal, reason) =>
         archiveProposal({
           proposalId: (proposal.proposalId ??
@@ -435,35 +533,7 @@ function RouteComponent() {
       onOpenUnassignedDrafts={() =>
         navigate({ to: "/backoffice/proposals/unassigned" })
       }
-      onRecordClosing={async (proposal, input) => {
-        const proposalId = (proposal.proposalId ??
-          proposal.id) as Id<"buildProposals">;
-        try {
-          await recordClosing({
-            buildStartDate: input.buildStartDate,
-            ianaTimezone: input.ianaTimezone,
-            loanFacility: {
-              interestAnnualBps: proposal.interestAnnualBps ?? 925,
-              principalCents: proposal.lenderDrawPolicyLimitCents ?? 0,
-            },
-            proposalId,
-            reason: input.reason,
-            workosOrganizationId,
-          });
-        } catch (error) {
-          if (
-            !(error instanceof Error) ||
-            !error.message.includes("Proposal closing is already recorded")
-          ) {
-            throw error;
-          }
-        }
-        await activateClosedProposal({
-          proposalId,
-          reason: input.reason,
-          workosOrganizationId,
-        });
-      }}
+      onRecordClosing={lifecycleHandlers.onRecordClosing}
       onReturnDecision={(handoffId, input) =>
         returnOperationsEscalationDecision({
           ...input,
@@ -483,6 +553,7 @@ function RouteComponent() {
 export function BackofficeDashboard({
   builders,
   dashboard,
+  onActivateClosedProposal,
   onAcknowledgeHandoff,
   onArchiveProposal,
   onAssignBuilder,
@@ -498,6 +569,10 @@ export function BackofficeDashboard({
 }: {
   builders: ProductionBuilderOption[];
   dashboard: ProductionBackofficeDashboardData;
+  onActivateClosedProposal: (
+    proposal: ProposalKanbanCard,
+    reason: string
+  ) => Promise<unknown>;
   onAcknowledgeHandoff: (handoffId: string) => Promise<unknown>;
   onArchiveProposal: (
     proposal: ProposalKanbanCard,
@@ -531,6 +606,10 @@ export function BackofficeDashboard({
   const [closingProposal, setClosingProposal] =
     useState<ProposalKanbanCard | null>(null);
   const [closingPending, setClosingPending] = useState(false);
+  const [activationProposal, setActivationProposal] =
+    useState<ProposalKanbanCard | null>(null);
+  const [activationPending, setActivationPending] = useState(false);
+  const [activationError, setActivationError] = useState<string>();
   const [scheduleCalendarCollapsed, setScheduleCalendarCollapsed] =
     useState(false);
 
@@ -550,6 +629,26 @@ export function BackofficeDashboard({
       );
     } finally {
       setClosingPending(false);
+    }
+  };
+
+  const handleConfirmActivation = async (reason: string) => {
+    if (!activationProposal) {
+      return;
+    }
+    setActivationPending(true);
+    setActivationError(undefined);
+    try {
+      await onActivateClosedProposal(activationProposal, reason);
+      toast.success("Build activated.");
+      setActivationProposal(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to activate Build.";
+      setActivationError(message);
+      toast.error(message);
+    } finally {
+      setActivationPending(false);
     }
   };
 
@@ -602,6 +701,7 @@ export function BackofficeDashboard({
               />
             }
             loadingMore={proposalDirectory.status === "LoadingMore"}
+            onActivateClosedProposal={setActivationProposal}
             onArchiveProposal={onArchiveProposal}
             onAssignBuilder={onAssignBuilder}
             onDeleteDraft={onDeleteDraft}
@@ -649,6 +749,19 @@ export function BackofficeDashboard({
         open={closingProposal !== null}
         pending={closingPending}
         proposal={closingProposal}
+      />
+      <ProposalActivationDialog
+        buildName={activationProposal?.name ?? "Closed proposal"}
+        error={activationError}
+        onConfirm={handleConfirmActivation}
+        onOpenChange={(open) => {
+          if (!(open || activationPending)) {
+            setActivationProposal(null);
+            setActivationError(undefined);
+          }
+        }}
+        open={activationProposal !== null}
+        pending={activationPending}
       />
     </>
   );
@@ -1432,6 +1545,7 @@ export function ProposalKanban({
   columns,
   controls,
   loadingMore = false,
+  onActivateClosedProposal,
   onArchiveProposal,
   onAssignBuilder,
   onDeleteDraft,
@@ -1445,6 +1559,7 @@ export function ProposalKanban({
   columns: DashboardKanbanColumn[];
   controls?: ReactElement;
   loadingMore?: boolean;
+  onActivateClosedProposal?: (proposal: ProposalKanbanCard) => void;
   onArchiveProposal: (
     proposal: ProposalKanbanCard,
     reason: string
@@ -1550,6 +1665,11 @@ export function ProposalKanban({
                     {(card) => (
                       <ProposalCard
                         card={card}
+                        onActivateRequest={
+                          onActivateClosedProposal
+                            ? () => onActivateClosedProposal(card)
+                            : undefined
+                        }
                         onArchiveRequest={() => setArchiveTarget(card)}
                         onAssignRequest={() => setAssignTarget(card)}
                         onDeleteRequest={() => setDeleteTarget(card)}
@@ -1642,6 +1762,7 @@ function isUnassignedProposalBuilder(builder: string | undefined) {
 
 function ProposalCard({
   card,
+  onActivateRequest,
   onArchiveRequest,
   onAssignRequest,
   onDeleteRequest,
@@ -1650,6 +1771,7 @@ function ProposalCard({
   onSelect,
 }: {
   card: ProposalKanbanCard;
+  onActivateRequest?: () => void;
   onArchiveRequest: () => void;
   onAssignRequest: () => void;
   onDeleteRequest: () => void;
@@ -1730,6 +1852,7 @@ function ProposalCard({
 
   return (
     <ProposalContextMenu
+      onActivateRequest={onActivateRequest}
       onArchiveRequest={onArchiveRequest}
       onAssignRequest={onAssignRequest}
       onDeleteRequest={onDeleteRequest}
@@ -1740,6 +1863,11 @@ function ProposalCard({
       }
       onRecordClosing={() => onRecordClosing(card)}
       proposal={card}
+      showActivate={
+        card.column === "closed" &&
+        !card.activeBuildId &&
+        Boolean(onActivateRequest)
+      }
       showArchive={isSubmitted}
       showAssign={isDraft && !assigned}
       showDelete={isDraft}
@@ -1752,6 +1880,7 @@ function ProposalCard({
 
 function ProposalContextMenu({
   children,
+  onActivateRequest,
   onArchiveRequest,
   onAssignRequest,
   onDeleteRequest,
@@ -1759,11 +1888,13 @@ function ProposalContextMenu({
   onRecordClosing,
   proposal,
   showArchive,
+  showActivate,
   showAssign,
   showDelete,
   showRecordClosing,
 }: {
   children: ReactElement;
+  onActivateRequest?: () => void;
   onArchiveRequest: () => void;
   onAssignRequest: () => void;
   onDeleteRequest: () => void;
@@ -1771,6 +1902,7 @@ function ProposalContextMenu({
   onRecordClosing: () => void;
   proposal: ProposalKanbanCard;
   showArchive: boolean;
+  showActivate: boolean;
   showAssign: boolean;
   showDelete: boolean;
   showRecordClosing: boolean;
@@ -1798,6 +1930,12 @@ function ProposalContextMenu({
             <ContextMenuItem onClick={onRecordClosing}>
               <ClipboardCheck aria-hidden />
               Record closing
+            </ContextMenuItem>
+          ) : null}
+          {showActivate ? (
+            <ContextMenuItem onClick={onActivateRequest}>
+              <CheckCircle2 aria-hidden />
+              Activate Build
             </ContextMenuItem>
           ) : null}
           {showArchive || showDelete ? (
@@ -2393,119 +2531,6 @@ export function ApprovedProposalSidebar({
         ) : null}
       </SheetContent>
     </Sheet>
-  );
-}
-
-export function ClosingConfirmationDialog({
-  onConfirm,
-  onOpenChange,
-  open,
-  pending,
-  proposal,
-}: {
-  onConfirm: (input: ClosingConfirmationInput) => Promise<void>;
-  onOpenChange: (open: boolean) => void;
-  open: boolean;
-  pending: boolean;
-  proposal: ProposalKanbanCard | null;
-}) {
-  const [buildStartDate, setBuildStartDate] = useState(todayInputDate());
-  const [ianaTimezone, setIanaTimezone] = useState("");
-  const [reason, setReason] = useState("");
-
-  useEffect(() => {
-    if (open) {
-      setBuildStartDate(todayInputDate());
-      setIanaTimezone("");
-      setReason("");
-    }
-  }, [open]);
-
-  const canSubmit =
-    buildStartDate.trim().length > 0 &&
-    ianaTimezone.trim().length > 0 &&
-    reason.trim().length > 0 &&
-    !pending;
-
-  return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (canSubmit) {
-              onConfirm({
-                buildStartDate: buildStartDate.trim(),
-                ianaTimezone: ianaTimezone.trim(),
-                reason: reason.trim(),
-              });
-            }
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Record loan closing</DialogTitle>
-            <DialogDescription>
-              This creates the production active Build and copies proposal
-              milestones and planned reimbursement draws.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel>
-            <div className="grid gap-4">
-              <Card className="rounded-lg bg-muted/30 shadow-none before:hidden">
-                <CardContent className="p-3 text-sm">
-                  <div className="font-medium">
-                    {proposal?.name ?? "Approved proposal"}
-                  </div>
-                  <div className="text-muted-foreground">
-                    Principal:{" "}
-                    {centsToCurrency(proposal?.lenderDrawPolicyLimitCents ?? 0)}{" "}
-                    · Interest starts on funds released
-                  </div>
-                </CardContent>
-              </Card>
-              <label className="grid gap-2 text-sm" htmlFor="build-start-date">
-                <span className="font-medium">Build start date</span>
-                <Input
-                  id="build-start-date"
-                  onChange={(event) => setBuildStartDate(event.target.value)}
-                  required
-                  type="date"
-                  value={buildStartDate}
-                />
-              </label>
-              <label className="grid gap-2 text-sm" htmlFor="closing-reason">
-                <span className="font-medium">Audit reason</span>
-                <Textarea
-                  id="closing-reason"
-                  onChange={(event) => setReason(event.target.value)}
-                  placeholder="Confirm the offline loan closing and any closing notes."
-                  required
-                  value={reason}
-                />
-              </label>
-              <label className="grid gap-2 text-sm" htmlFor="closing-timezone">
-                <span className="font-medium">Build timezone (IANA)</span>
-                <Input
-                  id="closing-timezone"
-                  onChange={(event) => setIanaTimezone(event.target.value)}
-                  required
-                  value={ianaTimezone}
-                />
-              </label>
-            </div>
-          </DialogPanel>
-          <DialogFooter>
-            <DialogClose render={<Button type="button" variant="outline" />}>
-              Cancel
-            </DialogClose>
-            <Button disabled={!canSubmit} type="submit">
-              {pending ? <Loader2 className="animate-spin" /> : null}
-              Confirm closing
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -3134,10 +3159,6 @@ function centsToCurrency(value: number) {
     maximumFractionDigits: 0,
     style: "currency",
   }).format(value / 100);
-}
-
-function todayInputDate() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function formatTimestamp(value: number | undefined) {

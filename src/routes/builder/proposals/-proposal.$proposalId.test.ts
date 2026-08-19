@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-const mockNavigate = vi.fn();
+const mockNavigate = vi.fn().mockResolvedValue(undefined);
+const builderNotificationReviewProps = vi.hoisted(() => vi.fn());
 const builderVisualProposalDetail = {
   activeBuild: null,
   appPermissions: {
@@ -76,6 +77,44 @@ vi.mock("#/features/builder-staff/app-permissions.ts", () => ({
 vi.mock("#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts", () => ({
   createProposalCalendarEditHandler: () => vi.fn(),
 }));
+
+vi.mock(
+  "#/features/lender-portal/LenderNotificationReviewSurface.tsx",
+  () => ({
+    BuilderNotificationReviewSurface: (props: {
+      onOpenBuild: (input: { buildId: string; milestoneKey: string }) => void;
+      onResubmitted: (input: {
+        cycleId: string;
+        cycleNumber: number;
+      }) => void;
+    }) => {
+      builderNotificationReviewProps(props);
+      return createElement(
+        "section",
+        { "aria-label": "Builder Milestone correction review" },
+        createElement(
+          "button",
+          {
+            onClick: () =>
+              props.onOpenBuild({
+                buildId: "build-01",
+                milestoneKey: "foundation",
+              }),
+          },
+          "Open canonical Build"
+        ),
+        createElement(
+          "button",
+          {
+            onClick: () =>
+              props.onResubmitted({ cycleId: "cycle-4", cycleNumber: 4 }),
+          },
+          "Complete canonical resubmission"
+        )
+      );
+    },
+  })
+);
 
 vi.mock("#/features/production-proposals/ProductionContractorPlanningTab.tsx", () => ({
   ProductionContractorPlanningTab: ({ canMutate }: { canMutate: boolean }) =>
@@ -229,6 +268,8 @@ import {
 afterEach(() => {
   cleanup();
   mockNavigate.mockReset();
+  mockNavigate.mockResolvedValue(undefined);
+  builderNotificationReviewProps.mockReset();
 });
 
 describe("builder proposal detail subscription gates", () => {
@@ -264,6 +305,31 @@ describe("builder proposal detail subscription gates", () => {
       reviewCycleNumber: 3,
       tab: "milestones",
     });
+    expect(
+      validateBuilderProposalSearch({
+        milestoneId: "milestone-1",
+        reviewCycleId: "cycle-3",
+        reviewCycleNumber: 3,
+        tab: "milestones",
+      }),
+    ).toEqual({
+      milestoneId: "milestone-1",
+      reviewCycleId: "cycle-3",
+      reviewCycleNumber: 3,
+      tab: "milestones",
+    });
+    for (const reviewCycleNumber of [0, -1, 3.5, "0", "03", "3.5"]) {
+      expect(
+        validateBuilderProposalSearch({
+          milestoneId: "milestone-1",
+          reviewCycleId: "cycle-3",
+          reviewCycleNumber,
+        }),
+      ).toEqual({
+        milestoneId: "milestone-1",
+        reviewCycleId: "cycle-3",
+      });
+    }
   });
 
   test("loads heavyweight subscriptions only for matching shared tabs", () => {
@@ -285,6 +351,63 @@ describe("builder proposal detail subscription gates", () => {
 });
 
 describe("BuilderProductionProposalWorkspace route search", () => {
+  test("wires a numeric notification URL cycle to Builder correction and the returned N+1 tuple", () => {
+    const search = validateBuilderProposalSearch({
+      milestoneId: "milestone-1",
+      reviewCycleId: "cycle-3",
+      reviewCycleNumber: 3,
+      tab: "milestones",
+    });
+
+    render(
+      createElement(BuilderProductionProposalWorkspace, {
+        includeStaffTab: false,
+        proposalId: "proposal-01",
+        routeBase: "/builder",
+        search,
+        workosOrganizationId: "org-01",
+      })
+    );
+
+    expect(
+      screen.getByRole("region", {
+        name: "Builder Milestone correction review",
+      })
+    ).toBeTruthy();
+    expect(builderNotificationReviewProps).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reviewCycleId: "cycle-3",
+        reviewCycleNumber: 3,
+        target: { kind: "milestone", milestoneId: "milestone-1" },
+        workosOrganizationId: "org-01",
+      })
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open canonical Build" })
+    );
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      params: { buildId: "build-01" },
+      search: { milestone: "foundation", tab: "milestones" },
+      to: "/builder/builds/$buildId/",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Complete canonical resubmission" })
+    );
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      params: { proposalId: "proposal-01" },
+      replace: true,
+      search: {
+        milestoneId: "milestone-1",
+        reviewCycleId: "cycle-4",
+        reviewCycleNumber: 4,
+        tab: "milestones",
+      },
+      to: "/builder/proposals/$proposalId/",
+    });
+  });
+
   test("preserves timeframe while changing stage and preserves stage while changing timeframe", () => {
     render(
       createElement(BuilderProductionProposalWorkspace, {

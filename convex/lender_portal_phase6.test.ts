@@ -2,7 +2,7 @@
 
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import schema from "./schema";
 
@@ -113,6 +113,71 @@ describe("Lender Portal Phase 6 evidence and approval policy", () => {
         }),
       ]),
     );
+    const historicalCycleId = await f.base.run(async (ctx: any) => {
+      const current = await ctx.db.get(submitted.cycleId);
+      if (!current) {
+        throw new Error("Expected the submitted review cycle.");
+      }
+      const { _creationTime, _id, ...snapshot } = current;
+      return await ctx.db.insert("lenderPortalReviewCycles", {
+        ...snapshot,
+        cycleNumber: 0,
+        idempotencyKey: "phase6-historical-evidence-cycle",
+        isCurrent: false,
+      });
+    });
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5.getLenderReviewEvidence,
+        { cycleId: historicalCycleId, target },
+      ),
+    ).rejects.toThrow();
+    await expect(
+      f.admin.query(
+        (api as any).lender_portal_phase5.getBackofficeReviewEvidence,
+        {
+          cycleId: historicalCycleId,
+          target,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow();
+
+    const currentCycleNumber = await f.base.run(async (ctx: any) => {
+      const milestone = await ctx.db.get(f.milestoneId);
+      if (!milestone) {
+        throw new Error("Expected the current Milestone.");
+      }
+      const previous = milestone.currentLenderPortalReviewCycleNumber;
+      if (typeof previous !== "number") {
+        throw new Error("Expected the current review cycle number.");
+      }
+      await ctx.db.patch(f.milestoneId, {
+        currentLenderPortalReviewCycleNumber: previous + 1,
+      });
+      return previous;
+    });
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5.getLenderReviewEvidence,
+        { cycleId: submitted.cycleId, target },
+      ),
+    ).rejects.toThrow();
+    await expect(
+      f.admin.query(
+        (api as any).lender_portal_phase5.getBackofficeReviewEvidence,
+        {
+          cycleId: submitted.cycleId,
+          target,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow();
+    await f.base.run(async (ctx: any) => {
+      await ctx.db.patch(f.milestoneId, {
+        currentLenderPortalReviewCycleNumber: currentCycleNumber,
+      });
+    });
     await expect(
       f.builder.query(
         (api as any).lender_portal_phase5.getLenderReviewEvidence,
@@ -787,6 +852,39 @@ describe("Lender Portal Phase 6 evidence and approval policy", () => {
         updatedAt: lenderFixture.now,
       });
     });
+    const candidatePage = await lenderFixture.lender.query(
+      (api as any).lender_portal_phase5
+        .listLenderMilestoneSiteVisitCompletions,
+      {
+        milestoneId: lenderFixture.milestoneId,
+        paginationOpts: PAGE,
+      },
+    );
+    expect(candidatePage.page).toEqual([
+      {
+        canComplete: true,
+        completionBlocker: null,
+        locationUnverifiedPhotoCount: 1,
+        photoCount: 1,
+        requestedAt: "2026-08-15T13:00:00.000Z",
+        siteVisitId: lenderVisitId,
+        updatedAt: lenderFixture.now,
+      },
+    ]);
+    const unassignedLender = await addUnassignedLender(
+      lenderFixture,
+      "user_site_visit_foreign_lender",
+    );
+    await expect(
+      unassignedLender.query(
+        (api as any).lender_portal_phase5
+          .listLenderMilestoneSiteVisitCompletions,
+        {
+          milestoneId: lenderFixture.milestoneId,
+          paginationOpts: PAGE,
+        },
+      ),
+    ).rejects.toThrow("REVIEW_REQUEST_UNAVAILABLE");
     const lenderResult = await lenderFixture.lender.mutation(
       (api as any).lender_portal_phase5.completeLenderMilestoneSiteVisit,
       {
@@ -887,6 +985,56 @@ describe("Lender Portal Phase 6 evidence and approval policy", () => {
       report: "Lender verified the completed foundation work.",
       status: "complete",
     });
+    const completedPage = await lenderFixture.lender.query(
+      (api as any).lender_portal_phase5
+        .listLenderMilestoneSiteVisitCompletions,
+      {
+        milestoneId: lenderFixture.milestoneId,
+        paginationOpts: PAGE,
+      },
+    );
+    expect(completedPage.page).toEqual([]);
+  });
+
+  test("keeps Site Visit completion read-only without the canonical lender permission", async () => {
+    const f = await fixture();
+    const visitId = await seedSiteVisit(f, { status: "requested" });
+    await seedSiteVisitPhoto(f, visitId);
+    await f.base.run(async (ctx: any) => {
+      await ctx.db.patch(f.lenderOrganizationId, {
+        permissions: {
+          drawDecisions: true,
+          milestoneDecisions: true,
+          proposalReview: true,
+          siteVisitReview: false,
+        },
+      });
+    });
+
+    const page = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listLenderMilestoneSiteVisitCompletions,
+      { milestoneId: f.milestoneId, paginationOpts: PAGE },
+    );
+    expect(page.page).toEqual([
+      expect.objectContaining({
+        canComplete: false,
+        completionBlocker: "permission_required",
+        siteVisitId: visitId,
+      }),
+    ]);
+    await expect(
+      f.lender.mutation(
+        (api as any).lender_portal_phase5.completeLenderMilestoneSiteVisit,
+        {
+          expectedVisitUpdatedAt: f.now,
+          idempotencyKey: "phase6-permission-denied-site-visit",
+          milestoneId: f.milestoneId,
+          report: "This must not be recorded.",
+          visitId,
+        },
+      ),
+    ).rejects.toThrow("Forbidden");
   });
 
   test("canonical Site Visit recording enforces the shared report-photo guard and qualifying warning scope", async () => {

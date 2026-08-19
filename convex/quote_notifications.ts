@@ -25,6 +25,12 @@ import {
   resolveInvitationScope,
 } from "./quote_invitation_access";
 import { lenderPortalCommunicationSuppressionReason } from "./lender_portal_notifications";
+import {
+  lenderPortalDeliveryReleaseAccessRevision,
+  lenderPortalDeliveryReleaseDecision,
+  lenderPortalDeliveryReleaseReason,
+  LENDER_PORTAL_RELEASE_PAUSED_REASON,
+} from "./lender_portal_release";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const DISPATCH_BATCH_SIZE = 40;
@@ -348,31 +354,52 @@ export const listDueCommunicationIntentIds = internalQuery
   .returns(v.array(v.id("communicationIntents")))
   .handler(async (ctx, args) => {
     const limit = Math.max(1, Math.min(DISPATCH_BATCH_SIZE, args.limit));
+    // Read enough candidates that one paused tenant cannot monopolize the
+    // global status index. The Phase 9 operational stop threshold is lower
+    // than this bounded look-ahead, so a larger paused backlog is an alert and
+    // release stop condition rather than silently starving other tenants.
+    const candidateLimit = Math.min(DISPATCH_BATCH_SIZE * 4, limit * 4);
     const [pending, retrying, dispatching] = await Promise.all([
       ctx.db
         .query("communicationIntents")
         .withIndex("by_status_and_nextAttemptAt", (query) =>
           query.eq("status", "pending").lte("nextAttemptAt", args.now)
         )
-        .take(limit),
+        .take(candidateLimit),
       ctx.db
         .query("communicationIntents")
         .withIndex("by_status_and_nextAttemptAt", (query) =>
           query.eq("status", "retry_scheduled").lte("nextAttemptAt", args.now)
         )
-        .take(limit),
+        .take(candidateLimit),
       ctx.db
         .query("communicationIntents")
         .withIndex("by_status_and_nextAttemptAt", (query) =>
           query.eq("status", "dispatching").lte("nextAttemptAt", args.now)
         )
-        .take(limit),
+        .take(candidateLimit),
     ]);
-    return [
+    const candidates = [
       ...new Set(
         [...pending, ...retrying, ...dispatching].map((row) => row._id)
       ),
-    ].slice(0, limit);
+    ];
+    const allowed: Id<"communicationIntents">[] = [];
+    for (const intentId of candidates) {
+      const intent =
+        [...pending, ...retrying, ...dispatching].find(
+          (row) => row._id === intentId
+        ) ?? null;
+      if (
+        intent &&
+        (intent.status === "dispatching" ||
+          !(await lenderPortalDeliveryReleaseReason(ctx, intent)))
+      ) {
+        allowed.push(intentId);
+      }
+      if (allowed.length === limit) break;
+    }
+    return allowed;
   })
   .internal();
 
@@ -417,6 +444,18 @@ export const claimCommunicationIntent = internalMutation
         latestAttempt,
         lenderPortalSuppressionReason,
         args.now,
+      );
+      return null;
+    }
+    const releaseDecision = await lenderPortalDeliveryReleaseDecision(ctx, intent);
+    if (releaseDecision) {
+      await pauseClaimedLenderPortalIntentForReleaseControl(
+        ctx,
+        intent,
+        latestAttempt,
+        releaseDecision.reason,
+        releaseDecision.accessRevision,
+        args.now
       );
       return null;
     }
@@ -470,6 +509,8 @@ export const claimCommunicationIntent = internalMutation
       attemptNumber,
       brokerageId: intent.brokerageId,
       buildId: intent.buildId,
+      claimedFromStatus:
+        intent.status === "retry_scheduled" ? "retry_scheduled" : "pending",
       communicationIntentId: intent._id,
       createdAt: args.now,
       startedAt: args.now,
@@ -584,47 +625,71 @@ export const authorizeCommunicationProviderSubmission = internalMutation
       );
       return false;
     }
-    const activeReservations = await ctx.db
-      .query("communicationProviderReservations")
-      .withIndex("by_organizationId_and_state_and_leaseExpiresAt", (query) =>
-        query.eq("organizationId", intent.organizationId).eq("state", "active")
-      )
-      .take(MAX_ACTIVE_PROVIDER_RESERVATIONS + 1);
-    if (activeReservations.length > MAX_ACTIVE_PROVIDER_RESERVATIONS) {
+    const releaseDecision = await lenderPortalDeliveryReleaseDecision(ctx, intent);
+    if (releaseDecision) {
+      await pauseClaimedLenderPortalIntentForReleaseControl(
+        ctx,
+        intent,
+        attempt,
+        releaseDecision.reason,
+        releaseDecision.accessRevision,
+        args.now
+      );
       return false;
     }
-    for (const reservation of activeReservations) {
+    const reservationSamples = await Promise.all(
+      (["active", "expired"] as const).map((state) =>
+        ctx.db
+          .query("communicationProviderReservations")
+          .withIndex("by_organizationId_and_state_and_leaseExpiresAt", (query) =>
+            query.eq("organizationId", intent.organizationId).eq("state", state)
+          )
+          .take(MAX_ACTIVE_PROVIDER_RESERVATIONS + 1)
+      )
+    );
+    if (
+      reservationSamples.some(
+        (sample) => sample.length > MAX_ACTIVE_PROVIDER_RESERVATIONS
+      ) ||
+      reservationSamples.reduce((total, sample) => total + sample.length, 0) >
+        MAX_ACTIVE_PROVIDER_RESERVATIONS
+    ) {
+      return false;
+    }
+    for (const reservation of reservationSamples.flat()) {
       if (
+        reservation.state === "active" &&
         reservation.communicationAttemptId === attempt._id &&
         reservation.leaseExpiresAt > args.now
       ) {
         return true;
       }
-      if (reservation.leaseExpiresAt > args.now) {
+      if (
+        reservation.state === "active" &&
+        reservation.leaseExpiresAt > args.now
+      ) {
         return false;
       }
-      await ctx.db.patch(reservation._id, {
-        releasedAt: args.now,
-        state: "expired",
-        updatedAt: args.now,
-      });
-      const expiredAttempt = await ctx.db.get(
-        reservation.communicationAttemptId
-      );
-      if (expiredAttempt?.state === "claimed") {
-        await ctx.db.patch(expiredAttempt._id, {
-          finishedAt: args.now,
-          safeError: "Provider submission reservation lease expired.",
-          state: "abandoned",
+      if (reservation.state === "active") {
+        await ctx.db.patch(reservation._id, {
+          state: "expired",
           updatedAt: args.now,
         });
       }
+      // An expired lease has an unknown provider outcome. It remains a tenant
+      // interlock until explicit provider reconciliation records a durable
+      // outcome; a retry must not create a second reservation or provider call.
+      return false;
     }
+    const lenderPortalReleaseAccessRevision =
+      await lenderPortalDeliveryReleaseAccessRevision(ctx, intent);
     await ctx.db.insert("communicationProviderReservations", {
       communicationAttemptId: attempt._id,
       communicationIntentId: intent._id,
+      communicationKind: intent.kind,
       createdAt: args.now,
       leaseExpiresAt: args.now + PROVIDER_RESERVATION_LEASE_MS,
+      lenderPortalReleaseAccessRevision,
       organizationId: intent.organizationId,
       state: "active",
       updatedAt: args.now,
@@ -632,6 +697,53 @@ export const authorizeCommunicationProviderSubmission = internalMutation
     return true;
   })
   .internal();
+
+async function providerReservationHasDurableOutcome(
+  ctx: MutationCtx,
+  attemptId: Id<"communicationAttempts">
+) {
+  const attempt = await ctx.db.get(attemptId);
+  if (!attempt) return false;
+  const outcomes = await ctx.db
+    .query("communicationOutcomes")
+    .withIndex("by_communicationIntentId_and_providerCreatedAt", (query) =>
+      query.eq("communicationIntentId", attempt.communicationIntentId)
+    )
+    .take(MAX_COMMUNICATION_HISTORY + 1);
+  if (outcomes.length > MAX_COMMUNICATION_HISTORY) {
+    throw new Error(
+      "Provider outcome reconciliation exceeded its safe history boundary."
+    );
+  }
+  return outcomes.some(
+    (outcome) => outcome.communicationAttemptId === attemptId
+  );
+}
+
+async function resolveProviderReservationsAfterDurableOutcome(
+  ctx: MutationCtx,
+  attemptId: Id<"communicationAttempts">,
+  now: number
+) {
+  const reservations = await ctx.db
+    .query("communicationProviderReservations")
+    .withIndex("by_communicationAttemptId", (query) =>
+      query.eq("communicationAttemptId", attemptId)
+    )
+    .take(3);
+  if (reservations.length > 2) {
+    throw new Error("Provider reservation attempt has contradictory duplicates.");
+  }
+  for (const reservation of reservations) {
+    if (reservation.state === "active" || reservation.state === "expired") {
+      await ctx.db.patch(reservation._id, {
+        releasedAt: now,
+        state: "released",
+        updatedAt: now,
+      });
+    }
+  }
+}
 
 export const releaseCommunicationProviderReservation = internalMutation
   .input({ attemptId: v.id("communicationAttempts"), now: v.number() })
@@ -642,9 +754,29 @@ export const releaseCommunicationProviderReservation = internalMutation
       .withIndex("by_communicationAttemptId", (query) =>
         query.eq("communicationAttemptId", args.attemptId)
       )
-      .collect();
+      .take(3);
+    if (reservations.length > 2) {
+      throw new Error("Provider reservation attempt has contradictory duplicates.");
+    }
+    let hasDurableOutcome: boolean | undefined;
     for (const reservation of reservations) {
-      if (reservation.state === "active") {
+      // Phase 9 keeps lender-portal provider calls interlocked until their
+      // outcome is durable, even after the lease expires. Other established
+      // communication flows retain their explicit release contract: their
+      // worker releases the reservation after the provider call returns.
+      // Missing historical kind data fails closed because its audience cannot
+      // be proven safe for the less restrictive path.
+      if (
+        !reservation.communicationKind ||
+        reservation.communicationKind.startsWith("lender_portal_")
+      ) {
+        hasDurableOutcome ??= await providerReservationHasDurableOutcome(
+          ctx,
+          args.attemptId
+        );
+        if (!hasDurableOutcome) continue;
+      }
+      if (reservation.state === "active" || reservation.state === "expired") {
         await ctx.db.patch(reservation._id, {
           releasedAt: args.now,
           state: "released",
@@ -681,6 +813,11 @@ export const recordCommunicationDispatchSuccess = internalMutation
       )
       .first();
     if (existing) {
+      await resolveProviderReservationsAfterDurableOutcome(
+        ctx,
+        attempt._id,
+        args.now
+      );
       return existing._id;
     }
     const emailMessageId = await ctx.db.insert("emailMessages", {
@@ -743,6 +880,11 @@ export const recordCommunicationDispatchSuccess = internalMutation
       organizationId: intent.organizationId,
       receivedAt: args.now,
     });
+    await resolveProviderReservationsAfterDurableOutcome(
+      ctx,
+      attempt._id,
+      args.now
+    );
     return emailMessageId;
   })
   .internal();
@@ -770,6 +912,11 @@ export const recordCommunicationDispatchFailure = internalMutation
       )
       .unique();
     if (existingOutcome) {
+      await resolveProviderReservationsAfterDurableOutcome(
+        ctx,
+        attempt._id,
+        args.now
+      );
       return null;
     }
     const canRetry =
@@ -806,6 +953,11 @@ export const recordCommunicationDispatchFailure = internalMutation
       receivedAt: args.now,
       safeDetail: args.safeError,
     });
+    await resolveProviderReservationsAfterDurableOutcome(
+      ctx,
+      attempt._id,
+      args.now
+    );
     return null;
   })
   .internal();
@@ -1535,6 +1687,63 @@ async function cancelCommunicationForRestrictedArchive(
       providerCreatedAt: now,
       receivedAt: now,
       safeDetail: reason,
+    });
+  }
+}
+
+async function pauseClaimedLenderPortalIntentForReleaseControl(
+  ctx: MutationCtx,
+  intent: Doc<"communicationIntents">,
+  attempt: Doc<"communicationAttempts"> | null,
+  reason: string,
+  releaseAccessRevision: number,
+  now: number
+) {
+  if (!intent.kind.startsWith("lender_portal_")) return;
+  if (attempt?.state === "claimed") {
+    await ctx.db.patch(attempt._id, {
+      finishedAt: now,
+      safeError: reason,
+      state: "abandoned",
+      updatedAt: now,
+    });
+  }
+  if (intent.status === "dispatching") {
+    await ctx.db.patch(intent._id, {
+      // The attempt remains durable and terminal. The same intent and provider
+      // idempotency key resume after enablement; no duplicate intent is made.
+      nextAttemptAt: now,
+      status:
+        attempt?.claimedFromStatus === "retry_scheduled"
+          ? "retry_scheduled"
+          : "pending",
+      suppressionReason:
+        reason === LENDER_PORTAL_RELEASE_PAUSED_REASON ? reason : undefined,
+      updatedAt: now,
+    });
+  }
+  const eventFingerprint = `release-gate-paused:${String(intent._id)}:${String(
+    attempt?._id ?? "unclaimed"
+  )}:${releaseAccessRevision}:${reason}`;
+  const existingOutcome = await ctx.db
+    .query("communicationOutcomes")
+    .withIndex("by_eventFingerprint", (query) =>
+      query.eq("eventFingerprint", eventFingerprint)
+    )
+    .unique();
+  if (!existingOutcome) {
+    await ctx.db.insert("communicationOutcomes", {
+      brokerageId: intent.brokerageId,
+      buildId: intent.buildId,
+      communicationAttemptId: attempt?._id,
+      communicationIntentId: intent._id,
+      eventFingerprint,
+      organizationId: intent.organizationId,
+      outcomeType: "dispatch_suppressed",
+      precedence: 90,
+      providerCreatedAt: now,
+      receivedAt: now,
+      safeDetail: `${reason} Release revision ${releaseAccessRevision}.`,
     });
   }
 }

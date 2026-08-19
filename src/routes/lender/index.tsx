@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { LenderShell } from "#/components/lender-shell.tsx";
-import { LenderDashboardVariantD } from "../lender.prototype.tsx";
+import { LenderDashboardVariantD } from "#/features/lender-dashboard/LenderDashboardVariantD.tsx";
 
 export const Route = createFileRoute("/lender/")({
   component: LenderDashboard,

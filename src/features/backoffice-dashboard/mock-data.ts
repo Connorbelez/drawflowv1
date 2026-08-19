@@ -101,6 +101,7 @@ export interface MilestoneKanbanCard extends Record<string, unknown> {
 }
 
 export interface ProposalKanbanCard extends Record<string, unknown> {
+  activeBuildId?: string;
   address: string;
   approvedAt?: number;
   borrowerStartingCashCents?: number;

@@ -45,21 +45,21 @@ const organization: WorkosOrganizationRow = {
   status: "active",
   workosOrganizationId: "org_northstar",
 };
-const principal = directoryUser({
-  email: "principal@northstar.test",
-  membershipId: "om_principal",
-  name: "Pat Principal",
-  roles: ["admin", "principle-broker"],
+const lenderAdmin = directoryUser({
+  email: "admin@northstar.test",
+  membershipId: "om_lender_admin",
+  name: "Avery Admin",
+  roles: ["lender-admin"],
   status: "active",
-  userId: "user_principal",
+  userId: "user_lender_admin",
 });
-const broker = directoryUser({
-  email: "broker@northstar.test",
-  membershipId: "om_broker",
-  name: "Blair Broker",
-  roles: ["broker"],
+const lenderStaff = directoryUser({
+  email: "staff@northstar.test",
+  membershipId: "om_lender_staff",
+  name: "Sam Staff",
+  roles: ["lender-staff"],
   status: "inactive",
-  userId: "user_broker",
+  userId: "user_lender_staff",
 });
 
 describe("approved lender organization management Variant E", () => {
@@ -67,8 +67,8 @@ describe("approved lender organization management Variant E", () => {
     const markup = renderToStaticMarkup(
       <LenderOrganizationManagementVariantE
         activeMemberCount={1}
-        administrationContext="Admin · Principal Broker"
-        directoryUsers={[principal, broker]}
+        administrationContext="Back Office Admin"
+        directoryUsers={[lenderAdmin, lenderStaff]}
         mode="production"
         onOpenOperation={() => undefined}
         onOpenUser={() => undefined}
@@ -93,8 +93,8 @@ describe("approved lender organization management Variant E", () => {
     render(
       <LenderOrganizationManagementVariantE
         activeMemberCount={1}
-        administrationContext="Admin · Principal Broker"
-        directoryUsers={[principal, broker]}
+        administrationContext="Back Office Admin"
+        directoryUsers={[lenderAdmin, lenderStaff]}
         mode="production"
         onOpenOperation={onOpenOperation}
         onOpenUser={onOpenUser}
@@ -106,10 +106,10 @@ describe("approved lender organization management Variant E", () => {
     );
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search organization members" }), {
-      target: { value: "Blair" },
+      target: { value: "Sam" },
     });
-    expect(screen.getByText("Blair Broker")).toBeTruthy();
-    expect(screen.queryByText("Pat Principal")).toBeNull();
+    expect(screen.getByText("Sam Staff")).toBeTruthy();
+    expect(screen.queryByText("Avery Admin")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Active1/ }));
     expect(screen.getByText("No organization members match this view.")).toBeTruthy();
@@ -117,16 +117,17 @@ describe("approved lender organization management Variant E", () => {
     expect(onOpenOperation).toHaveBeenCalledWith("invite");
   });
 
-  test("preserves the four member tabs and protected transfer workflow", () => {
+  test("preserves the four member tabs without inventing a Principal Broker transfer", () => {
     const onOpenOperation = vi.fn();
     render(
       <LenderMemberAdministrationDetails
         activeMembershipCount={1}
         historyCount={3}
-        member={principal}
+        member={lenderAdmin}
         mode="production"
         onOpenOperation={onOpenOperation}
         organizationName="Northstar Lending"
+        showTransfer={false}
       />
     );
 
@@ -135,8 +136,9 @@ describe("approved lender organization management Variant E", () => {
     expect(screen.getByRole("tab", { name: "Review relationship" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "History" })).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Administration" }));
-    fireEvent.click(screen.getByRole("button", { name: /Transfer control/ }));
-    expect(onOpenOperation).toHaveBeenCalledWith("transfer-principal");
+    expect(screen.queryByRole("button", { name: /Transfer control/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Stage access change/ }));
+    expect(onOpenOperation).toHaveBeenCalledWith("change-access");
     fireEvent.click(screen.getByRole("tab", { name: "Review relationship" }));
     expect(screen.getByText("Not derived on this surface")).toBeTruthy();
     expect(screen.getByText(/cannot change approval policy/)).toBeTruthy();
@@ -146,7 +148,7 @@ describe("approved lender organization management Variant E", () => {
     const onExecute = vi.fn().mockResolvedValue(undefined);
     render(
       <LenderOrganizationOperationDialog
-        directoryUsers={[principal, broker]}
+        directoryUsers={[lenderAdmin, lenderStaff]}
         member={null}
         onExecute={onExecute}
         onOpenChange={() => undefined}
@@ -159,7 +161,10 @@ describe("approved lender organization management Variant E", () => {
     const review = screen.getByRole("button", { name: /Review draft/ });
     expect(review.hasAttribute("disabled")).toBe(true);
     fireEvent.change(screen.getByLabelText("Member email"), {
-      target: { value: "new.broker@northstar.test" },
+      target: { value: "new.lender@northstar.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Operational reason"), {
+      target: { value: "Add the assigned lender reviewer" },
     });
     expect(screen.getByLabelText("Starting access")).toBeTruthy();
     expect(review.hasAttribute("disabled")).toBe(false);
@@ -167,18 +172,20 @@ describe("approved lender organization management Variant E", () => {
     expect(screen.getByText("Ready to submit")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Confirm command" }));
     expect(onExecute).toHaveBeenCalledWith({
-      email: "new.broker@northstar.test",
+      email: "new.lender@northstar.test",
       kind: "invite",
-      roleSlug: "broker",
+      reason: "Add the assigned lender reviewer",
+      roleSlug: "lender",
     });
   });
 
-  test("blocks ordinary deactivation of the projected Principal Broker", () => {
+  test("requires acknowledgement and an audit reason before lender deactivation", async () => {
+    const onExecute = vi.fn().mockResolvedValue(undefined);
     render(
       <LenderOrganizationOperationDialog
-        directoryUsers={[principal, broker]}
-        member={principal}
-        onExecute={vi.fn()}
+        directoryUsers={[lenderAdmin, lenderStaff]}
+        member={lenderAdmin}
+        onExecute={onExecute}
         onOpenChange={() => undefined}
         operation="deactivate"
         organizationName="Northstar Lending"
@@ -186,41 +193,48 @@ describe("approved lender organization management Variant E", () => {
       />
     );
     fireEvent.change(screen.getByLabelText("Operational reason"), {
-      target: { value: "Principal is leaving the brokerage" },
+      target: { value: "Access ended by Back Office Admin" },
     });
     const acknowledgement = screen.getByRole("checkbox");
     fireEvent.click(acknowledgement);
     fireEvent.click(screen.getByRole("button", { name: /Review draft/ }));
-    expect(screen.getByText("Transfer required")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Confirm command" }).hasAttribute("disabled")).toBe(true);
-  });
-  test("ignores an incomplete transfer candidate without crashing", () => {
-    const incompleteCandidate = directoryUser({
-      email: "incomplete@northstar.test",
-      membershipId: "om_incomplete",
-      name: "Incomplete Candidate",
-      roles: ["broker"],
-      status: "active",
-      userId: "user_incomplete",
+    fireEvent.click(screen.getByRole("button", { name: "Confirm command" }));
+    expect(onExecute).toHaveBeenCalledWith({
+      kind: "deactivate",
+      membershipId: "om_lender_admin",
+      reason: "Access ended by Back Office Admin",
     });
-    incompleteCandidate.memberships[0]!.roleSlugs = undefined;
+  });
 
+  test("submits one exact lender role through the access command", () => {
+    const onExecute = vi.fn().mockResolvedValue(undefined);
     render(
       <LenderOrganizationOperationDialog
-        directoryUsers={[principal, incompleteCandidate]}
-        member={principal}
-        onExecute={vi.fn()}
+        directoryUsers={[lenderAdmin, lenderStaff]}
+        member={lenderStaff}
+        onExecute={onExecute}
         onOpenChange={() => undefined}
-        operation="transfer-principal"
+        operation="change-access"
         organizationName="Northstar Lending"
         pending={false}
       />
     );
 
-    expect(screen.getByLabelText("Replacement Principal Broker")).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "Incomplete Candidate" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Proposed lender role"), {
+      target: { value: "lender-admin" },
+    });
+    fireEvent.change(screen.getByLabelText("Operational reason"), {
+      target: { value: "Promoted to final decision authority" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Review draft/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm command" }));
+    expect(onExecute).toHaveBeenCalledWith({
+      kind: "change-access",
+      membershipId: "om_lender_staff",
+      reason: "Promoted to final decision authority",
+      roleSlug: "lender-admin",
+    });
   });
-
 });
 
 function directoryUser(input: {

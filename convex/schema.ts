@@ -68,6 +68,15 @@ import {
   lenderPortalReviewerRoleValidator,
   lenderPortalReviewSubmissionSnapshotValidator,
 } from "./lender_portal_phase5_contracts";
+import { lenderPortalPhase9MigrationCountsValidator } from "./lender_portal_phase9_contracts";
+import {
+  costItemValidator,
+  documentValidator,
+  milestoneValidator,
+  proposalDrawValidator,
+  proposalRevisionLenderContentSnapshotValidator,
+  submilestoneValidator,
+} from "./production_proposal_detail";
 
 const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
@@ -876,6 +885,13 @@ const communicationIntentStatusValidator = v.union(
   v.literal("action_required"),
   v.literal("superseded"),
   v.literal("cancelled")
+);
+
+const lenderPortalReleaseStatusValidator = v.union(
+  v.literal("disabled"),
+  v.literal("canary"),
+  v.literal("enabled"),
+  v.literal("draining")
 );
 
 const communicationAttemptStateValidator = v.union(
@@ -2049,6 +2065,9 @@ export default defineSchema({
 
   lenderOrganizationReconciliationCandidates: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
+    // Legacy rows may predate tenant provenance. New reconciliation rows must
+    // always carry this field and Phase 9 only consumes the exact tenant scope.
+    organizationId: v.optional(v.string()),
     legacyWorkosOrganizationId: v.string(),
     sourceTable: v.union(
       v.literal("proposalLenderAssignments"),
@@ -2063,6 +2082,17 @@ export default defineSchema({
   })
     .index("by_legacy_workos_organization", ["legacyWorkosOrganizationId"])
     .index("by_brokerage_and_status", ["brokerageId", "status"])
+    .index("by_brokerage_organization_status", [
+      "brokerageId",
+      "organizationId",
+      "status",
+    ])
+    .index("by_scope_source", [
+      "brokerageId",
+      "organizationId",
+      "sourceTable",
+      "sourceRecordId",
+    ])
     .index("by_status", ["status"]),
 
   /**
@@ -3645,6 +3675,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_brokerage", ["brokerageId"])
+    .index("by_brokerage_and_organization", [
+      "brokerageId",
+      "organizationId",
+    ])
     .index("by_brokerage_status", ["brokerageId", "status"])
     .index("by_brokerage_status_builder", [
       "brokerageId",
@@ -3794,6 +3828,65 @@ export default defineSchema({
     proposalId: v.id("buildProposals"),
     revisionId: v.id("proposalRevisions"),
   }))
+    .index("by_revision", ["revisionId"])
+    .index("by_revision_and_order", ["revisionId", "order"]),
+  proposalRevisionLenderContentSnapshots: defineTable(
+    proposalRevisionLenderContentSnapshotValidator.extend({
+      brokerageId: v.id("brokerages"),
+      organizationId: v.string(),
+      proposalId: v.id("buildProposals"),
+      revisionId: v.id("proposalRevisions"),
+    })
+  ).index("by_revision", ["revisionId"]),
+  proposalRevisionLenderDocuments: defineTable(
+    documentValidator.omit("_id").extend({
+      brokerageId: v.id("brokerages"),
+      organizationId: v.string(),
+      proposalId: v.id("buildProposals"),
+      revisionId: v.id("proposalRevisions"),
+      sourceDocumentId: v.id("proposalDocuments"),
+    })
+  ).index("by_revision", ["revisionId"]),
+  proposalRevisionLenderMilestones: defineTable(
+    milestoneValidator.omit("_id").extend({
+      brokerageId: v.id("brokerages"),
+      organizationId: v.string(),
+      proposalId: v.id("buildProposals"),
+      revisionId: v.id("proposalRevisions"),
+      sourceMilestoneId: v.id("proposalMilestones"),
+    })
+  )
+    .index("by_revision", ["revisionId"])
+    .index("by_revision_and_order", ["revisionId", "order"]),
+  proposalRevisionLenderSubmilestones: defineTable(
+    submilestoneValidator.omit("_id").extend({
+      brokerageId: v.id("brokerages"),
+      organizationId: v.string(),
+      proposalId: v.id("buildProposals"),
+      revisionId: v.id("proposalRevisions"),
+      sourceSubmilestoneId: v.id("proposalSubmilestones"),
+    })
+  )
+    .index("by_revision", ["revisionId"])
+    .index("by_revision_and_order", ["revisionId", "order"]),
+  proposalRevisionLenderCostItems: defineTable(
+    costItemValidator.omit("_id").extend({
+      brokerageId: v.id("brokerages"),
+      organizationId: v.string(),
+      proposalId: v.id("buildProposals"),
+      revisionId: v.id("proposalRevisions"),
+      sourceCostItemId: v.id("proposalCostItems"),
+    })
+  ).index("by_revision", ["revisionId"]),
+  proposalRevisionLenderDraws: defineTable(
+    proposalDrawValidator.omit("_id").extend({
+      brokerageId: v.id("brokerages"),
+      organizationId: v.string(),
+      proposalId: v.id("buildProposals"),
+      revisionId: v.id("proposalRevisions"),
+      sourceDrawId: v.id("proposalDrawScheduleRows"),
+    })
+  )
     .index("by_revision", ["revisionId"])
     .index("by_revision_and_order", ["revisionId", "order"]),
   proposalLenderConfirmationCycles: defineTable({
@@ -4008,6 +4101,7 @@ export default defineSchema({
     sourceRecordId: v.string(),
     sourceTable: v.union(
       v.literal("buildProposals"),
+      v.literal("proposalLenderAssignments"),
       v.literal("proposalLenderApprovals"),
       v.literal("proposalClosings"),
       v.literal("activeBuilds")
@@ -4531,6 +4625,7 @@ export default defineSchema({
     reconciliationKey: v.optional(v.string()),
     drawFlowCorrelationId: v.optional(v.string()),
     providerCorrelationId: v.optional(v.string()),
+    phase9RunToken: v.optional(v.string()),
     overrideKind: v.optional(v.string()),
     breakGlass: v.optional(v.boolean()),
     warnings: v.array(v.string()),
@@ -4544,6 +4639,16 @@ export default defineSchema({
       "createdAt",
     ])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_entityType_and_createdAt", [
+      "organizationId",
+      "entityType",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_phase9RunToken_and_createdAt", [
+      "organizationId",
+      "phase9RunToken",
+      "createdAt",
+    ])
     .index("by_organizationId_and_reconciliationKey", [
       "organizationId",
       "reconciliationKey",
@@ -4618,6 +4723,69 @@ export default defineSchema({
       "providerCreatedAt",
     ])
     .index("by_organization_and_receivedAt", ["organizationId", "receivedAt"]),
+  // Canonical tenant-scoped exposure control for the Lender Portal delivery
+  // vertical. A missing row means disabled. The communication outbox remains
+  // the delivery owner; this row only controls whether its worker may claim or
+  // submit lender-portal work for one application organization.
+  lenderPortalTenantReleaseControls: defineTable({
+    accessRevision: v.number(),
+    brokerageId: v.id("brokerages"),
+    candidateSha: v.string(),
+    canaryRecipientWorkosUserIds: v.array(v.string()),
+    configurationHash: v.string(),
+    createdAt: v.number(),
+    disabledAt: v.optional(v.number()),
+    drainingAt: v.optional(v.number()),
+    enabledAt: v.optional(v.number()),
+    organizationId: v.string(),
+    reason: v.string(),
+    status: lenderPortalReleaseStatusValidator,
+    updatedAt: v.number(),
+    updatedByWorkosUserId: v.string(),
+  }).index("by_organizationId", ["organizationId"]),
+  lenderPortalPhase9MigrationRuns: defineTable({
+    active: v.boolean(),
+    brokerageId: v.id("brokerages"),
+    candidateSha: v.string(),
+    configurationHash: v.string(),
+    countsAfter: v.optional(lenderPortalPhase9MigrationCountsValidator),
+    countsBefore: lenderPortalPhase9MigrationCountsValidator,
+    createdAt: v.number(),
+    inventoryFingerprint: v.string(),
+    inventoryFingerprintAfter: v.optional(v.string()),
+    issueCount: v.number(),
+    issueSnapshots: v.array(
+      v.object({
+        code: v.string(),
+        disposition: v.union(v.literal("open"), v.literal("resolved")),
+        field: v.string(),
+        provenance: v.string(),
+        reason: v.string(),
+        sourceRecordId: v.string(),
+        sourceTable: v.string(),
+      })
+    ),
+    organizationId: v.string(),
+    reason: v.string(),
+    runToken: v.string(),
+    status: v.union(
+      v.literal("blocked"),
+      v.literal("ready"),
+      v.literal("authorized"),
+      v.literal("applying"),
+      v.literal("verified")
+    ),
+    updatedAt: v.number(),
+    updatedByWorkosUserId: v.string(),
+    verifiedAt: v.optional(v.number()),
+    workosProjectionFingerprintAfter: v.optional(v.string()),
+    workosProjectionFingerprintBefore: v.string(),
+    workosProjectionRowCount: v.number(),
+    workosProjectionWriteCount: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_active", ["organizationId", "active"])
+    .index("by_status_and_active", ["status", "active"])
+    .index("by_organizationId_and_runToken", ["organizationId", "runToken"]),
   // This is the application-level durable outbox. It contains only safe
   // template data and references; bearer secrets are derived transiently by
   // the dispatcher from the intent identity and never stored here.
@@ -4667,13 +4835,20 @@ export default defineSchema({
       "relatedEntityId",
       "createdAt",
     ])
-    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_kind_and_createdAt", [
+      "organizationId",
+      "kind",
+      "createdAt",
+    ]),
   // A short organization-scoped lease closes the race between archive
   // transition and the irreversible provider submission side effect.
   communicationProviderReservations: defineTable({
     organizationId: v.string(),
     communicationIntentId: v.id("communicationIntents"),
     communicationAttemptId: v.id("communicationAttempts"),
+    communicationKind: v.optional(communicationIntentKindValidator),
+    lenderPortalReleaseAccessRevision: v.optional(v.number()),
     state: v.union(
       v.literal("active"),
       v.literal("released"),
@@ -4689,6 +4864,10 @@ export default defineSchema({
       "state",
       "leaseExpiresAt",
     ])
+    .index(
+      "by_org_kind_state_lease",
+      ["organizationId", "communicationKind", "state", "leaseExpiresAt"]
+    )
     .index("by_state_and_leaseExpiresAt", ["state", "leaseExpiresAt"])
     .index("by_communicationAttemptId", ["communicationAttemptId"]),
   // Dispatch attempts are append-only so operators can distinguish a retry,
@@ -4698,6 +4877,12 @@ export default defineSchema({
     organizationId: v.string(),
     buildId: v.optional(v.id("activeBuilds")),
     communicationIntentId: v.id("communicationIntents"),
+    // Required for new claims and optional for historical attempts. Release
+    // draining can restore the exact queued/retryable state after abandoning a
+    // claim without fabricating another intent or consuming its retry budget.
+    claimedFromStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("retry_scheduled"))
+    ),
     attemptNumber: v.number(),
     state: communicationAttemptStateValidator,
     startedAt: v.number(),

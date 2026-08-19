@@ -190,15 +190,15 @@ import {
   type ProposalGanttMilestoneDraft,
 } from "./ProductionProposalGanttWorkspace.tsx";
 import { ProductionProposalMilestoneWorksheet } from "./ProductionProposalMilestoneWorksheet.tsx";
+import type {
+  ProposalLenderApprovalSummary,
+  ProposalLenderAssignmentRecord,
+} from "./ProposalLenderAssignmentSection.tsx";
 import { productionProposalDetailToDraftMilestones } from "./productionMilestoneWorksheetAdapter.ts";
 import {
   dateFromProposalDayOffset,
   isValidIsoDateOnly,
 } from "./proposalScheduleDates.ts";
-import type {
-  ProposalLenderApprovalSummary,
-  ProposalLenderAssignmentRecord,
-} from "./ProposalLenderAssignmentSection.tsx";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -213,6 +213,9 @@ interface ProductionProposal {
   borrowerStartingCashCents: number;
   buildName: string;
   capitalSource?: "internal" | "external";
+  currentProposalRevisionId?: string;
+  currentProposalRevisionNumber?: number;
+  currentReviewPolicyVersionId?: string;
   interestAnnualBps?: number;
   lenderDrawPolicyLimitCents: number;
   location: string;
@@ -328,7 +331,11 @@ export interface ProductionProposalDetail {
       | "rejected";
     capitalSource: "external" | "internal";
     closing: "closed" | "not_ready" | "pending_closing";
-    externalAssignment: "assigned" | "not_required" | "unassigned" | "withdrawn";
+    externalAssignment:
+      | "assigned"
+      | "not_required"
+      | "unassigned"
+      | "withdrawn";
     lenderConfirmation: "approved" | "declined" | "not_required" | "pending";
     proposalState: "approved" | "closed" | "draft" | "submitted";
   };
@@ -540,6 +547,7 @@ export interface ProductionKanbanCard {
   drawCount?: number;
   href?: string;
   imageUrl?: string | null;
+  lenderDrawPolicyLimitCents?: number;
   location?: string;
   locationLatitude?: number;
   locationLongitude?: number;
@@ -549,8 +557,8 @@ export interface ProductionKanbanCard {
   pendingModificationRequestCount?: number;
   planKey?: "capitalConstrained" | "cheapestFeasible" | "fastest";
   planName?: string;
-  proposedStartDate?: string;
   proposalId: string;
+  proposedStartDate?: string;
   reviewOutcome?: "approved" | "none" | "rejected" | "requested_changes";
   statusLabel?: string;
   submittedAt?: number;
@@ -559,7 +567,6 @@ export interface ProductionKanbanCard {
   totalBudgetCents: number;
   updatedAt: number;
   updatedByWorkosUserId?: string;
-  lenderDrawPolicyLimitCents?: number;
 }
 
 export interface ProductionBuilderOption {
@@ -1389,7 +1396,9 @@ export function ProductionProposalKanbanSurface({
             Production Build Proposals move only through workflow mutations.
             Right-click a card to assign a builder or delete a draft.
           </p>
-          {controls ? <div className="mt-4 border-t pt-4">{controls}</div> : null}
+          {controls ? (
+            <div className="mt-4 border-t pt-4">{controls}</div>
+          ) : null}
         </FramePanel>
       </Frame>
       <div className="grid gap-3 lg:grid-cols-4">
@@ -1859,9 +1868,12 @@ export function ProductionProposalReviewSurface({
   calendarAssignableParticipants = [],
   calendarTimeframe,
   calendarWorkspace,
+  closingPolicyReady = true,
   detail,
   initialActiveTab,
   lenderAssignmentSurface,
+  lifecycleActions,
+  reviewPolicySurface,
   materialPlanningActions,
   onChangeCalendarTimeframe,
   onChangeReviewTab,
@@ -1904,7 +1916,9 @@ export function ProductionProposalReviewSurface({
   calendarAssignableParticipants?: CalendarAssignableParticipant[];
   calendarTimeframe?: CalendarTimeframe;
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
+  closingPolicyReady?: boolean;
   detail: ProductionProposalDetail;
+  lifecycleActions?: ReactNode;
   materialPlanningActions?: MaterialPlanningActions;
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeReviewTab?: (tab: ProductionReviewTab) => void;
@@ -1998,6 +2012,7 @@ export function ProductionProposalReviewSurface({
   timeline?: ReactNode;
   initialActiveTab?: ProductionReviewTab;
   lenderAssignmentSurface?: ReactNode;
+  reviewPolicySurface?: ReactNode;
 }) {
   const [reason, setReason] = useState("");
   const [closingReason, setClosingReason] = useState("");
@@ -2246,7 +2261,7 @@ export function ProductionProposalReviewSurface({
       toast.error("This proposal is no longer awaiting closing.");
       return;
     }
-    if (!startDate || !ianaTimezone.trim()) {
+    if (!(startDate && ianaTimezone.trim())) {
       toast.error("Build start date and IANA timezone are required.");
       return;
     }
@@ -2255,7 +2270,7 @@ export function ProductionProposalReviewSurface({
       await onClose?.(
         startDate,
         closingReason.trim() || "Loan closed offline.",
-        ianaTimezone.trim(),
+        ianaTimezone.trim()
       );
     } catch (error) {
       toast.error(productionProposalActionErrorMessage(error));
@@ -2739,6 +2754,9 @@ export function ProductionProposalReviewSurface({
               data-testid="production-proposal-closing-tab"
               value="closing"
             >
+              {reviewPolicySurface ? (
+                <div className="mb-4">{reviewPolicySurface}</div>
+              ) : null}
               <Section title="Offline closing">
                 {detail.activeBuild ? (
                   <p className="text-sm">
@@ -2749,57 +2767,68 @@ export function ProductionProposalReviewSurface({
                     No active build created yet.
                   </p>
                 )}
-                <div className="mt-3 grid max-w-sm gap-2">
-                  <Label htmlFor="production-build-start-date">
-                    Build start date
-                  </Label>
-                  <Input
-                    id="production-build-start-date"
-                    onChange={(event) => setStartDate(event.target.value)}
-                    type="date"
-                    value={startDate}
-                  />
-                  <Label htmlFor="production-build-timezone">
-                    Build timezone (IANA)
-                  </Label>
-                  <Input
-                    aria-invalid={Boolean(
-                      normalizedIanaTimezone && !ianaTimezoneValid
-                    )}
-                    id="production-build-timezone"
-                    onChange={(event) => setIanaTimezone(event.target.value)}
-                    required
-                    value={ianaTimezone}
-                  />
-                  {normalizedIanaTimezone && !ianaTimezoneValid ? (
-                    <p className="text-destructive text-xs" role="alert">
-                      Enter a valid IANA timezone such as America/Toronto.
-                    </p>
-                  ) : null}
-                  <Label htmlFor="production-closing-reason">
-                    Closing reason
-                  </Label>
-                  <Input
-                    id="production-closing-reason"
-                    onChange={(event) => setClosingReason(event.target.value)}
-                    placeholder="Loan closed offline."
-                    value={closingReason}
-                  />
-                  <Button
-                    disabled={
-                      closingPending ||
-                      !canRecordClosing ||
-                      proposal.status !== "approved" ||
-                      !startDate ||
-                      !ianaTimezoneValid
-                    }
-                    onClick={() => void recordClosing()}
-                    size="sm"
-                  >
-                    <CalendarClock />
-                    {closingPending ? "Recording..." : "Record closing"}
-                  </Button>
-                </div>
+                {lifecycleActions ?? (
+                  <div className="mt-3 grid max-w-sm gap-2">
+                    <Label htmlFor="production-build-start-date">
+                      Build start date
+                    </Label>
+                    <Input
+                      id="production-build-start-date"
+                      onChange={(event) => setStartDate(event.target.value)}
+                      type="date"
+                      value={startDate}
+                    />
+                    <Label htmlFor="production-build-timezone">
+                      Build timezone (IANA)
+                    </Label>
+                    <Input
+                      aria-invalid={Boolean(
+                        normalizedIanaTimezone && !ianaTimezoneValid
+                      )}
+                      id="production-build-timezone"
+                      onChange={(event) => setIanaTimezone(event.target.value)}
+                      required
+                      value={ianaTimezone}
+                    />
+                    {normalizedIanaTimezone && !ianaTimezoneValid ? (
+                      <p className="text-destructive text-xs" role="alert">
+                        Enter a valid IANA timezone such as America/Toronto.
+                      </p>
+                    ) : null}
+                    <Label htmlFor="production-closing-reason">
+                      Closing reason
+                    </Label>
+                    <Input
+                      id="production-closing-reason"
+                      onChange={(event) => setClosingReason(event.target.value)}
+                      placeholder="Loan closed offline."
+                      value={closingReason}
+                    />
+                    <Button
+                      disabled={
+                        closingPending ||
+                        !canRecordClosing ||
+                        !closingPolicyReady ||
+                        proposal.status !== "approved" ||
+                        !startDate ||
+                        !ianaTimezoneValid
+                      }
+                      onClick={() => void recordClosing()}
+                      size="sm"
+                    >
+                      <CalendarClock />
+                      {closingPending ? "Recording..." : "Record closing"}
+                    </Button>
+                    {!closingPolicyReady && proposal.status === "approved" ? (
+                      <p
+                        className="text-pretty text-muted-foreground text-xs"
+                        role="status"
+                      >
+                        Lock the review policy above before recording closing.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
               </Section>
             </TabsPanel>
           ) : null}
@@ -2822,7 +2851,9 @@ function productionProposalActionErrorMessage(error: unknown) {
 }
 
 function isValidIanaTimezone(value: string) {
-  if (!value) return false;
+  if (!value) {
+    return false;
+  }
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
     return true;
@@ -3648,10 +3679,10 @@ function BuilderProfileAutocomplete({
       autoHighlight
       filter={null}
       inputValue={query}
-      items={filteredOptions}
       isItemEqualToValue={(option, currentValue) =>
         option._id === currentValue._id
       }
+      items={filteredOptions}
       itemToStringLabel={formatBuilderOptionInputValue}
       itemToStringValue={(option) => option._id}
       modal={false}

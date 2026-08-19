@@ -142,7 +142,7 @@ export const builderNavGroups: SidebarNavGroup[] = [
       },
       {
         title: "Live Builds",
-        to: builderRoute("/builder/proposals"),
+        to: builderRoute("/builder/builds"),
         icon: icon(Building06Icon),
         matchPrefix: true,
       },

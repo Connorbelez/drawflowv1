@@ -2875,7 +2875,7 @@ async function seedLifecycleFixture() {
   const base = convexTest(schema, modules);
   const admin = withIdentity(base, "admin");
   const foundation = await admin.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORGANIZATION_ID },
   );
   const seeded = await admin.run(async (ctx) => {

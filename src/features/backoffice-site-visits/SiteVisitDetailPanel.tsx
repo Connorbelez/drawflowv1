@@ -58,6 +58,7 @@ export function SiteVisitDetailSheet({
   onCopyLink,
   open,
   showBuildLink = true,
+  showFieldLink = true,
   visit,
 }: {
   now: number;
@@ -66,6 +67,7 @@ export function SiteVisitDetailSheet({
   onCopyLink: (visit: BrokerageSiteVisitRow) => Promise<void>;
   open: boolean;
   showBuildLink?: boolean;
+  showFieldLink?: boolean;
   visit: BrokerageSiteVisitRow | null;
 }) {
   if (!visit) {
@@ -87,6 +89,7 @@ export function SiteVisitDetailSheet({
             onCancel={onCancel}
             onCopyLink={onCopyLink}
             showBuildLink={showBuildLink}
+            showFieldLink={showFieldLink}
             visit={visit}
           />
         </SheetPanel>
@@ -100,12 +103,14 @@ export function SiteVisitDetailPanel({
   onCancel,
   onCopyLink,
   showBuildLink = true,
+  showFieldLink = true,
   visit,
 }: {
   now: number;
   onCancel?: (visit: BrokerageSiteVisitRow) => void;
   onCopyLink: (visit: BrokerageSiteVisitRow) => Promise<void>;
   showBuildLink?: boolean;
+  showFieldLink?: boolean;
   visit: BrokerageSiteVisitRow;
 }) {
   const msRemaining = Math.max(0, visit.tokenExpiresAt - now);
@@ -121,7 +126,9 @@ export function SiteVisitDetailPanel({
         <Badge variant={operationalStatusBadgeVariant(visit.operationalStatus)}>
           {operationalStatusLabel(visit.operationalStatus)}
         </Badge>
-        <Badge variant="outline">{tokenStateLabel(visit.tokenState)}</Badge>
+        {showFieldLink ? (
+          <Badge variant="outline">{tokenStateLabel(visit.tokenState)}</Badge>
+        ) : null}
         {visit.geofenceFlagged ? (
           <Badge variant="warning">
             <AlertTriangle aria-hidden="true" />
@@ -138,14 +145,15 @@ export function SiteVisitDetailPanel({
           value={visit.location || "No address on file"}
         />
         <DetailFact label="Scheduled" value={visit.scheduledDateLabel} />
-        {(visit.operationalStatus === "open" ||
-          visit.operationalStatus === "in_field") && (
+        {showFieldLink &&
+        (visit.operationalStatus === "open" ||
+          visit.operationalStatus === "in_field") ? (
           <DetailFact
             label="Token expires in"
             tabular
             value={formatTokenCountdown(msRemaining)}
           />
-        )}
+        ) : null}
         {visit.completedAt ? (
           <DetailFact
             label="Completed"
@@ -181,14 +189,16 @@ export function SiteVisitDetailPanel({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        <Button
-          onClick={() => onCopyLink(visit)}
-          type="button"
-          variant="outline"
-        >
-          <Copy aria-hidden="true" />
-          Copy field link
-        </Button>
+        {showFieldLink ? (
+          <Button
+            onClick={() => onCopyLink(visit)}
+            type="button"
+            variant="outline"
+          >
+            <Copy aria-hidden="true" />
+            Copy field link
+          </Button>
+        ) : null}
         {showBuildLink ? (
           <Button
             render={

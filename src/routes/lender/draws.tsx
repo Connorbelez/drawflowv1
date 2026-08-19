@@ -1,12 +1,17 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { LenderShell } from "#/components/lender-shell.tsx";
-import { DrawReviewSheet } from "#/features/draw-workflow/DrawReviewSheet.tsx";
-import { LenderNotificationReviewSurface } from "#/features/lender-portal/LenderNotificationReviewSurface.tsx";
 import {
-  type LenderDrawQueueRequest,
-  LenderDrawQueueVariantD,
-} from "../lender.draws-prototype.tsx";
+  createFileRoute,
+  type ErrorComponentProps,
+  useNavigate,
+} from "@tanstack/react-router";
+
+import { LenderShell } from "#/components/lender-shell.tsx";
+import { Button } from "#/components/ui/button.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { LenderDrawQueue } from "#/features/lender-portal/LenderDrawQueue.tsx";
+import {
+  LenderNotificationReviewSurface,
+  LenderReviewSurface,
+} from "#/features/lender-portal/LenderNotificationReviewSurface.tsx";
 
 interface LenderDrawSearch {
   drawRequestId?: string;
@@ -17,6 +22,12 @@ interface LenderDrawSearch {
 export function validateLenderDrawSearch(
   search: Record<string, unknown>
 ): LenderDrawSearch {
+  const reviewCycleNumber =
+    typeof search.reviewCycleNumber === "number"
+      ? search.reviewCycleNumber
+      : typeof search.reviewCycleNumber === "string"
+        ? Number(search.reviewCycleNumber)
+        : Number.NaN;
   return {
     ...(typeof search.drawRequestId === "string"
       ? { drawRequestId: search.drawRequestId }
@@ -24,15 +35,47 @@ export function validateLenderDrawSearch(
     ...(typeof search.reviewCycleId === "string"
       ? { reviewCycleId: search.reviewCycleId }
       : {}),
-    ...(typeof search.reviewCycleNumber === "string" &&
-    Number.isSafeInteger(Number(search.reviewCycleNumber))
-      ? { reviewCycleNumber: Number(search.reviewCycleNumber) }
+    ...(Number.isSafeInteger(reviewCycleNumber) && reviewCycleNumber > 0
+      ? { reviewCycleNumber }
       : {}),
   };
 }
 
+export function lenderDrawReviewSearch(row: {
+  currentReviewCycleId: string | null;
+  currentReviewCycleNumber: number | null;
+  drawRequestId: string;
+}): LenderDrawSearch | null {
+  if (
+    row.currentReviewCycleId === null ||
+    row.currentReviewCycleNumber === null
+  ) {
+    return null;
+  }
+  return {
+    drawRequestId: String(row.drawRequestId),
+    reviewCycleId: String(row.currentReviewCycleId),
+    reviewCycleNumber: row.currentReviewCycleNumber,
+  };
+}
+
+export function lenderDrawOrdinaryReviewSearch(row: {
+  currentReviewCycleId: string | null;
+  currentReviewCycleNumber: number | null;
+  drawRequestId: string;
+}): LenderDrawSearch | null {
+  if (
+    row.currentReviewCycleId === null ||
+    row.currentReviewCycleNumber === null
+  ) {
+    return null;
+  }
+  return { drawRequestId: String(row.drawRequestId) };
+}
+
 export const Route = createFileRoute("/lender/draws")({
-  component: LenderDrawQueue,
+  component: LenderDrawQueueRoute,
+  errorComponent: LenderDrawQueueError,
   staticData: {
     breadcrumb: {
       label: "Draws",
@@ -41,12 +84,34 @@ export const Route = createFileRoute("/lender/draws")({
   },
   validateSearch: validateLenderDrawSearch,
 });
-function LenderDrawQueue() {
+
+function LenderDrawQueueError({ reset }: ErrorComponentProps) {
+  return (
+    <LenderShell activeNavigation="Draws" pageTitle="Draw queue">
+      <main className="min-h-[calc(100vh-3.5rem)] bg-muted/30 p-4 pt-12">
+        <Frame className="mx-auto max-w-2xl">
+          <FramePanel className="p-8">
+            <h1 className="font-semibold text-2xl">
+              Assigned Draw requests could not load
+            </h1>
+            <p className="mt-3 max-w-lg text-muted-foreground text-sm leading-6">
+              DrawFlow could not verify the current lender assignment, review
+              cycle, and pooled funding facts. No Draw request data was shown.
+            </p>
+            <Button className="mt-6" onClick={reset} variant="outline">
+              Try again
+            </Button>
+          </FramePanel>
+        </Frame>
+      </main>
+    </LenderShell>
+  );
+}
+
+function LenderDrawQueueRoute() {
   const context = Route.useRouteContext();
   const navigate = useNavigate();
   const search = Route.useSearch();
-  const [selectedDraw, setSelectedDraw] =
-    useState<LenderDrawQueueRequest | null>(null);
   const notificationTarget =
     search.drawRequestId &&
     search.reviewCycleId &&
@@ -56,6 +121,12 @@ function LenderDrawQueue() {
           reviewCycleId: search.reviewCycleId,
           reviewCycleNumber: search.reviewCycleNumber,
         }
+      : null;
+  const ordinaryTarget =
+    search.drawRequestId &&
+    search.reviewCycleId === undefined &&
+    search.reviewCycleNumber === undefined
+      ? { drawRequestId: search.drawRequestId }
       : null;
 
   return (
@@ -71,76 +142,31 @@ function LenderDrawQueue() {
           }}
           viewerWorkosUserId={context.userId as string}
         />
+      ) : ordinaryTarget ? (
+        <LenderReviewSurface
+          onClose={() => navigate({ search: {}, to: "/lender/draws" })}
+          target={{
+            drawRequestId: ordinaryTarget.drawRequestId,
+            kind: "draw",
+          }}
+          viewerWorkosUserId={context.userId as string}
+        />
       ) : (
-        <>
-          <LenderDrawQueueVariantD onOpenDraw={setSelectedDraw} />
-          <LenderDrawQueueReviewSheet
-            onClose={() => setSelectedDraw(null)}
-            request={selectedDraw}
-          />
-        </>
+        <LenderDrawQueue
+          onOpenBuild={(buildId) =>
+            navigate({
+              params: { buildId },
+              to: "/lender/builds/$buildId",
+            })
+          }
+          onOpenReview={(row) => {
+            const nextSearch = lenderDrawOrdinaryReviewSearch(row);
+            if (nextSearch) {
+              navigate({ search: nextSearch, to: "/lender/draws" });
+            }
+          }}
+        />
       )}
     </LenderShell>
   );
-}
-
-// TODO(lender-portal): replace these representative sheet values with the
-// canonical Draw Request, funding, evidence, and locked-policy projections.
-function LenderDrawQueueReviewSheet({
-  onClose,
-  request,
-}: {
-  onClose: () => void;
-  request: LenderDrawQueueRequest | null;
-}) {
-  if (!request) {
-    return null;
-  }
-
-  return (
-    <DrawReviewSheet
-      amountCents={parseRepresentativeCad(request.amount)}
-      buildLabel={request.build}
-      details={[
-        { label: "Work order", value: request.workOrderKey },
-        { label: "Decision cycle", value: request.cycle },
-      ]}
-      displayId={request.displayId}
-      drawLabel={request.requestLabel}
-      evidence={request.evidence.map((fact) => ({
-        detail: fact.label,
-        id: fact.label,
-        label: fact.label,
-        stateLabel: fact.tone === "success" ? "Verified" : undefined,
-        type: "other" as const,
-      }))}
-      location={request.location}
-      onClose={onClose}
-      open
-      policyGates={request.approvals.map((group) => ({
-        label: group.label,
-        state: group.state === "approved" ? "satisfied" : "pending",
-        stateLabel: group.progress,
-      }))}
-      requestNote={request.requestNote}
-      status={queueStateToWorkflowStatus(request.state)}
-      submittedAt={request.submittedAt}
-      viewerRole="lender"
-    />
-  );
-}
-
-function parseRepresentativeCad(value: string) {
-  return Math.round(Number(value.replace(/[^\d.-]/g, "")) * 100);
-}
-
-function queueStateToWorkflowStatus(state: LenderDrawQueueRequest["state"]) {
-  switch (state) {
-    case "approved":
-      return "approved_for_release" as const;
-    case "correction":
-      return "rejected" as const;
-    default:
-      return "in_review" as const;
-  }
 }

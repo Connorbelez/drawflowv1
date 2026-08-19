@@ -42,6 +42,7 @@ export interface LenderOrganizationManagementVariantEProps {
   activeMemberCount: number;
   administrationContext: string;
   directoryUsers: DirectoryUser[];
+  headingLevel?: 1 | 2;
   mode: "production" | "prototype";
   moreMembersAvailable?: boolean;
   onLoadMoreMembers?: () => void;
@@ -50,6 +51,13 @@ export interface LenderOrganizationManagementVariantEProps {
   organizationName: string;
   organizationsById: Map<string, WorkosOrganizationRow>;
   pending: boolean;
+  pendingMemberCount?: number;
+  pendingMembers?: Array<{
+    assignmentId: string;
+    email: string;
+    reconciliationReason?: string;
+    status: "conflict_rejected" | "pending";
+  }>;
   pendingMoreMembers?: boolean;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
 }
@@ -59,6 +67,7 @@ export function LenderOrganizationManagementVariantE({
   activeMemberCount,
   administrationContext,
   directoryUsers,
+  headingLevel = 1,
   mode,
   moreMembersAvailable = false,
   onLoadMoreMembers,
@@ -67,6 +76,8 @@ export function LenderOrganizationManagementVariantE({
   organizationName,
   organizationsById,
   pending,
+  pendingMemberCount = 0,
+  pendingMembers = [],
   pendingMoreMembers = false,
   provisioningByOrg,
 }: LenderOrganizationManagementVariantEProps) {
@@ -112,9 +123,12 @@ export function LenderOrganizationManagementVariantE({
       label: "Active",
     },
     {
-      count: directoryUsers.filter((entry) =>
-        entry.memberships.some((membership) => membership.status === "pending")
-      ).length,
+      count:
+        directoryUsers.filter((entry) =>
+          entry.memberships.some(
+            (membership) => membership.status === "pending"
+          )
+        ).length + pendingMemberCount,
       key: "pending",
       label: "Pending",
     },
@@ -130,13 +144,15 @@ export function LenderOrganizationManagementVariantE({
     },
   ] as const;
   const production = mode === "production";
+  const DirectoryHeading = headingLevel === 1 ? "h2" : "h3";
+  const PendingHeading = headingLevel === 1 ? "h3" : "h4";
 
   return (
     <div className="space-y-5">
       <PageHeading
         description={
           production
-            ? "Manage the active WorkOS organization, its members, and the access effects of membership changes."
+            ? "Manage the application lender organization, its assigned members, and WorkOS-first access changes."
             : "The production User Management table and membership sheet, composed into the lender workspace with operational workflows staged safely in memory."
         }
         eyebrow={
@@ -144,6 +160,7 @@ export function LenderOrganizationManagementVariantE({
             ? "Lender organization"
             : "Variant E · Shared user management"
         }
+        headingLevel={headingLevel}
         production={production}
         title="Organization members"
       />
@@ -151,6 +168,8 @@ export function LenderOrganizationManagementVariantE({
         activeMemberCount={activeMemberCount}
         administrationContext={administrationContext}
         organizationName={organizationName}
+        pendingMemberCount={pendingMemberCount}
+        production={production}
       />
       <Frame>
         <FramePanel
@@ -161,10 +180,12 @@ export function LenderOrganizationManagementVariantE({
           <div className="flex flex-col gap-4 border-b p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
-                <h2 className="font-semibold text-sm">Organization members</h2>
+                <DirectoryHeading className="font-semibold text-sm">
+                  Organization members
+                </DirectoryHeading>
                 <p className="mt-1 text-muted-foreground text-xs">
                   {production
-                    ? "Current membership state from the active organization"
+                    ? "Current assigned lenders and shared WorkOS membership state"
                     : "Exact Back Office table component and visual fixture · E3, E4"}
                 </p>
               </div>
@@ -223,7 +244,11 @@ export function LenderOrganizationManagementVariantE({
             </div>
           </div>
           <UserManagementDirectoryTable
-            emptyMessage="No organization members match this view."
+            emptyMessage={
+              statusFilter === "pending" && pendingMemberCount > 0
+                ? "Pending invitations appear below until WorkOS reconciliation completes."
+                : "No organization members match this view."
+            }
             onRowClick={onOpenUser}
             organizationsById={organizationsById}
             pending={pending}
@@ -231,6 +256,51 @@ export function LenderOrganizationManagementVariantE({
             rowActionVerb="View"
             rows={visibleDirectoryUsers}
           />
+          {production && pendingMembers.length > 0 ? (
+            <section
+              aria-labelledby="pending-lender-members"
+              className="border-t"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                <PendingHeading
+                  className="font-medium text-sm"
+                  id="pending-lender-members"
+                >
+                  Pending reconciliation
+                </PendingHeading>
+                <Badge variant="outline">{pendingMembers.length} waiting</Badge>
+              </div>
+              <div className="divide-y border-t">
+                {pendingMembers.map((member) => (
+                  <div
+                    className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+                    key={member.assignmentId}
+                  >
+                    <p className="break-words font-medium text-sm">
+                      {member.email}
+                    </p>
+                    <div className="text-start sm:max-w-md sm:text-end">
+                      <Badge
+                        variant={
+                          member.status === "pending" ? "secondary" : "outline"
+                        }
+                      >
+                        {member.status === "pending"
+                          ? "Waiting for WorkOS"
+                          : "Needs Back Office review"}
+                      </Badge>
+                      <p className="mt-1 break-words text-muted-foreground text-xs leading-5">
+                        {member.status === "pending"
+                          ? "Access remains unavailable until the WorkOS membership projection reconciles."
+                          : (member.reconciliationReason ??
+                            "The invitation could not be reconciled to one lender organization.")}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
           {moreMembersAvailable && onLoadMoreMembers ? (
             <div className="flex justify-center border-t p-3">
               <Button
@@ -287,7 +357,7 @@ export function LenderMemberAdministrationDetails({
   showTransfer = true,
 }: {
   activeMembershipCount: number;
-  historyCount: number;
+  historyCount?: number;
   member: DirectoryUser;
   mode: "production" | "prototype";
   onOpenOperation: (operation: LenderOrganizationOperation) => void;
@@ -343,14 +413,16 @@ export function LenderMemberAdministrationDetails({
               label="Access scope"
               value={roleSlugs.join(" · ") || "No active role"}
             />
-            <SheetFact
-              label="Principal Broker protection"
-              value={
-                principalProtected
-                  ? "Transfer-of-control required before replacement"
-                  : "Not the protected Principal Broker"
-              }
-            />
+            {showTransfer ? (
+              <SheetFact
+                label="Principal Broker protection"
+                value={
+                  principalProtected
+                    ? "Transfer-of-control required before replacement"
+                    : "Not the protected Principal Broker"
+                }
+              />
+            ) : null}
           </div>
         </TabsPanel>
         <TabsPanel className="space-y-3 pt-3" value="administration">
@@ -377,7 +449,11 @@ export function LenderMemberAdministrationDetails({
                 : "Member-level control"
             }
             buttonLabel="Review deactivation"
-            description="Deactivation ends future access and actions while preserving membership and decision history. Principal Broker deactivation requires transfer-of-control first."
+            description={
+              showTransfer
+                ? "Deactivation ends future access and actions while preserving membership and decision history. Principal Broker deactivation requires transfer-of-control first."
+                : "Deactivation ends future access and actions while preserving membership and decision history."
+            }
             icon={UserMinus}
             onSelect={() => onOpenOperation("deactivate")}
             title="Deactivate member"
@@ -436,7 +512,9 @@ export function LenderMemberAdministrationDetails({
               label="Organization audit entries"
               value={
                 production
-                  ? String(historyCount)
+                  ? historyCount === undefined
+                    ? "Recorded in canonical audit history"
+                    : String(historyCount)
                   : "None · prototype drafts are discarded"
               }
             />
@@ -461,23 +539,26 @@ export function LenderMemberAdministrationDetails({
 function PageHeading({
   description,
   eyebrow,
+  headingLevel,
   production,
   title,
 }: {
   description: string;
   eyebrow: string;
+  headingLevel: 1 | 2;
   production: boolean;
   title: string;
 }) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
       <div className="max-w-3xl">
         <p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.16em]">
           {eyebrow}
         </p>
-        <h1 className="mt-2 font-heading font-semibold text-2xl tracking-tight md:text-3xl">
+        <Heading className="mt-2 font-heading font-semibold text-2xl tracking-tight md:text-3xl">
           {title}
-        </h1>
+        </Heading>
         <p className="mt-2 text-muted-foreground text-sm leading-6">
           {description}
         </p>
@@ -495,10 +576,14 @@ function OrganizationSummaryStrip({
   activeMemberCount,
   administrationContext,
   organizationName,
+  pendingMemberCount,
+  production,
 }: {
   activeMemberCount: number;
   administrationContext: string;
   organizationName: string;
+  pendingMemberCount: number;
+  production: boolean;
 }) {
   return (
     <Frame>
@@ -510,8 +595,12 @@ function OrganizationSummaryStrip({
         />
         <SummaryFact
           icon={UserRoundCheck}
-          label="Verified active members"
-          value={String(activeMemberCount)}
+          label={production ? "Assigned members" : "Verified active members"}
+          value={
+            production
+              ? `${activeMemberCount} active · ${pendingMemberCount} pending`
+              : String(activeMemberCount)
+          }
         />
         <SummaryFact
           icon={ShieldCheck}

@@ -991,7 +991,7 @@ async function seedWebhookFixture() {
   const admin = withIdentity(base, "admin", "user_admin");
   const builder = withIdentity(base, "builder", "user_builder");
   const foundation = await admin.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORGANIZATION_ID },
   );
   const buildId = await base.run(async (ctx) => {

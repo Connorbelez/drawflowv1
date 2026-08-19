@@ -3,6 +3,12 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
+import {
+  readLenderPortalReleaseGitState,
+  resolveLenderPortalRepositoryPath,
+  validateLenderPortalProductionAcceptanceContract,
+  validateLenderPortalReleaseAcceptanceEvidence,
+} from "./lender-portal-production-acceptance";
 
 const repositoryRoot = process.cwd();
 const ledgerPath = resolve(
@@ -23,6 +29,9 @@ const ACCEPTANCE_DECISION_PATTERN =
   /^-\s*Decision:\s*`?(?:accepted|verified)`?(?:\s|$)/im;
 const HUMAN_ACCEPTANCE_OVERRIDE_PATTERN =
   /^-\s*Human acceptance override:\s*`?(?:accepted|approved|true)`?\b/im;
+const releaseAcceptanceEvidenceLocation = process.argv
+  .find((argument) => argument.startsWith("--acceptance-evidence="))
+  ?.slice("--acceptance-evidence=".length);
 
 const generatedCatalogSchema = z.object({
   count: z.number().int().positive(),
@@ -287,7 +296,10 @@ function validateEvidence(
   if (!evidence) {
     fail(`${workPackage.id}: verified packets require evidence`);
   }
-  const evidencePath = resolve(repositoryRoot, evidence.path);
+  const evidencePath = resolveLenderPortalRepositoryPath(
+    repositoryRoot,
+    evidence.path
+  );
   if (!existsSync(evidencePath)) {
     fail(`${workPackage.id}: missing evidence ${evidence.path}`);
   }
@@ -343,6 +355,8 @@ function validateEvidence(
 
 const rawLedger = JSON.parse(readFileSync(ledgerPath, "utf8"));
 const ledger = ledgerSchema.parse(rawLedger);
+const productionAcceptanceContract =
+  validateLenderPortalProductionAcceptanceContract({ repositoryRoot });
 const mode = process.argv.includes("--release")
   ? "release"
   : ledger.workPackages.every(
@@ -351,10 +365,22 @@ const mode = process.argv.includes("--release")
       )
     ? "prep"
     : "execution";
+const releaseGitState =
+  mode === "release"
+    ? readLenderPortalReleaseGitState(repositoryRoot)
+    : undefined;
+if (releaseGitState && !releaseGitState.isClean) {
+  fail(
+    `Release mode requires a clean immutable checkout; found ${releaseGitState.dirtyEntryCount} dirty entries. User-owned or waived changes must be certified from a separate clean release artifact.`
+  );
+}
 
 const sourceTexts = new Map<string, string>();
 for (const source of ledger.sources) {
-  const absolutePath = resolve(repositoryRoot, source.path);
+  const absolutePath = resolveLenderPortalRepositoryPath(
+    repositoryRoot,
+    source.path
+  );
   if (!existsSync(absolutePath)) {
     fail(`Missing source: ${source.path}`);
   }
@@ -434,7 +460,10 @@ if (orphanedRequirements.length > 0) {
 const packetCoveredRequirements = new Set<string>();
 const packetRequirementsByWorkPackage = new Map<string, Set<string>>();
 for (const workPackage of ledger.workPackages) {
-  const absolutePath = resolve(repositoryRoot, workPackage.path);
+  const absolutePath = resolveLenderPortalRepositoryPath(
+    repositoryRoot,
+    workPackage.path
+  );
   if (!existsSync(absolutePath)) {
     fail(`${workPackage.id}: missing packet ${workPackage.path}`);
   }
@@ -577,6 +606,20 @@ if (mode === "prep") {
     }
   }
 } else {
+  if (!releaseAcceptanceEvidenceLocation) {
+    fail(
+      "Release mode requires --acceptance-evidence=<trusted durable HTTPS URL> with exact-commit production journey evidence"
+    );
+  }
+  validateLenderPortalReleaseAcceptanceEvidence({
+    contract: productionAcceptanceContract.contract,
+    contractSha256: productionAcceptanceContract.contractSha256,
+    evidenceLocation: releaseAcceptanceEvidenceLocation,
+    gitState:
+      releaseGitState ??
+      fail("Release mode could not resolve immutable Git state"),
+    repositoryRoot,
+  });
   const unfinishedGroups = ledger.coverageGroups.filter(
     (group) => group.status !== "verified"
   );
@@ -591,6 +634,20 @@ if (mode === "prep") {
   }
   for (const workPackage of ledger.workPackages) {
     validateEvidence(workPackage, currentHead, true);
+  }
+}
+
+if (mode === "release" && releaseGitState) {
+  const finalReleaseGitState = readLenderPortalReleaseGitState(repositoryRoot);
+  if (
+    !finalReleaseGitState.isClean ||
+    finalReleaseGitState.dirtyEntryCount !== 0 ||
+    finalReleaseGitState.headSha !== releaseGitState.headSha ||
+    finalReleaseGitState.treeSha !== releaseGitState.treeSha
+  ) {
+    fail(
+      "Release mode detected a dirty checkout or immutable HEAD/tree change before final success"
+    );
   }
 }
 

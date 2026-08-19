@@ -1,11 +1,18 @@
-import { createFileRoute, type ErrorComponentProps } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import {
+  createFileRoute,
+  type ErrorComponentProps,
+} from "@tanstack/react-router";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { Building2, Mail, ShieldCheck, Users } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { LenderShell } from "#/components/lender-shell.tsx";
-import { Avatar, AvatarFallback, AvatarImage } from "#/components/ui/avatar.tsx";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "#/components/ui/avatar.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Empty, EmptyDescription, EmptyTitle } from "#/components/ui/empty.tsx";
@@ -18,6 +25,10 @@ import { api } from "../../../convex/_generated/api";
 type LenderOrganizationView = FunctionReturnType<
   typeof api.lenderOrganizations.getCurrentLenderOrganization
 >;
+type LenderMemberPage = FunctionReturnType<
+  typeof api.lenderOrganizations.listCurrentLenderOrganizationMembers
+>;
+type LenderMember = LenderMemberPage["page"][number];
 
 export const Route = createFileRoute("/lender/organization")({
   beforeLoad: ({ context, location }) =>
@@ -68,19 +79,34 @@ function LenderOrganizationError({ error, reset }: ErrorComponentProps) {
 }
 
 function LenderOrganization() {
-  const view = useQuery(api.lenderOrganizations.getCurrentLenderOrganization, {}) as
-    | LenderOrganizationView
-    | undefined;
+  const view = useQuery(
+    api.lenderOrganizations.getCurrentLenderOrganization,
+    {}
+  ) as LenderOrganizationView | undefined;
+  const memberPage = usePaginatedQuery(
+    api.lenderOrganizations.listCurrentLenderOrganizationMembers,
+    view?.organization ? {} : "skip",
+    { initialNumItems: 25 }
+  );
+  const members = [...(memberPage.results as LenderMember[])].sort(
+    (left, right) => left.name.localeCompare(right.name)
+  );
 
   return (
     <LenderShell activeNavigation="Organization" pageTitle="Organization">
       <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20 pb-20">
-        {view === undefined ? (
+        {view === undefined ||
+        (view.organization && memberPage.status === "LoadingFirstPage") ? (
           <OrganizationLoadingState />
         ) : view.organization === null ? (
           <UnassignedOrganizationState />
         ) : (
-          <AssignedOrganizationState view={view} />
+          <AssignedOrganizationState
+            loadMore={() => memberPage.loadMore(25)}
+            memberPageStatus={memberPage.status}
+            members={members}
+            view={view}
+          />
         )}
       </main>
     </LenderShell>
@@ -126,9 +152,7 @@ function UnassignedOrganizationState() {
             <Button
               className="mt-8"
               render={
-                <a
-                  href="mailto:support@fairlend.ca?subject=DrawFlow%20lender%20organization%20access"
-                />
+                <a href="mailto:support@fairlend.ca?subject=DrawFlow%20lender%20organization%20access" />
               }
             >
               <Mail />
@@ -145,7 +169,21 @@ function UnassignedOrganizationState() {
   );
 }
 
-function AssignedOrganizationState({ view }: { view: LenderOrganizationView }) {
+function AssignedOrganizationState({
+  loadMore,
+  memberPageStatus,
+  members,
+  view,
+}: {
+  loadMore: () => void;
+  memberPageStatus:
+    | "CanLoadMore"
+    | "Exhausted"
+    | "LoadingFirstPage"
+    | "LoadingMore";
+  members: LenderMember[];
+  view: LenderOrganizationView;
+}) {
   const organization = view.organization;
   if (!organization) {
     return null;
@@ -162,7 +200,8 @@ function AssignedOrganizationState({ view }: { view: LenderOrganizationView }) {
               {organization.displayName}
             </h1>
             <p className="mt-2 text-muted-foreground text-sm leading-6">
-              Your DrawFlow lender organization, governed by {organization.brokerageName}.
+              Your DrawFlow lender organization, governed by{" "}
+              {organization.brokerageName}.
             </p>
           </div>
           <Badge variant="outline">Active</Badge>
@@ -178,8 +217,8 @@ function AssignedOrganizationState({ view }: { view: LenderOrganizationView }) {
           />
           <OrganizationStat
             icon={<Users />}
-            label="Assigned members"
-            value={String(view.members.length)}
+            label="Loaded assigned members"
+            value={String(members.length)}
           />
           <OrganizationStat
             icon={<ShieldCheck />}
@@ -248,31 +287,43 @@ function AssignedOrganizationState({ view }: { view: LenderOrganizationView }) {
                   Organization members
                 </h2>
                 <p className="mt-2 text-muted-foreground text-sm">
-                  Only people attached to this application organization appear here.
+                  Only people attached to this application organization appear
+                  here.
                 </p>
               </div>
-              <Badge variant="outline">{view.members.length} members</Badge>
+              <Badge className="tabular-nums" variant="outline">
+                {members.length} loaded
+              </Badge>
             </div>
             <Separator />
             <div className="divide-y">
-              {view.members.length === 0 ? (
+              {members.length === 0 ? (
                 <div className="p-8 text-muted-foreground text-sm">
                   No other members are visible yet.
                 </div>
               ) : (
-                view.members.map((member) => (
+                members.map((member) => (
                   <div
                     className="flex items-center justify-between gap-4 px-6 py-4 md:px-7"
                     key={member.assignmentId}
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar className="size-8">
-                        <AvatarImage alt={member.name} src={member.profilePictureUrl} />
-                        <AvatarFallback>{initials(member.name, member.email)}</AvatarFallback>
+                        <AvatarImage
+                          alt={member.name}
+                          src={member.profilePictureUrl}
+                        />
+                        <AvatarFallback>
+                          {initials(member.name, member.email)}
+                        </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-sm">{member.name}</p>
-                        <p className="truncate text-muted-foreground text-xs">{member.email}</p>
+                        <p className="truncate font-medium text-sm">
+                          {member.name}
+                        </p>
+                        <p className="truncate text-muted-foreground text-xs">
+                          {member.email}
+                        </p>
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -282,7 +333,10 @@ function AssignedOrganizationState({ view }: { view: LenderOrganizationView }) {
                         </Badge>
                       ))}
                       {member.canMakeFinalDecision ? (
-                        <Badge className="hidden sm:inline-flex" variant="outline">
+                        <Badge
+                          className="hidden sm:inline-flex"
+                          variant="outline"
+                        >
                           Decision authority
                         </Badge>
                       ) : null}
@@ -291,6 +345,20 @@ function AssignedOrganizationState({ view }: { view: LenderOrganizationView }) {
                 ))
               )}
             </div>
+            {memberPageStatus === "CanLoadMore" ||
+            memberPageStatus === "LoadingMore" ? (
+              <div className="flex justify-center border-t p-4">
+                <Button
+                  disabled={memberPageStatus === "LoadingMore"}
+                  onClick={loadMore}
+                  variant="outline"
+                >
+                  {memberPageStatus === "LoadingMore"
+                    ? "Loading members…"
+                    : "Load more members"}
+                </Button>
+              </div>
+            ) : null}
           </FramePanel>
         </Frame>
       </section>
@@ -320,7 +388,13 @@ function OrganizationStat({
   );
 }
 
-function PermissionRow({ enabled, label }: { enabled: boolean; label: string }) {
+function PermissionRow({
+  enabled,
+  label,
+}: {
+  enabled: boolean;
+  label: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 border p-4">
       <span className="text-sm">{label}</span>

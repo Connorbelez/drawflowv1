@@ -33,7 +33,7 @@ async function fixture() {
   const base = convexTest(schema, modules);
   const admin = withIdentity(base, ["admin", "principle-broker"], "admin");
   const builder = withIdentity(base, ["builder"], "builder_owner");
-  await admin.mutation((api as any).production_proposals.dev_seedProductionFoundation, {
+  await admin.mutation((internal as any).production_proposals.dev_seedProductionFoundation, {
     workosOrganizationId: ORGANIZATION_ID,
   });
   return { admin, base, builder };

@@ -75,6 +75,7 @@ import { Route as LenderBuildsIndexRouteImport } from './routes/lender/builds/in
 import { Route as ContractorProposalsIndexRouteImport } from './routes/contractor/proposals/index'
 import { Route as ContractorBuildsIndexRouteImport } from './routes/contractor/builds/index'
 import { Route as BuilderProposalsIndexRouteImport } from './routes/builder/proposals/index'
+import { Route as BuilderBuildsIndexRouteImport } from './routes/builder/builds/index'
 import { Route as BuilderStaffProposalsIndexRouteImport } from './routes/builder-staff/proposals/index'
 import { Route as BuilderStaffBuildsIndexRouteImport } from './routes/builder-staff/builds/index'
 import { Route as BackofficeSettingsIndexRouteImport } from './routes/backoffice/settings/index'
@@ -465,6 +466,11 @@ const BuilderProposalsIndexRoute = BuilderProposalsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => BuilderProposalsRouteRoute,
 } as any)
+const BuilderBuildsIndexRoute = BuilderBuildsIndexRouteImport.update({
+  id: '/builds/',
+  path: '/builds/',
+  getParentRoute: () => BuilderRouteRoute,
+} as any)
 const BuilderStaffProposalsIndexRoute =
   BuilderStaffProposalsIndexRouteImport.update({
     id: '/',
@@ -774,6 +780,7 @@ export interface FileRoutesByFullPath {
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
   '/builder-staff/proposals/': typeof BuilderStaffProposalsIndexRoute
+  '/builder/builds/': typeof BuilderBuildsIndexRoute
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
   '/contractor/builds/': typeof ContractorBuildsIndexRoute
   '/contractor/proposals/': typeof ContractorProposalsIndexRoute
@@ -862,6 +869,7 @@ export interface FileRoutesByTo {
   '/backoffice/settings': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds': typeof BuilderStaffBuildsIndexRoute
   '/builder-staff/proposals': typeof BuilderStaffProposalsIndexRoute
+  '/builder/builds': typeof BuilderBuildsIndexRoute
   '/builder/proposals': typeof BuilderProposalsIndexRoute
   '/contractor/builds': typeof ContractorBuildsIndexRoute
   '/contractor/proposals': typeof ContractorProposalsIndexRoute
@@ -969,6 +977,7 @@ export interface FileRoutesById {
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
   '/builder-staff/proposals/': typeof BuilderStaffProposalsIndexRoute
+  '/builder/builds/': typeof BuilderBuildsIndexRoute
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
   '/contractor/builds/': typeof ContractorBuildsIndexRoute
   '/contractor/proposals/': typeof ContractorProposalsIndexRoute
@@ -1077,6 +1086,7 @@ export interface FileRouteTypes {
     | '/backoffice/settings/'
     | '/builder-staff/builds/'
     | '/builder-staff/proposals/'
+    | '/builder/builds/'
     | '/builder/proposals/'
     | '/contractor/builds/'
     | '/contractor/proposals/'
@@ -1165,6 +1175,7 @@ export interface FileRouteTypes {
     | '/backoffice/settings'
     | '/builder-staff/builds'
     | '/builder-staff/proposals'
+    | '/builder/builds'
     | '/builder/proposals'
     | '/contractor/builds'
     | '/contractor/proposals'
@@ -1271,6 +1282,7 @@ export interface FileRouteTypes {
     | '/backoffice/settings/'
     | '/builder-staff/builds/'
     | '/builder-staff/proposals/'
+    | '/builder/builds/'
     | '/builder/proposals/'
     | '/contractor/builds/'
     | '/contractor/proposals/'
@@ -1775,6 +1787,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BuilderProposalsIndexRouteImport
       parentRoute: typeof BuilderProposalsRouteRoute
     }
+    '/builder/builds/': {
+      id: '/builder/builds/'
+      path: '/builds'
+      fullPath: '/builder/builds/'
+      preLoaderRoute: typeof BuilderBuildsIndexRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
     '/builder-staff/proposals/': {
       id: '/builder-staff/proposals/'
       path: '/'
@@ -2243,6 +2262,7 @@ interface BuilderRouteRouteChildren {
   BuilderQuoteTemplatesRoute: typeof BuilderQuoteTemplatesRoute
   BuilderIndexRoute: typeof BuilderIndexRoute
   BuilderContractorsContractorIdRoute: typeof BuilderContractorsContractorIdRoute
+  BuilderBuildsIndexRoute: typeof BuilderBuildsIndexRoute
   BuilderBuildsBuildIdIndexRoute: typeof BuilderBuildsBuildIdIndexRoute
   BuilderBuildsBuildIdQuotesNewRoute: typeof BuilderBuildsBuildIdQuotesNewRoute
 }
@@ -2256,6 +2276,7 @@ const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
   BuilderQuoteTemplatesRoute: BuilderQuoteTemplatesRoute,
   BuilderIndexRoute: BuilderIndexRoute,
   BuilderContractorsContractorIdRoute: BuilderContractorsContractorIdRoute,
+  BuilderBuildsIndexRoute: BuilderBuildsIndexRoute,
   BuilderBuildsBuildIdIndexRoute: BuilderBuildsBuildIdIndexRoute,
   BuilderBuildsBuildIdQuotesNewRoute: BuilderBuildsBuildIdQuotesNewRoute,
 }

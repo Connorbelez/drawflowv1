@@ -2,7 +2,7 @@
 
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import schema from "./schema";
 
@@ -240,6 +240,24 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
       currentCycleNumber: 2,
       requestIdentity: first.requestIdentity,
     });
+    await f.base.run(async (ctx: any) =>
+      ctx.db.patch(second.cycleId, { isCurrent: false })
+    );
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5
+          .getLenderNotificationReviewRequest,
+        {
+          historyPaginationOpts: PAGE,
+          reviewCycleId: second.cycleId,
+          reviewCycleNumber: 2,
+          target,
+        }
+      )
+    ).rejects.toThrow();
+    await f.base.run(async (ctx: any) =>
+      ctx.db.patch(second.cycleId, { isCurrent: true })
+    );
     await expect(
       f.lender.query(
         (api as any).lender_portal_phase5
@@ -489,6 +507,37 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
       }),
     ]);
 
+    await f.base.run(async (ctx: any) => {
+      const lenderOrganization = await ctx.db.get(f.lenderOrganizationId);
+      await ctx.db.patch(f.lenderOrganizationId, {
+        permissions: {
+          ...lenderOrganization.permissions,
+          milestoneDecisions: false,
+        },
+      });
+    });
+    const noLongerEligibleQueue = await f.lender.query(
+      (api as any).lender_portal_phase5.listLenderReviewRequests,
+      { buildId: f.buildId, paginationOpts: PAGE }
+    );
+    expect(noLongerEligibleQueue.page).toEqual([
+      expect.objectContaining({
+        actionRequired: false,
+        currentEligibleLenderCount: 0,
+        viewerActionState: "ineligible",
+        viewerDecision: "approved",
+      }),
+    ]);
+    await f.base.run(async (ctx: any) => {
+      const lenderOrganization = await ctx.db.get(f.lenderOrganizationId);
+      await ctx.db.patch(f.lenderOrganizationId, {
+        permissions: {
+          ...lenderOrganization.permissions,
+          milestoneDecisions: true,
+        },
+      });
+    });
+
     const secondApproval = await secondLender.mutation(
       (api as any).lender_portal_phase5.decideLenderReviewRequest,
       {
@@ -499,6 +548,545 @@ describe("Lender Portal Phase 5 stable request cycles", () => {
       },
     );
     expect(secondApproval.state).toBe("completed");
+  });
+
+  test("paginates the all-assigned Milestone queue with personal action, evidence, privacy, and stale-cycle guards", async () => {
+    const f = await fixture();
+    const foundationTarget = {
+      kind: "milestone" as const,
+      milestoneId: f.milestoneId,
+    };
+    const foundation = await f.builder.mutation(
+      (api as any).lender_portal_phase5.submitBuilderReviewRequest,
+      {
+        expectedCycleNumber: 0,
+        idempotencyKey: "milestone-queue-foundation-cycle",
+        target: foundationTarget,
+        workosOrganizationId: ORG,
+      }
+    );
+    await f.admin.mutation(
+      (api as any).lender_portal_phase5.decideBackofficeReviewRequest,
+      {
+        decision: "rejected",
+        expectedCycleNumber: 1,
+        idempotencyKey: "milestone-queue-private-rejection",
+        privateRationale: "Private queue rationale must never leave Back Office.",
+        revisionInstructions: "Add the missing public evidence.",
+        target: foundationTarget,
+        workosOrganizationId: ORG,
+      }
+    );
+    const envelopeMilestoneId = await f.base.run(async (ctx: any) => {
+      const now = Date.now();
+      const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
+        brokerageId: f.brokerageId,
+        budgetCents: 2_500_000,
+        createdAt: now,
+        dayEnd: 32,
+        dayStart: 21,
+        dependencyKeys: ["foundation"],
+        drawAvailabilityCents: 2_000_000,
+        durationDays: 11,
+        key: "envelope",
+        name: "Envelope",
+        order: 2,
+        organizationId: ORG,
+        proposalId: f.proposalId,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("buildMilestones", {
+        brokerageId: f.brokerageId,
+        budgetCents: 2_500_000,
+        buildId: f.buildId,
+        completionClaim: {
+          actualCostCents: 2_400_000,
+          completedDay: 31,
+          note: "Envelope ready.",
+          submittedAt: "2026-09-01T12:00:00.000Z",
+        },
+        createdAt: now,
+        dayEnd: 32,
+        dayStart: 21,
+        dependencyKeys: ["foundation"],
+        drawAvailabilityCents: 2_000_000,
+        durationDays: 11,
+        key: "envelope",
+        name: "Envelope",
+        order: 2,
+        organizationId: ORG,
+        progressPercent: 100,
+        proposalMilestoneId,
+        status: "complete",
+        updatedAt: now,
+      });
+    });
+    const envelope = await f.builder.mutation(
+      (api as any).lender_portal_phase5.submitBuilderReviewRequest,
+      {
+        expectedCycleNumber: 0,
+        idempotencyKey: "milestone-queue-envelope-cycle",
+        target: { kind: "milestone", milestoneId: envelopeMilestoneId },
+        workosOrganizationId: ORG,
+      }
+    );
+
+    const firstPage = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      { paginationOpts: { cursor: null, numItems: 1 }, scope: "all" }
+    );
+    expect(firstPage.isDone).toBe(false);
+    expect(firstPage.page).toHaveLength(1);
+    const reactiveFirstPage = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      {
+        paginationOpts: {
+          cursor: null,
+          endCursor: firstPage.continueCursor,
+          numItems: 20,
+        },
+        scope: "all",
+      }
+    );
+    expect(reactiveFirstPage).toEqual({
+      continueCursor: firstPage.continueCursor,
+      isDone: true,
+      page: firstPage.page,
+    });
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5
+          .listAllAssignedLenderMilestoneReviewRequests,
+        {
+          paginationOpts: { cursor: "tampered", numItems: 1 },
+          scope: "all",
+        }
+      )
+    ).rejects.toThrow("INVALID_PAGINATION_CURSOR");
+    const secondPage = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      {
+        paginationOpts: {
+          cursor: firstPage.continueCursor,
+          numItems: 1,
+        },
+        scope: "all",
+      }
+    );
+    expect(secondPage.isDone).toBe(true);
+    const rows = [...firstPage.page, ...secondPage.page];
+    expect(rows.map((row: any) => row.milestoneName).sort()).toEqual([
+      "Envelope",
+      "Foundation",
+    ]);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actionRequired: false,
+          milestoneId: f.milestoneId,
+          reviewCycleId: foundation.cycleId,
+          reviewCycleNumber: 1,
+          state: "correction_required",
+          targetAvailability: "available",
+        }),
+        expect.objectContaining({
+          actionRequired: true,
+          milestoneId: envelopeMilestoneId,
+          reviewCycleId: envelope.cycleId,
+          reviewCycleNumber: 1,
+          state: "in_review",
+          viewerActionState: "needs_action",
+        }),
+      ])
+    );
+    const needsAction = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      { paginationOpts: PAGE, scope: "action" }
+    );
+    expect(needsAction.page).toEqual([
+      expect.objectContaining({
+        milestoneId: envelopeMilestoneId,
+        viewerActionState: "needs_action",
+      }),
+    ]);
+    await f.builder.mutation(
+      (api as any).lender_portal_phase5.submitBuilderReviewRequest,
+      {
+        expectedCycleNumber: 0,
+        idempotencyKey: "draw-queue-staff-eligibility-cycle",
+        target: { drawRequestId: f.drawRequestId, kind: "draw" },
+        workosOrganizationId: ORG,
+      }
+    );
+    const lenderStaff = await addLenderStaff(f, "user_lender_staff");
+    await expect(
+      lenderStaff.query(
+        (api as any).lender_portal_phase5
+          .listAllAssignedLenderMilestoneReviewRequests,
+        { paginationOpts: PAGE, scope: "action" }
+      )
+    ).resolves.toMatchObject({ isDone: true, page: [] });
+    const staffAll = await lenderStaff.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      { paginationOpts: PAGE, scope: "all" }
+    );
+    expect(staffAll.page).toHaveLength(2);
+    expect(staffAll.page).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actionRequired: false,
+          milestoneId: envelopeMilestoneId,
+          viewerActionState: "ineligible",
+        }),
+      ])
+    );
+    const staffDrawAction = await lenderStaff.query(
+      (api as any).lender_portal.getLenderDrawQueue,
+      { paginationOpts: PAGE, scope: "action" }
+    );
+    expect(staffDrawAction).toMatchObject({ isDone: true, page: [] });
+    const staffDrawAll = await lenderStaff.query(
+      (api as any).lender_portal.getLenderDrawQueue,
+      { paginationOpts: PAGE, scope: "all" }
+    );
+    expect(staffDrawAll.page).toEqual([
+      expect.objectContaining({
+        actionRequired: false,
+        drawRequestId: f.drawRequestId,
+        viewerActionState: "ineligible",
+      }),
+    ]);
+    const staffDetail = await lenderStaff.query(
+      (api as any).lender_portal_phase5
+        .getLenderNotificationReviewRequest,
+      {
+        historyPaginationOpts: PAGE,
+        reviewCycleId: envelope.cycleId,
+        reviewCycleNumber: 1,
+        target: { kind: "milestone", milestoneId: envelopeMilestoneId },
+      }
+    );
+    expect(staffDetail).toMatchObject({
+      targetAvailability: "available",
+      viewerActionState: "ineligible",
+      viewerDecision: null,
+    });
+    await expect(
+      lenderStaff.mutation(
+        (api as any).lender_portal_phase5.decideLenderReviewRequest,
+        {
+          decision: "approved",
+          expectedCycleNumber: 1,
+          idempotencyKey: "milestone-queue-staff-ineligible",
+          target: { kind: "milestone", milestoneId: envelopeMilestoneId },
+        }
+      )
+    ).rejects.toThrow();
+    await f.admin.mutation(
+      (api as any).lender_portal_phase5.decideBackofficeReviewRequest,
+      {
+        decision: "approved",
+        expectedCycleNumber: 1,
+        idempotencyKey: "milestone-queue-envelope-backoffice",
+        target: { kind: "milestone", milestoneId: envelopeMilestoneId },
+        workosOrganizationId: ORG,
+      }
+    );
+    await f.lender.mutation(
+      (api as any).lender_portal_phase5.decideLenderReviewRequest,
+      {
+        decision: "approved",
+        expectedCycleNumber: 1,
+        idempotencyKey: "milestone-queue-envelope-lender",
+        target: { kind: "milestone", milestoneId: envelopeMilestoneId },
+      }
+    );
+    const completed = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      { paginationOpts: PAGE, scope: "all" }
+    );
+    expect(completed.page).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actionRequired: false,
+          milestoneId: envelopeMilestoneId,
+          state: "completed",
+          viewerActionState: "closed",
+        }),
+      ])
+    );
+    const foundationRow = rows.find(
+      (row: any) => row.milestoneId === f.milestoneId
+    );
+    expect(foundationRow).toMatchObject({
+      actualCostCents: 4_200_000,
+      evidence: expect.arrayContaining([
+        expect.objectContaining({ label: "Foundation invoice" }),
+      ]),
+      plannedBudgetCents: 10_000_000,
+      submilestones: [
+        expect.objectContaining({
+          builderEvidence: true,
+          name: "Foundation work",
+        }),
+      ],
+    });
+    expect(JSON.stringify(rows)).not.toMatch(
+      /Private queue rationale|user_admin|revisionInstructions|privateRationale/
+    );
+    const unrelatedLender = await addUnassignedLender(
+      f,
+      "user_unassigned_lender"
+    );
+    await expect(
+      unrelatedLender.query(
+        (api as any).lender_portal_phase5
+          .listAllAssignedLenderMilestoneReviewRequests,
+        { paginationOpts: PAGE, scope: "all" }
+      )
+    ).resolves.toMatchObject({ isDone: true, page: [] });
+
+    await f.base.run(async (ctx: any) => {
+      await ctx.db.patch(envelopeMilestoneId, {
+        currentLenderPortalReviewCycleId: foundation.cycleId,
+      });
+    });
+    const stale = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      { paginationOpts: PAGE, scope: "all" }
+    );
+    expect(stale.page).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actionRequired: false,
+          milestoneId: envelopeMilestoneId,
+          plannedBudgetCents: null,
+          submilestones: [],
+          targetAvailability: "unavailable",
+          viewerActionState: "unavailable",
+        }),
+      ])
+    );
+    await f.base.run(async (ctx: any) => {
+      await ctx.db.patch(f.buildId, { organizationId: "org_foreign" });
+    });
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5
+          .listAllAssignedLenderMilestoneReviewRequests,
+        { paginationOpts: PAGE, scope: "all" }
+      )
+    ).resolves.toMatchObject({ isDone: true, page: [] });
+  });
+
+  test("enumerates every current Milestone and Draw assignment beyond the former 200-row scan limit", async () => {
+    const f = await fixture();
+    const submitted = await f.builder.mutation(
+      (api as any).lender_portal_phase5.submitBuilderReviewRequest,
+      {
+        expectedCycleNumber: 0,
+        idempotencyKey: "milestone-queue-over-200-seed",
+        target: { kind: "milestone", milestoneId: f.milestoneId },
+        workosOrganizationId: ORG,
+      }
+    );
+    const { drawRequestIds, milestoneIds: additionalMilestoneIds } =
+      await seedAssignedMilestoneCycles(
+      f,
+      submitted.cycleId,
+      200
+      );
+    const expectedMilestoneIds = new Set([
+      String(f.milestoneId),
+      ...additionalMilestoneIds.map(String),
+    ]);
+
+    const rows: Array<{ milestoneId: string }> = [];
+    let cursor: string | null = null;
+    let firstPage:
+      | {
+          continueCursor: string;
+          page: Array<{
+            milestoneId: string;
+            reviewCycleId: string;
+            submittedAt: number;
+          }>;
+        }
+      | undefined;
+    do {
+      const page: {
+        continueCursor: string;
+        isDone: boolean;
+        page: Array<{
+          milestoneId: string;
+          reviewCycleId: string;
+          submittedAt: number;
+        }>;
+      } = await f.lender.query(
+        (api as any).lender_portal_phase5
+          .listAllAssignedLenderMilestoneReviewRequests,
+        {
+          paginationOpts: { cursor, numItems: 50 },
+          scope: "all",
+        }
+      );
+      firstPage ??= page;
+      rows.push(...page.page);
+      cursor = page.isDone ? null : page.continueCursor;
+    } while (cursor !== null);
+
+    expect(rows).toHaveLength(201);
+    expect(new Set(rows.map((row) => String(row.milestoneId)))).toEqual(
+      expectedMilestoneIds
+    );
+    expect(firstPage?.page).toHaveLength(50);
+
+    const reactiveFirstPage = await f.lender.query(
+      (api as any).lender_portal_phase5
+        .listAllAssignedLenderMilestoneReviewRequests,
+      {
+        paginationOpts: {
+          cursor: null,
+          endCursor: firstPage?.continueCursor,
+          numItems: 1,
+        },
+        scope: "all",
+      }
+    );
+    expect(reactiveFirstPage).toEqual({
+      continueCursor: firstPage?.continueCursor,
+      isDone: true,
+      page: firstPage?.page,
+    });
+    const firstMilestoneRow = firstPage?.page[0];
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5
+          .listAllAssignedLenderMilestoneReviewRequests,
+        {
+          paginationOpts: {
+            cursor: JSON.stringify({
+              anchorId: String(firstMilestoneRow?.reviewCycleId),
+              anchorValue: (firstMilestoneRow?.submittedAt ?? 0) + 1,
+              scope: "all",
+              version: 2,
+            }),
+            numItems: 20,
+          },
+          scope: "all",
+        }
+      )
+    ).rejects.toThrow("INVALID_PAGINATION_CURSOR");
+    await expect(
+      f.lender.query(
+        (api as any).lender_portal_phase5
+          .listAllAssignedLenderMilestoneReviewRequests,
+        {
+          paginationOpts: {
+            cursor: firstPage?.continueCursor ?? null,
+            numItems: 20,
+          },
+          scope: "action",
+        }
+      )
+    ).rejects.toThrow("INVALID_PAGINATION_CURSOR");
+
+    const expectedDrawRequestIds = new Set(drawRequestIds.map(String));
+    const drawRows: Array<{ drawRequestId: string }> = [];
+    let drawCursor: string | null = null;
+    let firstDrawPage:
+      | {
+          continueCursor: string;
+          page: Array<{
+            drawRequestId: string;
+            updatedAt: number;
+          }>;
+        }
+      | undefined;
+    do {
+      const page: {
+        continueCursor: string;
+        isDone: boolean;
+        page: Array<{
+          drawRequestId: string;
+          updatedAt: number;
+        }>;
+      } = await f.lender.query(
+        (api as any).lender_portal.getLenderDrawQueue,
+        {
+          paginationOpts: { cursor: drawCursor, numItems: 50 },
+          scope: "all",
+        }
+      );
+      firstDrawPage ??= page;
+      drawRows.push(...page.page);
+      drawCursor = page.isDone ? null : page.continueCursor;
+    } while (drawCursor !== null);
+
+    expect(drawRows).toHaveLength(201);
+    expect(new Set(drawRows.map((row) => String(row.drawRequestId)))).toEqual(
+      new Set([String(f.drawRequestId), ...expectedDrawRequestIds])
+    );
+    expect(firstDrawPage?.page).toHaveLength(50);
+    const reactiveFirstDrawPage = await f.lender.query(
+      (api as any).lender_portal.getLenderDrawQueue,
+      {
+        paginationOpts: {
+          cursor: null,
+          endCursor: firstDrawPage?.continueCursor,
+          numItems: 1,
+        },
+        scope: "all",
+      }
+    );
+    expect(reactiveFirstDrawPage).toEqual({
+      continueCursor: firstDrawPage?.continueCursor,
+      isDone: true,
+      page: firstDrawPage?.page,
+    });
+    const firstDrawRow = firstDrawPage?.page[0];
+    await expect(
+      f.lender.query((api as any).lender_portal.getLenderDrawQueue, {
+        paginationOpts: {
+          cursor: JSON.stringify({
+            anchorId: String(firstDrawRow?.drawRequestId),
+            anchorValue: (firstDrawRow?.updatedAt ?? 0) + 1,
+            scope: "all",
+            version: 2,
+          }),
+          numItems: 20,
+        },
+        scope: "all",
+      })
+    ).rejects.toThrow("INVALID_PAGINATION_CURSOR");
+    await expect(
+      f.lender.query((api as any).lender_portal.getLenderDrawQueue, {
+        paginationOpts: {
+          cursor: firstDrawPage?.continueCursor ?? null,
+          numItems: 20,
+        },
+        scope: "action",
+      })
+    ).rejects.toThrow("INVALID_PAGINATION_CURSOR");
+    await expect(
+      f.lender.query((api as any).lender_portal.getLenderDrawQueue, {
+        paginationOpts: { cursor: "tampered", numItems: 20 },
+        scope: "all",
+      })
+    ).rejects.toThrow("INVALID_PAGINATION_CURSOR");
+    await expect(
+      f.lender.query((api as any).lender_portal.getLenderDrawQueue, {
+        paginationOpts: { cursor: null, numItems: 51 },
+        scope: "all",
+      })
+    ).rejects.toThrow("INVALID_PAGE_SIZE");
   });
 
   test("paginates more than one hundred review cycles without truncating authorized history", async () => {
@@ -885,6 +1473,206 @@ function identity(base: any, roles: string[], subject: string, organizationId: s
   });
 }
 
+async function seedAssignedMilestoneCycles(
+  fixtureValue: Awaited<ReturnType<typeof fixture>>,
+  templateCycleId: any,
+  count: number
+) {
+  return await fixtureValue.base.run(async (ctx: any) => {
+    const [seedBuild, templateCycle] = await Promise.all([
+      ctx.db.get(fixtureValue.buildId),
+      ctx.db.get(templateCycleId),
+    ]);
+    if (!seedBuild || !templateCycle) {
+      throw new Error("Milestone queue seed is unavailable.");
+    }
+
+    const drawRequestIds = [];
+    const milestoneIds = [];
+    for (let index = 0; index < count; index += 1) {
+      const createdAt = templateCycle.submittedAt + index + 1;
+      const suffix = String(index + 1).padStart(3, "0");
+      const buildName = `Assigned Build ${suffix}`;
+      const milestoneName = `Assigned Milestone ${suffix}`;
+      const milestoneKey = `assigned-milestone-${suffix}`;
+      const proposalId = await ctx.db.insert("buildProposals", {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 10_000_000,
+        brokerageId: fixtureValue.brokerageId,
+        buildName,
+        builderProfileId: seedBuild.builderProfileId,
+        createdAt,
+        createdByWorkosUserId: "user_admin",
+        lenderDrawPolicyLimitCents: 20_000_000,
+        location: `${index + 1} Assigned Queue Road`,
+        organizationId: ORG,
+        reviewOutcome: "approved",
+        status: "closed",
+        totalBudgetCents: 1_000_000 + index,
+        updatedAt: createdAt,
+        updatedByWorkosUserId: "user_admin",
+      });
+      const buildId = await ctx.db.insert("activeBuilds", {
+        brokerageId: fixtureValue.brokerageId,
+        builderProfileId: seedBuild.builderProfileId,
+        buildName,
+        createdAt,
+        location: `${index + 1} Assigned Queue Road`,
+        organizationId: ORG,
+        proposalId,
+        startDate: "2026-08-01",
+        status: "active",
+        totalBudgetCents: 1_000_000 + index,
+        updatedAt: createdAt,
+        workflowRuleSnapshotId: seedBuild.workflowRuleSnapshotId,
+      });
+      await ctx.db.patch(proposalId, { activeBuildId: buildId });
+      await ctx.db.insert("proposalLenderAssignments", {
+        assignedAt: createdAt,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: fixtureValue.brokerageId,
+        createdAt,
+        lenderBrokerageId: fixtureValue.brokerageId,
+        lenderOrganizationId: fixtureValue.lenderOrganizationId,
+        lenderOrganizationName: "Phase 5 Lender",
+        organizationId: ORG,
+        proposalId,
+        status: "current",
+      });
+      const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
+        brokerageId: fixtureValue.brokerageId,
+        budgetCents: 1_000_000 + index,
+        createdAt,
+        dayEnd: 10,
+        dayStart: 0,
+        dependencyKeys: [],
+        drawAvailabilityCents: 900_000 + index,
+        durationDays: 10,
+        key: milestoneKey,
+        name: milestoneName,
+        order: 1,
+        organizationId: ORG,
+        proposalId,
+        updatedAt: createdAt,
+      });
+      const milestoneId = await ctx.db.insert("buildMilestones", {
+        brokerageId: fixtureValue.brokerageId,
+        budgetCents: 1_000_000 + index,
+        buildId,
+        createdAt,
+        dayEnd: 10,
+        dayStart: 0,
+        dependencyKeys: [],
+        drawAvailabilityCents: 900_000 + index,
+        durationDays: 10,
+        key: milestoneKey,
+        name: milestoneName,
+        order: 1,
+        organizationId: ORG,
+        progressPercent: 100,
+        proposalMilestoneId,
+        status: "complete",
+        updatedAt: createdAt,
+      });
+      const cycleId = await ctx.db.insert("lenderPortalReviewCycles", {
+        approvedGroups: [],
+        brokerageId: fixtureValue.brokerageId,
+        buildId,
+        commandFingerprint: `assigned-cycle-${suffix}`,
+        cycleNumber: 1,
+        decisionSummaries: [],
+        evidenceReferences: [],
+        idempotencyKey: `assigned-cycle-${suffix}`,
+        isCurrent: true,
+        kind: "milestone",
+        lenderApprovalCount: 0,
+        milestoneId,
+        organizationId: ORG,
+        requestIdentity: String(milestoneId),
+        requirements: templateCycle.requirements,
+        state: "in_review",
+        submission: {
+          actualCostCents: 900_000 + index,
+          completedDay: 9,
+          kind: "milestone",
+          milestoneId,
+          milestoneKey,
+          milestoneName,
+          note: null,
+          progressPercent: 100,
+          submittedAt: "2026-08-10T12:00:00.000Z",
+        },
+        submittedAt: createdAt,
+        submittedByWorkosUserId: "user_builder",
+        targetLabel: milestoneName,
+        updatedAt: createdAt,
+      });
+      await ctx.db.patch(milestoneId, {
+        currentLenderPortalReviewCycleId: cycleId,
+        currentLenderPortalReviewCycleNumber: 1,
+        lenderPortalReviewState: "in_review",
+      });
+      const drawRequestId = await ctx.db.insert("activeBuildDrawRequests", {
+        amountCents: 500_000 + index,
+        brokerageId: fixtureValue.brokerageId,
+        buildId,
+        clientOperationId: `assigned-draw-${suffix}`,
+        createdAt,
+        displayId: `DRAW-${suffix}`,
+        label: `Assigned Draw ${suffix}`,
+        organizationId: ORG,
+        requestKey: `assigned-draw-${suffix}`,
+        requestedAt: "2026-08-11T12:00:00.000Z",
+        requestedByWorkosUserId: "user_builder",
+        status: "in_review",
+        updatedAt: createdAt,
+      });
+      const drawCycleId = await ctx.db.insert("lenderPortalReviewCycles", {
+        approvedGroups: [],
+        brokerageId: fixtureValue.brokerageId,
+        buildId,
+        commandFingerprint: `assigned-draw-cycle-${suffix}`,
+        cycleNumber: 1,
+        decisionSummaries: [],
+        drawRequestId,
+        evidenceReferences: [],
+        idempotencyKey: `assigned-draw-cycle-${suffix}`,
+        isCurrent: true,
+        kind: "draw",
+        lenderApprovalCount: 0,
+        organizationId: ORG,
+        requestIdentity: `draw:${String(drawRequestId)}`,
+        requirements: templateCycle.requirements,
+        state: "in_review",
+        submission: {
+          allocations: [],
+          amountCents: 500_000 + index,
+          displayId: `DRAW-${suffix}`,
+          drawRequestId,
+          kind: "draw",
+          label: `Assigned Draw ${suffix}`,
+          note: null,
+          requestedAt: "2026-08-11T12:00:00.000Z",
+          requestKey: `assigned-draw-${suffix}`,
+        },
+        submittedAt: createdAt,
+        submittedByWorkosUserId: "user_builder",
+        targetLabel: `Assigned Draw ${suffix}`,
+        updatedAt: createdAt,
+      });
+      await ctx.db.patch(drawRequestId, {
+        currentLenderPortalReviewCycleId: drawCycleId,
+        currentLenderPortalReviewCycleNumber: 1,
+        lenderPortalReviewState: "in_review",
+      });
+      drawRequestIds.push(drawRequestId);
+      milestoneIds.push(milestoneId);
+    }
+    return { drawRequestIds, milestoneIds };
+  });
+}
+
 async function fixture() {
   const base = convexTest(schema, modules);
   const ids = await base.run(async (ctx: any) => {
@@ -966,6 +1754,7 @@ async function fixture() {
       startDate: "2026-08-01", status: "active", totalBudgetCents: 10_000_000,
       updatedAt: now, workflowRuleSnapshotId: snapshotId,
     });
+    await ctx.db.patch(proposalId, { activeBuildId: buildId });
     const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
       brokerageId, budgetCents: 10_000_000, createdAt: now, dayEnd: 20, dayStart: 0,
       dependencyKeys: [], drawAvailabilityCents: 8_000_000, durationDays: 20,
@@ -1151,5 +1940,119 @@ async function addEligibleLender(
     ["lender-admin"],
     subject,
     FAIRLEND_WORKOS_ORGANIZATION_ID,
+  );
+}
+
+async function addUnassignedLender(
+  fixtureValue: Awaited<ReturnType<typeof fixture>>,
+  subject: string
+) {
+  await fixtureValue.base.run(async (ctx: any) => {
+    const now = Date.now();
+    const lenderOrganizationId = await ctx.db.insert("lenderOrganizations", {
+      brokerageId: fixtureValue.brokerageId,
+      createdAt: now,
+      displayName: "Unassigned Lender",
+      legalName: "Unassigned Lender Inc.",
+      permissions: {
+        drawDecisions: true,
+        milestoneDecisions: true,
+        proposalReview: true,
+        siteVisitReview: true,
+      },
+      status: "active",
+      updatedAt: now,
+    });
+    await ctx.db.insert("users", {
+      authId: subject,
+      createdAt: now,
+      email: `${subject}@example.com`,
+      name: "Unassigned Lender",
+      sourceEventId: `phase5-user-${subject}`,
+      sourceEventType: "test",
+      status: "active",
+      updatedAt: now,
+      workosUserId: subject,
+    });
+    await ctx.db.insert("workosOrganizationMemberships", {
+      createdAt: now,
+      roleSlug: "lender",
+      roleSlugs: ["lender"],
+      sourceEventId: `phase5-membership-${subject}`,
+      sourceEventType: "test",
+      status: "active",
+      updatedAt: now,
+      workosMembershipId: `om-${subject}`,
+      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      workosUserId: subject,
+    });
+    await ctx.db.insert("lenderOrganizationAssignments", {
+      assignedAt: now,
+      assignedByRole: "admin",
+      assignedByWorkosUserId: "user_admin",
+      brokerageId: fixtureValue.brokerageId,
+      lenderOrganizationId,
+      normalizedEmail: `${subject}@example.com`,
+      reason: "Unassigned lender privacy fixture.",
+      status: "active",
+      updatedAt: now,
+      workosUserId: subject,
+    });
+  });
+  return identity(
+    fixtureValue.base,
+    ["lender"],
+    subject,
+    FAIRLEND_WORKOS_ORGANIZATION_ID
+  );
+}
+
+async function addLenderStaff(
+  fixtureValue: Awaited<ReturnType<typeof fixture>>,
+  subject: string
+) {
+  await fixtureValue.base.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.insert("users", {
+      authId: subject,
+      createdAt: now,
+      email: `${subject}@example.com`,
+      name: "Lender Staff",
+      sourceEventId: `phase5-user-${subject}`,
+      sourceEventType: "test",
+      status: "active",
+      updatedAt: now,
+      workosUserId: subject,
+    });
+    await ctx.db.insert("workosOrganizationMemberships", {
+      createdAt: now,
+      roleSlug: "lender-staff",
+      roleSlugs: ["lender-staff"],
+      sourceEventId: `phase5-membership-${subject}`,
+      sourceEventType: "test",
+      status: "active",
+      updatedAt: now,
+      workosMembershipId: `om-${subject}`,
+      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      workosUserId: subject,
+    });
+    await ctx.db.insert("lenderOrganizationAssignments", {
+      assignedAt: now,
+      assignedByRole: "admin",
+      assignedByWorkosUserId: "user_admin",
+      brokerageId: fixtureValue.brokerageId,
+      lenderOrganizationId: fixtureValue.lenderOrganizationId,
+      normalizedEmail: `${subject}@example.com`,
+      reason: "Lender staff queue fixture.",
+      status: "active",
+      updatedAt: now,
+      workosUserId: subject,
+    });
+  });
+  return identity(
+    fixtureValue.base,
+    ["lender-staff"],
+    subject,
+    FAIRLEND_WORKOS_ORGANIZATION_ID
   );
 }

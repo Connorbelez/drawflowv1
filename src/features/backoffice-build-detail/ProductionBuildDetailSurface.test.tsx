@@ -248,6 +248,7 @@ vi.mock("./ActiveBuildGanttWorkspace.tsx", () => ({
 import {
   ProductionBuildDetailSurface,
   type ProductionBuildDetail,
+  toProductionMilestoneSheetData,
 } from "./ProductionBuildDetailSurface";
 
 beforeEach(() => {
@@ -531,6 +532,57 @@ const timelineWorkspace = {
 } as any;
 
 describe("ProductionBuildDetailSurface", () => {
+  test("projects canonical Back Office Milestone evidence and child Site Visits for shared review sheets", () => {
+    const sheet = toProductionMilestoneSheetData(
+      {
+        ...detail,
+        evidenceAssets: [
+          {
+            createdAt: Date.parse("2026-06-15T12:00:00.000Z"),
+            evidenceKey: "foundation-footings-photo",
+            fileName: "footings.jpg",
+            label: "Footings evidence",
+            locationVerified: true,
+            milestoneKey: "foundation",
+            mimeType: "image/jpeg",
+            sizeBytes: 2048,
+            source: "evidence_package",
+            submilestoneKey: "excavation",
+            tag: "completion",
+          },
+        ],
+        siteVisits: [
+          {
+            completedAt: "2026-06-16T12:00:00.000Z",
+            milestoneKey: "foundation",
+            recordNote: "Excavation verified.",
+            requestedAt: "2026-06-15T12:00:00.000Z",
+            requestedDay: 14,
+            status: "complete",
+            submilestoneKeys: ["excavation"],
+            visitId: "VISIT-01",
+          },
+        ],
+      },
+      "foundation"
+    );
+
+    expect(sheet).toMatchObject({
+      milestoneKey: "foundation",
+      submilestones: [
+        expect.objectContaining({
+          evidence: [expect.objectContaining({ label: "Footings evidence" })],
+          siteVisits: [
+            expect.objectContaining({
+              recordNote: "Excavation verified.",
+              visitId: "VISIT-01",
+            }),
+          ],
+        }),
+      ],
+    });
+  });
+
   test("restores the build detail tab bar for production active builds", () => {
     const onChangeTab = vi.fn();
 

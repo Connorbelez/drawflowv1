@@ -1,3 +1,4 @@
+import type { FunctionReturnType } from "convex/server";
 import { UserRoundMinus } from "lucide-react";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -23,15 +24,20 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
-import { api } from "../../../convex/_generated/api";
-import type { FunctionReturnType } from "convex/server";
+import type { api } from "../../../convex/_generated/api";
 
 type MembersResult = FunctionReturnType<
   typeof api.lenderOrganizations.listLenderOrganizationMembersForAdmin
 >;
-export type LenderOrganizationMember = MembersResult["members"][number];
-export type LenderOrganizationPendingInvitation =
-  MembersResult["pendingInvitations"][number];
+type MemberEntry = MembersResult["page"][number];
+export type LenderOrganizationMember = Extract<
+  MemberEntry,
+  { kind: "member" }
+>["member"];
+export type LenderOrganizationPendingInvitation = Extract<
+  MemberEntry,
+  { kind: "pending_invitation" }
+>["pendingInvitation"];
 export const LENDER_ROLE_OPTIONS = [
   "lender",
   "lender-admin",
@@ -39,10 +45,10 @@ export const LENDER_ROLE_OPTIONS = [
 ] as const;
 export type LenderRoleOption = (typeof LENDER_ROLE_OPTIONS)[number];
 
-type CommonProps = {
-  members: MembersResult["members"] | undefined;
-  pendingInvitations?: MembersResult["pendingInvitations"];
-};
+interface CommonProps {
+  members: LenderOrganizationMember[] | undefined;
+  pendingInvitations?: LenderOrganizationPendingInvitation[];
+}
 
 export function LenderOrganizationMembersTable({
   members,
@@ -95,7 +101,9 @@ export function LenderOrganizationMembersTable({
                 <Badge variant="secondary">Active</Badge>
               </TableCell>
               <TableCell>
-                <Badge variant={member.canMakeFinalDecision ? "default" : "outline"}>
+                <Badge
+                  variant={member.canMakeFinalDecision ? "default" : "outline"}
+                >
                   {member.canMakeFinalDecision ? "Yes" : "No"}
                 </Badge>
               </TableCell>
@@ -160,7 +168,9 @@ function LenderOrganizationMemberRow({
         </div>
         <div className="min-w-0">
           <p className="truncate font-medium text-sm">{member.name}</p>
-          <p className="truncate text-muted-foreground text-xs">{member.email}</p>
+          <p className="truncate text-muted-foreground text-xs">
+            {member.email}
+          </p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">

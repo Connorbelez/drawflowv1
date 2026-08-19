@@ -506,6 +506,133 @@ describe("ProductionProposalSettingsSurface", () => {
 });
 
 describe("ProductionProposalReviewSurface", () => {
+  test("renders pending then exact-revision approved lender confirmation", () => {
+    const lifecycle = {
+      activation: "inactive" as const,
+      backOfficeApproval: "approved" as const,
+      capitalSource: "external" as const,
+      closing: "pending_closing" as const,
+      externalAssignment: "assigned" as const,
+      lenderConfirmation: "pending" as const,
+      proposalState: "approved" as const,
+    };
+    const { rerender } = render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          lifecycle,
+          proposal: { ...proposalDetail.proposal, status: "approved" },
+        }}
+      />,
+    );
+
+    const lenderConfirmation = screen.getByText("Lender confirmation");
+    expect(lenderConfirmation.nextElementSibling?.textContent).toBe("Pending");
+
+    rerender(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          lifecycle: { ...lifecycle, lenderConfirmation: "approved" },
+          proposal: { ...proposalDetail.proposal, status: "approved" },
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("Lender confirmation").nextElementSibling?.textContent,
+    ).toBe("Approved");
+  });
+
+  test("renders published lifecycle facts without live closing or active Build state", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          proposal: {
+            ...proposalDetail.proposal,
+            activeBuildId: undefined,
+            closedAt: undefined,
+            status: "approved",
+          },
+        }}
+        initialActiveTab="closing"
+      />,
+    );
+
+    const closingPanel = screen.getByTestId("production-proposal-closing-tab");
+    expect(within(closingPanel).getByText("No active build created yet.")).toBeTruthy();
+    expect(within(closingPanel).queryByText(/Active build starts/)).toBeNull();
+    expect(screen.getAllByText("Approved").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Closed")).toBeNull();
+  });
+
+  test("renders the published lender detail without private remediation values", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          draws: [
+            {
+              amountCents: 400_000_00,
+              drawKey: "draw-01",
+              label: "Published foundation draw",
+              timingDay: 30,
+            },
+          ],
+          milestones: [
+            {
+              ...proposalDetail.milestones?.[0],
+              budgetCents: 500_000_00,
+              dayEnd: 30,
+              dayStart: 0,
+              key: "foundation",
+              name: "Published foundation milestone",
+              order: 1,
+            },
+          ],
+          proposal: { ...proposalDetail.proposal, status: "approved" },
+        }}
+        initialActiveTab="milestones"
+      />,
+    );
+
+    expect(
+      screen.getAllByText("Published foundation milestone").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("Private remediation milestone name")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
+    expect(screen.getByText("Published foundation draw")).toBeTruthy();
+    expect(screen.queryByText("Private remediation draw label")).toBeNull();
+  });
+
+  test("mounts review policy controls inside the production Closing workspace", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "approved" },
+        }}
+        initialActiveTab="closing"
+        closingPolicyReady={false}
+        reviewPolicySurface={
+          <div data-testid="reachable-review-policy">Policy controls</div>
+        }
+      />,
+    );
+
+    const closingPanel = screen.getByTestId("production-proposal-closing-tab");
+    expect(within(closingPanel).getByTestId("reachable-review-policy")).toBeTruthy();
+    expect(within(closingPanel).getByText("Offline closing")).toBeTruthy();
+    expect(
+      within(closingPanel).getByText(
+        "Lock the review policy above before recording closing.",
+      ),
+    ).toBeTruthy();
+  });
+
   test("calls out a generated draw schedule that exceeds packet availability", () => {
     render(
       <ProductionProposalReviewSurface

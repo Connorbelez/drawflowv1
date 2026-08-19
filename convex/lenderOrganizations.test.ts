@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
+import { listActiveLenderOrganizationMembers } from "./lenderOrganizationAccess";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -146,6 +147,142 @@ async function seedControlPlane(
 }
 
 describe("app-owned lender organization control plane", () => {
+  test("paginates the production organization and member directories without weakening admin scope", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 6; index += 1) {
+        await ctx.db.insert("lenderOrganizations", {
+          brokerageId: seed.brokerageId,
+          createdAt: now + index,
+          displayName: `Paged Lender ${index + 1}`,
+          legalName: `Paged Lender ${index + 1} Inc.`,
+          permissions: {
+            drawDecisions: true,
+            milestoneDecisions: true,
+            proposalReview: true,
+            siteVisitReview: true,
+          },
+          status: "active",
+          updatedAt: now + index,
+        });
+      }
+      for (let index = 0; index < 26; index += 1) {
+        await ctx.db.insert("lenderOrganizationAssignments", {
+          assignedAt: now + index,
+          assignedByRole: "admin",
+          assignedByWorkosUserId: "user_admin",
+          brokerageId: seed.brokerageId,
+          lenderOrganizationId: seed.lenderOrganizationId,
+          normalizedEmail: `pending-${index}@example.com`,
+          reason: "Exercise the bounded member directory cursor.",
+          status: "pending",
+          updatedAt: now + index,
+        });
+      }
+    });
+    const admin = asAdmin(t);
+    const firstOrganizations = await admin.query(
+      api.lenderOrganizations.listLenderOrganizations,
+      {
+        paginationOpts: { cursor: null, numItems: 5 },
+        status: "active",
+      },
+    );
+    expect(firstOrganizations.page).toHaveLength(5);
+    expect(firstOrganizations.isDone).toBe(false);
+    const secondOrganizations = await admin.query(
+      api.lenderOrganizations.listLenderOrganizations,
+      {
+        paginationOpts: {
+          cursor: firstOrganizations.continueCursor,
+          numItems: 5,
+        },
+        status: "active",
+      },
+    );
+    expect(secondOrganizations.page).toHaveLength(3);
+    expect(secondOrganizations.isDone).toBe(true);
+    expect(
+      new Set(
+        [...firstOrganizations.page, ...secondOrganizations.page].map(
+          (organization) => organization.id,
+        ),
+      ).size,
+    ).toBe(8);
+
+    const firstMembers = await admin.query(
+      api.lenderOrganizations.listLenderOrganizationMembersForAdmin,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        paginationOpts: { cursor: null, numItems: 25 },
+      },
+    );
+    expect(firstMembers.page).toHaveLength(25);
+    expect(firstMembers.isDone).toBe(false);
+    const secondMembers = await admin.query(
+      api.lenderOrganizations.listLenderOrganizationMembersForAdmin,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        paginationOpts: {
+          cursor: firstMembers.continueCursor,
+          numItems: 25,
+        },
+      },
+    );
+    expect(secondMembers.page).toHaveLength(1);
+    expect(secondMembers.isDone).toBe(true);
+    expect(
+      [...firstMembers.page, ...secondMembers.page].every(
+        (entry) => entry.kind === "pending_invitation",
+      ),
+    ).toBe(true);
+    await expect(
+      asLender(t).query(api.lenderOrganizations.listLenderOrganizations, {
+        paginationOpts: { cursor: null, numItems: 5 },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      admin.query(api.lenderOrganizations.listLenderOrganizations, {
+        paginationOpts: { cursor: null, numItems: 6 },
+      }),
+    ).rejects.toThrow("page size must be between 1 and 5");
+  });
+
+  test("fails closed before notification recipient hydration exceeds its bounded organization batch", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 101; index += 1) {
+        await ctx.db.insert("lenderOrganizationAssignments", {
+          assignedAt: now + index,
+          assignedByRole: "admin",
+          assignedByWorkosUserId: "user_admin",
+          brokerageId: seed.brokerageId,
+          lenderOrganizationId: seed.lenderOrganizationId,
+          normalizedEmail: `recipient-${index}@example.com`,
+          reason: "Exercise recipient projection batch protection.",
+          status: "active",
+          updatedAt: now + index,
+          workosUserId: `recipient-${index}`,
+        });
+      }
+    });
+
+    await expect(
+      t.run((ctx) =>
+        listActiveLenderOrganizationMembers(
+          ctx,
+          seed.lenderOrganizationId,
+        )
+      ),
+    ).rejects.toThrow(
+      "Lender organization active member count exceeds the safe limit",
+    );
+  });
+
   test("provisions a child lender organization without creating a WorkOS organization", async () => {
     const t = convexTest(schema, modules);
     const seed = await seedControlPlane(t);
@@ -205,6 +342,13 @@ describe("app-owned lender organization control plane", () => {
       {},
     );
     expect(before.users.map((user) => user.workosUserId)).toContain("user_unassigned");
+    await expect(
+      asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "   ",
+        workosUserId: "user_unassigned",
+      }),
+    ).rejects.toThrow(/reason/i);
 
     const assignmentId = await asAdmin(t).mutation(
       api.lenderOrganizations.assignLenderUser,
@@ -222,9 +366,18 @@ describe("app-owned lender organization control plane", () => {
     expect(
       await asAdmin(t).query(api.lenderOrganizations.listLenderOrganizationMembersForAdmin, {
         lenderOrganizationId: seed.lenderOrganizationId,
+        paginationOpts: { cursor: null, numItems: 25 },
       }),
     ).toMatchObject({
-      members: [expect.objectContaining({ assignmentId, workosUserId: "user_unassigned" })],
+      page: [
+        {
+          kind: "member",
+          member: expect.objectContaining({
+            assignmentId,
+            workosUserId: "user_unassigned",
+          }),
+        },
+      ],
     });
     await expect(
       asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
@@ -243,7 +396,6 @@ describe("app-owned lender organization control plane", () => {
       {},
     );
     expect(result.organization).toBeNull();
-    expect(result.members).toEqual([]);
     expect(result.currentUser).toMatchObject({
       email: "user_lender@example.com",
       workosUserId: "user_lender",
@@ -274,11 +426,15 @@ describe("app-owned lender organization control plane", () => {
       brokerageName: "Northstar Brokerage",
       displayName: "Northstar Lender",
     });
-    expect(result.members.map((member) => member.workosUserId).sort()).toEqual([
+    const members = await asLender(t).query(
+      api.lenderOrganizations.listCurrentLenderOrganizationMembers,
+      { paginationOpts: { cursor: null, numItems: 25 } },
+    );
+    expect(members.page.map((member) => member.workosUserId).sort()).toEqual([
       "user_lender",
       "user_unassigned",
     ]);
-    expect(result.members.every((member) => member.membershipStatus === "active")).toBe(
+    expect(members.page.every((member) => member.membershipStatus === "active")).toBe(
       true,
     );
   });
@@ -386,14 +542,20 @@ describe("app-owned lender organization control plane", () => {
     expect(rows.every((row) => row.reconciliationOutcome === "conflict_rejected" && row.reconciledAt === row.updatedAt)).toBe(true);
     const firstOrganizationProjection = await asAdmin(t).query(
       api.lenderOrganizations.listLenderOrganizationMembersForAdmin,
-      { lenderOrganizationId: seed.lenderOrganizationId },
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        paginationOpts: { cursor: null, numItems: 25 },
+      },
     );
-    expect(firstOrganizationProjection.pendingInvitations).toEqual([
-      expect.objectContaining({
-        email: "ambiguous-pending@example.com",
-        reconciliationReason: expect.stringContaining("multiple pending"),
-        status: "conflict_rejected",
-      }),
+    expect(firstOrganizationProjection.page).toEqual([
+      {
+        kind: "pending_invitation",
+        pendingInvitation: expect.objectContaining({
+          email: "ambiguous-pending@example.com",
+          reconciliationReason: expect.stringContaining("multiple pending"),
+          status: "conflict_rejected",
+        }),
+      },
     ]);
   });
 
@@ -892,6 +1054,75 @@ describe("app-owned lender organization control plane", () => {
         reason: "Cross-organization target should be rejected.",
         roleSlug: "lender",
       }),
+    ).rejects.toThrow(/assignment scope/);
+  });
+
+  test("projects exact scoped WorkOS membership reconciliation state", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const assignmentId = await asAdmin(t).mutation(
+      api.lenderOrganizations.assignLenderUser,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Attach the member for reconciliation projection coverage.",
+        workosUserId: "user_lender",
+      },
+    );
+
+    await expect(
+      asAdmin(t).query(
+        api.lenderOrganizations.getLenderMembershipReconciliation,
+        {
+          lenderOrganizationId: seed.lenderOrganizationId,
+          membershipId: "om_user_lender",
+        },
+      ),
+    ).resolves.toMatchObject({
+      assignmentId,
+      membershipId: "om_user_lender",
+      membershipStatus: "active",
+      roleSlugs: ["lender-admin"],
+      workosUserId: "user_lender",
+    });
+
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_workos_membership_id", (query) =>
+          query.eq("workosMembershipId", "om_user_lender"),
+        )
+        .unique();
+      if (!membership) {
+        throw new Error("Expected seeded lender membership");
+      }
+      await ctx.db.patch(membership._id, {
+        roleSlug: "lender-admin",
+        roleSlugs: ["lender-admin"],
+        status: "inactive",
+      });
+    });
+
+    await expect(
+      asAdmin(t).query(
+        api.lenderOrganizations.getLenderMembershipReconciliation,
+        {
+          lenderOrganizationId: seed.lenderOrganizationId,
+          membershipId: "om_user_lender",
+        },
+      ),
+    ).resolves.toMatchObject({
+      assignmentId,
+      membershipStatus: "inactive",
+      roleSlugs: ["lender-admin"],
+    });
+    await expect(
+      asAdmin(t).query(
+        api.lenderOrganizations.getLenderMembershipReconciliation,
+        {
+          lenderOrganizationId: seed.foreignLenderOrganizationId,
+          membershipId: "om_user_lender",
+        },
+      ),
     ).rejects.toThrow(/assignment scope/);
   });
 });

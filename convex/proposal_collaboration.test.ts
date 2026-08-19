@@ -52,7 +52,7 @@ async function seeded() {
   const base = testConvex();
   const admin = asRole(base, ["admin"], "user_admin");
   const seed = await admin.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORG },
   );
 

@@ -265,9 +265,7 @@ function RouteComponent() {
               workosOrganizationId,
             })
           }
-          onSeedDefaults={() =>
-            seedProductionDefaultsToProd({ workosOrganizationId })
-          }
+          onSeedDefaults={() => seedProductionDefaultsToProd({})}
           seedSuccessMessage={(result) =>
             `Seeded ${result.templates} production templates, ${result.milestones} milestones, and ${result.draws ?? 0} draw rows.`
           }

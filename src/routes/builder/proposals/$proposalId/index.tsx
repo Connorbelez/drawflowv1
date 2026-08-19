@@ -11,7 +11,6 @@ import {
   hasAnyAppPermission,
 } from "#/features/builder-staff/app-permissions.ts";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
-import { BuilderNotificationReviewSurface } from "#/features/lender-portal/LenderNotificationReviewSurface.tsx";
 import {
   createProposalCalendarEditHandler,
   type ProposalCalendarAdapterActions,
@@ -22,6 +21,8 @@ import type {
   CalendarSyncSubscriptionResult,
   CalendarTimeframe,
 } from "#/features/calendar-workspace/calendarTypes.ts";
+import { BuilderNotificationReviewSurface } from "#/features/lender-portal/LenderNotificationReviewSurface.tsx";
+import { BuilderProposalConfirmationStatus } from "#/features/production-proposals/BuilderProposalConfirmationStatus.tsx";
 import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
 import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
 import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
@@ -69,6 +70,7 @@ const CALENDAR_TIMEFRAMES = new Set<CalendarTimeframe>([
   "quarter",
   "week",
 ]);
+const POSITIVE_INTEGER_SEARCH_VALUE = /^[1-9]\d*$/;
 
 type BuilderProposalRouteTab = ProductionReviewTab;
 
@@ -91,6 +93,9 @@ export function validateBuilderProposalSearch(
     candidateTimeframe && CALENDAR_TIMEFRAMES.has(candidateTimeframe)
       ? candidateTimeframe
       : undefined;
+  const reviewCycleNumber = normalizeReviewCycleNumber(
+    search.reviewCycleNumber
+  );
 
   return {
     ...(typeof search.drawRequestId === "string"
@@ -102,13 +107,21 @@ export function validateBuilderProposalSearch(
     ...(typeof search.reviewCycleId === "string"
       ? { reviewCycleId: search.reviewCycleId }
       : {}),
-    ...(typeof search.reviewCycleNumber === "string" &&
-    Number.isSafeInteger(Number(search.reviewCycleNumber))
-      ? { reviewCycleNumber: Number(search.reviewCycleNumber) }
-      : {}),
+    ...(reviewCycleNumber === undefined ? {} : { reviewCycleNumber }),
     ...(tab ? { tab } : {}),
     ...(timeframe ? { timeframe } : {}),
   };
+}
+
+function normalizeReviewCycleNumber(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+  }
+  if (typeof value !== "string" || !POSITIVE_INTEGER_SEARCH_VALUE.test(value)) {
+    return;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 export function resolveBuilderProposalRouteTab(
@@ -186,6 +199,7 @@ export function BuilderProductionProposalWorkspace({
   const [visualCostItems, setVisualCostItems] = useState(
     () => visualProposalDetail.costItems ?? []
   );
+  const [confirmationHistoryLimit, setConfirmationHistoryLimit] = useState(20);
   const activeProposalTab = resolveBuilderProposalRouteTab(search);
   const loadCalendarWorkspace =
     shouldLoadBuilderProposalCalendarWorkspace(activeProposalTab);
@@ -263,6 +277,19 @@ export function BuilderProductionProposalWorkspace({
   const detail = visualFixtureEnabled
     ? { ...visualProposalDetail, costItems: visualCostItems }
     : detailQuery;
+  const confirmationStateQuery = useQuery(
+    api.production_proposals.getBuilderProposalConfirmationState,
+    visualFixtureEnabled
+      ? "skip"
+      : {
+          historyPaginationOpts: {
+            cursor: null,
+            numItems: confirmationHistoryLimit,
+          },
+          proposalId: typedProposalId,
+          workosOrganizationId,
+        }
+  );
   const calendarWorkspaceQuery = useQuery(
     (api as any).production_proposals.getProposalCalendarWorkspace,
     visualFixtureEnabled || !loadCalendarWorkspace
@@ -454,11 +481,33 @@ export function BuilderProductionProposalWorkspace({
     return (
       <BuilderNotificationReviewSurface
         onClose={() =>
-          void navigate({
+          navigate({
             params: { proposalId },
             search: { tab: search.tab },
             to: "/builder/proposals/$proposalId/",
-          })
+          }).catch(() => undefined)
+        }
+        onOpenBuild={({ buildId, milestoneKey }) =>
+          navigate({
+            params: { buildId },
+            search: { milestone: milestoneKey, tab: "milestones" },
+            to: "/builder/builds/$buildId/",
+          }).catch(() => undefined)
+        }
+        onResubmitted={({ cycleId, cycleNumber }) =>
+          navigate({
+            params: { proposalId },
+            replace: true,
+            search: {
+              ...(search.milestoneId
+                ? { milestoneId: search.milestoneId }
+                : { drawRequestId: search.drawRequestId }),
+              reviewCycleId: cycleId,
+              reviewCycleNumber: cycleNumber,
+              tab: search.tab,
+            },
+            to: "/builder/proposals/$proposalId/",
+          }).catch(() => undefined)
         }
         reviewCycleId={search.reviewCycleId!}
         reviewCycleNumber={search.reviewCycleNumber!}
@@ -514,6 +563,26 @@ export function BuilderProductionProposalWorkspace({
         />
       }
       initialActiveTab={activeProposalTab}
+      lenderAssignmentSurface={
+        visualFixtureEnabled ? undefined : confirmationStateQuery ? (
+          <BuilderProposalConfirmationStatus
+            onLoadMoreHistory={() =>
+              setConfirmationHistoryLimit((current) => current + 20)
+            }
+            state={confirmationStateQuery}
+          />
+        ) : (
+          <Frame>
+            <FramePanel
+              className="flex items-center gap-2 p-5 text-muted-foreground text-sm"
+              role="status"
+            >
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+              Loading proposal confirmation status…
+            </FramePanel>
+          </Frame>
+        )
+      }
       materialPlanningActions={materialPlanningActions}
       milestones={
         <ProductionProposalMilestoneWorksheetContainer
@@ -524,9 +593,9 @@ export function BuilderProductionProposalWorkspace({
           persistenceMode={proposalEditorPersistenceMode}
           proposalId={typedProposalId}
           scopeRoute="builder-proposal"
-          viewerCapacity={viewerCapacity}
           showHeading
           templateTitle={detail.proposal.buildName}
+          viewerCapacity={viewerCapacity}
           workosOrganizationId={workosOrganizationId}
         />
       }
