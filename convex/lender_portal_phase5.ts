@@ -14,6 +14,16 @@ import {
   requireActiveWorkosUser,
   requireLenderOrganizationPermission,
 } from "./authz";
+import { listAccessibleLenderBuilds } from "./lender_portal_access";
+import {
+  enqueueReviewApprovalOutcomeNotifications,
+  enqueueReviewApprovalRequiredNotifications,
+} from "./lender_portal_notifications";
+import {
+  encodeLenderQueueCursor,
+  type LenderQueueScope,
+  parseValidatedLenderQueueCursor,
+} from "./lender_portal_pagination";
 import {
   type LenderPortalReviewEvidenceReference,
   type LenderPortalReviewGroup,
@@ -22,23 +32,23 @@ import {
   type LenderPortalReviewTarget,
   lenderPortalBuilderRequestProjectionValidator,
   lenderPortalDecisionResultValidator,
+  lenderPortalMilestoneQueuePageValidator,
   lenderPortalReviewEvidenceProjectionValidator,
   lenderPortalReviewerQueuePageValidator,
   lenderPortalReviewerRequestProjectionValidator,
   lenderPortalReviewTargetValidator,
+  lenderPortalSiteVisitCompletionPageValidator,
   lenderPortalSiteVisitCompletionResultValidator,
   lenderPortalSubmitReviewResultValidator,
 } from "./lender_portal_phase5_contracts";
 import { getLenderOrganizationApprovalEligibility } from "./lenderOrganizationAccess";
-import {
-  enqueueReviewApprovalOutcomeNotifications,
-  enqueueReviewApprovalRequiredNotifications,
-} from "./lender_portal_notifications";
 import type { MutationCtx, QueryCtx } from "./types";
 
 const MAX_CYCLE_DECISIONS = 1001;
 const EVIDENCE_REFERENCE_LIMIT = 500;
 const COST_DOCUMENT_LIMIT = 100;
+const LENDER_MILESTONE_QUEUE_CYCLE_LIMIT = 500;
+const LENDER_MILESTONE_QUEUE_MAX_PAGE_SIZE = 50;
 
 type ReviewCtx = QueryCtx | MutationCtx;
 type ViewerReviewCtx = ReviewCtx & { viewer: AuthorizedViewer };
@@ -51,6 +61,29 @@ type EligibleLenderApprover = {
   eligibilityEpoch: string;
 };
 type EligibleLenderApprovers = Map<string, EligibleLenderApprover>;
+
+export async function currentLenderApproverMaps(ctx: LenderReviewCtx) {
+  const eligibility = await getLenderOrganizationApprovalEligibility(
+    ctx,
+    ctx.activeOrganization.lenderOrganizationId
+  );
+  const toMap = (
+    members: typeof eligibility.members.milestone
+  ): EligibleLenderApprovers =>
+    new Map(
+      members.map((member) => [
+        member.workosUserId,
+        {
+          assignmentId: member.assignmentId,
+          eligibilityEpoch: member.eligibilityEpoch,
+        },
+      ])
+    );
+  return {
+    draw: toMap(eligibility.members.draw),
+    milestone: toMap(eligibility.members.milestone),
+  };
+}
 
 type ResolvedReviewTarget =
   | {
@@ -200,7 +233,11 @@ export const getBackofficeReviewRequest = adminQuery
     return await reviewerDetailProjection(
       ctx,
       target,
-      args.historyPaginationOpts
+      args.historyPaginationOpts,
+      {
+        group: "backoffice",
+        viewerWorkosUserId: ctx.viewer.subject,
+      }
     );
   })
   .public();
@@ -214,41 +251,72 @@ export const listLenderReviewRequests = lenderOrganizationQuery
   .handler(async (ctx, args) => {
     const build = await requireBuild(ctx, args.buildId);
     await requireLenderBuildAccess(ctx, build);
-    const eligibility = await getLenderOrganizationApprovalEligibility(
-      ctx,
-      ctx.activeOrganization.lenderOrganizationId
-    );
+    const eligibleLenderWorkosUserIds = await currentLenderApproverMaps(ctx);
     return await reviewerQueueProjection(
       ctx,
       build,
       "lender",
       {
         actorWorkosUserId: ctx.activeOrganization.workosUserId,
-        eligibleLenderWorkosUserIds: {
-          draw: new Map(
-            eligibility.members.draw.map((member) => [
-              member.workosUserId,
-              {
-                assignmentId: member.assignmentId,
-                eligibilityEpoch: member.eligibilityEpoch,
-              },
-            ])
-          ),
-          milestone: new Map(
-            eligibility.members.milestone.map((member) => [
-              member.workosUserId,
-              {
-                assignmentId: member.assignmentId,
-                eligibilityEpoch: member.eligibilityEpoch,
-              },
-            ])
-          ),
-        },
+        eligibleLenderWorkosUserIds,
       },
       args.paginationOpts
     );
   })
   .public();
+
+export const listAllAssignedLenderMilestoneReviewRequests =
+  lenderOrganizationQuery
+    .input({
+      paginationOpts: paginationOptsValidator,
+      scope: v.union(v.literal("action"), v.literal("all")),
+    })
+    .returns(lenderPortalMilestoneQueuePageValidator)
+    .handler(async (ctx, args) => {
+      validateLenderMilestoneQueuePageSize(args.paginationOpts.numItems);
+      const [accessibleBuilds, eligibleLenderWorkosUserIds] = await Promise.all(
+        [listAccessibleLenderBuilds(ctx), currentLenderApproverMaps(ctx)]
+      );
+      const cycleGroups = await Promise.all(
+        accessibleBuilds.map(async ({ build }) => {
+          const cycles = await ctx.db
+            .query("lenderPortalReviewCycles")
+            .withIndex("by_build_and_is_current_and_submitted_at", (query) =>
+              query.eq("buildId", build._id).eq("isCurrent", true)
+            )
+            .order("desc")
+            .take(LENDER_MILESTONE_QUEUE_CYCLE_LIMIT + 1);
+          if (cycles.length > LENDER_MILESTONE_QUEUE_CYCLE_LIMIT) {
+            throw safeUnavailableError();
+          }
+          return cycles
+            .filter((cycle) => cycle.kind === "milestone")
+            .map((cycle) => ({ build, cycle }));
+        })
+      );
+      const rows = await Promise.all(
+        cycleGroups.flat().map(({ build, cycle }) =>
+          lenderMilestoneQueueRow(ctx, {
+            build,
+            cycle,
+            eligibleLenderIds: eligibleLenderWorkosUserIds.milestone,
+            viewerWorkosUserId: ctx.activeOrganization.workosUserId,
+          })
+        )
+      );
+      const authorizedRows = rows.sort(compareLenderMilestoneQueueRows);
+      const scopedRows =
+        args.scope === "action"
+          ? authorizedRows.filter((row) => row.actionRequired)
+          : authorizedRows;
+      return paginateLenderMilestoneQueueRows({
+        authorizedRows,
+        paginationOpts: args.paginationOpts,
+        rows: scopedRows,
+        scope: args.scope,
+      });
+    })
+    .public();
 
 export const getLenderReviewRequest = lenderOrganizationQuery
   .input({
@@ -262,7 +330,11 @@ export const getLenderReviewRequest = lenderOrganizationQuery
     return await reviewerDetailProjection(
       ctx,
       target,
-      args.historyPaginationOpts
+      args.historyPaginationOpts,
+      {
+        group: "lender",
+        viewerWorkosUserId: ctx.activeOrganization.workosUserId,
+      }
     );
   })
   .public();
@@ -289,6 +361,10 @@ export const getLenderNotificationReviewRequest = lenderOrganizationQuery
       ctx,
       target,
       args.historyPaginationOpts,
+      {
+        group: "lender",
+        viewerWorkosUserId: ctx.activeOrganization.workosUserId,
+      }
     );
   })
   .public();
@@ -316,6 +392,10 @@ export const getBackofficeNotificationReviewRequest = adminQuery
       ctx,
       target,
       args.historyPaginationOpts,
+      {
+        group: "backoffice",
+        viewerWorkosUserId: ctx.viewer.subject,
+      }
     );
   })
   .public();
@@ -343,7 +423,7 @@ export const getBuilderNotificationReviewRequest = authenticatedQuery
       ctx,
       target,
       current,
-      args.historyPaginationOpts,
+      args.historyPaginationOpts
     );
   })
   .public();
@@ -432,10 +512,13 @@ export async function requireCanonicalReviewCycleCompleted(
     cycle.cycleNumber !== expectedCycleNumber ||
     cycle.state !== "completed" ||
     target.record.lenderPortalReviewState !== "completed" ||
-    JSON.stringify(cycle.requirements) !== JSON.stringify(currentRequirements) ||
+    JSON.stringify(cycle.requirements) !==
+      JSON.stringify(currentRequirements) ||
     (target.kind === "milestone"
-      ? cycle.milestoneId !== target.record._id || cycle.drawRequestId !== undefined
-      : cycle.drawRequestId !== target.record._id || cycle.milestoneId !== undefined)
+      ? cycle.milestoneId !== target.record._id ||
+        cycle.drawRequestId !== undefined
+      : cycle.drawRequestId !== target.record._id ||
+        cycle.milestoneId !== undefined)
   ) {
     throw new ConvexError({
       code: "REVIEW_CYCLE_COMPLETION_REQUIRED",
@@ -722,6 +805,94 @@ const completeSiteVisitInput = {
   visitId: v.id("buildSiteVisits"),
 };
 
+export const listLenderMilestoneSiteVisitCompletions = lenderOrganizationQuery
+  .input({
+    milestoneId: v.id("buildMilestones"),
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(lenderPortalSiteVisitCompletionPageValidator)
+  .handler(async (ctx, args) => {
+    const target = await resolveReviewTarget(ctx, {
+      kind: "milestone",
+      milestoneId: args.milestoneId,
+    });
+    if (target.kind !== "milestone") {
+      throw safeUnavailableError();
+    }
+    await requireLenderBuildAccess(ctx, target.build);
+
+    let hasCompletionPermission = true;
+    try {
+      await requireLenderOrganizationPermission(
+        ctx,
+        ctx.activeOrganization,
+        "siteVisitReview"
+      );
+    } catch {
+      hasCompletionPermission = false;
+    }
+
+    const visits = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_build_milestone", (query) =>
+        query
+          .eq("buildId", target.build._id)
+          .eq("milestoneKey", target.record.key)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const page = [];
+    for (const visit of visits.page) {
+      if (
+        visit.buildMilestoneId !== target.record._id ||
+        visit.organizationId !== target.build.organizationId ||
+        visit.brokerageId !== target.build.brokerageId
+      ) {
+        throw safeUnavailableError();
+      }
+      if (visit.status !== "requested") {
+        continue;
+      }
+      const assets = await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_site_visit", (query) =>
+          query.eq("siteVisitId", visit._id)
+        )
+        .take(EVIDENCE_REFERENCE_LIMIT + 1);
+      if (assets.length > EVIDENCE_REFERENCE_LIMIT) {
+        throw evidenceReferenceLimitError();
+      }
+      const photos = assets.filter(
+        (asset) =>
+          asset.siteVisitId === visit._id &&
+          asset.buildId === target.build._id &&
+          asset.organizationId === target.build.organizationId &&
+          asset.brokerageId === target.build.brokerageId &&
+          asset.proposalId === target.build.proposalId &&
+          asset.milestoneKey === target.record.key &&
+          asset.mimeType.toLowerCase().startsWith("image/")
+      );
+      const completionBlocker = !hasCompletionPermission
+        ? ("permission_required" as const)
+        : photos.length === 0
+          ? ("photo_required" as const)
+          : null;
+      page.push({
+        canComplete: completionBlocker === null,
+        completionBlocker,
+        locationUnverifiedPhotoCount: photos.filter(
+          (photo) => !photo.locationVerified
+        ).length,
+        photoCount: photos.length,
+        requestedAt: visit.requestedAt,
+        siteVisitId: visit._id,
+        updatedAt: visit.updatedAt,
+      });
+    }
+    return { ...visits, page };
+  })
+  .public();
+
 export const completeBackofficeMilestoneSiteVisit = adminMutation
   .input({ ...completeSiteVisitInput, workosOrganizationId: v.string() })
   .returns(lenderPortalSiteVisitCompletionResultValidator)
@@ -805,8 +976,7 @@ export async function validateCanonicalSiteVisitCompletion(
   });
   return {
     currentCycleId: target.record.currentLenderPortalReviewCycleId ?? null,
-    currentCycleNumber:
-      target.record.currentLenderPortalReviewCycleNumber ?? 0,
+    currentCycleNumber: target.record.currentLenderPortalReviewCycleNumber ?? 0,
     policy: await lockedReviewRequirements(ctx, target),
     qualifyingEvidenceReferences: validation.qualifyingPhotos.map((photo) => ({
       evidenceAssetId: photo._id,
@@ -817,10 +987,7 @@ export async function validateCanonicalSiteVisitCompletion(
     report: validation.report,
     warnings: validation.qualifyingPhotos
       .filter((photo) => !photo.locationVerified)
-      .map(
-        (photo) =>
-          `site_visit_location_unverified:${String(photo._id)}`
-      ),
+      .map((photo) => `site_visit_location_unverified:${String(photo._id)}`),
   };
 }
 
@@ -1054,10 +1221,7 @@ async function completeMilestoneSiteVisit(
     ],
     warnings: qualifyingPhotos
       .filter((photo) => !photo.locationVerified)
-      .map(
-        (photo) =>
-          `site_visit_location_unverified:${String(photo._id)}`
-      ),
+      .map((photo) => `site_visit_location_unverified:${String(photo._id)}`),
   });
   return {
     replayed: false,
@@ -1397,7 +1561,7 @@ async function recordReviewDecision(
         group === "lender"
           ? updatedCycle.lenderApprovalCount <
             (updatedCycle.requirements.lenderQuorum ?? 1)
-          : !updatedCycle.approvedGroups.includes(group),
+          : !updatedCycle.approvedGroups.includes(group)
     );
     await enqueueReviewApprovalRequiredNotifications(ctx, {
       build: input.target.build,
@@ -1656,8 +1820,7 @@ async function lockedReviewRequirements(
   const policy = target.build.reviewPolicySnapshot;
   const lock = lockId ? await ctx.db.get(lockId) : null;
   if (
-    !lock ||
-    !policy ||
+    !(lock && policy) ||
     lock._id !== lockId ||
     lock.proposalId !== target.build.proposalId ||
     lock.organizationId !== target.build.organizationId ||
@@ -1941,14 +2104,16 @@ async function resolveMilestonePackageReference(
   for (const item of packageItems) {
     const asset = await ctx.db.get(item.evidenceAssetId);
     if (
-      !asset ||
-      !packageItemMatchesTarget({
-        asset,
-        item,
-        packageRevision,
-        referencedSubmilestoneKey,
-        target,
-      })
+      !(
+        asset &&
+        packageItemMatchesTarget({
+          asset,
+          item,
+          packageRevision,
+          referencedSubmilestoneKey,
+          target,
+        })
+      )
     ) {
       throw invalidEvidencePackageReference(referencedSubmilestoneKey);
     }
@@ -1995,7 +2160,8 @@ function packageItemMatchesTarget(input: {
     input.item.organizationId === input.target.build.organizationId &&
     input.item.brokerageId === input.target.build.brokerageId &&
     input.item.buildMilestoneId === input.target.record._id &&
-    input.item.buildSubmilestoneId === input.packageRevision.buildSubmilestoneId &&
+    input.item.buildSubmilestoneId ===
+      input.packageRevision.buildSubmilestoneId &&
     input.asset.buildId === input.target.build._id &&
     input.asset.organizationId === input.target.build.organizationId &&
     input.asset.brokerageId === input.target.build.brokerageId &&
@@ -2258,9 +2424,7 @@ async function qualifyingMilestoneSiteVisit(
     }
     const visitAssets = await ctx.db
       .query("buildEvidenceAssets")
-      .withIndex("by_site_visit", (query) =>
-        query.eq("siteVisitId", visit._id)
-      )
+      .withIndex("by_site_visit", (query) => query.eq("siteVisitId", visit._id))
       .take(EVIDENCE_REFERENCE_LIMIT + 1);
     if (visitAssets.length > EVIDENCE_REFERENCE_LIMIT) {
       throw evidenceReferenceLimitError();
@@ -2294,9 +2458,9 @@ async function reviewEvidenceProjection(
   target: ResolvedReviewTarget,
   cycleId: Id<"lenderPortalReviewCycles">
 ) {
-  const cycle = await ctx.db.get(cycleId);
+  const cycle = await requireCurrentCycle(ctx, target);
   if (
-    !cycle ||
+    cycle._id !== cycleId ||
     cycle.requestIdentity !== target.requestIdentity ||
     cycle.buildId !== target.build._id ||
     cycle.organizationId !== target.build.organizationId ||
@@ -2400,9 +2564,7 @@ async function reviewEvidenceProjection(
       ctx.db.get(reference.assetId),
     ]);
     if (
-      !page ||
-      !document ||
-      !asset ||
+      !(page && document && asset) ||
       page._id !== reference.costDocumentPageId ||
       page.assetId !== asset._id ||
       page.costDocumentId !== document._id ||
@@ -2445,13 +2607,60 @@ async function requireCurrentCycle(
   const cycleId = target.record.currentLenderPortalReviewCycleId;
   const cycle = cycleId ? await ctx.db.get(cycleId) : null;
   if (
-    !cycle ||
+    !(cycle && cycle.isCurrent) ||
     cycle.requestIdentity !== target.requestIdentity ||
-    cycle.buildId !== target.build._id
+    cycle.buildId !== target.build._id ||
+    cycle.brokerageId !== target.build.brokerageId ||
+    cycle.organizationId !== target.build.organizationId ||
+    cycle.cycleNumber !== target.record.currentLenderPortalReviewCycleNumber ||
+    (target.kind === "milestone"
+      ? cycle.kind !== "milestone" ||
+        cycle.milestoneId !== target.record._id ||
+        cycle.submission.kind !== "milestone" ||
+        cycle.submission.milestoneId !== target.record._id
+      : cycle.kind !== "draw" ||
+        cycle.drawRequestId !== target.record._id ||
+        cycle.submission.kind !== "draw" ||
+        cycle.submission.drawRequestId !== target.record._id)
   ) {
     throw safeUnavailableError();
   }
   return cycle;
+}
+
+/**
+ * Canonical read-only evidence projection for a current Milestone review.
+ *
+ * Lender Build detail uses this helper so its evidence, receipt/invoice, and
+ * Site Visit facts pass through the same exact-cycle and source-row integrity
+ * checks as the focused review boundary. It intentionally exposes no mutation
+ * or decision capability.
+ */
+export async function projectCurrentMilestoneReviewEvidence(
+  ctx: QueryCtx,
+  build: Doc<"activeBuilds">,
+  milestone: Doc<"buildMilestones">
+) {
+  if (
+    !milestone.currentLenderPortalReviewCycleId ||
+    milestone.currentLenderPortalReviewCycleNumber === undefined
+  ) {
+    return null;
+  }
+  const target: Extract<ResolvedReviewTarget, { kind: "milestone" }> = {
+    build,
+    kind: "milestone",
+    label: milestone.name,
+    record: milestone,
+    requestIdentity: `milestone:${String(milestone._id)}`,
+  };
+  const cycle = await requireCurrentCycle(ctx, target);
+  const evidence = await reviewEvidenceProjection(ctx, target, cycle._id);
+  return {
+    evidence,
+    requirements: cycle.requirements,
+    submission: cycle.submission,
+  };
 }
 
 async function builderProjection(
@@ -2543,7 +2752,11 @@ function builderNotice(
 async function reviewerDetailProjection(
   ctx: ReviewCtx,
   target: ResolvedReviewTarget,
-  historyPaginationOpts: PaginationOptions
+  historyPaginationOpts: PaginationOptions,
+  viewer: {
+    group: LenderPortalReviewGroup;
+    viewerWorkosUserId: string;
+  }
 ) {
   const cycles = await ctx.db
     .query("lenderPortalReviewCycles")
@@ -2563,12 +2776,7 @@ async function reviewerDetailProjection(
     : new Map<string, EligibleLenderApprover>();
   const projectedCycles = await Promise.all(
     cycles.page.map((cycle) =>
-      projectReviewerCycle(
-        ctx,
-        target,
-        cycle,
-        eligibleLenderWorkosUserIds
-      )
+      projectReviewerCycle(ctx, target, cycle, eligibleLenderWorkosUserIds)
     )
   );
   const projectedCurrent =
@@ -2579,6 +2787,13 @@ async function reviewerDetailProjection(
       current,
       eligibleLenderWorkosUserIds
     ));
+  const viewerState = await reviewerQueueRow(ctx, {
+    build: target.build,
+    cycle: current,
+    eligibleLenderIds: eligibleLenderWorkosUserIds,
+    group: viewer.group,
+    viewerWorkosUserId: viewer.viewerWorkosUserId,
+  });
   return {
     buildId: target.build._id,
     buildName: target.build.buildName,
@@ -2589,6 +2804,9 @@ async function reviewerDetailProjection(
     label: target.label,
     requestIdentity: target.requestIdentity,
     state: projectedCurrent.state,
+    targetAvailability: viewerState.targetAvailability,
+    viewerActionState: viewerState.viewerActionState,
+    viewerDecision: viewerState.viewerDecision,
   };
 }
 
@@ -2634,12 +2852,12 @@ async function projectReviewerCycle(
         (cycle.state === "completed"
           ? terminalContributorDecisionIds.has(String(decision._id))
           : (cycle.state === "in_review" ||
-                cycle.state === "partial_approval") &&
-              (decision.group !== "lender" ||
-                lenderDecisionIsCurrentlyEligible(
-                  decision,
-                  eligibleLenderWorkosUserIds
-                ))),
+              cycle.state === "partial_approval") &&
+            (decision.group !== "lender" ||
+              lenderDecisionIsCurrentlyEligible(
+                decision,
+                eligibleLenderWorkosUserIds
+              ))),
       decision: decision.decision,
       decisionId: decision._id,
       group: decision.group,
@@ -2695,7 +2913,7 @@ async function reviewerQueueProjection(
   };
 }
 
-async function reviewerQueueRow(
+export async function reviewerQueueRow(
   ctx: ReviewCtx,
   input: {
     build: Doc<"activeBuilds">;
@@ -2765,6 +2983,269 @@ async function reviewerQueueRow(
   };
 }
 
+async function lenderMilestoneQueueRow(
+  ctx: ReviewCtx,
+  input: {
+    build: Doc<"activeBuilds">;
+    cycle: Doc<"lenderPortalReviewCycles">;
+    eligibleLenderIds: EligibleLenderApprovers;
+    viewerWorkosUserId: string;
+  }
+) {
+  if (
+    input.cycle.kind !== "milestone" ||
+    !input.cycle.milestoneId ||
+    input.cycle.submission.kind !== "milestone" ||
+    input.cycle.submission.milestoneId !== input.cycle.milestoneId
+  ) {
+    throw safeUnavailableError();
+  }
+  const milestoneId = input.cycle.milestoneId;
+  const queueRow = await reviewerQueueRow(ctx, {
+    build: input.build,
+    cycle: input.cycle,
+    eligibleLenderIds: input.eligibleLenderIds,
+    group: "lender",
+    viewerWorkosUserId: input.viewerWorkosUserId,
+  });
+  const milestone = await ctx.db.get(milestoneId);
+  const canonicalMilestone =
+    queueRow.targetAvailability === "available" &&
+    milestone !== null &&
+    milestone.buildId === input.build._id &&
+    milestone.brokerageId === input.build.brokerageId &&
+    milestone.organizationId === input.build.organizationId
+      ? milestone
+      : null;
+  const submilestones = canonicalMilestone
+    ? await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query) =>
+          query.eq("buildMilestoneId", milestoneId)
+        )
+        .take(501)
+    : [];
+  if (submilestones.length > 500) {
+    throw safeUnavailableError();
+  }
+  const visibleSubmilestones = submilestones.filter(
+    (submilestone) =>
+      submilestone.planningState !== "superseded" &&
+      submilestone.buildId === input.build._id &&
+      submilestone.brokerageId === input.build.brokerageId &&
+      submilestone.organizationId === input.build.organizationId
+  );
+  const projectedSubmilestones = await Promise.all(
+    visibleSubmilestones.map(async (submilestone) => {
+      const requirement = submilestone.siteVisitRequirementId
+        ? await ctx.db.get(submilestone.siteVisitRequirementId)
+        : null;
+      const validRequirement =
+        requirement &&
+        requirement.buildId === input.build._id &&
+        requirement.buildMilestoneId === milestoneId &&
+        requirement.buildSubmilestoneId === submilestone._id &&
+        requirement.brokerageId === input.build.brokerageId &&
+        requirement.organizationId === input.build.organizationId
+          ? requirement
+          : null;
+      const hasBuilderEvidence = input.cycle.evidenceReferences.some(
+        (reference) =>
+          "submilestoneKey" in reference &&
+          reference.submilestoneKey === submilestone.key &&
+          (reference.kind === "asset" || reference.kind === "package_revision")
+      );
+      return {
+        builderEvidence: hasBuilderEvidence,
+        name: submilestone.name,
+        receiptCoverageCents: null,
+        siteVisitAddressed:
+          validRequirement?.status === "satisfied" ||
+          validRequirement?.status === "waived",
+        siteVisitRequired:
+          validRequirement?.required === true &&
+          validRequirement.status === "required",
+      };
+    })
+  );
+  const receiptCoverageCents = input.cycle.evidenceReferences.reduce(
+    (total, reference) =>
+      reference.kind === "cost_document"
+        ? safeMoneyAdd(total, reference.amountCents)
+        : total,
+    0
+  );
+  const actualStartAt = canonicalMilestone
+    ? (canonicalMilestone.actualStartedAt ?? canonicalMilestone.startedAt)
+    : undefined;
+  const evidence = [
+    ...new Map(
+      input.cycle.evidenceReferences.map((reference) => [
+        `${reference.kind}:${reference.label}`,
+        { kind: reference.kind, label: reference.label },
+      ])
+    ).values(),
+  ];
+  return {
+    actionRequired: queueRow.actionRequired,
+    actualCostCents: input.cycle.submission.actualCostCents,
+    actualEndDate:
+      input.cycle.submission.completedDay === null
+        ? null
+        : addDaysToIsoDate(
+            input.build.startDate,
+            input.cycle.submission.completedDay
+          ),
+    actualStartDate:
+      actualStartAt === undefined ? null : timestampToIsoDate(actualStartAt),
+    approvedGroups: queueRow.approvedGroups,
+    buildId: input.build._id,
+    buildName: input.build.buildName,
+    currentEligibleLenderCount:
+      queueRow.currentEligibleLenderCount ?? input.eligibleLenderIds.size,
+    evidence,
+    lenderApprovalCount: queueRow.lenderApprovalCount,
+    lenderQuorum: queueRow.lenderQuorum,
+    milestoneId,
+    milestoneName: input.cycle.submission.milestoneName,
+    plannedBudgetCents: canonicalMilestone?.budgetCents ?? null,
+    plannedEndDate: canonicalMilestone
+      ? addDaysToIsoDate(input.build.startDate, canonicalMilestone.dayEnd)
+      : null,
+    plannedStartDate: canonicalMilestone
+      ? addDaysToIsoDate(input.build.startDate, canonicalMilestone.dayStart)
+      : null,
+    receiptCoverageCents:
+      receiptCoverageCents > 0 ? receiptCoverageCents : null,
+    receiptInvoiceRequired: input.cycle.requirements.receiptInvoiceRequired,
+    requiredGroups: queueRow.requiredGroups,
+    reviewCycleId: input.cycle._id,
+    reviewCycleNumber: input.cycle.cycleNumber,
+    siteVisitRequired: input.cycle.requirements.siteVisitRequired,
+    state: queueRow.state,
+    submittedAt: input.cycle.submittedAt,
+    submilestones: projectedSubmilestones,
+    targetAvailability: queueRow.targetAvailability,
+    viewerActionState: queueRow.viewerActionState,
+    viewerDecision: queueRow.viewerDecision,
+  };
+}
+
+function compareLenderMilestoneQueueRows(
+  left: Awaited<ReturnType<typeof lenderMilestoneQueueRow>>,
+  right: Awaited<ReturnType<typeof lenderMilestoneQueueRow>>
+) {
+  return (
+    right.submittedAt - left.submittedAt ||
+    String(right.reviewCycleId).localeCompare(String(left.reviewCycleId))
+  );
+}
+
+function paginateLenderMilestoneQueueRows(input: {
+  authorizedRows: Awaited<ReturnType<typeof lenderMilestoneQueueRow>>[];
+  paginationOpts: PaginationOptions;
+  rows: Awaited<ReturnType<typeof lenderMilestoneQueueRow>>[];
+  scope: LenderQueueScope;
+}) {
+  const cursor = parseValidatedLenderQueueCursor({
+    cursor: input.paginationOpts.cursor,
+    getAnchorId: (row) => String(row.reviewCycleId),
+    getAnchorValue: (row) => row.submittedAt,
+    label: "Milestone",
+    rows: input.authorizedRows,
+    scope: input.scope,
+  });
+  const endCursor = parseValidatedLenderQueueCursor({
+    cursor: input.paginationOpts.endCursor ?? null,
+    getAnchorId: (row) => String(row.reviewCycleId),
+    getAnchorValue: (row) => row.submittedAt,
+    label: "Milestone",
+    rows: input.authorizedRows,
+    scope: input.scope,
+  });
+  const afterStart = cursor
+    ? input.rows.filter((row) =>
+        lenderMilestoneQueueRowIsAfterCursor(row, cursor)
+      )
+    : input.rows;
+  const candidates = endCursor
+    ? afterStart.filter(
+        (row) => !lenderMilestoneQueueRowIsAfterCursor(row, endCursor)
+      )
+    : afterStart;
+  const page = endCursor
+    ? candidates
+    : candidates.slice(0, input.paginationOpts.numItems);
+  if (endCursor) {
+    return {
+      continueCursor: input.paginationOpts.endCursor ?? "",
+      isDone: true,
+      page,
+    };
+  }
+  const isDone = candidates.length <= input.paginationOpts.numItems;
+  const last = page.at(-1);
+  return {
+    continueCursor:
+      isDone || !last
+        ? ""
+        : encodeLenderQueueCursor({
+            position: {
+              anchorId: String(last.reviewCycleId),
+              anchorValue: last.submittedAt,
+            },
+            scope: input.scope,
+          }),
+    isDone,
+    page,
+  };
+}
+
+function lenderMilestoneQueueRowIsAfterCursor(
+  row: Awaited<ReturnType<typeof lenderMilestoneQueueRow>>,
+  cursor: { anchorId: string; anchorValue: number }
+) {
+  return (
+    row.submittedAt < cursor.anchorValue ||
+    (row.submittedAt === cursor.anchorValue &&
+      String(row.reviewCycleId).localeCompare(cursor.anchorId) < 0)
+  );
+}
+
+function validateLenderMilestoneQueuePageSize(numItems: number) {
+  if (
+    !Number.isSafeInteger(numItems) ||
+    numItems < 1 ||
+    numItems > LENDER_MILESTONE_QUEUE_MAX_PAGE_SIZE
+  ) {
+    throw new ConvexError({
+      code: "INVALID_PAGE_SIZE",
+      message: `Milestone queue pages must contain between 1 and ${LENDER_MILESTONE_QUEUE_MAX_PAGE_SIZE} rows.`,
+      recoverable: true,
+    });
+  }
+}
+
+function addDaysToIsoDate(startDate: string, days: number) {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || !Number.isSafeInteger(days)) {
+    throw safeUnavailableError();
+  }
+  start.setUTCDate(start.getUTCDate() + days);
+  return start.toISOString().slice(0, 10);
+}
+
+function timestampToIsoDate(timestamp: number) {
+  if (!Number.isFinite(timestamp)) {
+    throw safeUnavailableError();
+  }
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    throw safeUnavailableError();
+  }
+  return date.toISOString().slice(0, 10);
+}
+
 function reviewActionState(input: {
   active: boolean;
   actorDecided: boolean;
@@ -2781,12 +3262,13 @@ function reviewActionState(input: {
   if (!input.groupRequired) {
     return "not_required" as const;
   }
+  if (!input.viewerEligible) {
+    return "ineligible" as const;
+  }
   if (input.actorDecided) {
     return "acted" as const;
   }
-  return input.viewerEligible
-    ? ("needs_action" as const)
-    : ("ineligible" as const);
+  return "needs_action" as const;
 }
 
 async function cycleTargetAvailability(
@@ -2800,7 +3282,9 @@ async function cycleTargetAvailability(
       milestone.planningState !== "superseded" &&
       milestone.buildId === build._id &&
       milestone.brokerageId === build.brokerageId &&
-      milestone.organizationId === build.organizationId
+      milestone.organizationId === build.organizationId &&
+      milestone.currentLenderPortalReviewCycleId === cycle._id &&
+      milestone.currentLenderPortalReviewCycleNumber === cycle.cycleNumber
       ? ("available" as const)
       : ("unavailable" as const);
   }
@@ -2809,7 +3293,9 @@ async function cycleTargetAvailability(
     return draw &&
       draw.buildId === build._id &&
       draw.brokerageId === build.brokerageId &&
-      draw.organizationId === build.organizationId
+      draw.organizationId === build.organizationId &&
+      draw.currentLenderPortalReviewCycleId === cycle._id &&
+      draw.currentLenderPortalReviewCycleNumber === cycle.cycleNumber
       ? ("available" as const)
       : ("unavailable" as const);
   }

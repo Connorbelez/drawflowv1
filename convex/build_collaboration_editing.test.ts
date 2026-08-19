@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
@@ -39,7 +39,7 @@ async function seedEditingFixture() {
     subject: "user_admin",
   });
   const foundation = await admin.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORGANIZATION_ID }
   );
   const buildId = await admin.run(async (ctx) => {

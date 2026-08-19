@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { __test } from "./builderRoster";
 import schema from "./schema";
 
@@ -40,7 +40,7 @@ async function seededRoster() {
   const base = convexTest(schema, modules);
   const admin = asRole(base, ["admin", "principle-broker"], PRINCIPAL_BROKER);
   const seed = await admin.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: FAIRLEND_ORG },
   );
   return { admin, base, seed };

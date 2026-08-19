@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./types";
 
@@ -923,7 +923,7 @@ async function seedMigrationFixture() {
   const base = convexTest(schema, modules);
   const admin = withAdminIdentity(base);
   const foundation = await admin.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORGANIZATION_ID }
   );
   const now = Date.parse("2026-08-03T12:00:00.000Z");

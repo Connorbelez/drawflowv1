@@ -15,6 +15,11 @@ export const PROPOSAL_CONFIRMATION_CHECKPOINTS = [
   "accessReviewPolicy",
 ] as const;
 
+export const LENDER_PROPOSAL_DECISION_ROLES = [
+  "lender",
+  "lender-admin",
+] as const;
+
 export const proposalConfirmationCycleStatusValidator = v.union(
   v.literal("pending"),
   v.literal("approved"),
@@ -70,13 +75,18 @@ export const lenderProposalConfirmationProjectionValidator = v.object({
   canDecide: v.boolean(),
   closingGateSatisfied: v.boolean(),
   currentCycle: v.union(proposalConfirmationCycleProjectionValidator, v.null()),
-  history: paginationResultValidator(proposalConfirmationCycleProjectionValidator),
+  decisionAuthorized: v.boolean(),
+  history: paginationResultValidator(
+    proposalConfirmationCycleProjectionValidator
+  ),
   lenderNeedsAction: v.boolean(),
 });
 
 export const backofficeProposalRemediationProjectionValidator = v.object({
   currentCycle: v.union(proposalConfirmationCycleProjectionValidator, v.null()),
-  history: paginationResultValidator(proposalConfirmationCycleProjectionValidator),
+  history: paginationResultValidator(
+    proposalConfirmationCycleProjectionValidator
+  ),
   lenderNeedsAction: v.boolean(),
   remediation: v.union(
     v.object({

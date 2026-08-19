@@ -8,15 +8,22 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({
     children,
     params,
+    search,
     to,
     viewTransition: _viewTransition,
     ...props
   }: {
     children?: ReactNode;
     params?: unknown;
+    search?: unknown;
     to: string;
   }) => (
-    <a href={to} data-params={JSON.stringify(params)} {...props}>
+    <a
+      href={to}
+      data-params={JSON.stringify(params)}
+      data-search={JSON.stringify(search)}
+      {...props}
+    >
       {children}
     </a>
   ),
@@ -100,6 +107,14 @@ describe("shared lender portfolio lists", () => {
     rerender(
       <LenderAssignedProposalList
         linkTo="/backoffice/proposals/$planId"
+        proposals={[proposal] as never}
+      />
+    );
+    expect(screen.getByText("Lender confirmation pending")).toBeTruthy();
+
+    rerender(
+      <LenderAssignedProposalList
+        linkTo="/backoffice/proposals/$planId"
         proposals={[{ ...proposal, readOnly: true, assignmentStatus: "withdrawn" }] as never}
       />
     );
@@ -109,6 +124,38 @@ describe("shared lender portfolio lists", () => {
         .getByRole("link", { name: "Open Proposal Harbourline Residences" })
         .getAttribute("href")
     ).toBe("/backoffice/proposals/$planId");
+  });
+
+  test("renders a sealed withdrawn Proposal row through the production lender route link", () => {
+    render(
+      <LenderAssignedProposalList
+        linkTo="/lender/proposals/$proposalId"
+        proposals={[
+          {
+            ...proposal,
+            assignmentId: "assignment_withdrawn",
+            assignmentStatus: "withdrawn",
+            buildName: "Frozen historical name",
+            location: "18 Frozen History Road",
+            proposalStatus: "approved",
+            readOnly: true,
+          },
+        ] as never}
+      />,
+    );
+
+    expect(screen.getByText("Frozen historical name")).toBeTruthy();
+    expect(screen.getByText(/18 Frozen History Road/)).toBeTruthy();
+    expect(screen.getByText("Withdrawn")).toBeTruthy();
+    const link = screen.getByRole("link", {
+      name: "Open Proposal Frozen historical name",
+    });
+    expect(link.getAttribute("href")).toBe(
+      "/lender/proposals/$proposalId",
+    );
+    expect(link.getAttribute("data-search")).toBe(
+      JSON.stringify({ assignmentId: "assignment_withdrawn" }),
+    );
   });
 
   test("renders active member status and final-decision capability from the canonical member query", () => {

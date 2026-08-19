@@ -3,11 +3,12 @@ import {
   Link,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { Building2 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { useRouteBreadcrumbProjection } from "#/components/route-breadcrumbs.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -15,7 +16,6 @@ import { Separator } from "#/components/ui/separator.tsx";
 import { LenderOrganizationMembersTable } from "#/features/lender-organizations/LenderOrganizationMembersTable.tsx";
 import { LenderActiveBuildList } from "#/features/lender-portfolio/LenderActiveBuildList.tsx";
 import { LenderAssignedProposalList } from "#/features/lender-portfolio/LenderAssignedProposalList.tsx";
-import { useRouteBreadcrumbProjection } from "#/components/route-breadcrumbs.tsx";
 
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -23,9 +23,10 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 type Portfolio = FunctionReturnType<
   typeof api.lender_portal.getBackofficeLenderOrganizationPortfolio
 >;
-type Members = FunctionReturnType<
+type MemberPage = FunctionReturnType<
   typeof api.lenderOrganizations.listLenderOrganizationMembersForAdmin
 >;
+type MemberEntry = MemberPage["page"][number];
 
 export const Route = createFileRoute("/backoffice/lenders/$lenderId")({
   component: LenderOrganizationDetailRoute,
@@ -41,9 +42,7 @@ export const Route = createFileRoute("/backoffice/lenders/$lenderId")({
   },
 });
 
-function LenderOrganizationDetailError({
-  reset,
-}: ErrorComponentProps) {
+function LenderOrganizationDetailError({ reset }: ErrorComponentProps) {
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20 p-4 pb-20 md:p-8">
       <Frame className="mx-auto max-w-2xl">
@@ -79,17 +78,25 @@ function LenderOrganizationDetailRoute() {
     api.lender_portal.getBackofficeLenderOrganizationPortfolio,
     { lenderOrganizationId }
   ) as Portfolio | undefined;
-  const members = useQuery(
+  const memberPage = usePaginatedQuery(
     api.lenderOrganizations.listLenderOrganizationMembersForAdmin,
-    { lenderOrganizationId }
-  ) as Members | undefined;
+    { lenderOrganizationId },
+    { initialNumItems: 25 }
+  );
+  const members = (memberPage.results as MemberEntry[])
+    .filter(
+      (entry): entry is Extract<MemberEntry, { kind: "member" }> =>
+        entry.kind === "member"
+    )
+    .map((entry) => entry.member)
+    .sort((left, right) => left.name.localeCompare(right.name));
 
   useRouteBreadcrumbProjection(
     "/backoffice/lenders/$lenderId",
     portfolio?.organization.displayName ?? "Loading organization…"
   );
 
-  if (portfolio === undefined || members === undefined) {
+  if (portfolio === undefined || memberPage.status === "LoadingFirstPage") {
     return <LenderOrganizationDetailLoading />;
   }
 
@@ -109,7 +116,10 @@ function LenderOrganizationDetailRoute() {
                 {portfolio.organization.legalName}
               </p>
             </div>
-            <Button render={<Link to="/backoffice/lenders" />} variant="outline">
+            <Button
+              render={<Link to="/backoffice/lenders" />}
+              variant="outline"
+            >
               Back to Lender Organizations
             </Button>
           </div>
@@ -120,18 +130,24 @@ function LenderOrganizationDetailRoute() {
             </span>
             <Badge
               variant={
-                portfolio.organization.status === "active" ? "default" : "outline"
+                portfolio.organization.status === "active"
+                  ? "default"
+                  : "outline"
               }
             >
-              {portfolio.organization.status === "active" ? "Active" : "Inactive"}
+              {portfolio.organization.status === "active"
+                ? "Active"
+                : "Inactive"}
             </Badge>
           </div>
         </header>
 
         <LenderOrganizationSummary
           activeBuildCount={portfolio.builds.length}
-          activeMemberCount={members.members.length}
-          currentProposalCount={portfolio.proposals.filter((proposal) => !proposal.readOnly).length}
+          activeMemberCount={members.length}
+          currentProposalCount={
+            portfolio.proposals.filter((proposal) => !proposal.readOnly).length
+          }
         />
 
         <div className="space-y-8">
@@ -162,9 +178,23 @@ function LenderOrganizationDetailRoute() {
             <Frame>
               <FramePanel className="p-0">
                 <LenderOrganizationMembersTable
-                  members={members.members}
+                  members={members}
                   mode="table"
                 />
+                {memberPage.status === "CanLoadMore" ||
+                memberPage.status === "LoadingMore" ? (
+                  <div className="flex justify-center border-t p-4">
+                    <Button
+                      disabled={memberPage.status === "LoadingMore"}
+                      onClick={() => memberPage.loadMore(25)}
+                      variant="outline"
+                    >
+                      {memberPage.status === "LoadingMore"
+                        ? "Loading members…"
+                        : "Load more members"}
+                    </Button>
+                  </div>
+                ) : null}
               </FramePanel>
             </Frame>
           </PortfolioSection>
@@ -216,8 +246,14 @@ export function LenderOrganizationSummary({
       <FramePanel className="p-0">
         <div className="grid gap-0 sm:grid-cols-3">
           <SummaryMetric label="Active Builds" value={activeBuildCount} />
-          <SummaryMetric label="Current assigned Proposals" value={currentProposalCount} />
-          <SummaryMetric label="Active members" value={activeMemberCount} />
+          <SummaryMetric
+            label="Current assigned Proposals"
+            value={currentProposalCount}
+          />
+          <SummaryMetric
+            label="Loaded active members"
+            value={activeMemberCount}
+          />
         </div>
       </FramePanel>
     </Frame>
@@ -228,7 +264,9 @@ function SummaryMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="p-5 sm:border-r last:sm:border-r-0">
       <p className="text-muted-foreground text-xs">{label}</p>
-      <p className="mt-1 font-heading font-semibold text-2xl">{value}</p>
+      <p className="mt-1 font-heading font-semibold text-2xl tabular-nums">
+        {value}
+      </p>
     </div>
   );
 }

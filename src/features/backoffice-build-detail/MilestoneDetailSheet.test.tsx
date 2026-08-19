@@ -199,6 +199,15 @@ function renderSheet(
 }
 
 describe("MilestoneDetailSheet", () => {
+  test("omits linked Draw attribution when the adapter has no canonical relationship", () => {
+    const { drawGroupKey: _drawGroupKey, ...dataWithoutDrawGroup } = sheetData;
+
+    renderSheet({ data: dataWithoutDrawGroup });
+
+    expect(screen.queryByText(/Linked draw/i)).toBeNull();
+    expect(screen.getByText("Sub-milestone scope")).toBeTruthy();
+  });
+
   test("renders the canonical parent aggregate with the accepted shared tabs", () => {
     renderSheet();
 
@@ -406,6 +415,21 @@ describe("MilestoneDetailSheet", () => {
     ).toBeTruthy();
   });
 
+  test("keeps the field-token action out of a lender-safe Site Visit projection", () => {
+    renderSheet({
+      showSiteVisitFieldLink: false,
+      siteVisits: milestoneSiteVisits,
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Site Visit visit-forms" })
+    );
+
+    expect(screen.getByText("Footing forms match the approved dimensions.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy field link" })).toBeNull();
+    expect(screen.queryByText("Report submitted")).toBeNull();
+  });
+
   test("does not give planned or complete rows the active overdue treatment", () => {
     const firstChild = sheetData.submilestones?.[0];
     const secondChild = sheetData.submilestones?.[1];
@@ -561,5 +585,18 @@ describe("MilestoneDetailSheet", () => {
     expect(reviewActions.classList.contains("w-full")).toBe(true);
     expect(summary.parentElement).toBe(footer);
     expect(reviewActions.parentElement).toBe(footer);
+  });
+
+  test("renders a governed route footer without exposing the default completion action", () => {
+    renderSheet({
+      footer: <button type="button">Resubmit milestone completion</button>,
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Resubmit milestone completion" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByTestId("milestone-primary-completion-action")
+    ).toBeNull();
   });
 });

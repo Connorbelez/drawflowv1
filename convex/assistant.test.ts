@@ -4,7 +4,7 @@ import { convexTest } from "convex-test";
 import type OpenAI from "openai";
 import { describe, expect, test, vi } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { resolveAssistantModel } from "./assistantProvider";
 import schema from "./schema";
 import { draftSiteVisitGuidance } from "./siteVisitGuidance";
@@ -30,7 +30,7 @@ async function seeded(roles: string[] = ["admin"], subject = "assistant_admin") 
   const base = convexTest(schema, modules);
   const t = withIdentity(base, roles, subject);
   const seed = await t.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORG },
   );
   return { base, seed, t };

@@ -53,8 +53,11 @@ import { ProductionContractorPlanningTab } from "#/features/production-proposals
 import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
 import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import { ProposalLifecycleActions } from "#/features/production-proposals/ProposalLifecycleActions.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import { ProposalLenderAssignmentSection } from "#/features/production-proposals/ProposalLenderAssignmentSection.tsx";
+import { ProposalRemediationControl } from "#/features/production-proposals/ProposalRemediationControl.tsx";
+import { ProposalReviewPolicyControl } from "#/features/production-proposals/ProposalReviewPolicyControl.tsx";
 import {
   createVisualParityCostItem,
   getVisualParityProposalDetail,
@@ -198,6 +201,54 @@ export function shouldMountProposalStaffPanel(
   return activeTab === "staff";
 }
 
+export function BackofficeProposalLifecycleActions({
+  activeBuildId,
+  closingPolicyReady,
+  onActivated,
+  proposal,
+  workosOrganizationId,
+}: {
+  activeBuildId?: string | null;
+  closingPolicyReady: boolean;
+  onActivated: (buildId: string) => Promise<void> | void;
+  proposal: {
+    _id: string;
+    buildName: string;
+    interestAnnualBps?: number;
+    principalCents?: number;
+    status: string;
+  };
+  workosOrganizationId: string;
+}) {
+  if (proposal.status === "approved" && !closingPolicyReady) {
+    return (
+      <p className="text-pretty text-muted-foreground text-sm" role="status">
+        Lock the review policy above before recording closing.
+      </p>
+    );
+  }
+
+  return (
+    <ProposalLifecycleActions
+      capabilities={{
+        canActivateClosedProposal:
+          proposal.status === "closed" && !activeBuildId,
+        canRecordClosing: proposal.status === "approved" && closingPolicyReady,
+      }}
+      embedded
+      onActivated={onActivated}
+      proposal={{
+        _id: proposal._id,
+        buildName: proposal.buildName,
+        interestAnnualBps: proposal.interestAnnualBps,
+        principalCents: proposal.principalCents,
+      }}
+      testId="backoffice-proposal-lifecycle-actions"
+      workosOrganizationId={workosOrganizationId}
+    />
+  );
+}
+
 export const Route = createFileRoute("/backoffice/proposals/$planId")({
   ssr: false,
   staticData: {
@@ -242,6 +293,10 @@ function ProposalReviewRoute() {
   );
   const [lenderAssignmentDialogOpen, setLenderAssignmentDialogOpen] =
     useState(false);
+  const [
+    proposalConfirmationHistoryLimit,
+    setProposalConfirmationHistoryLimit,
+  ] = useState(20);
   useEffect(() => {
     setVisualCostItems(visualProposalDetail.costItems ?? []);
   }, [visualProposalDetail]);
@@ -322,9 +377,38 @@ function ProposalReviewRoute() {
   const productionDetail = visualFixtureEnabled
     ? { ...visualProposalDetail, costItems: visualCostItems }
     : productionDetailQuery;
+  const proposalReviewControlQuery = useQuery(
+    api.production_proposals.getProposalPhase3ReviewControl,
+    visualFixtureEnabled ||
+      !productionDetail ||
+      !canManageBrokerAssignment ||
+      (productionDetail.proposal.status !== "approved" &&
+        productionDetail.proposal.status !== "closed")
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        }
+  );
+  const proposalRemediationQuery = useQuery(
+    api.production_proposals.getBackofficeProposalRemediation,
+    visualFixtureEnabled ||
+      !productionDetail ||
+      !canManageBrokerAssignment ||
+      productionDetail.proposal.status !== "approved"
+      ? "skip"
+      : {
+          historyPaginationOpts: {
+            cursor: null,
+            numItems: proposalConfirmationHistoryLimit,
+          },
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        }
+  );
   const lenderOrganizationsQuery = useQuery(
     api.production_proposals.listEligibleExternalLenderOrganizations,
-      visualFixtureEnabled ||
+    visualFixtureEnabled ||
       !lenderAssignmentDialogOpen ||
       !productionDetail ||
       !canManageBrokerAssignment ||
@@ -333,7 +417,7 @@ function ProposalReviewRoute() {
       : {
           proposalId: planId as Id<"buildProposals">,
           workosOrganizationId,
-        },
+        }
   );
   const productionWorkspaceQuery = useQuery(
     api.production_proposals.getProductionTimelineWorkspace,
@@ -419,17 +503,23 @@ function ProposalReviewRoute() {
   const approveProductionProposal = useMutation(
     api.production_proposals.approveProposal
   );
-  const recordProductionClosing = useMutation(
-    api.production_proposals.recordProposalClosing
-  );
   const assignExternalLender = useMutation(
-    api.production_proposals.assignExternalLenderOrganization,
+    api.production_proposals.assignExternalLenderOrganization
+  );
+  const repairMissingLenderConfirmation = useMutation(
+    api.production_proposals.repairMissingLenderProposalConfirmation
+  );
+  const configureProposalReviewPolicy = useMutation(
+    api.production_proposals.configureProposalReviewPolicy
+  );
+  const publishProposalRevision = useMutation(
+    api.production_proposals.publishProposalRevision
+  );
+  const lockProposalReviewPolicy = useMutation(
+    api.production_proposals.lockProposalReviewPolicy
   );
   const withdrawExternalLender = useMutation(
-    api.production_proposals.withdrawExternalLenderAssignment,
-  );
-  const activateClosedProposal = useMutation(
-    api.production_proposals.activateClosedProposal
+    api.production_proposals.withdrawExternalLenderAssignment
   );
   const createProposalCostItem = useMutation(
     api.production_proposals.createProposalCostItem
@@ -512,6 +602,9 @@ function ProposalReviewRoute() {
   //ToDo: BIG CODESMELL
   if (productionDetail && productionWorkspace) {
     const proposalId = planId as Id<"buildProposals">;
+    const closingPolicyReady = Boolean(
+      proposalReviewControlQuery?.lockedReviewPolicyId
+    );
     const appPermissions = productionDetail.appPermissions;
     const canEditProposalMilestones = hasAnyAppPermission(appPermissions, [
       ["milestone", "create"],
@@ -627,6 +720,7 @@ function ProposalReviewRoute() {
         }
         calendarTimeframe={search.timeframe}
         calendarWorkspace={productionCalendarWorkspaceQuery as any}
+        closingPolicyReady={closingPolicyReady}
         contractors={
           canViewContractors ? (
             activeReviewTab === "contractors" &&
@@ -656,40 +750,153 @@ function ProposalReviewRoute() {
         }
         initialActiveTab={search.tab}
         lenderAssignmentSurface={
-          !visualFixtureEnabled &&
-          canManageBrokerAssignment ? (
-            <ProposalLenderAssignmentSection
-              assignment={productionDetail.lenderAssignment}
-              assignmentHistory={productionDetail.lenderAssignmentHistory}
-              approval={productionDetail.lenderApproval}
-              lenderOrganizations={
-                lenderOrganizationsQuery?.organizations ?? []
-              }
-              lenderOrganizationsPending={lenderOrganizationsQuery === undefined}
-              onAssign={(lenderOrganizationId, reason) =>
-                assignExternalLender({
-                  lenderOrganizationId,
-                  proposalId,
-                  reason,
-                  workosOrganizationId,
-                })
-              }
-              onDialogOpenChange={setLenderAssignmentDialogOpen}
-              onWithdraw={(assignmentId, reason) =>
-                withdrawExternalLender({
-                  assignmentId: assignmentId as Id<"proposalLenderAssignments">,
-                  proposalId,
-                  reason,
-                  workosOrganizationId,
-                })
-              }
-              proposal={{
-                buildName: productionDetail.proposal.buildName,
-                location: productionDetail.proposal.location,
-                status: productionDetail.proposal.status,
-              }}
-            />
+          !visualFixtureEnabled && canManageBrokerAssignment ? (
+            <div className="grid gap-4">
+              <ProposalLenderAssignmentSection
+                approval={productionDetail.lenderApproval}
+                assignment={productionDetail.lenderAssignment}
+                assignmentHistory={productionDetail.lenderAssignmentHistory}
+                lenderOrganizations={
+                  lenderOrganizationsQuery?.organizations ?? []
+                }
+                lenderOrganizationsPending={
+                  lenderOrganizationsQuery === undefined
+                }
+                needsConfirmationRepair={Boolean(
+                  productionDetail.proposal.status === "approved" &&
+                    productionDetail.lenderAssignment?.status === "current" &&
+                    !productionDetail.proposal.currentProposalRevisionId
+                )}
+                onAssign={(lenderOrganizationId, reason) =>
+                  assignExternalLender({
+                    lenderOrganizationId,
+                    proposalId,
+                    reason,
+                    workosOrganizationId,
+                  })
+                }
+                onDialogOpenChange={setLenderAssignmentDialogOpen}
+                onEditReviewPolicy={() => {
+                  void navigate({
+                    params: { planId },
+                    replace: true,
+                    search: { ...search, tab: "closing" },
+                    to: "/backoffice/proposals/$planId",
+                  }).then(() => {
+                    requestAnimationFrame(() => {
+                      const policyControl = document.getElementById(
+                        "proposal-review-policy-control"
+                      );
+                      policyControl?.scrollIntoView({
+                        behavior: window.matchMedia(
+                          "(prefers-reduced-motion: reduce)"
+                        ).matches
+                          ? "auto"
+                          : "smooth",
+                        block: "start",
+                      });
+                      policyControl?.focus({ preventScroll: true });
+                    });
+                  });
+                }}
+                onRepairLenderConfirmation={async (reason) => {
+                  const assignment = productionDetail.lenderAssignment;
+                  if (!assignment || assignment.status !== "current") {
+                    throw new Error("A current lender assignment is required.");
+                  }
+                  return await repairMissingLenderConfirmation({
+                    expectedAssignmentId:
+                      assignment.assignmentId as Id<"proposalLenderAssignments">,
+                    expectedProposalRevisionNumber:
+                      productionDetail.proposal.currentProposalRevisionNumber ??
+                      null,
+                    idempotencyKey: `backoffice:lender-confirmation-repair:${proposalId}:${assignment.assignmentId}`,
+                    proposalId,
+                    reason,
+                    workosOrganizationId,
+                  });
+                }}
+                onWithdraw={(assignmentId, reason) =>
+                  withdrawExternalLender({
+                    assignmentId:
+                      assignmentId as Id<"proposalLenderAssignments">,
+                    proposalId,
+                    reason,
+                    workosOrganizationId,
+                  })
+                }
+                proposal={{
+                  buildName: productionDetail.proposal.buildName,
+                  location: productionDetail.proposal.location,
+                  status: productionDetail.proposal.status,
+                }}
+              />
+              {proposalRemediationQuery ? (
+                <ProposalRemediationControl
+                  control={proposalRemediationQuery}
+                  onNavigateToCheckpoint={(checkpoint) => {
+                    const tab =
+                      checkpoint === "budget"
+                        ? "materials"
+                        : checkpoint === "accessReviewPolicy"
+                          ? "closing"
+                          : checkpoint === "milestoneCount" ||
+                              checkpoint === "scheduleTimeline"
+                            ? "milestones"
+                            : "review";
+                    void navigate({
+                      params: { planId },
+                      replace: true,
+                      search: { ...search, tab },
+                      to: "/backoffice/proposals/$planId",
+                    });
+                  }}
+                  onLoadMoreHistory={() =>
+                    setProposalConfirmationHistoryLimit(
+                      (current) => current + 20
+                    )
+                  }
+                  onPublish={(command) =>
+                    publishProposalRevision({
+                      ...command,
+                      proposalId,
+                      workosOrganizationId,
+                    })
+                  }
+                />
+              ) : productionDetail.proposal.status === "approved" ? (
+                <Frame>
+                  <FramePanel
+                    className="flex items-center gap-2 p-5 text-muted-foreground text-sm"
+                    role="status"
+                  >
+                    <Loader2 aria-hidden className="size-4 animate-spin" />
+                    Loading lender confirmation cycle…
+                  </FramePanel>
+                </Frame>
+              ) : null}
+            </div>
           ) : undefined
+        }
+        lifecycleActions={
+          <BackofficeProposalLifecycleActions
+            activeBuildId={productionDetail.activeBuild?._id}
+            closingPolicyReady={closingPolicyReady}
+            onActivated={(buildId) =>
+              navigate({
+                params: { buildId },
+                to: "/backoffice/builds/$buildId",
+              })
+            }
+            proposal={{
+              _id: String(proposalId),
+              buildName: productionDetail.proposal.buildName,
+              interestAnnualBps: productionDetail.proposal.interestAnnualBps,
+              principalCents: productionDetail.loanFacility?.principalCents,
+              status: productionDetail.proposal.status,
+            }}
+            workosOrganizationId={workosOrganizationId}
+          />
         }
         materialPlanningActions={materialPlanningActions}
         milestones={
@@ -701,9 +908,9 @@ function ProposalReviewRoute() {
             persistenceMode={proposalEditorPersistenceMode}
             proposalId={proposalId}
             scopeRoute="backoffice-proposal"
-            viewerCapacity={viewerCapacity}
             showHeading
             templateTitle={productionDetail.proposal.buildName}
+            viewerCapacity={viewerCapacity}
             workosOrganizationId={workosOrganizationId}
           />
         }
@@ -754,31 +961,6 @@ function ProposalReviewRoute() {
             to: "/backoffice/proposals/$planId",
           })
         }
-        onClose={async (buildStartDate, reason, ianaTimezone) => {
-          await recordProductionClosing({
-            buildStartDate,
-            ianaTimezone,
-            loanFacility: {
-              interestAnnualBps:
-                productionDetail.proposal.interestAnnualBps ?? 925,
-              principalCents:
-                productionDetail.proposal.lenderDrawPolicyLimitCents,
-            },
-            proposalId,
-            reason,
-            workosOrganizationId,
-          });
-          const result = await activateClosedProposal({
-            proposalId,
-            reason,
-            workosOrganizationId,
-          });
-          toast.success("Closing recorded and Build activated.");
-          void navigate({
-            params: { buildId: result.buildId },
-            to: "/backoffice/builds/$buildId",
-          });
-        }}
         onCommitCalendarEdit={commitCalendarEdit}
         onCreateCalendarReminderEvent={
           canUseAppPermission(appPermissions, "reminder", "create")
@@ -856,6 +1038,13 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           }).then(() => toast.success("Changes requested."))
         }
+        onSaveCalendarView={(input) =>
+          saveCalendarView({
+            ...input,
+            surface: "proposal",
+            workosOrganizationId,
+          })
+        }
         onSubmit={
           visualFixtureEnabled
             ? async () => undefined
@@ -868,13 +1057,6 @@ function ProposalReviewRoute() {
                     description: "The proposal is now ready for lender review.",
                   })
                 )
-        }
-        onSaveCalendarView={(input) =>
-          saveCalendarView({
-            ...input,
-            surface: "proposal",
-            workosOrganizationId,
-          })
         }
         onUnassignBuilder={() =>
           unassignDraftBuilder({
@@ -983,6 +1165,46 @@ function ProposalReviewRoute() {
                 });
               }
             : undefined
+        }
+        reviewPolicySurface={
+          proposalReviewControlQuery ? (
+            <ProposalReviewPolicyControl
+              control={proposalReviewControlQuery}
+              onConfigure={(command) =>
+                configureProposalReviewPolicy({
+                  ...command,
+                  proposalId,
+                  workosOrganizationId,
+                })
+              }
+              onLock={(command) =>
+                lockProposalReviewPolicy({
+                  ...command,
+                  proposalId,
+                  workosOrganizationId,
+                })
+              }
+              onPublish={(command) =>
+                publishProposalRevision({
+                  ...command,
+                  proposalId,
+                  workosOrganizationId,
+                })
+              }
+              proposalId={proposalId}
+              proposalStatus={productionDetail.proposal.status}
+            />
+          ) : !visualFixtureEnabled && canManageBrokerAssignment ? (
+            <Frame>
+              <FramePanel
+                className="flex items-center gap-2 p-5 text-muted-foreground text-sm"
+                role="status"
+              >
+                <Loader2 aria-hidden className="size-4 animate-spin" />
+                Loading review policy controls...
+              </FramePanel>
+            </Frame>
+          ) : undefined
         }
         staff={
           visualFixtureEnabled ? undefined : shouldMountProposalStaffPanel(

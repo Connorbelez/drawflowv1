@@ -1,9 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
 
 import { LenderShell } from "#/components/lender-shell.tsx";
-import { LenderAssignedProposalList } from "#/features/lender-portfolio/LenderAssignedProposalList.tsx";
-import { api } from "../../../../convex/_generated/api";
+import { LenderProposalPortfolio } from "#/features/lender-portfolio/LenderAssignedProposalList.tsx";
 
 export const Route = createFileRoute("/lender/proposals/")({
   component: LenderProposals,
@@ -15,9 +13,7 @@ export const Route = createFileRoute("/lender/proposals/")({
   },
 });
 
-function LenderProposals() {
-  const proposals = useQuery(api.lender_portal.listLenderAssignedProposals, {});
-
+export function LenderProposals() {
   return (
     <LenderShell activeNavigation="Proposals" pageTitle="Proposal list">
       <main className="min-h-[calc(100vh-3.5rem)] bg-muted/30 pb-20">
@@ -35,10 +31,7 @@ function LenderProposals() {
             </p>
           </header>
 
-          <LenderAssignedProposalList
-            linkTo="/lender/proposals/$proposalId"
-            proposals={proposals}
-          />
+          <LenderProposalPortfolio />
         </div>
       </main>
     </LenderShell>

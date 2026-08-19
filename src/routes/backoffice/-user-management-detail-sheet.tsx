@@ -76,8 +76,8 @@ export interface DirectoryUser {
   displayName: string;
   initials: string;
   memberships: WorkosMembershipRow[];
-  user: Omit<WorkosUserRow, "_creationTime" | "_id"> &
-    Partial<Pick<WorkosUserRow, "_creationTime" | "_id">>;
+  user: Pick<WorkosUserRow, "email" | "name"> &
+    Partial<Omit<WorkosUserRow, "email" | "name">>;
 }
 
 type SheetHandlers = Pick<

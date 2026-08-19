@@ -8,8 +8,8 @@ import {
 import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { useRouteBreadcrumbProjection } from "#/components/route-breadcrumbs.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import { DocumentOperationIntentRegistry } from "#/features/backoffice-build-detail/documentOperationIntent.ts";
 import {
@@ -24,16 +24,17 @@ import {
   type ProductionBuildDetail,
   type ProductionBuildDetailActions,
   ProductionBuildDetailSurface,
+  toProductionMilestoneSheetData,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
-import { BuildDetailSheetHost } from "#/features/build-detail-targets/BuildDetailSheetHost.tsx";
 import { SiteVisitScheduleIntentRegistry } from "#/features/backoffice-build-detail/siteVisitScheduleIntent.ts";
+import { BuildDetailSheetHost } from "#/features/build-detail-targets/BuildDetailSheetHost.tsx";
 import {
   canUseAppPermission,
   filterMaterialPlanningActionsForPermissions,
 } from "#/features/builder-staff/app-permissions.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
-import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import type { CostDocumentSummary } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
+import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import type { DrawWorkflowCapabilities } from "#/features/draw-workflow/drawWorkflow.ts";
 import { BackofficeNotificationReviewSurface } from "#/features/lender-portal/LenderNotificationReviewSurface.tsx";
 import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
@@ -44,8 +45,8 @@ import {
   resolveBuildBreadcrumbLabel,
   type BuildRouteAvailability,
 } from "./-route-breadcrumb.ts";
-import { validateBuildDetailSearch } from "./-route-search.ts";
 import { resolveBackofficeBuildViewerCapacity } from "./-route-capacity.ts";
+import { validateBuildDetailSearch } from "./-route-search.ts";
 
 export { validateBuildDetailSearch } from "./-route-search.ts";
 
@@ -240,6 +241,12 @@ function RouteComponent() {
   const effectiveProductionBuild = visualFixtureEnabled
     ? visualParityDetail
     : productionBuildQuery;
+  const notificationMilestoneKey = search.milestoneId
+    ? effectiveProductionBuild?.milestones.find(
+        (milestone) => String(milestone._id) === search.milestoneId
+      )?.key
+    : undefined;
+  const selectedMilestoneKey = search.milestone ?? notificationMilestoneKey;
   const buildRouteAvailability = useQuery(
     api.production_proposals.getActiveBuildRouteAvailabilityByString,
     visualFixtureEnabled || productionBuildQuery !== null
@@ -259,11 +266,11 @@ function RouteComponent() {
   const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
   const milestoneSiteVisitsQuery = useQuery(
     api.production_proposals.listBrokerageSiteVisits,
-    visualFixtureEnabled || !activeBuildIdForWorkspace || !search.milestone
+    visualFixtureEnabled || !activeBuildIdForWorkspace || !selectedMilestoneKey
       ? "skip"
       : {
           buildId: activeBuildIdForWorkspace,
-          milestoneKey: search.milestone,
+          milestoneKey: selectedMilestoneKey,
           workosOrganizationId: context.organizationId as string,
         }
   );
@@ -277,7 +284,7 @@ function RouteComponent() {
       : undefined;
   const costDocumentLedger = usePaginatedQuery(
     api.cost_documents.listCostDocumentRoadmapReconciliation,
-    effectiveProductionBuild && search.milestone
+    effectiveProductionBuild && selectedMilestoneKey
       ? ({
           ...(costDocumentLedgerActorCapacity
             ? { actorCapacity: costDocumentLedgerActorCapacity }
@@ -910,6 +917,16 @@ function RouteComponent() {
     if (notificationTarget) {
       return (
         <BackofficeNotificationReviewSurface
+          milestoneData={
+            effectiveProductionBuild && notificationMilestoneKey
+              ? (toProductionMilestoneSheetData(
+                  effectiveProductionBuild,
+                  notificationMilestoneKey,
+                  costDocumentLedger.results as CostDocumentSummary[]
+                ) ?? undefined)
+              : undefined
+          }
+          milestoneSiteVisits={milestoneSiteVisitsQuery}
           onClose={() =>
             void navigate({
               params: { buildId },

@@ -1,3 +1,4 @@
+import { paginationResultValidator } from "convex/server";
 import { type Infer, v } from "convex/values";
 
 export const proposalReviewApprovalModeValidator = v.union(
@@ -142,6 +143,26 @@ export const proposalLifecycleProjectionValidator = v.object({
   ),
 });
 
+export const historicalLenderProposalDetailValidator = v.object({
+  assignmentId: v.id("proposalLenderAssignments"),
+  capturedAt: v.number(),
+  decisions: paginationResultValidator(lenderProposalSnapshotDecisionValidator),
+  documents: paginationResultValidator(lenderProposalSnapshotDocumentValidator),
+  lifecycle: proposalLifecycleProjectionValidator,
+  proposal: v.object({
+    buildName: v.string(),
+    location: v.string(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("submitted"),
+      v.literal("approved"),
+      v.literal("closed")
+    ),
+  }),
+  readOnly: v.literal(true),
+  revisions: paginationResultValidator(lenderProposalSnapshotRevisionValidator),
+});
+
 export const lenderProposalAssignmentSnapshotValidator = v.object({
   assignmentId: v.id("proposalLenderAssignments"),
   capturedAt: v.number(),
@@ -160,6 +181,14 @@ export const lenderProposalAssignmentSnapshotValidator = v.object({
 
 export const proposalPhase3ReviewControlValidator = v.object({
   currentAssignmentId: v.union(v.id("proposalLenderAssignments"), v.null()),
+  currentEligibleLenderApproverCounts: v.optional(
+    v.object({
+      draw: v.number(),
+      milestone: v.number(),
+      proposalReview: v.number(),
+    })
+  ),
+  currentLenderEligibilityIssue: v.optional(v.string()),
   currentPolicyVersionId: v.union(
     v.id("proposalReviewPolicyVersions"),
     v.null()
@@ -172,14 +201,20 @@ export const proposalPhase3ReviewControlValidator = v.object({
     v.null(),
     v.object({
       activeLenderMemberCount: v.optional(v.number()),
-      assignmentId: v.optional(v.union(v.id("proposalLenderAssignments"), v.null())),
+      assignmentId: v.optional(
+        v.union(v.id("proposalLenderAssignments"), v.null())
+      ),
       eligibleLenderApproverCount: v.optional(v.number()),
-      eligibleLenderApproverCounts: v.optional(v.object({
-        draw: v.number(),
-        milestone: v.number(),
-        proposalReview: v.number(),
-      })),
-      lenderOrganizationId: v.optional(v.union(v.id("lenderOrganizations"), v.null())),
+      eligibleLenderApproverCounts: v.optional(
+        v.object({
+          draw: v.number(),
+          milestone: v.number(),
+          proposalReview: v.number(),
+        })
+      ),
+      lenderOrganizationId: v.optional(
+        v.union(v.id("lenderOrganizations"), v.null())
+      ),
       lockId: v.id("proposalReviewPolicyLocks"),
       lockedAt: v.number(),
       lockedByRole: v.optional(v.string()),
@@ -226,15 +261,15 @@ export const proposalPhase3ReviewControlValidator = v.object({
 
 export const lenderProposalLifecycleProjectionValidator = v.object({
   assignment: v.object({
-    assignedAt: v.number(),
     assignmentId: v.id("proposalLenderAssignments"),
-    lenderOrganizationId: v.union(v.id("lenderOrganizations"), v.string()),
-    lenderOrganizationName: v.string(),
     readOnly: v.boolean(),
     status: v.union(v.literal("current"), v.literal("withdrawn")),
-    withdrawnAt: v.optional(v.number()),
   }),
   canApproveClosing: v.boolean(),
+  lifecycleActions: v.object({
+    canActivateClosedProposal: v.boolean(),
+    canRecordClosing: v.boolean(),
+  }),
   lifecycle: proposalLifecycleProjectionValidator,
   proposal: v.object({
     buildName: v.string(),
@@ -336,19 +371,23 @@ export function proposalReviewPoliciesEqual(
 }
 
 function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, canonicalize(nested)]),
+        .map(([key, nested]) => [key, canonicalize(nested)])
     );
   }
   return value;
 }
 
 export function canonicalDeepEqual(left: unknown, right: unknown) {
-  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+  return (
+    JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right))
+  );
 }
 
 export function deterministicProposalRevisionDiff(
@@ -359,8 +398,7 @@ export function deterministicProposalRevisionDiff(
     return [];
   }
   return PROPOSAL_REVISION_CHECKPOINTS.filter(
-    (checkpoint) =>
-      !canonicalDeepEqual(prior[checkpoint], current[checkpoint])
+    (checkpoint) => !canonicalDeepEqual(prior[checkpoint], current[checkpoint])
   );
 }
 
@@ -372,10 +410,12 @@ export function validateProposalReviewPolicyQuorums(
     mode: ProposalReviewApprovalMode,
     quorum: number | null,
     label: string,
-    eligibleCount: number,
+    eligibleCount: number
   ) => {
     if (!Number.isInteger(eligibleCount) || eligibleCount < 0) {
-      throw new Error(`${label} eligible member count must be a non-negative integer.`);
+      throw new Error(
+        `${label} eligible member count must be a non-negative integer.`
+      );
     }
     if (!approvalModeRequiresLender(mode)) {
       if (quorum !== null) {
@@ -401,11 +441,16 @@ export function validateProposalReviewPolicyQuorums(
       );
     }
   };
-  validate(policy.drawApprovalMode, policy.drawLenderQuorum, "Draw lender", eligibleCounts.draw);
+  validate(
+    policy.drawApprovalMode,
+    policy.drawLenderQuorum,
+    "Draw lender",
+    eligibleCounts.draw
+  );
   validate(
     policy.milestoneApprovalMode,
     policy.milestoneLenderQuorum,
     "Milestone lender",
-    eligibleCounts.milestone,
+    eligibleCounts.milestone
   );
 }

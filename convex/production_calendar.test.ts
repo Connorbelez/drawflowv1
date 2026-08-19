@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -47,7 +47,7 @@ async function seededAdmin() {
   const base = convexTest(schema, modules);
   const t = withIdentity(base, ["admin"], "user_admin");
   const seed = await t.mutation(
-    (api as any).production_proposals.dev_seedProductionFoundation,
+    (internal as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORG }
   );
   return { base, seed, t };

@@ -1,0 +1,826 @@
+{
+  "schemaVersion": "lender-portal-production-acceptance/v3",
+  "automatedTestScript": "test:lender-portal-production-journeys",
+  "attestationMaxAgeHours": 72,
+  "trustedDeploymentOrigins": ["https://drawflow.fairlend.ca"],
+  "evidencePolicy": {
+    "githubAttestation": {
+      "oidcIssuer": "https://token.actions.githubusercontent.com",
+      "repository": "Connorbelez/drawflowv1",
+      "signerDigest": "62b8eb75e9c1ebfa6ac3323a38e303d9af2b1df4",
+      "signerWorkflow": "github.com/Connorbelez/drawflowv1/.github/workflows/lender-portal-production-evidence.yml",
+      "sourceRepository": "Connorbelez/drawflowv1"
+    },
+    "initialOrigin": "https://github.com",
+    "githubOwner": "Connorbelez",
+    "githubRepository": "drawflowv1",
+    "releaseAssetRedirects": [
+      {
+        "origin": "https://release-assets.githubusercontent.com",
+        "pathnamePattern": "^/github-production-release-asset/[0-9]+/[A-Za-z0-9-]+(?:/[A-Za-z0-9._-]+)?$"
+      }
+    ]
+  },
+  "trustedReleaseKeys": [
+    {
+      "id": "fairlend-release-v1",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA15s4ohkhIZGQ2i6kkRM59+JhVF6tkXKR+oAIdwqoty8=\n-----END PUBLIC KEY-----\n",
+      "sha256": "14e8198fc8ae722d17cc95084c569d39145d9bdc24ef9c68e363f8180493ae84"
+    }
+  ],
+  "trustedReviewers": [
+    {
+      "id": "fairlend-independent-review-v1",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA0u/x68Sc9tl5MJ+L39dzaj9Nx9yMIhCa+3Ul41MGm2g=\n-----END PUBLIC KEY-----\n",
+      "sha256": "acf342812860f41030eef766a494ede0d9aac070c675ddbfa6ff8ea8bc4dbee6",
+      "reviewerId": "fairlend-independent-release-review",
+      "reviewerDisplayName": "FairLend Independent Release Review"
+    }
+  ],
+  "consumers": [
+    {
+      "id": "route-dashboard",
+      "class": "production-route",
+      "routeSource": "src/routes/lender/index.tsx",
+      "routerPath": "/lender/",
+      "importModule": "#/features/lender-dashboard/LenderDashboardVariantD.tsx",
+      "componentSource": "src/features/lender-dashboard/LenderDashboardVariantD.tsx",
+      "componentExport": "LenderDashboardVariantD",
+      "renderPath": ["LenderDashboard", "LenderDashboardVariantD"],
+      "queryOwnerLocation": "component",
+      "queryOwnerSource": "src/features/lender-dashboard/LenderDashboardVariantD.tsx",
+      "queryOwner": "api.lender_portal.getLenderDashboard",
+      "queryOwnerFunction": "LenderDashboardVariantD",
+      "testTargets": ["src/routes/lender/-dashboard-route.test.tsx"]
+    },
+    {
+      "id": "route-build-detail",
+      "class": "production-route",
+      "routeSource": "src/routes/lender/builds/$buildId.tsx",
+      "routerPath": "/lender/builds/$buildId",
+      "importModule": "#/features/lender-portal/LenderBuildDetailOverview.tsx",
+      "componentSource": "src/features/lender-portal/LenderBuildDetailOverview.tsx",
+      "componentExport": "LenderBuildDetailOverview",
+      "renderPath": ["LenderBuildDetail", "LenderBuildDetailOverview"],
+      "queryOwnerLocation": "route",
+      "queryOwnerSource": "src/routes/lender/builds/$buildId.tsx",
+      "queryOwner": "api.lender_portal.getLenderBuildDetail",
+      "queryOwnerFunction": "LenderBuildDetail",
+      "testTargets": ["src/routes/lender/builds/-build-detail-route.test.tsx"]
+    },
+    {
+      "id": "route-milestone-queue",
+      "class": "production-route",
+      "routeSource": "src/routes/lender/milestones.tsx",
+      "routerPath": "/lender/milestones",
+      "importModule": "#/features/lender-portal/LenderMilestoneQueue.tsx",
+      "componentSource": "src/features/lender-portal/LenderMilestoneQueue.tsx",
+      "componentExport": "LenderMilestoneQueue",
+      "renderPath": ["LenderMilestoneQueueRoute", "LenderMilestoneQueue"],
+      "queryOwnerLocation": "component",
+      "queryOwnerSource": "src/features/lender-portal/LenderMilestoneQueue.tsx",
+      "queryOwner": "api.lender_portal_phase5.listAllAssignedLenderMilestoneReviewRequests",
+      "queryOwnerFunction": "LenderMilestoneQueue",
+      "testTargets": ["src/routes/lender/-milestones-route.test.tsx"]
+    },
+    {
+      "id": "route-draw-queue",
+      "class": "production-route",
+      "routeSource": "src/routes/lender/draws.tsx",
+      "routerPath": "/lender/draws",
+      "importModule": "#/features/lender-portal/LenderDrawQueue.tsx",
+      "componentSource": "src/features/lender-portal/LenderDrawQueue.tsx",
+      "componentExport": "LenderDrawQueue",
+      "renderPath": ["LenderDrawQueueRoute", "LenderDrawQueue"],
+      "queryOwnerLocation": "component",
+      "queryOwnerSource": "src/features/lender-portal/LenderDrawQueue.tsx",
+      "queryOwner": "api.lender_portal.getLenderDrawQueue",
+      "queryOwnerFunction": "LenderDrawQueue",
+      "testTargets": ["src/routes/lender/-draws-route.test.tsx"]
+    },
+    {
+      "id": "route-proposal-detail",
+      "class": "production-route",
+      "routeSource": "src/routes/lender/proposals/$proposalId.tsx",
+      "routerPath": "/lender/proposals/$proposalId",
+      "importModule": "#/features/lender-portal/LenderProposalNotificationReviewSurface.tsx",
+      "componentSource": "src/features/lender-portal/LenderProposalNotificationReviewSurface.tsx",
+      "componentExport": "LenderProposalNotificationReviewSurface",
+      "renderPath": [
+        "LenderProposalReview",
+        "LenderProposalNotificationReviewSurface"
+      ],
+      "queryOwnerLocation": "route",
+      "queryOwnerSource": "src/routes/lender/proposals/$proposalId.tsx",
+      "queryOwner": "api.production_proposals.getCurrentLenderProposalDetail",
+      "queryOwnerFunction": "LenderProposalReview",
+      "testTargets": [
+        "src/routes/lender/proposals/-detail-route.test.tsx",
+        "src/routes/lender/-notification-review-routes.test.ts"
+      ]
+    },
+    {
+      "id": "route-proposal-list",
+      "class": "production-route",
+      "routeSource": "src/routes/lender/proposals/index.tsx",
+      "routerPath": "/lender/proposals/",
+      "importModule": "#/features/lender-portfolio/LenderAssignedProposalList.tsx",
+      "componentSource": "src/features/lender-portfolio/LenderAssignedProposalList.tsx",
+      "componentExport": "LenderProposalPortfolio",
+      "renderPath": ["LenderProposals", "LenderProposalPortfolio"],
+      "queryOwnerLocation": "component",
+      "queryOwnerSource": "src/features/lender-portfolio/LenderAssignedProposalList.tsx",
+      "queryOwner": "api.lender_portal.listLenderAssignedProposalPage",
+      "queryOwnerFunction": "LenderProposalPortfolio",
+      "testTargets": ["src/routes/lender/proposals/-index.test.tsx"]
+    },
+    {
+      "id": "route-builder-correction",
+      "class": "production-route",
+      "routeSource": "src/routes/builder/proposals/$proposalId/index.tsx",
+      "routerPath": "/builder/proposals/$proposalId/",
+      "importModule": "#/features/lender-portal/LenderNotificationReviewSurface.tsx",
+      "componentSource": "src/features/lender-portal/LenderNotificationReviewSurface.tsx",
+      "componentExport": "BuilderNotificationReviewSurface",
+      "renderPath": [
+        "BuilderProductionProposalRoute",
+        "BuilderProductionProposalWorkspace",
+        "BuilderNotificationReviewSurface"
+      ],
+      "queryOwnerLocation": "route",
+      "queryOwnerSource": "src/routes/builder/proposals/$proposalId/index.tsx",
+      "queryOwner": "api.production_proposals.getBuilderProposalConfirmationState",
+      "queryOwnerFunction": "BuilderProductionProposalWorkspace",
+      "testTargets": [
+        "src/routes/builder/proposals/-proposal.$proposalId.test.ts"
+      ]
+    },
+    {
+      "id": "route-backoffice-lenders",
+      "class": "production-route",
+      "routeSource": "src/routes/backoffice/lenders/index.tsx",
+      "routerPath": "/backoffice/lenders/",
+      "importModule": "./-lender-control-plane",
+      "componentSource": "src/routes/backoffice/lenders/-lender-control-plane.tsx",
+      "componentExport": "LenderControlPlaneSurface",
+      "renderPath": ["LenderControlPlaneRoute", "LenderControlPlaneSurface"],
+      "queryOwnerLocation": "component",
+      "queryOwnerSource": "src/routes/backoffice/lenders/-lender-control-plane.tsx",
+      "queryOwner": "api.lenderOrganizations.listLenderOrganizations",
+      "queryOwnerFunction": "LenderControlPlaneSurface",
+      "testTargets": [
+        "src/routes/backoffice/lenders/-lender-control-plane.test.tsx"
+      ]
+    },
+    {
+      "id": "route-backoffice-proposal-detail",
+      "class": "production-route",
+      "routeSource": "src/routes/backoffice/proposals.$planId.tsx",
+      "routerPath": "/backoffice/proposals/$planId",
+      "importModule": "#/features/production-proposals/ProductionProposalSurfaces.tsx",
+      "componentSource": "src/features/production-proposals/ProductionProposalSurfaces.tsx",
+      "componentExport": "ProductionProposalReviewSurface",
+      "renderPath": ["ProposalReviewRoute", "ProductionProposalReviewSurface"],
+      "queryOwnerLocation": "route",
+      "queryOwnerSource": "src/routes/backoffice/proposals.$planId.tsx",
+      "queryOwner": "api.production_proposals.getProposalDetailByString",
+      "queryOwnerFunction": "ProposalReviewRoute",
+      "testTargets": ["src/routes/backoffice/-proposals.$planId.test.tsx"]
+    },
+    {
+      "id": "api-proposal-lifecycle",
+      "class": "canonical-api",
+      "sourcePath": "convex/production_proposals.ts",
+      "exportName": "getCurrentLenderProposalDetail"
+    },
+    {
+      "id": "api-review-cycle",
+      "class": "canonical-api",
+      "sourcePath": "convex/lender_portal_phase5.ts",
+      "exportName": "getLenderReviewRequest"
+    },
+    {
+      "id": "api-review-evidence",
+      "class": "canonical-api",
+      "sourcePath": "convex/lender_portal_phase5.ts",
+      "exportName": "getLenderReviewEvidence"
+    },
+    {
+      "id": "api-organization-domain",
+      "class": "canonical-api",
+      "sourcePath": "convex/lenderOrganizations.ts",
+      "exportName": "getCurrentLenderOrganization"
+    }
+  ],
+  "testCommands": [
+    {
+      "id": "registered-production-journeys",
+      "packageScript": "test:lender-portal-production-journeys",
+      "runner": "vitest",
+      "runnerExecutableSha256": "39db22f579acf5639bbb17a261408debbde03f4692c0c439e77e7f13aeba74d6",
+      "runnerVersion": "3.2.4",
+      "targetFiles": [
+        "scripts/lender-portal-production-acceptance.test.ts",
+        "convex/lender_portal.test.ts",
+        "convex/lender_portal_phase5.test.ts",
+        "convex/lender_portal_phase6.test.ts",
+        "convex/production_proposals.test.ts",
+        "convex/lenderOrganizations.test.ts",
+        "src/routes/backoffice/lenders/-lender-control-plane.test.tsx",
+        "src/routes/backoffice/-index.test.tsx",
+        "src/routes/backoffice/-proposals.$planId.test.tsx",
+        "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+        "src/routes/lender/-dashboard-route.test.tsx",
+        "src/routes/lender/-draws-route.test.tsx",
+        "src/routes/lender/-milestones-route.test.tsx",
+        "src/routes/lender/-notification-review-routes.test.ts",
+        "src/routes/lender/builds/-build-detail-route.test.tsx",
+        "src/routes/lender/proposals/-detail-route.test.tsx",
+        "src/routes/lender/proposals/-index.test.tsx"
+      ]
+    }
+  ],
+  "testProofs": [
+    {
+      "id": "proof-surface-dashboard",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-dashboard-route.test.tsx",
+      "assertionName": "renders every Review requirement beyond the former three-row cap",
+      "consumerIds": ["route-dashboard"],
+      "proofClass": "production-route",
+      "observableResult": "The supported lender Dashboard renders every actionable review requirement."
+    },
+    {
+      "id": "proof-surface-build-detail",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/builds/-build-detail-route.test.tsx",
+      "assertionName": "queries the authorized canonical boundary and renders promoted Variant C",
+      "consumerIds": ["route-build-detail"],
+      "proofClass": "production-route",
+      "observableResult": "The supported Build route renders authorized canonical Variant C detail."
+    },
+    {
+      "id": "proof-surface-milestones",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-milestones-route.test.tsx",
+      "assertionName": "opens canonical queue data through the ordinary target-only route contract",
+      "consumerIds": ["route-milestone-queue"],
+      "proofClass": "production-route",
+      "observableResult": "The ordinary Milestone route opens canonical assigned queue data."
+    },
+    {
+      "id": "proof-surface-draws",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-draws-route.test.tsx",
+      "assertionName": "opens canonical queue data through the ordinary target-only route contract",
+      "consumerIds": ["route-draw-queue"],
+      "proofClass": "production-route",
+      "observableResult": "The ordinary Draw route opens canonical assigned queue data."
+    },
+
+    {
+      "id": "proof-e2e-01",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/proposals/-index.test.tsx",
+      "assertionName": "renders the public lender Proposal list query through the production route",
+      "consumerIds": ["route-proposal-list"],
+      "proofClass": "production-route",
+      "observableResult": "An assigned lender reaches the scoped Proposal list from its production route."
+    },
+    {
+      "id": "proof-e2e-02",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/proposals/-detail-route.test.tsx",
+      "assertionName": "wires an eligible lender closing through the supported route",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "proofClass": "production-route",
+      "observableResult": "An eligible lender records explicit closing through the supported Proposal route."
+    },
+    {
+      "id": "proof-e2e-03",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/proposals/-detail-route.test.tsx",
+      "assertionName": "wires separate activation and opens the returned authorized Build",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "proofClass": "production-route",
+      "observableResult": "Separate activation returns and opens the authorized canonical Build."
+    },
+    {
+      "id": "proof-e2e-04",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/proposals/-detail-route.test.tsx",
+      "assertionName": "renders sealed revision checkpoints and decisions without private fields",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "proofClass": "production-route",
+      "observableResult": "Withdrawn Proposal history renders sealed decisions without private fields."
+    },
+    {
+      "id": "proof-e2e-05",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-milestones-route.test.tsx",
+      "assertionName": "renders the ordinary Phase 5 detail from a queue target",
+      "consumerIds": ["route-milestone-queue", "api-review-cycle"],
+      "proofClass": "production-route",
+      "observableResult": "A lender opens current Milestone review detail from the assigned queue."
+    },
+    {
+      "id": "proof-e2e-06",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+      "assertionName": "wires a numeric notification URL cycle to Builder correction and the returned N+1 tuple",
+      "consumerIds": ["route-builder-correction", "api-review-cycle"],
+      "proofClass": "production-route",
+      "observableResult": "The Builder correction route preserves the exact numeric review cycle tuple."
+    },
+    {
+      "id": "proof-e2e-07",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-draws-route.test.tsx",
+      "assertionName": "renders the canonical review surface for a complete deep-link tuple",
+      "consumerIds": ["route-draw-queue", "api-review-evidence"],
+      "proofClass": "production-route",
+      "observableResult": "A complete authorized Draw deep link renders the canonical review surface."
+    },
+    {
+      "id": "proof-e2e-08",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/backoffice/lenders/-lender-control-plane.test.tsx",
+      "assertionName": "reaches the promoted Variant E directory with canonical scoped members",
+      "consumerIds": ["route-backoffice-lenders", "api-organization-domain"],
+      "proofClass": "production-route",
+      "observableResult": "Back Office reaches Variant E with canonical scoped organization members."
+    },
+    {
+      "id": "proof-e2e-09",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-dashboard-route.test.tsx",
+      "assertionName": "does not request portfolio data without an assigned lender organization",
+      "consumerIds": ["route-dashboard"],
+      "proofClass": "production-route",
+      "observableResult": "The lender Dashboard stays private without an assigned lender organization."
+    },
+    {
+      "id": "proof-e2e-10",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-notification-review-routes.test.ts",
+      "assertionName": "branches current and withdrawn Proposal detail at the route query boundary",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "proofClass": "production-route",
+      "observableResult": "The Proposal route selects current or sealed historical detail at its query boundary."
+    },
+
+    {
+      "id": "proof-vsg-01",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-dashboard-route.test.tsx",
+      "assertionName": "keeps an assigned lender in loading state until Dashboard data is defined",
+      "consumerIds": ["route-dashboard"],
+      "proofClass": "production-route",
+      "observableResult": "The Dashboard waits for defined canonical data without fixture fallback."
+    },
+    {
+      "id": "proof-vsg-02",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/builds/-build-detail-route.test.tsx",
+      "assertionName": "renders the authorized Build overview from the supported route entry",
+      "consumerIds": ["route-build-detail"],
+      "proofClass": "production-route",
+      "observableResult": "The Build detail vertical slice remains authorized and production reachable."
+    },
+    {
+      "id": "proof-vsg-03",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-milestones-route.test.tsx",
+      "assertionName": "retains the exact-cycle notification boundary for correlated links",
+      "consumerIds": ["route-milestone-queue", "api-review-cycle"],
+      "proofClass": "production-route",
+      "observableResult": "Correlated Milestone links retain the exact current review-cycle boundary."
+    },
+    {
+      "id": "proof-vsg-04",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-draws-route.test.tsx",
+      "assertionName": "renders the promoted production Draw queue from the ordinary route entry",
+      "consumerIds": ["route-draw-queue"],
+      "proofClass": "production-route",
+      "observableResult": "The ordinary production route renders the promoted Draw queue."
+    },
+    {
+      "id": "proof-vsg-05",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/lender/-draws-route.test.tsx",
+      "assertionName": "renders the ordinary Phase 5 detail from a queue target without notification correlation",
+      "consumerIds": ["route-draw-queue", "api-review-evidence"],
+      "proofClass": "production-route",
+      "observableResult": "Ordinary Draw queue navigation opens canonical detail without fabricated correlation."
+    },
+    {
+      "id": "proof-vsg-06",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+      "assertionName": "keeps submitted Builder proposals read-only despite broad app permissions",
+      "consumerIds": ["route-builder-correction"],
+      "proofClass": "production-route",
+      "observableResult": "Submitted Builder Proposals remain read-only despite broad application permissions."
+    },
+    {
+      "id": "proof-vsg-07",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+      "assertionName": "does not wire lender-only review or backoffice draw controls into the builder workspace",
+      "consumerIds": ["route-builder-correction"],
+      "proofClass": "production-route",
+      "observableResult": "Builder routes do not expose lender-only or Back Office controls."
+    },
+    {
+      "id": "proof-vsg-08",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/backoffice/lenders/-lender-control-plane.test.tsx",
+      "assertionName": "requires and forwards the operator-entered workflow policy audit reason",
+      "consumerIds": ["route-backoffice-lenders", "api-organization-domain"],
+      "proofClass": "production-route",
+      "observableResult": "Back Office policy changes require and forward the operator audit reason."
+    },
+    {
+      "id": "proof-vsg-09",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/backoffice/-proposals.$planId.test.tsx",
+      "assertionName": "wires the supported Back Office detail route to explicit closing terms and separate activation",
+      "consumerIds": [
+        "route-backoffice-proposal-detail",
+        "api-proposal-lifecycle"
+      ],
+      "proofClass": "production-route",
+      "observableResult": "Closing and activation stay separate with explicit terms on the supported workflow."
+    },
+    {
+      "id": "proof-vsg-10",
+      "commandId": "registered-production-journeys",
+      "targetFile": "src/routes/backoffice/lenders/-lender-control-plane.test.tsx",
+      "assertionName": "keeps an accepted role change pending until the WorkOS projection reconciles",
+      "consumerIds": ["route-backoffice-lenders", "api-organization-domain"],
+      "proofClass": "production-route",
+      "observableResult": "Accepted WorkOS role changes remain pending until canonical reconciliation."
+    },
+
+    {
+      "id": "proof-auth-dashboard-scope",
+      "commandId": "registered-production-journeys",
+      "targetFile": "convex/lender_portal.test.ts",
+      "assertionName": "fails closed when a Dashboard assignment crosses tenant or Brokerage scope",
+      "consumerIds": ["api-proposal-lifecycle"],
+      "proofClass": "authorization-boundary",
+      "observableResult": "Cross-tenant or cross-Brokerage Dashboard assignments fail closed."
+    },
+    {
+      "id": "proof-auth-review-privacy",
+      "commandId": "registered-production-journeys",
+      "targetFile": "convex/lender_portal_phase5.test.ts",
+      "assertionName": "keeps stable identities, reconstructs cycles, projects every state, and enforces privacy and stale-cycle guards",
+      "consumerIds": ["api-review-cycle"],
+      "proofClass": "authorization-boundary",
+      "observableResult": "Review cycles enforce privacy and reject stale authorization tuples."
+    },
+    {
+      "id": "proof-auth-evidence-scope",
+      "commandId": "registered-production-journeys",
+      "targetFile": "convex/lender_portal_phase6.test.ts",
+      "assertionName": "keeps Site Visit completion read-only without the canonical lender permission",
+      "consumerIds": ["api-review-evidence"],
+      "proofClass": "authorization-boundary",
+      "observableResult": "Site Visit completion remains read-only without canonical lender permission."
+    },
+    {
+      "id": "proof-auth-snapshot-boundary",
+      "commandId": "registered-production-journeys",
+      "targetFile": "convex/production_proposals.test.ts",
+      "assertionName": "fails closed when the published lender content snapshot is incomplete",
+      "consumerIds": ["api-proposal-lifecycle"],
+      "proofClass": "authorization-boundary",
+      "observableResult": "Incomplete immutable lender snapshots fail closed before lender projection."
+    },
+    {
+      "id": "proof-auth-organization-scope",
+      "commandId": "registered-production-journeys",
+      "targetFile": "convex/lenderOrganizations.test.ts",
+      "assertionName": "rejects cross-organization pending-email ambiguity without granting either organization",
+      "consumerIds": ["api-organization-domain"],
+      "proofClass": "authorization-boundary",
+      "observableResult": "Cross-organization identity ambiguity grants neither organization access."
+    }
+  ],
+  "authorizationTestProofIds": [
+    "proof-auth-dashboard-scope",
+    "proof-auth-review-privacy",
+    "proof-auth-evidence-scope",
+    "proof-auth-snapshot-boundary",
+    "proof-auth-organization-scope"
+  ],
+  "surfaces": [
+    {
+      "id": "LP-SURFACE-DASHBOARD",
+      "productionRoute": "/lender",
+      "component": "LenderDashboardVariantD",
+      "queryOwner": "api.lender_portal.getLenderDashboard",
+      "testProofId": "proof-surface-dashboard",
+      "consumerIds": ["route-dashboard"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "responsive-zoom-and-screen-reader",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-SURFACE-BUILD-DETAIL",
+      "productionRoute": "/lender/builds/$buildId",
+      "component": "LenderBuildDetailOverview",
+      "queryOwner": "api.lender_portal.getLenderBuildDetail",
+      "testProofId": "proof-surface-build-detail",
+      "consumerIds": ["route-build-detail"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "responsive-zoom-and-screen-reader",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-SURFACE-MILESTONE-QUEUE",
+      "productionRoute": "/lender/milestones",
+      "component": "LenderMilestoneQueue",
+      "queryOwner": "api.lender_portal_phase5.listAllAssignedLenderMilestoneReviewRequests",
+      "testProofId": "proof-surface-milestones",
+      "consumerIds": ["route-milestone-queue"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "responsive-zoom-and-screen-reader",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-SURFACE-DRAW-QUEUE",
+      "productionRoute": "/lender/draws",
+      "component": "LenderDrawQueue",
+      "queryOwner": "api.lender_portal.getLenderDrawQueue",
+      "testProofId": "proof-surface-draws",
+      "consumerIds": ["route-draw-queue"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "responsive-zoom-and-screen-reader",
+        "exact-release-commit"
+      ]
+    }
+  ],
+  "journeys": [
+    {
+      "id": "LP-E2E-01",
+      "testProofId": "proof-e2e-01",
+      "consumerIds": ["route-proposal-list"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-02",
+      "testProofId": "proof-e2e-02",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-03",
+      "testProofId": "proof-e2e-03",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-04",
+      "testProofId": "proof-e2e-04",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-05",
+      "testProofId": "proof-e2e-05",
+      "consumerIds": ["route-milestone-queue", "api-review-cycle"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "provider-and-webhook-delivery",
+        "inbox-and-reauthorized-links",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-06",
+      "testProofId": "proof-e2e-06",
+      "consumerIds": ["route-builder-correction", "api-review-cycle"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "provider-and-webhook-delivery",
+        "inbox-and-reauthorized-links",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-07",
+      "testProofId": "proof-e2e-07",
+      "consumerIds": ["route-draw-queue", "api-review-evidence"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "provider-and-webhook-delivery",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-08",
+      "testProofId": "proof-e2e-08",
+      "consumerIds": ["route-backoffice-lenders", "api-organization-domain"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "responsive-zoom-and-screen-reader",
+        "provider-and-webhook-delivery",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-09",
+      "testProofId": "proof-e2e-09",
+      "consumerIds": ["route-dashboard"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "responsive-zoom-and-screen-reader",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-E2E-10",
+      "testProofId": "proof-e2e-10",
+      "consumerIds": ["route-proposal-detail", "api-proposal-lifecycle"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "provider-and-webhook-delivery",
+        "inbox-and-reauthorized-links",
+        "exact-release-commit"
+      ]
+    }
+  ],
+  "verticalSliceGates": [
+    {
+      "id": "LP-VSG-01",
+      "testProofId": "proof-vsg-01",
+      "consumerIds": ["route-dashboard"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-02",
+      "testProofId": "proof-vsg-02",
+      "consumerIds": ["route-build-detail"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-03",
+      "testProofId": "proof-vsg-03",
+      "consumerIds": ["route-milestone-queue", "api-review-cycle"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-04",
+      "testProofId": "proof-vsg-04",
+      "consumerIds": ["route-draw-queue"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-05",
+      "testProofId": "proof-vsg-05",
+      "consumerIds": ["route-draw-queue", "api-review-evidence"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "provider-and-webhook-delivery",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-06",
+      "testProofId": "proof-vsg-06",
+      "consumerIds": ["route-builder-correction"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "inbox-and-reauthorized-links",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-07",
+      "testProofId": "proof-vsg-07",
+      "consumerIds": ["route-builder-correction"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "provider-and-webhook-delivery",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-08",
+      "testProofId": "proof-vsg-08",
+      "consumerIds": ["route-backoffice-lenders", "api-organization-domain"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "responsive-zoom-and-screen-reader",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-09",
+      "testProofId": "proof-vsg-09",
+      "consumerIds": [
+        "route-backoffice-proposal-detail",
+        "api-proposal-lifecycle"
+      ],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "focus-and-status-announcements",
+        "responsive-zoom-and-screen-reader",
+        "exact-release-commit"
+      ]
+    },
+    {
+      "id": "LP-VSG-10",
+      "testProofId": "proof-vsg-10",
+      "consumerIds": ["route-backoffice-lenders", "api-organization-domain"],
+      "operationalGateIds": [
+        "authenticated-production-browser",
+        "provider-and-webhook-delivery",
+        "inbox-and-reauthorized-links",
+        "exact-release-commit"
+      ]
+    }
+  ],
+  "operationalGates": [
+    {
+      "id": "authenticated-production-browser",
+      "artifactKind": "browser-capture",
+      "evidenceType": "authenticated-browser-journey"
+    },
+    {
+      "id": "focus-and-status-announcements",
+      "artifactKind": "accessibility-report",
+      "evidenceType": "focus-status-audit"
+    },
+    {
+      "id": "responsive-zoom-and-screen-reader",
+      "artifactKind": "accessibility-report",
+      "evidenceType": "responsive-assistive-technology-audit"
+    },
+    {
+      "id": "provider-and-webhook-delivery",
+      "artifactKind": "provider-delivery-report",
+      "evidenceType": "provider-webhook-delivery"
+    },
+    {
+      "id": "inbox-and-reauthorized-links",
+      "artifactKind": "inbox-link-report",
+      "evidenceType": "inbox-reauthorization-journey"
+    },
+    {
+      "id": "phase3-migration-cutover",
+      "artifactKind": "migration-cutover-report",
+      "evidenceType": "phase3-migration-cutover"
+    },
+    {
+      "id": "exact-release-commit",
+      "artifactKind": "release-artifact",
+      "evidenceType": "immutable-release-bundle"
+    }
+  ]
+}

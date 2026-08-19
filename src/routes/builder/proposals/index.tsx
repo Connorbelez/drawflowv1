@@ -81,6 +81,13 @@ export function BuilderProductionProposalsWorkspace({
           });
           return;
         }
+        if (params?.buildId) {
+          void navigate({
+            params: { buildId: params.buildId } as never,
+            to: `${routeBase}/builds/$buildId` as never,
+          });
+          return;
+        }
         void navigate({ to: `${routeBase}/proposals` as never });
       }}
       rows={rows}

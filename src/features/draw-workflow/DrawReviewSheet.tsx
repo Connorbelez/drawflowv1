@@ -82,10 +82,18 @@ export interface DrawReviewPolicyGate {
   stateLabel: string;
 }
 
+export interface DrawReviewHistoryEntry {
+  actor: string;
+  createdAt: number;
+  id: string;
+  title: string;
+}
+
 export type DrawReviewViewerRole = "backoffice" | "builder" | "lender";
 
 export function DrawReviewSheet({
   actions,
+  actionItems,
   amountCents,
   builder,
   buildLabel,
@@ -96,6 +104,8 @@ export function DrawReviewSheet({
   drawLabel,
   evidence = [],
   funding,
+  history = [],
+  historyNavigation,
   location,
   onClose,
   open,
@@ -108,6 +118,7 @@ export function DrawReviewSheet({
   viewerRole = "backoffice",
 }: {
   actions?: ReactNode;
+  actionItems?: ReactNode;
   amountCents: number;
   builder?: DrawReviewBuilder;
   buildLabel: string;
@@ -118,6 +129,8 @@ export function DrawReviewSheet({
   drawLabel: string;
   evidence?: DrawReviewEvidenceItem[];
   funding?: DrawReviewFundingSummary;
+  history?: DrawReviewHistoryEntry[];
+  historyNavigation?: ReactNode;
   location?: string;
   onClose: () => void;
   open: boolean;
@@ -211,13 +224,15 @@ export function DrawReviewSheet({
             </TabsPanel>
 
             <TabsPanel className="pt-4" value="actions">
-              <ActionItemsPanel action={collaborationAction} />
+              <ActionItemsPanel action={actionItems} />
             </TabsPanel>
 
             <TabsPanel className="pt-4" value="decision">
               <DecisionPanel
                 canViewDecision={canViewDecision}
                 details={privateDetails}
+                history={history}
+                historyNavigation={historyNavigation}
                 reviewNote={reviewNote}
                 status={status}
               />
@@ -707,11 +722,15 @@ function ActionItemsPanel({ action }: { action?: ReactNode }) {
 function DecisionPanel({
   canViewDecision,
   details,
+  history,
+  historyNavigation,
   reviewNote,
   status,
 }: {
   canViewDecision: boolean;
   details: DrawReviewDetail[];
+  history: DrawReviewHistoryEntry[];
+  historyNavigation?: ReactNode;
   reviewNote?: {
     disabled?: boolean;
     onChange: (value: string) => void;
@@ -763,6 +782,37 @@ function DecisionPanel({
               ))}
             </dl>
           ) : null}
+          <div className="border-t pt-4">
+            <h3 className="font-medium text-sm">Review history</h3>
+            {history.length > 0 ? (
+              <ol className="mt-3 divide-y border-y">
+                {history.map((entry) => (
+                  <li
+                    className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3 text-sm"
+                    key={entry.id}
+                  >
+                    <span className="min-w-0 break-words">
+                      <span className="font-medium">{entry.title}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {entry.actor}
+                      </span>
+                    </span>
+                    <time
+                      className="text-muted-foreground text-xs tabular-nums"
+                      dateTime={new Date(entry.createdAt).toISOString()}
+                    >
+                      {new Date(entry.createdAt).toLocaleString("en-CA")}
+                    </time>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="mt-2 text-muted-foreground text-sm">
+                No prior review-cycle decisions are available.
+              </p>
+            )}
+            {historyNavigation}
+          </div>
         </FramePanel>
       </Frame>
     </div>

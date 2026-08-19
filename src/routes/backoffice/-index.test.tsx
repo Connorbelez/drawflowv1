@@ -26,10 +26,13 @@ import type {
   MilestoneKanbanCard,
   ProposalKanbanCard,
 } from "#/features/backoffice-dashboard/mock-data.ts";
+import { EMPTY_PROPOSAL_DIRECTORY_FILTERS } from "#/features/production-proposals/ProposalDirectoryControls.tsx";
 import {
   ActiveBuildsCard,
   ApprovedProposalSidebar,
+  BackofficeDashboard,
   ClosingConfirmationDialog,
+  createBackofficeDashboardLifecycleHandlers,
   MilestoneKanban,
   normalizeProductionBackofficeDashboard,
   ProposalKanban,
@@ -41,6 +44,55 @@ import {
 } from "./index";
 
 const WORKOS_ORGANIZATION_ID = "org_backoffice_loader_test";
+
+test("the dashboard lifecycle handlers record closing without activating and activate separately", async () => {
+  const recordClosing = vi.fn().mockResolvedValue(null);
+  const activateClosedProposal = vi
+    .fn()
+    .mockResolvedValue({ buildId: "active-build-1" });
+  const navigateToBuild = vi.fn();
+  const handlers = createBackofficeDashboardLifecycleHandlers({
+    activateClosedProposal,
+    navigateToBuild,
+    recordClosing,
+    workosOrganizationId: WORKOS_ORGANIZATION_ID,
+  });
+  const closingInput: ClosingConfirmationInput = {
+    buildStartDate: "2026-06-01",
+    ianaTimezone: "America/Toronto",
+    interestAnnualBps: 875,
+    principalCents: 57_500_025,
+    reason: "Signed closing package verified by Back Office.",
+  };
+
+  await handlers.onRecordClosing(approvedProposal, closingInput);
+
+  expect(recordClosing).toHaveBeenCalledWith({
+    buildStartDate: "2026-06-01",
+    ianaTimezone: "America/Toronto",
+    loanFacility: {
+      interestAnnualBps: 875,
+      principalCents: 57_500_025,
+    },
+    proposalId: "proposal-approved",
+    reason: "Signed closing package verified by Back Office.",
+    workosOrganizationId: WORKOS_ORGANIZATION_ID,
+  });
+  expect(activateClosedProposal).not.toHaveBeenCalled();
+  expect(navigateToBuild).not.toHaveBeenCalled();
+
+  await handlers.onActivateClosedProposal(
+    { ...approvedProposal, column: "closed" },
+    "Independent activation approval recorded."
+  );
+
+  expect(activateClosedProposal).toHaveBeenCalledWith({
+    proposalId: "proposal-approved",
+    reason: "Independent activation approval recorded.",
+    workosOrganizationId: WORKOS_ORGANIZATION_ID,
+  });
+  expect(navigateToBuild).toHaveBeenCalledWith("active-build-1");
+});
 
 test("keeps the reactive backoffice dashboard client-rendered", () => {
   expect(Route.options.ssr).toBe(false);
@@ -386,19 +438,36 @@ describe("SubmittedProposalsCard", () => {
     );
 
     await screen.findByRole("dialog", { name: "Record loan closing" });
-    expect(screen.getByText("Principal: $550,000 · Interest starts on funds released")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Principal not yet entered · Interest starts on funds released"
+      )
+    ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Loan principal (USD)") as HTMLInputElement).value
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Build start date") as HTMLInputElement).value
+    ).toBe("");
     expect(
       (screen.getByLabelText("Build timezone (IANA)") as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Annual interest rate (%)") as HTMLInputElement)
         .value,
     ).toBe("");
     expect(
       (screen.getByRole("button", {
         name: "Confirm closing",
       }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Build start date"), {
       target: { value: "2026-06-01" },
+    });
+    fireEvent.change(screen.getByLabelText("Loan principal (USD)"), {
+      target: { value: "550000" },
     });
     fireEvent.change(screen.getByLabelText("Audit reason"), {
       target: { value: "Offline closing signed by lender admin." },
@@ -406,14 +475,192 @@ describe("SubmittedProposalsCard", () => {
     fireEvent.change(screen.getByLabelText("Build timezone (IANA)"), {
       target: { value: "America/Toronto" },
     });
+    fireEvent.change(screen.getByLabelText("Annual interest rate (%)"), {
+      target: { value: "8.5" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Confirm closing" }));
 
     await waitFor(() =>
       expect(confirmClosing).toHaveBeenCalledWith({
         buildStartDate: "2026-06-01",
         ianaTimezone: "America/Toronto",
+        interestAnnualBps: 850,
+        principalCents: 55_000_000,
         reason: "Offline closing signed by lender admin.",
       }),
+    );
+  });
+});
+
+describe("BackofficeDashboard proposal lifecycle", () => {
+  const dashboardHandlers = {
+    onAcknowledgeHandoff: vi.fn().mockResolvedValue(null),
+    onArchiveProposal: vi.fn().mockResolvedValue(null),
+    onAssignBuilder: vi.fn().mockResolvedValue(null),
+    onDeleteActiveBuild: vi.fn().mockResolvedValue(null),
+    onDeleteDraft: vi.fn().mockResolvedValue(null),
+    onEscalate: vi.fn().mockResolvedValue(null),
+    onOpenUnassignedDrafts: vi.fn(),
+    onReturnDecision: vi.fn().mockResolvedValue(null),
+    onStartNewBuildWorkflow: vi.fn(),
+  };
+
+  function dashboardWithApprovedPendingClosing(
+    approvedPendingClosing: ProposalKanbanCard[]
+  ) {
+    return normalizeProductionBackofficeDashboard({
+      activeBuilds: [],
+      approvedPendingClosing,
+      drawRequests: [],
+      metrics: [],
+      milestoneColumns: [],
+      milestones: [],
+      proposalColumns,
+      proposals: [],
+      quickActions: [],
+      scheduleDate: "2026-05-08T12:00:00.000Z",
+      scheduleEvents: [],
+      submittedProposals: [],
+    });
+  }
+
+  function proposalDirectory(cards: Array<Record<string, unknown>>) {
+    return {
+      activeFilterCount: 0,
+      cards,
+      filters: { ...EMPTY_PROPOSAL_DIRECTORY_FILTERS },
+      hasActiveQuery: false,
+      isLoading: false,
+      kanban: { columns: [] },
+      loadMore: vi.fn(),
+      reset: vi.fn(),
+      search: "",
+      setFilters: vi.fn(),
+      setSearch: vi.fn(),
+      status: "Exhausted",
+    };
+  }
+
+  test("the production dashboard requires explicit closing terms and exposes activation only after the reactive closed state", async () => {
+    const onRecordClosing = vi.fn().mockResolvedValue(null);
+    const onActivateClosedProposal = vi.fn().mockResolvedValue(null);
+    const missingTermsProposal = {
+      ...approvedProposal,
+      interestAnnualBps: undefined,
+    };
+    const renderDashboard = (
+      approvedPendingClosing: ProposalKanbanCard[],
+      directoryCards: Array<Record<string, unknown>>
+    ) => (
+      <BackofficeDashboard
+        {...dashboardHandlers}
+        builders={builders}
+        dashboard={dashboardWithApprovedPendingClosing(
+          approvedPendingClosing
+        )}
+        onActivateClosedProposal={onActivateClosedProposal}
+        onRecordClosing={onRecordClosing}
+        proposalDirectory={proposalDirectory(directoryCards) as never}
+        proposalFilterOptions={{ brokers: [], builders }}
+      />
+    );
+    const { rerender } = render(renderDashboard([missingTermsProposal], []));
+
+    fireEvent.contextMenu(screen.getByText("Approved With Permit"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Record closing" })
+    );
+
+    const closingDialog = await screen.findByRole("dialog", {
+      name: "Record loan closing",
+    });
+    expect(
+      (screen.getByLabelText("Loan principal (USD)") as HTMLInputElement).value
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Annual interest rate (%)") as HTMLInputElement)
+        .value
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Loan principal (USD)") as HTMLInputElement)
+        .required
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Annual interest rate (%)") as HTMLInputElement)
+        .required
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Build start date") as HTMLInputElement).value
+    ).toBe("");
+
+    fireEvent.change(screen.getByLabelText("Loan principal (USD)"), {
+      target: { value: "575000.25" },
+    });
+    fireEvent.change(screen.getByLabelText("Annual interest rate (%)"), {
+      target: { value: "8.75" },
+    });
+    fireEvent.change(screen.getByLabelText("Build timezone (IANA)"), {
+      target: { value: "America/Toronto" },
+    });
+    fireEvent.change(screen.getByLabelText("Audit reason"), {
+      target: { value: "Signed closing package verified by Back Office." },
+    });
+    fireEvent.submit(closingDialog.querySelector("form") as HTMLFormElement);
+    expect(onRecordClosing).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Build start date"), {
+      target: { value: "2026-06-01" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm closing" }));
+
+    await waitFor(() =>
+      expect(onRecordClosing).toHaveBeenCalledWith(missingTermsProposal, {
+        buildStartDate: "2026-06-01",
+        ianaTimezone: "America/Toronto",
+        interestAnnualBps: 875,
+        principalCents: 57_500_025,
+        reason: "Signed closing package verified by Back Office.",
+      })
+    );
+    expect(onActivateClosedProposal).not.toHaveBeenCalled();
+
+    rerender(
+      renderDashboard([], [
+        {
+          activeBuildId: undefined,
+          builderName: "Production Builder",
+          column: "closed",
+          href: "/backoffice/proposals/proposal-approved",
+          interestAnnualBps: 875,
+          lenderDrawPolicyLimitCents: 57_500_025,
+          location: "91 Approved Avenue, Toronto, ON",
+          proposalId: "proposal-approved",
+          statusLabel: "Closed - pending activation",
+          title: "Approved With Permit",
+          totalBudgetCents: 175_000_000,
+          updatedAt: Date.parse("2026-06-01T12:00:00.000Z"),
+        },
+      ])
+    );
+
+    fireEvent.contextMenu(screen.getByText("Approved With Permit"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Activate Build" })
+    );
+    await screen.findByRole("dialog", { name: "Activate Build" });
+    fireEvent.change(screen.getByLabelText("Audit reason"), {
+      target: { value: "Independent activation approval recorded." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Activate Build" }));
+
+    await waitFor(() =>
+      expect(onActivateClosedProposal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          column: "closed",
+          proposalId: "proposal-approved",
+        }),
+        "Independent activation approval recorded."
+      )
     );
   });
 });

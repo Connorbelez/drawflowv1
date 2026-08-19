@@ -13,6 +13,15 @@ const navigate = vi.fn();
 const hostRender = vi.fn();
 const hostProps = vi.fn();
 const surfaceProps = vi.fn();
+const notificationSurfaceProps = vi.fn();
+const toProductionMilestoneSheetData = vi.fn(() => ({
+  column: "Back Office review",
+  contractors: [],
+  milestoneKey: "foundation",
+  name: "Foundation",
+  recentEvents: [],
+  submilestones: [],
+}));
 let routeSearch: Record<string, unknown> = {};
 const useMutation = vi.fn();
 const useQuery = vi.fn();
@@ -34,7 +43,13 @@ const activeBuildDetail = {
   costItems: [],
   documents: [],
   draws: [],
-  milestones: [],
+  milestones: [
+    {
+      _id: "milestone-01",
+      key: "foundation",
+      name: "Foundation",
+    },
+  ],
   quickActionEvents: [],
   siteVisits: [],
   submilestones: [],
@@ -107,6 +122,15 @@ vi.mock("#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx", (
         ) : null}
       </div>
     );
+  },
+  toProductionMilestoneSheetData: (...args: unknown[]) =>
+    toProductionMilestoneSheetData(...args),
+}));
+
+vi.mock("#/features/lender-portal/LenderNotificationReviewSurface.tsx", () => ({
+  BackofficeNotificationReviewSurface: (props: Record<string, unknown>) => {
+    notificationSurfaceProps(props);
+    return <div data-testid="backoffice-notification-review" />;
   },
 }));
 
@@ -241,6 +265,57 @@ describe("Backoffice Build route canonical detail host", () => {
         detailTab: "review",
         focus: undefined,
       }),
+    );
+  });
+
+  test("routes a Milestone notification through canonical Back Office detail and Site Visit projections", () => {
+    const RouteComponent = (Route as unknown as {
+      component: React.ComponentType;
+    }).component;
+    const siteVisits = { visits: [{ visitId: "VISIT-01" }] };
+    routeSearch = {
+      milestoneId: "milestone-01",
+      reviewCycleId: "cycle-01",
+      reviewCycleNumber: "1",
+      tab: "details",
+    };
+    useQuery.mockImplementation((_reference, args) => {
+      if (args === "skip") {
+        return undefined;
+      }
+      if (
+        args &&
+        typeof args === "object" &&
+        "milestoneKey" in args
+      ) {
+        return siteVisits;
+      }
+      return activeBuildDetail;
+    });
+
+    render(<RouteComponent />);
+
+    expect(screen.getByTestId("backoffice-notification-review")).toBeTruthy();
+    expect(toProductionMilestoneSheetData).toHaveBeenCalledWith(
+      activeBuildDetail,
+      "foundation",
+      []
+    );
+    expect(notificationSurfaceProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        milestoneData: expect.objectContaining({
+          milestoneKey: "foundation",
+        }),
+        milestoneSiteVisits: siteVisits,
+        reviewCycleId: "cycle-01",
+        reviewCycleNumber: 1,
+        target: { kind: "milestone", milestoneId: "milestone-01" },
+        workosOrganizationId: "org_backoffice",
+      })
+    );
+    expect(useQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ milestoneKey: "foundation" })
     );
   });
 

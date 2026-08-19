@@ -1,6 +1,14 @@
-import { ArrowRight, LockKeyhole, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  CircleCheck,
+  Clock3,
+  LockKeyhole,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 
+import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -26,16 +34,26 @@ import type { DirectoryUser } from "#/routes/backoffice/-user-management-detail-
 import type { LenderOrganizationOperation } from "./LenderOrganizationManagementVariantE.tsx";
 
 const roleOptions = [
-  { label: "Admin", slug: "admin" },
-  { label: "Principal Broker", slug: "principle-broker" },
-  { label: "Broker", slug: "broker" },
-  { label: "Broker Staff", slug: "broker-staff" },
+  { label: "Lender", slug: "lender" },
+  { label: "Lender Admin", slug: "lender-admin" },
+  { label: "Lender Staff", slug: "lender-staff" },
 ] as const;
+type LenderRole = (typeof roleOptions)[number]["slug"];
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type LenderOrganizationOperationRequest =
-  | { email: string; kind: "invite"; roleSlug: "broker" | "broker-staff" }
-  | { kind: "change-access"; membershipId: string; roleSlugs: string[] }
+  | {
+      email: string;
+      kind: "invite";
+      reason: string;
+      roleSlug: LenderRole;
+    }
+  | {
+      kind: "change-access";
+      membershipId: string;
+      reason: string;
+      roleSlug: LenderRole;
+    }
   | { kind: "deactivate"; membershipId: string; reason: string }
   | {
       idempotencyKey: string;
@@ -44,6 +62,12 @@ export type LenderOrganizationOperationRequest =
       sourceMembershipId: string;
       targetMembershipId: string;
     };
+
+export interface WorkosReconciliationPresentation {
+  description: string;
+  status: "error" | "reconciled" | "waiting";
+  title: string;
+}
 
 const operationCopy: Record<
   LenderOrganizationOperation,
@@ -79,6 +103,7 @@ export function LenderOrganizationOperationDialog({
   operation,
   organizationName,
   pending,
+  reconciliation,
 }: {
   directoryUsers: DirectoryUser[];
   member: DirectoryUser | null;
@@ -87,25 +112,22 @@ export function LenderOrganizationOperationDialog({
   operation: LenderOrganizationOperation;
   organizationName: string;
   pending: boolean;
+  reconciliation?: WorkosReconciliationPresentation;
 }) {
   const operationId = useId();
   const membership = member?.memberships[0];
   const currentRoleSlugs = membership?.roleSlugs ?? [];
   const [stage, setStage] = useState<"draft" | "review">("draft");
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"broker" | "broker-staff">(
-    "broker"
+  const [inviteRole, setInviteRole] = useState<LenderRole>("lender");
+  const [proposedRole, setProposedRole] = useState<LenderRole>(() =>
+    isLenderRole(currentRoleSlugs[0]) ? currentRoleSlugs[0] : "lender"
   );
-  const [proposedRoles, setProposedRoles] =
-    useState<string[]>(currentRoleSlugs);
   const [reason, setReason] = useState("");
   const [historyAcknowledged, setHistoryAcknowledged] = useState(false);
   const [targetMembershipId, setTargetMembershipId] = useState("");
   const protectedPrincipal = currentRoleSlugs.includes("principle-broker");
-  const removesPrincipal =
-    operation === "change-access" &&
-    protectedPrincipal &&
-    !proposedRoles.includes("principle-broker");
+  const removesPrincipal = operation === "change-access" && protectedPrincipal;
   const protectedNormalOperation =
     (operation === "deactivate" && protectedPrincipal) || removesPrincipal;
   const eligibleTransferTargets = directoryUsers.filter((entry) => {
@@ -118,24 +140,21 @@ export function LenderOrganizationOperationDialog({
       )
     );
   });
-  const canReview =
-    operation === "invite"
-      ? emailPattern.test(inviteEmail.trim())
-      : operation === "change-access"
-        ? Boolean(membership) && proposedRoles.length > 0
-        : operation === "deactivate"
-          ? Boolean(membership) &&
-            reason.trim().length >= 10 &&
-            historyAcknowledged
-          : Boolean(membership) &&
-            Boolean(targetMembershipId) &&
-            reason.trim().length >= 10;
+  const canReview = canReviewOperation({
+    email: inviteEmail,
+    historyAcknowledged,
+    membershipId: membership?.workosMembershipId,
+    operation,
+    reason,
+    targetMembershipId,
+  });
 
   const execute = async () => {
     if (operation === "invite") {
       await onExecute({
         email: inviteEmail.trim(),
         kind: operation,
+        reason: reason.trim(),
         roleSlug: inviteRole,
       });
       return;
@@ -147,7 +166,8 @@ export function LenderOrganizationOperationDialog({
       await onExecute({
         kind: operation,
         membershipId: membership.workosMembershipId,
-        roleSlugs: proposedRoles,
+        reason: reason.trim(),
+        roleSlug: proposedRole,
       });
       return;
     }
@@ -184,7 +204,9 @@ export function LenderOrganizationOperationDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-5">
-          {stage === "draft" ? (
+          {reconciliation ? (
+            <ReconciliationStatus presentation={reconciliation} />
+          ) : stage === "draft" ? (
             <OperationDraft
               eligibleTransferTargets={eligibleTransferTargets}
               historyAcknowledged={historyAcknowledged}
@@ -194,11 +216,11 @@ export function LenderOrganizationOperationDialog({
               onHistoryAcknowledgedChange={setHistoryAcknowledged}
               onInviteEmailChange={setInviteEmail}
               onInviteRoleChange={setInviteRole}
-              onProposedRolesChange={setProposedRoles}
+              onProposedRoleChange={setProposedRole}
               onReasonChange={setReason}
               onTargetMembershipChange={setTargetMembershipId}
               operation={operation}
-              proposedRoles={proposedRoles}
+              proposedRole={proposedRole}
               reason={reason}
               targetMembershipId={targetMembershipId}
             />
@@ -209,7 +231,7 @@ export function LenderOrganizationOperationDialog({
               member={member}
               operation={operation}
               organizationName={organizationName}
-              proposedRoles={proposedRoles}
+              proposedRole={proposedRole}
               protectedOperation={protectedNormalOperation}
               reason={reason}
               target={eligibleTransferTargets.find(
@@ -248,9 +270,9 @@ export function LenderOrganizationOperationDialog({
             onClick={() => onOpenChange(false)}
             variant="outline"
           >
-            Cancel
+            {reconciliation ? "Close status" : "Cancel"}
           </Button>
-          {stage === "review" ? (
+          {reconciliation ? null : stage === "review" ? (
             <>
               <Button
                 disabled={pending}
@@ -277,6 +299,36 @@ export function LenderOrganizationOperationDialog({
   );
 }
 
+function ReconciliationStatus({
+  presentation,
+}: {
+  presentation: WorkosReconciliationPresentation;
+}) {
+  const Icon =
+    presentation.status === "reconciled"
+      ? CircleCheck
+      : presentation.status === "error"
+        ? TriangleAlert
+        : Clock3;
+  return (
+    <Alert
+      aria-live={presentation.status === "error" ? "assertive" : "polite"}
+      role={presentation.status === "error" ? "alert" : "status"}
+      variant={
+        presentation.status === "reconciled"
+          ? "success"
+          : presentation.status === "error"
+            ? "error"
+            : "info"
+      }
+    >
+      <Icon aria-hidden />
+      <AlertTitle>{presentation.title}</AlertTitle>
+      <AlertDescription>{presentation.description}</AlertDescription>
+    </Alert>
+  );
+}
+
 function OperationDraft({
   eligibleTransferTargets,
   historyAcknowledged,
@@ -286,27 +338,27 @@ function OperationDraft({
   onHistoryAcknowledgedChange,
   onInviteEmailChange,
   onInviteRoleChange,
-  onProposedRolesChange,
+  onProposedRoleChange,
   onReasonChange,
   onTargetMembershipChange,
   operation,
-  proposedRoles,
+  proposedRole,
   reason,
   targetMembershipId,
 }: {
   eligibleTransferTargets: DirectoryUser[];
   historyAcknowledged: boolean;
   inviteEmail: string;
-  inviteRole: "broker" | "broker-staff";
+  inviteRole: LenderRole;
   member: DirectoryUser | null;
   onHistoryAcknowledgedChange: (checked: boolean) => void;
   onInviteEmailChange: (value: string) => void;
-  onInviteRoleChange: (value: "broker" | "broker-staff") => void;
-  onProposedRolesChange: (roles: string[]) => void;
+  onInviteRoleChange: (value: LenderRole) => void;
+  onProposedRoleChange: (role: LenderRole) => void;
   onReasonChange: (value: string) => void;
   onTargetMembershipChange: (value: string) => void;
   operation: LenderOrganizationOperation;
-  proposedRoles: string[];
+  proposedRole: LenderRole;
   reason: string;
   targetMembershipId: string;
 }) {
@@ -328,17 +380,24 @@ function OperationDraft({
             className="w-full"
             id="invite-role"
             onChange={(event) =>
-              onInviteRoleChange(
-                event.target.value as "broker" | "broker-staff"
-              )
+              onInviteRoleChange(event.target.value as LenderRole)
             }
             value={inviteRole}
           >
-            <NativeSelectOption value="broker">Broker</NativeSelectOption>
-            <NativeSelectOption value="broker-staff">
-              Broker Staff
-            </NativeSelectOption>
+            {roleOptions.map((role) => (
+              <NativeSelectOption key={role.slug} value={role.slug}>
+                {role.label}
+              </NativeSelectOption>
+            ))}
           </NativeSelect>
+        </Field>
+        <Field htmlFor="invite-reason" label="Operational reason">
+          <Textarea
+            id="invite-reason"
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Provide at least 10 characters for the audit record"
+            value={reason}
+          />
         </Field>
       </div>
     );
@@ -347,34 +406,22 @@ function OperationDraft({
     <div className="space-y-4">
       <MemberHeader member={member} />
       {operation === "change-access" ? (
-        <fieldset className="space-y-2">
-          <legend className="font-medium text-sm">Proposed WorkOS roles</legend>
-          {roleOptions.map((role) => (
-            <label
-              className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-data-checked:border-primary/50 has-data-checked:bg-primary/5"
-              htmlFor={`proposed-role-${role.slug}`}
-              key={role.slug}
-            >
-              <Checkbox
-                checked={proposedRoles.includes(role.slug)}
-                id={`proposed-role-${role.slug}`}
-                onCheckedChange={(checked) =>
-                  onProposedRolesChange(
-                    checked
-                      ? [...new Set([...proposedRoles, role.slug])]
-                      : proposedRoles.filter((value) => value !== role.slug)
-                  )
-                }
-              />
-              <span>
-                <span className="block font-medium text-sm">{role.label}</span>
-                <span className="block text-muted-foreground text-xs">
-                  {role.slug}
-                </span>
-              </span>
-            </label>
-          ))}
-        </fieldset>
+        <Field htmlFor="proposed-lender-role" label="Proposed lender role">
+          <NativeSelect
+            className="w-full"
+            id="proposed-lender-role"
+            onChange={(event) =>
+              onProposedRoleChange(event.target.value as LenderRole)
+            }
+            value={proposedRole}
+          >
+            {roleOptions.map((role) => (
+              <NativeSelectOption key={role.slug} value={role.slug}>
+                {role.label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </Field>
       ) : null}
       {operation === "transfer-principal" ? (
         <Field
@@ -401,7 +448,9 @@ function OperationDraft({
           </NativeSelect>
         </Field>
       ) : null}
-      {operation === "deactivate" || operation === "transfer-principal" ? (
+      {operation === "change-access" ||
+      operation === "deactivate" ||
+      operation === "transfer-principal" ? (
         <Field
           htmlFor="organization-operation-reason"
           label="Operational reason"
@@ -446,7 +495,7 @@ function OperationReview({
   member,
   operation,
   organizationName,
-  proposedRoles,
+  proposedRole,
   protectedOperation,
   reason,
   target,
@@ -456,7 +505,7 @@ function OperationReview({
   member: DirectoryUser | null;
   operation: LenderOrganizationOperation;
   organizationName: string;
-  proposedRoles: string[];
+  proposedRole: LenderRole;
   protectedOperation: boolean;
   reason: string;
   target?: DirectoryUser;
@@ -483,10 +532,7 @@ function OperationReview({
           <ReviewFact label="Starting access" value={inviteRole} />
         ) : null}
         {operation === "change-access" ? (
-          <ReviewFact
-            label="Proposed access"
-            value={proposedRoles.join(", ")}
-          />
+          <ReviewFact label="Proposed access" value={proposedRole} />
         ) : null}
         {operation === "transfer-principal" ? (
           <ReviewFact
@@ -544,4 +590,39 @@ function ReviewFact({ label, value }: { label: string; value: string }) {
       <span className="text-right font-medium">{value}</span>
     </div>
   );
+}
+
+function isLenderRole(value: string | undefined): value is LenderRole {
+  return roleOptions.some((role) => role.slug === value);
+}
+
+function canReviewOperation({
+  email,
+  historyAcknowledged,
+  membershipId,
+  operation,
+  reason,
+  targetMembershipId,
+}: {
+  email: string;
+  historyAcknowledged: boolean;
+  membershipId: string | undefined;
+  operation: LenderOrganizationOperation;
+  reason: string;
+  targetMembershipId: string;
+}) {
+  const hasReason = reason.trim().length >= 10;
+  if (operation === "invite") {
+    return emailPattern.test(email.trim()) && hasReason;
+  }
+  if (!(membershipId && hasReason)) {
+    return false;
+  }
+  if (operation === "deactivate") {
+    return historyAcknowledged;
+  }
+  if (operation === "transfer-principal") {
+    return Boolean(targetMembershipId);
+  }
+  return true;
 }

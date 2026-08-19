@@ -2,16 +2,19 @@ import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { builderNavGroups, footerNavLinks } from "#/components/app-shared.tsx";
 import { AppShell } from "#/components/app-shell.tsx";
 import { requireWorkspaceAccess } from "#/lib/auth/rbac.ts";
+import { enforceLenderPortalPrototypeRouteGate } from "#/lib/lender-portal-prototype-route-gate.ts";
 
 export const Route = createFileRoute("/builder")({
-  beforeLoad: ({ context, location }) =>
-    requireWorkspaceAccess({
+  beforeLoad: ({ context, location }) => {
+    enforceLenderPortalPrototypeRouteGate(location.pathname);
+    return requireWorkspaceAccess({
       isAuthenticated: Boolean(context.userId),
       organizationId: context.organizationId,
       pathname: location.pathname,
       roles: [context.role, ...(context.roles ?? [])],
       workspace: "builder",
-    }),
+    });
+  },
   staticData: {
     breadcrumb: {
       label: "Builder",

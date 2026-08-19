@@ -148,9 +148,14 @@ describe("ProposalLenderAssignmentSection", () => {
       within(detailsDialog).getByRole("button", { name: "Edit review policy" }),
     );
     expect(onEditReviewPolicy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
+    fireEvent.click(screen.getByRole("button", { name: "View assignment" }));
+    const reopenedDetailsDialog = screen.getByRole("dialog");
     fireEvent.click(
-      within(detailsDialog).getByRole("button", { name: "Withdraw assignment" }),
+      within(reopenedDetailsDialog).getByRole("button", {
+        name: "Withdraw assignment",
+      }),
     );
     const withdrawalDialog = screen.getByRole("dialog");
     fireEvent.change(
@@ -174,6 +179,47 @@ describe("ProposalLenderAssignmentSection", () => {
       expect(onWithdraw).toHaveBeenCalledWith(
         "assignment_1",
         "Restore internal closing for this revision.",
+      ),
+    );
+  });
+
+  test("restores a missing lender confirmation cycle from assigned details", async () => {
+    const onRepairLenderConfirmation = vi.fn().mockResolvedValue({
+      confirmationCycleId: "cycle_1",
+    });
+
+    render(
+      <ProposalLenderAssignmentSection
+        assignment={{
+          assignedAt: 1,
+          assignmentId: "assignment_1",
+          lenderOrganizationId: "org_northstar",
+          lenderOrganizationName: "Northstar Lending Organization",
+          status: "current",
+        }}
+        lenderOrganizations={lenderOrganizations}
+        needsConfirmationRepair
+        onRepairLenderConfirmation={onRepairLenderConfirmation}
+        proposal={proposal}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View assignment" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Restore lender confirmation" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(
+      within(dialog).getByRole("textbox", { name: "Repair reason" }),
+      { target: { value: "Restore the missing lender review state." } },
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Restore confirmation" }),
+    );
+
+    await waitFor(() =>
+      expect(onRepairLenderConfirmation).toHaveBeenCalledWith(
+        "Restore the missing lender review state.",
       ),
     );
   });

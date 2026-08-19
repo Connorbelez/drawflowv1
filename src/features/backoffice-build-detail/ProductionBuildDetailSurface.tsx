@@ -6630,6 +6630,21 @@ function productionMilestoneHasStartedWorkflow(
   return Boolean(milestone.actualStartedAt ?? milestone.startedAt);
 }
 
+export function toProductionMilestoneSheetData(
+  detail: ProductionBuildDetail,
+  milestoneKey: string,
+  costDocuments: CostDocumentSummary[] = []
+): MilestoneSheetData | null {
+  const projection = buildProductionBuildProjection(detail);
+  return buildMilestoneSheetData(
+    detail,
+    projection,
+    milestoneKey,
+    resolveProductionCurrentDay(detail),
+    costDocuments
+  );
+}
+
 function buildMilestoneSheetData(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,

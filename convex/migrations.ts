@@ -7,8 +7,10 @@ import { hasAssignableBrokerRole } from "./brokerAssignments.js";
 import { operationalRequestFingerprint } from "./build_operational_idempotency.js";
 import { getLenderOrganizationApprovalEligibility } from "./lenderOrganizationAccess.js";
 import {
-  DEFAULT_PROPOSAL_REVIEW_POLICY,
-  type ProposalReviewPolicySnapshot,
+  beginLenderPortalPhase9MigrationApply,
+  requireAuthorizedLenderPortalPhase9Migration,
+} from "./lender_portal_phase9.js";
+import {
   validateProposalReviewPolicyQuorums,
 } from "./lender_portal_phase3.js";
 import {
@@ -202,6 +204,7 @@ async function materializeLegacyLenderOrganization(
   input: {
     brokerageId?: Id<"brokerages">;
     legacyWorkosOrganizationId: string;
+    organizationId: string;
     snapshotName?: string;
     sourceTable: LegacyLenderSource;
     sourceRecordId: string;
@@ -217,7 +220,22 @@ async function materializeLegacyLenderOrganization(
     // shape as a legacy value and continue with the grouped cutover.
   }
   if (currentOrganization) {
-    return currentOrganization._id;
+    if (
+      input.brokerageId &&
+      currentOrganization.brokerageId === input.brokerageId &&
+      currentOrganization.status === "active"
+    ) {
+      return currentOrganization._id;
+    }
+    await recordLenderReconciliationCandidate(
+      ctx,
+      input,
+      input.brokerageId,
+      currentOrganization.status !== "active"
+        ? "The legacy lender identifier resolves to an inactive application-owned Lender Organization."
+        : "The legacy lender identifier resolves outside its recorded lender Brokerage."
+    );
+    return null;
   }
 
   const brokerage = input.brokerageId
@@ -240,37 +258,21 @@ async function materializeLegacyLenderOrganization(
         .eq("brokerageId", brokerage._id)
         .eq("legacyWorkosOrganizationId", input.legacyWorkosOrganizationId)
     )
-    .take(1);
-  if (existing[0]) {
+    .take(2);
+  if (existing.length === 1 && existing[0]?.status === "active") {
     return existing[0]._id;
   }
-
-  const workosOrganization = await ctx.db
-    .query("workosOrganizations")
-    .withIndex("by_workos_organization_id", (query) =>
-      query.eq("workosOrganizationId", input.legacyWorkosOrganizationId)
-    )
-    .take(1);
-  const displayName =
-    workosOrganization[0]?.name?.trim() ||
-    input.snapshotName?.trim() ||
-    `Legacy lender organization ${input.legacyWorkosOrganizationId}`;
-  const now = Date.now();
-  return await ctx.db.insert("lenderOrganizations", {
-    brokerageId: brokerage._id,
-    legalName: displayName,
-    displayName,
-    legacyWorkosOrganizationId: input.legacyWorkosOrganizationId,
-    status: "active",
-    permissions: {
-      proposalReview: true,
-      milestoneDecisions: true,
-      drawDecisions: true,
-      siteVisitReview: true,
-    },
-    createdAt: now,
-    updatedAt: now,
-  });
+  await recordLenderReconciliationCandidate(
+    ctx,
+    input,
+    brokerage._id,
+    existing.length > 1
+      ? "Multiple application-owned Lender Organizations match the legacy identifier."
+      : existing[0]
+        ? "The matching application-owned Lender Organization is inactive."
+        : "No application-owned Lender Organization verifies the legacy identifier; WorkOS projection data is not migration authority."
+  );
+  return null;
 }
 
 async function recordLenderReconciliationCandidate(
@@ -278,6 +280,7 @@ async function recordLenderReconciliationCandidate(
   input: {
     brokerageId?: Id<"brokerages">;
     legacyWorkosOrganizationId: string;
+    organizationId: string;
     snapshotName?: string;
     sourceTable: LegacyLenderSource;
     sourceRecordId: string;
@@ -287,24 +290,27 @@ async function recordLenderReconciliationCandidate(
 ) {
   const existing = await ctx.db
     .query("lenderOrganizationReconciliationCandidates")
-    .withIndex("by_legacy_workos_organization", (query) =>
-      query.eq("legacyWorkosOrganizationId", input.legacyWorkosOrganizationId)
+    .withIndex("by_scope_source", (query) =>
+      query
+        .eq("brokerageId", brokerageId ?? input.brokerageId)
+        .eq("organizationId", input.organizationId)
+        .eq("sourceTable", input.sourceTable)
+        .eq("sourceRecordId", input.sourceRecordId)
     )
-    .collect();
-  if (
-    existing.some(
-      (candidate) =>
-        candidate.sourceTable === input.sourceTable &&
-        candidate.sourceRecordId === input.sourceRecordId &&
-        candidate.status === "open"
-    )
-  ) {
+    .take(2);
+  if (existing.length > 1) {
+    throw new Error(
+      "Lender reconciliation candidate scope contains contradictory duplicates."
+    );
+  }
+  if (existing[0]?.status === "open") {
     return;
   }
   const now = Date.now();
   await ctx.db.insert("lenderOrganizationReconciliationCandidates", {
     brokerageId: brokerageId ?? input.brokerageId,
     legacyWorkosOrganizationId: input.legacyWorkosOrganizationId,
+    organizationId: input.organizationId,
     sourceTable: input.sourceTable,
     sourceRecordId: input.sourceRecordId,
     snapshotName: input.snapshotName,
@@ -336,6 +342,7 @@ export const backfillLegacyProposalLenderAssignmentOrganizations =
         {
           brokerageId: assignment.lenderBrokerageId,
           legacyWorkosOrganizationId: String(assignment.lenderOrganizationId),
+          organizationId: assignment.organizationId,
           snapshotName: assignment.lenderOrganizationName,
           sourceTable: "proposalLenderAssignments",
           sourceRecordId: String(assignment._id),
@@ -372,6 +379,7 @@ export const backfillLegacyProposalLenderApprovalOrganizations =
         ? await materializeLegacyLenderOrganization(ctx, {
             brokerageId: assignment.lenderBrokerageId,
             legacyWorkosOrganizationId: String(approval.lenderOrganizationId),
+            organizationId: approval.organizationId,
             snapshotName: assignment.lenderOrganizationName,
             sourceTable: "proposalLenderApprovals",
             sourceRecordId: String(approval._id),
@@ -381,7 +389,9 @@ export const backfillLegacyProposalLenderApprovalOrganizations =
         await recordLenderReconciliationCandidate(
           ctx,
           {
+            brokerageId: approval.brokerageId,
             legacyWorkosOrganizationId: String(approval.lenderOrganizationId),
+            organizationId: approval.organizationId,
             sourceTable: "proposalLenderApprovals",
             sourceRecordId: String(approval._id),
           },
@@ -404,6 +414,7 @@ export const runLegacyLenderOrganizationCutover = migrations.runner([
 
 type Phase3MigrationSourceTable =
   | "buildProposals"
+  | "proposalLenderAssignments"
   | "proposalLenderApprovals"
   | "proposalClosings"
   | "activeBuilds";
@@ -496,9 +507,14 @@ async function getMigrationCurrentProposalAssignment(
 async function ensureMigrationPolicyVersion(ctx: MutationCtx, proposal: Doc<"buildProposals">) {
   if (proposal.currentReviewPolicyVersionId) {
     const pointed = await ctx.db.get(proposal.currentReviewPolicyVersionId);
-    if (pointed?.proposalId === proposal._id) {
+    if (
+      pointed?.proposalId === proposal._id &&
+      pointed.organizationId === proposal.organizationId &&
+      pointed.brokerageId === proposal.brokerageId
+    ) {
       return pointed;
     }
+    return null;
   }
   const existing = await ctx.db
     .query("proposalReviewPolicyVersions")
@@ -506,83 +522,16 @@ async function ensureMigrationPolicyVersion(ctx: MutationCtx, proposal: Doc<"bui
       query.eq("proposalId", proposal._id)
     )
     .order("desc")
-    .take(1);
-  if (existing[0]) {
+    .take(2);
+  if (
+    existing[0] &&
+    existing[0].organizationId === proposal.organizationId &&
+    existing[0].brokerageId === proposal.brokerageId &&
+    existing[0].version !== existing[1]?.version
+  ) {
     return existing[0];
   }
-  const configuredAt =
-    proposal.approvedAt ?? proposal.closedAt ?? proposal.updatedAt;
-  const policyVersionId = await ctx.db.insert("proposalReviewPolicyVersions", {
-    brokerageId: proposal.brokerageId,
-    configuredAt,
-    configuredByRole: "migration",
-    configuredByWorkosUserId:
-      proposal.backOfficeApprovedByWorkosUserId ??
-      proposal.updatedByWorkosUserId,
-    idempotencyKey: "migration:phase3:default-policy",
-    organizationId: proposal.organizationId,
-    policy: DEFAULT_PROPOSAL_REVIEW_POLICY,
-    proposalId: proposal._id,
-    reason:
-      "Backfill the default review policy for pre-Phase 3 lifecycle data.",
-    version: 1,
-  });
-  return await ctx.db.get(policyVersionId);
-}
-
-async function buildMigrationProposalCheckpoints(
-  ctx: MutationCtx,
-  proposal: Doc<"buildProposals">,
-  policy: ProposalReviewPolicySnapshot
-) {
-  if (!proposal.builderProfileId) {
-    return null;
-  }
-  const [builder, milestones] = await Promise.all([
-    ctx.db.get(proposal.builderProfileId),
-    ctx.db
-      .query("proposalMilestones")
-      .withIndex("by_proposal", (query) =>
-        query.eq("proposalId", proposal._id)
-      )
-      .take(501),
-  ]);
-  if (
-    !builder ||
-    milestones.length > 500 ||
-    milestones.some((milestone) => milestone.dependencyKeys.length > 500)
-  ) {
-    return null;
-  }
-  const orderedMilestones = milestones
-    .map((milestone) => ({
-      dayEnd: milestone.dayEnd,
-      dayStart: milestone.dayStart,
-      dependencyKeys: [...milestone.dependencyKeys].sort(),
-      durationDays: milestone.durationDays,
-      key: milestone.key,
-      order: milestone.order,
-    }))
-    .sort(
-      (left, right) =>
-        left.order - right.order || left.key.localeCompare(right.key)
-    );
-  const milestonesFingerprint = await operationalRequestFingerprint(orderedMilestones);
-  return { milestones: orderedMilestones, checkpoints: {
-    accessReviewPolicy: policy,
-    budget: { totalBudgetCents: proposal.totalBudgetCents },
-    builder: {
-      builderProfileId: builder._id,
-      displayName: builder.displayName,
-    },
-    milestoneCount: { count: orderedMilestones.length },
-    scheduleTimeline: {
-      milestonesFingerprint,
-      proposedStartDate: proposal.proposedStartDate ?? null,
-      timelineRangeMax: proposal.timelineRangeMax ?? null,
-      timelineRangeMin: proposal.timelineRangeMin ?? null,
-    },
-  }};
+  return null;
 }
 
 async function ensureMigrationProposalRevision(
@@ -597,12 +546,15 @@ async function ensureMigrationProposalRevision(
     const pointed = await ctx.db.get(proposal.currentProposalRevisionId);
     if (
       pointed?.proposalId === proposal._id &&
+      pointed.organizationId === proposal.organizationId &&
+      pointed.brokerageId === proposal.brokerageId &&
       pointed.revisionNumber === proposal.currentProposalRevisionNumber &&
       pointed.reviewPolicyVersionId === policyVersion._id &&
       pointed.assignmentId === assignment?._id
     ) {
       return pointed;
     }
+    return null;
   }
   const existing = await ctx.db
     .query("proposalRevisions")
@@ -610,51 +562,17 @@ async function ensureMigrationProposalRevision(
       query.eq("proposalId", proposal._id)
     )
     .order("desc")
-    .take(1);
+    .take(2);
   if (
     existing[0]?.reviewPolicyVersionId === policyVersion._id &&
-    existing[0].assignmentId === assignment?._id
+    existing[0].assignmentId === assignment?._id &&
+    existing[0].organizationId === proposal.organizationId &&
+    existing[0].brokerageId === proposal.brokerageId &&
+    existing[0].revisionNumber !== existing[1]?.revisionNumber
   ) {
     return existing[0];
   }
-  if (existing[0]) return null;
-  const snapshot = await buildMigrationProposalCheckpoints(
-    ctx,
-    proposal,
-    policyVersion.policy
-  );
-  if (!snapshot) {
-    return null;
-  }
-  const createdAt = proposal.approvedAt ?? proposal.updatedAt;
-  const revisionId = await ctx.db.insert("proposalRevisions", {
-    ...(assignment ? { assignmentId: assignment._id } : {}),
-    backOfficeApprovedByWorkosUserId:
-      proposal.backOfficeApprovedByWorkosUserId ??
-      proposal.updatedByWorkosUserId,
-    brokerageId: proposal.brokerageId,
-    changedCheckpoints: [],
-    checkpoints: snapshot.checkpoints,
-    createdAt,
-    createdByRole: "migration",
-    createdByWorkosUserId: proposal.updatedByWorkosUserId,
-    idempotencyKey: "migration:phase3:initial-revision",
-    organizationId: proposal.organizationId,
-    proposalId: proposal._id,
-    reason: "Backfill the initial immutable proposal revision.",
-    revisionNumber: 1,
-    reviewPolicyVersionId: policyVersion._id,
-  });
-  for (const milestone of snapshot.milestones) {
-    await ctx.db.insert("proposalRevisionMilestones", {
-      brokerageId: proposal.brokerageId,
-      organizationId: proposal.organizationId,
-      proposalId: proposal._id,
-      revisionId,
-      ...milestone,
-    });
-  }
-  return await ctx.db.get(revisionId);
+  return null;
 }
 
 export const backfillProposalPhase3PolicyAndRevision = migrations.define({
@@ -697,20 +615,65 @@ export const backfillProposalPhase3ApprovalRevision = migrations.define({
   table: "proposalLenderApprovals",
   batchSize: 25,
   migrateOne: async (ctx, approval) => {
+    const [proposal, assignment] = await Promise.all([
+      ctx.db.get(approval.proposalId),
+      ctx.db.get(approval.assignmentId),
+    ]);
+    if (!proposal) return;
+    if (
+      approval.organizationId !== proposal.organizationId ||
+      approval.brokerageId !== proposal.brokerageId ||
+      !assignment ||
+      assignment.proposalId !== proposal._id ||
+      assignment.organizationId !== proposal.organizationId ||
+      assignment.brokerageId !== proposal.brokerageId
+    ) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Approval, assignment, proposal, organization, and Brokerage scope do not match; no revision link was changed.",
+        sourceRecordId: String(approval._id),
+        sourceTable: "proposalLenderApprovals",
+      });
+      return;
+    }
+    if (
+      (approval.proposalRevisionId === undefined) !==
+      (approval.proposalRevisionNumber === undefined)
+    ) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Approval contains a contradictory partial revision pointer; no fallback link was applied.",
+        sourceRecordId: String(approval._id),
+        sourceTable: "proposalLenderApprovals",
+      });
+      return;
+    }
     if (
       approval.proposalRevisionId &&
       approval.proposalRevisionNumber !== undefined
     ) {
       const linked = await ctx.db.get(approval.proposalRevisionId);
+      const linkedPolicy = linked
+        ? await ctx.db.get(linked.reviewPolicyVersionId)
+        : null;
       if (
         linked?.proposalId === approval.proposalId &&
+        linked.organizationId === proposal.organizationId &&
+        linked.brokerageId === proposal.brokerageId &&
         linked.assignmentId === approval.assignmentId &&
-        linked.revisionNumber === approval.proposalRevisionNumber
+        linked.revisionNumber === approval.proposalRevisionNumber &&
+        linkedPolicy?.proposalId === proposal._id &&
+        linkedPolicy.organizationId === proposal.organizationId &&
+        linkedPolicy.brokerageId === proposal.brokerageId
       ) {
         if (approval.status === "approved") {
-          const proposal = await ctx.db.get(approval.proposalId);
           if (
-            proposal &&
             (proposal.latestLenderReviewedRevisionNumber ?? 0) <= linked.revisionNumber
           ) {
             await ctx.db.patch(proposal._id, {
@@ -727,9 +690,17 @@ export const backfillProposalPhase3ApprovalRevision = migrations.define({
         );
         return;
       }
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Stored approval revision pointer conflicts with proposal, assignment, policy, organization, or Brokerage scope; it was not overwritten.",
+        sourceRecordId: String(approval._id),
+        sourceTable: "proposalLenderApprovals",
+      });
+      return;
     }
-    const proposal = await ctx.db.get(approval.proposalId);
-    if (!proposal) return;
     const decisionAt =
       approval.approvedAt ?? approval.declinedAt ?? approval.createdAt;
     const revisionCandidates = await ctx.db
@@ -740,13 +711,26 @@ export const backfillProposalPhase3ApprovalRevision = migrations.define({
       .order("desc")
       .take(2);
     const revision = revisionCandidates[0];
-    if (!revision) {
+    const revisionPolicy = revision
+      ? await ctx.db.get(revision.reviewPolicyVersionId)
+      : null;
+    if (
+      !revision ||
+      revision.proposalId !== proposal._id ||
+      revision.organizationId !== proposal.organizationId ||
+      revision.brokerageId !== proposal.brokerageId ||
+      revision.assignmentId !== assignment._id ||
+      !revisionPolicy ||
+      revisionPolicy.proposalId !== proposal._id ||
+      revisionPolicy.organizationId !== proposal.organizationId ||
+      revisionPolicy.brokerageId !== proposal.brokerageId
+    ) {
       await recordPhase3MigrationIssue(ctx, {
         brokerageId: proposal.brokerageId,
         organizationId: proposal.organizationId,
         proposalId: proposal._id,
         reason:
-          "No assignment-scoped proposal revision existed at the recorded decision time.",
+          "No exact assignment-, policy-, proposal-, organization-, and Brokerage-scoped revision existed at the recorded decision time.",
         sourceRecordId: String(approval._id),
         sourceTable: "proposalLenderApprovals",
       });
@@ -796,11 +780,72 @@ async function linkMigrationPolicyLock(
   closing: Doc<"proposalClosings">,
   lock: Doc<"proposalReviewPolicyLocks">,
 ) {
+  const [policy, revision, assignment, build] = await Promise.all([
+    ctx.db.get(lock.policyVersionId),
+    ctx.db.get(lock.proposalRevisionId),
+    lock.assignmentId ? ctx.db.get(lock.assignmentId) : null,
+    proposal.activeBuildId ? ctx.db.get(proposal.activeBuildId) : null,
+  ]);
+  const policySnapshotMatches = policy
+    ? (await operationalRequestFingerprint(lock.policy)) ===
+      (await operationalRequestFingerprint(policy.policy))
+    : false;
+  if (
+    closing.proposalId !== proposal._id ||
+    closing.organizationId !== proposal.organizationId ||
+    closing.brokerageId !== proposal.brokerageId ||
+    lock.proposalId !== proposal._id ||
+    lock.organizationId !== proposal.organizationId ||
+    lock.brokerageId !== proposal.brokerageId ||
+    proposal.currentReviewPolicyVersionId !== lock.policyVersionId ||
+    proposal.currentProposalRevisionId !== lock.proposalRevisionId ||
+    proposal.currentProposalRevisionNumber !== lock.proposalRevisionNumber ||
+    !policy ||
+    policy.proposalId !== proposal._id ||
+    policy.organizationId !== proposal.organizationId ||
+    policy.brokerageId !== proposal.brokerageId ||
+    !revision ||
+    revision.proposalId !== proposal._id ||
+    revision.organizationId !== proposal.organizationId ||
+    revision.brokerageId !== proposal.brokerageId ||
+    revision.reviewPolicyVersionId !== policy._id ||
+    revision.revisionNumber !== lock.proposalRevisionNumber ||
+    !policySnapshotMatches ||
+    (proposal.lockedReviewPolicyId !== undefined &&
+      proposal.lockedReviewPolicyId !== lock._id) ||
+    (closing.reviewPolicyLockId !== undefined &&
+      closing.reviewPolicyLockId !== lock._id) ||
+    (lock.assignmentId !== undefined &&
+      (!assignment ||
+        assignment.proposalId !== proposal._id ||
+        assignment.organizationId !== proposal.organizationId ||
+        assignment.brokerageId !== proposal.brokerageId ||
+        revision.assignmentId !== assignment._id ||
+        String(lock.lenderOrganizationId) !==
+          String(assignment.lenderOrganizationId))) ||
+    (lock.assignmentId === undefined && revision.assignmentId !== undefined) ||
+    (proposal.activeBuildId !== undefined &&
+      (!build ||
+        build.proposalId !== proposal._id ||
+        build.organizationId !== proposal.organizationId ||
+        build.brokerageId !== proposal.brokerageId ||
+        (build.reviewPolicyLockId !== undefined &&
+          build.reviewPolicyLockId !== lock._id)))
+  ) {
+    await recordPhase3MigrationIssue(ctx, {
+      brokerageId: proposal.brokerageId,
+      organizationId: proposal.organizationId,
+      proposalId: proposal._id,
+      reason:
+        "Policy lock, closing, policy, revision, assignment, organization, and Brokerage scope do not match; no linkage was changed.",
+      sourceRecordId: String(proposal._id),
+      sourceTable: "proposalClosings",
+    });
+    return false;
+  }
   await ctx.db.patch(proposal._id, { lockedReviewPolicyId: lock._id });
   await ctx.db.patch(closing._id, { reviewPolicyLockId: lock._id });
-  if (proposal.activeBuildId) {
-    const build = await ctx.db.get(proposal.activeBuildId);
-    if (build?.proposalId === proposal._id) {
+  if (build) {
       await ctx.db.patch(build._id, {
         reviewPolicyLockEvidence: {
           activeLenderMemberCount: lock.activeLenderMemberCount,
@@ -821,25 +866,15 @@ async function linkMigrationPolicyLock(
       await resolvePhase3MigrationIssue(
         ctx,
         "activeBuilds",
-        String(proposal.activeBuildId)
+        String(build._id)
       );
-    } else {
-      await recordPhase3MigrationIssue(ctx, {
-        brokerageId: proposal.brokerageId,
-        organizationId: proposal.organizationId,
-        proposalId: proposal._id,
-        reason:
-          "The active Build pointer cannot be reconciled to the closed proposal.",
-        sourceRecordId: String(proposal.activeBuildId),
-        sourceTable: "activeBuilds",
-      });
-    }
   }
   await resolvePhase3MigrationIssue(
     ctx,
     "proposalClosings",
     String(proposal._id)
   );
+  return true;
 }
 
 export const backfillProposalPhase3PolicyLock = migrations.define({
@@ -882,6 +917,12 @@ export const backfillProposalPhase3PolicyLock = migrations.define({
     if (
       !policyVersion ||
       !revision ||
+      policyVersion.proposalId !== proposal._id ||
+      policyVersion.organizationId !== proposal.organizationId ||
+      policyVersion.brokerageId !== proposal.brokerageId ||
+      revision.proposalId !== proposal._id ||
+      revision.organizationId !== proposal.organizationId ||
+      revision.brokerageId !== proposal.brokerageId ||
       revision.reviewPolicyVersionId !== policyVersion._id
     ) {
       await recordPhase3MigrationIssue(ctx, {
@@ -1001,4 +1042,788 @@ export const runProposalPhase3LifecycleBackfill = migrations.runner([
   internal.migrations.backfillProposalPhase3PolicyAndRevision,
   internal.migrations.backfillProposalPhase3ApprovalRevision,
   internal.migrations.backfillProposalPhase3PolicyLock,
+]);
+
+/** Persist the exact authorized manifest boundary before any Phase 9 write. */
+export const validateLenderPortalPhase9ApplyManifest = migrations.define({
+  table: "lenderPortalPhase9MigrationRuns",
+  batchSize: 1,
+  migrateOne: async (ctx, run) => {
+    await beginLenderPortalPhase9MigrationApply(ctx, run);
+  },
+});
+
+/**
+ * Candidate-bound Phase 9 policy and assignment reconciliation. Only exact,
+ * application-owned records already present in the same tenant are linked.
+ */
+export const reconcileLenderPortalPhase9PolicyAssignmentFacts =
+  migrations.define({
+    table: "buildProposals",
+    batchSize: 1,
+    migrateOne: async (ctx, proposal) => {
+      const migrationRun = await requireAuthorizedLenderPortalPhase9Migration(
+        ctx,
+        proposal
+      );
+      if (!migrationRun) return;
+      const assignments = await ctx.db
+        .query("proposalLenderAssignments")
+        .withIndex("by_proposal", (query) =>
+          query.eq("proposalId", proposal._id)
+        )
+        .take(501);
+      if (assignments.length > 500) {
+        throw new Error(
+          "Phase 9 assignment reconciliation exceeded its authorized inventory boundary."
+        );
+      }
+      for (const assignment of assignments) {
+        let lenderOrganizationId = ctx.db.normalizeId(
+          "lenderOrganizations",
+          String(assignment.lenderOrganizationId)
+        );
+        let lenderOrganization = lenderOrganizationId
+          ? await ctx.db.get(lenderOrganizationId)
+          : null;
+        if (
+          !lenderOrganization ||
+          lenderOrganization.status !== "active" ||
+          lenderOrganization.brokerageId !== assignment.lenderBrokerageId
+        ) {
+          lenderOrganizationId = await materializeLegacyLenderOrganization(ctx, {
+            brokerageId: assignment.lenderBrokerageId,
+            legacyWorkosOrganizationId: String(assignment.lenderOrganizationId),
+            organizationId: assignment.organizationId,
+            snapshotName: assignment.lenderOrganizationName,
+            sourceRecordId: String(assignment._id),
+            sourceTable: "proposalLenderAssignments",
+          });
+          lenderOrganization = lenderOrganizationId
+            ? await ctx.db.get(lenderOrganizationId)
+            : null;
+        }
+        if (
+          assignment.organizationId !== proposal.organizationId ||
+          assignment.brokerageId !== proposal.brokerageId ||
+          !lenderOrganizationId ||
+          !lenderOrganization ||
+          lenderOrganization.status !== "active" ||
+          lenderOrganization.brokerageId !== assignment.lenderBrokerageId
+        ) {
+          await recordPhase3MigrationIssue(ctx, {
+            brokerageId: proposal.brokerageId,
+            organizationId: proposal.organizationId,
+            proposalId: proposal._id,
+            reason:
+              "Assignment ownership is not exactly verifiable within proposal, organization, and Brokerage scope.",
+            sourceRecordId: String(assignment._id),
+            sourceTable: "proposalLenderAssignments",
+          });
+          return;
+        }
+        if (assignment.lenderOrganizationId !== lenderOrganizationId) {
+          await ctx.db.patch(assignment._id, {
+            legacyLenderOrganizationId: String(assignment.lenderOrganizationId),
+            lenderOrganizationId,
+          });
+        }
+      }
+      if (proposal.status !== "approved" && proposal.status !== "closed") return;
+      const policy = await ensureMigrationPolicyVersion(ctx, proposal);
+      const revision = policy
+        ? await ensureMigrationProposalRevision(ctx, proposal, policy)
+        : null;
+      if (!policy || !revision) {
+        await recordPhase3MigrationIssue(ctx, {
+          brokerageId: proposal.brokerageId,
+          organizationId: proposal.organizationId,
+          proposalId: proposal._id,
+          reason:
+            "Exact policy and revision facts are unavailable or contradictory; no pointer was changed.",
+          sourceRecordId: String(proposal._id),
+          sourceTable: "buildProposals",
+        });
+        return;
+      }
+      const changed =
+        proposal.currentReviewPolicyVersionId !== policy._id ||
+        proposal.currentProposalRevisionId !== revision._id ||
+        proposal.currentProposalRevisionNumber !== revision.revisionNumber;
+      if (!changed) return;
+      await ctx.db.patch(proposal._id, {
+        currentProposalRevisionId: revision._id,
+        currentProposalRevisionNumber: revision.revisionNumber,
+        currentReviewPolicyVersionId: policy._id,
+      });
+      await recordPhase9MigrationAudit(ctx, proposal, {
+        candidateSha: migrationRun.candidateSha,
+        command: "reconcileLenderPortalPhase9PolicyAssignmentFacts",
+        eventType: "lender_portal.migration.policy_assignment_reconciled",
+        newState: JSON.stringify({
+          policyVersionId: String(policy._id),
+          proposalRevisionId: String(revision._id),
+        }),
+        reconciliationKey: `lender-portal-phase9:${migrationRun.runToken}:policy-assignment:${String(proposal._id)}`,
+        runToken: migrationRun.runToken,
+      });
+    },
+  });
+
+/**
+ * Candidate-bound approval reconciliation. A stored link is never replaced
+ * when any proposal, tenant, assignment, cycle, revision, or policy boundary
+ * conflicts. Missing links are added only from one exact canonical revision.
+ */
+export const reconcileLenderPortalPhase9ApprovalFacts = migrations.define({
+  table: "proposalLenderApprovals",
+  batchSize: 1,
+  migrateOne: async (ctx, approval) => {
+    const proposal = await ctx.db.get(approval.proposalId);
+    if (!proposal) return;
+    const migrationRun = await requireAuthorizedLenderPortalPhase9Migration(
+      ctx,
+      proposal
+    );
+    if (!migrationRun) return;
+    const assignment = await ctx.db.get(approval.assignmentId);
+    const cycle = approval.confirmationCycleId
+      ? await ctx.db.get(approval.confirmationCycleId)
+      : null;
+    const ownershipMatches = Boolean(
+      assignment &&
+        (String(approval.lenderOrganizationId) ===
+          String(assignment.lenderOrganizationId) ||
+          String(approval.lenderOrganizationId) ===
+            assignment.legacyLenderOrganizationId ||
+          approval.legacyLenderOrganizationId ===
+            assignment.legacyLenderOrganizationId)
+    );
+    if (
+      approval.organizationId !== proposal.organizationId ||
+      approval.brokerageId !== proposal.brokerageId ||
+      !assignment ||
+      assignment.proposalId !== proposal._id ||
+      assignment.organizationId !== proposal.organizationId ||
+      assignment.brokerageId !== proposal.brokerageId ||
+      !ownershipMatches ||
+      (approval.confirmationCycleId !== undefined &&
+        (!cycle ||
+          cycle.proposalId !== proposal._id ||
+          cycle.organizationId !== proposal.organizationId ||
+          cycle.brokerageId !== proposal.brokerageId ||
+          cycle.assignmentId !== assignment._id ||
+          (cycle.decisionId !== undefined && cycle.decisionId !== approval._id)))
+    ) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Approval ownership conflicts with proposal, organization, Brokerage, assignment, lender organization, or confirmation-cycle scope; no link was changed.",
+        sourceRecordId: String(approval._id),
+        sourceTable: "proposalLenderApprovals",
+      });
+      return;
+    }
+    if (
+      (approval.proposalRevisionId === undefined) !==
+      (approval.proposalRevisionNumber === undefined)
+    ) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Approval contains a contradictory partial revision pointer; no fallback link was applied.",
+        sourceRecordId: String(approval._id),
+        sourceTable: "proposalLenderApprovals",
+      });
+      return;
+    }
+
+    let revision: Doc<"proposalRevisions"> | null = null;
+    if (
+      approval.proposalRevisionId &&
+      approval.proposalRevisionNumber !== undefined
+    ) {
+      revision = await ctx.db.get(approval.proposalRevisionId);
+    } else if (cycle) {
+      revision = await ctx.db.get(cycle.proposalRevisionId);
+    } else {
+      const decisionAt =
+        approval.status === "approved"
+          ? approval.approvedAt
+          : approval.declinedAt;
+      if (decisionAt === undefined) {
+        await recordPhase3MigrationIssue(ctx, {
+          brokerageId: proposal.brokerageId,
+          organizationId: proposal.organizationId,
+          proposalId: proposal._id,
+          reason:
+            "Approval has no explicit decision timestamp or confirmation-cycle revision; no fallback link was applied.",
+          sourceRecordId: String(approval._id),
+          sourceTable: "proposalLenderApprovals",
+        });
+        return;
+      }
+      const candidates = await ctx.db
+        .query("proposalRevisions")
+        .withIndex("by_assignment_and_created_at", (query) =>
+          query.eq("assignmentId", assignment._id).lte("createdAt", decisionAt)
+        )
+        .order("desc")
+        .take(2);
+      if (
+        candidates.length > 1 &&
+        candidates[0]?.createdAt === candidates[1]?.createdAt
+      ) {
+        await recordPhase3MigrationIssue(ctx, {
+          brokerageId: proposal.brokerageId,
+          organizationId: proposal.organizationId,
+          proposalId: proposal._id,
+          reason:
+            "Multiple exact assignment revisions share the approval decision boundary; no fallback link was applied.",
+          sourceRecordId: String(approval._id),
+          sourceTable: "proposalLenderApprovals",
+        });
+        return;
+      }
+      revision = candidates[0] ?? null;
+    }
+    const policy = revision
+      ? await ctx.db.get(revision.reviewPolicyVersionId)
+      : null;
+    const revisionNumber =
+      approval.proposalRevisionNumber ?? cycle?.proposalRevisionNumber;
+    if (
+      !revision ||
+      revision.proposalId !== proposal._id ||
+      revision.organizationId !== proposal.organizationId ||
+      revision.brokerageId !== proposal.brokerageId ||
+      revision.assignmentId !== assignment._id ||
+      (revisionNumber !== undefined &&
+        revision.revisionNumber !== revisionNumber) ||
+      (cycle !== null && cycle.proposalRevisionId !== revision._id) ||
+      !policy ||
+      policy.proposalId !== proposal._id ||
+      policy.organizationId !== proposal.organizationId ||
+      policy.brokerageId !== proposal.brokerageId
+    ) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Approval revision or policy is not exact for the proposal, organization, Brokerage, assignment, and confirmation-cycle scope; no link was changed.",
+        sourceRecordId: String(approval._id),
+        sourceTable: "proposalLenderApprovals",
+      });
+      return;
+    }
+
+    const approvalPatch: {
+      legacyLenderOrganizationId?: string;
+      lenderOrganizationId?: Id<"lenderOrganizations"> | string;
+      proposalRevisionId?: Id<"proposalRevisions">;
+      proposalRevisionNumber?: number;
+    } = {};
+    if (
+      String(approval.lenderOrganizationId) !==
+      String(assignment.lenderOrganizationId)
+    ) {
+      approvalPatch.legacyLenderOrganizationId = String(
+        approval.lenderOrganizationId
+      );
+      approvalPatch.lenderOrganizationId = assignment.lenderOrganizationId;
+    }
+    if (!approval.proposalRevisionId) {
+      approvalPatch.proposalRevisionId = revision._id;
+      approvalPatch.proposalRevisionNumber = revision.revisionNumber;
+    }
+    if (Object.keys(approvalPatch).length > 0) {
+      await ctx.db.patch(approval._id, approvalPatch);
+    }
+    if (
+      approval.status === "approved" &&
+      (proposal.latestLenderReviewedRevisionNumber ?? 0) <=
+        revision.revisionNumber
+    ) {
+      await ctx.db.patch(proposal._id, {
+        latestLenderApprovalId: approval._id,
+        latestLenderReviewedRevisionId: revision._id,
+        latestLenderReviewedRevisionNumber: revision.revisionNumber,
+      });
+    }
+    await resolvePhase3MigrationIssue(
+      ctx,
+      "proposalLenderApprovals",
+      String(approval._id)
+    );
+    if (Object.keys(approvalPatch).length === 0) return;
+    await recordPhase9MigrationAudit(ctx, proposal, {
+      candidateSha: migrationRun.candidateSha,
+      command: "reconcileLenderPortalPhase9ApprovalFacts",
+      eventType: "lender_portal.migration.approval_reconciled",
+      newState: JSON.stringify({
+        approvalId: String(approval._id),
+        proposalRevisionId: String(revision._id),
+        proposalRevisionNumber: revision.revisionNumber,
+      }),
+      reconciliationKey: `lender-portal-phase9:${migrationRun.runToken}:approval:${String(approval._id)}`,
+      runToken: migrationRun.runToken,
+    });
+  },
+});
+
+/**
+ * Candidate-bound immutable policy-lock reconciliation. Existing canonical
+ * history wins. A lock is created only when closing, policy, revision, and the
+ * absence of lender quorum history are all exact and independently verifiable.
+ */
+export const reconcileLenderPortalPhase9PolicyLocks = migrations.define({
+  table: "buildProposals",
+  batchSize: 1,
+  migrateOne: async (ctx, proposal) => {
+    const migrationRun = await requireAuthorizedLenderPortalPhase9Migration(
+      ctx,
+      proposal
+    );
+    if (!migrationRun) return;
+    if (proposal.status !== "closed") return;
+    const [closings, locks, policy, revision, assignmentState] =
+      await Promise.all([
+        ctx.db
+          .query("proposalClosings")
+          .withIndex("by_proposal", (query) =>
+            query.eq("proposalId", proposal._id)
+          )
+          .take(2),
+        ctx.db
+          .query("proposalReviewPolicyLocks")
+          .withIndex("by_proposal", (query) =>
+            query.eq("proposalId", proposal._id)
+          )
+          .take(2),
+        proposal.currentReviewPolicyVersionId
+          ? ctx.db.get(proposal.currentReviewPolicyVersionId)
+          : null,
+        proposal.currentProposalRevisionId
+          ? ctx.db.get(proposal.currentProposalRevisionId)
+          : null,
+        getMigrationCurrentProposalAssignment(ctx, proposal._id),
+      ]);
+    const closing = closings[0];
+    if (
+      closings.length !== 1 ||
+      !closing ||
+      closing.organizationId !== proposal.organizationId ||
+      closing.brokerageId !== proposal.brokerageId ||
+      locks.length > 1 ||
+      (proposal.lockedReviewPolicyId !== undefined &&
+        closing.reviewPolicyLockId !== undefined &&
+        proposal.lockedReviewPolicyId !== closing.reviewPolicyLockId)
+    ) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Policy-lock reconciliation has contradictory closing, lock pointer, tenant, or duplicate lock evidence; no link was changed.",
+        sourceRecordId: String(proposal._id),
+        sourceTable: "proposalClosings",
+      });
+      return;
+    }
+    let lock = proposal.lockedReviewPolicyId
+      ? await ctx.db.get(proposal.lockedReviewPolicyId)
+      : closing.reviewPolicyLockId
+        ? await ctx.db.get(closing.reviewPolicyLockId)
+        : locks[0] ?? null;
+    let created = false;
+    if (!lock) {
+      if (
+        assignmentState.kind !== "none" ||
+        !policy ||
+        !revision ||
+        policy.proposalId !== proposal._id ||
+        policy.organizationId !== proposal.organizationId ||
+        policy.brokerageId !== proposal.brokerageId ||
+        revision.proposalId !== proposal._id ||
+        revision.organizationId !== proposal.organizationId ||
+        revision.brokerageId !== proposal.brokerageId ||
+        revision.reviewPolicyVersionId !== policy._id ||
+        revision.assignmentId !== undefined
+      ) {
+        await recordPhase3MigrationIssue(ctx, {
+          brokerageId: proposal.brokerageId,
+          organizationId: proposal.organizationId,
+          proposalId: proposal._id,
+          reason:
+            "Historical lender eligibility or exact policy/revision scope cannot be proven; no immutable policy lock was fabricated.",
+          sourceRecordId: String(proposal._id),
+          sourceTable: "proposalClosings",
+        });
+        return;
+      }
+      try {
+        validateProposalReviewPolicyQuorums(policy.policy, {
+          draw: 0,
+          milestone: 0,
+        });
+      } catch (error) {
+        await recordPhase3MigrationIssue(ctx, {
+          brokerageId: proposal.brokerageId,
+          organizationId: proposal.organizationId,
+          proposalId: proposal._id,
+          reason: `Stored review policy is invalid for a zero-lender historical denominator: ${
+            error instanceof Error ? error.message : "unknown validation error"
+          }`,
+          sourceRecordId: String(proposal._id),
+          sourceTable: "proposalClosings",
+        });
+        return;
+      }
+      const lockId = await ctx.db.insert("proposalReviewPolicyLocks", {
+        activeLenderMemberCount: 0,
+        brokerageId: proposal.brokerageId,
+        eligibleLenderApproverCount: 0,
+        eligibleLenderApproverCounts: {
+          draw: 0,
+          milestone: 0,
+          proposalReview: 0,
+        },
+        idempotencyKey: `migration:phase9:${migrationRun.runToken}:policy-lock`,
+        lockedAt: closing.closedAt,
+        lockedByRole: closing.closedByRole,
+        lockedByWorkosUserId: closing.closedByWorkosUserId,
+        organizationId: proposal.organizationId,
+        policy: policy.policy,
+        policyVersionId: policy._id,
+        proposalId: proposal._id,
+        proposalRevisionId: revision._id,
+        proposalRevisionNumber: revision.revisionNumber,
+        reason:
+          "Phase 9 exact-evidence reconciliation of the immutable closing policy lock.",
+      });
+      lock = await ctx.db.get(lockId);
+      created = true;
+    }
+    if (!lock) {
+      throw new Error("Phase 9 policy lock disappeared during reconciliation.");
+    }
+    const linked = await linkMigrationPolicyLock(ctx, proposal, closing, lock);
+    if (!linked) return;
+    await recordPhase9MigrationAudit(ctx, proposal, {
+      candidateSha: migrationRun.candidateSha,
+      command: "reconcileLenderPortalPhase9PolicyLocks",
+      eventType: "lender_portal.migration.policy_lock_reconciled",
+      newState: JSON.stringify({
+        created,
+        policyLockId: String(lock._id),
+        proposalRevisionId: String(lock.proposalRevisionId),
+      }),
+      reconciliationKey: `lender-portal-phase9:${migrationRun.runToken}:policy-lock:${String(proposal._id)}`,
+      runToken: migrationRun.runToken,
+    });
+  },
+});
+
+/**
+ * Phase 9 repairs only lifecycle pointers and timestamps proven by canonical,
+ * organization-scoped records. It never changes a proposal status and never
+ * infers closing or activation from an approval.
+ */
+export const reconcileLenderPortalProposalLifecycle = migrations.define({
+  table: "buildProposals",
+  batchSize: 1,
+  migrateOne: async (ctx, proposal) => {
+    const migrationRun = await requireAuthorizedLenderPortalPhase9Migration(
+      ctx,
+      proposal
+    );
+    if (!migrationRun) return;
+    const [closings, builds] = await Promise.all([
+      ctx.db
+        .query("proposalClosings")
+        .withIndex("by_proposal", (query) =>
+          query.eq("proposalId", proposal._id)
+        )
+        .take(2),
+      ctx.db
+        .query("activeBuilds")
+        .withIndex("by_proposal", (query) =>
+          query.eq("proposalId", proposal._id)
+        )
+        .take(2),
+    ]);
+    const patch: {
+      activeBuildId?: Id<"activeBuilds">;
+      closedAt?: number;
+    } = {};
+    const issues: Array<{
+      reason: string;
+      sourceRecordId: string;
+      sourceTable: Phase3MigrationSourceTable;
+    }> = [];
+
+    if (proposal.status === "approved" || proposal.status === "closed") {
+      if (!proposal.approvedAt) {
+        issues.push({
+          reason:
+            "Approved proposal has no explicit approval timestamp; revision creation time is not approval evidence and no value was inferred.",
+          sourceRecordId: String(proposal._id),
+          sourceTable: "buildProposals",
+        });
+      }
+    }
+
+    if (proposal.status === "closed") {
+      const closing = closings[0];
+      if (
+        closings.length !== 1 ||
+        !closing ||
+        closing.brokerageId !== proposal.brokerageId ||
+        closing.organizationId !== proposal.organizationId
+      ) {
+        issues.push({
+          reason:
+            "Closed proposal closing evidence is missing, duplicated, or outside the proposal tenant scope.",
+          sourceRecordId: String(proposal._id),
+          sourceTable: "proposalClosings",
+        });
+      } else if (!proposal.closedAt) {
+        patch.closedAt = closing.closedAt;
+      } else if (proposal.closedAt !== closing.closedAt) {
+        issues.push({
+          reason:
+            "Proposal and canonical closing timestamps disagree; existing history was not overwritten.",
+          sourceRecordId: String(closing._id),
+          sourceTable: "proposalClosings",
+        });
+      }
+
+      if (builds.length > 1) {
+        issues.push({
+          reason:
+            "Multiple active Builds reference one proposal; activation was not inferred.",
+          sourceRecordId: String(proposal._id),
+          sourceTable: "activeBuilds",
+        });
+      } else if (proposal.activeBuildId) {
+        const pointedBuild = await ctx.db.get(proposal.activeBuildId);
+        if (
+          !pointedBuild ||
+          pointedBuild.proposalId !== proposal._id ||
+          pointedBuild.brokerageId !== proposal.brokerageId ||
+          pointedBuild.organizationId !== proposal.organizationId ||
+          (builds[0] && builds[0]._id !== pointedBuild._id)
+        ) {
+          issues.push({
+            reason:
+              "Proposal activation pointer is missing or outside the exact proposal tenant scope.",
+            sourceRecordId: String(proposal.activeBuildId),
+            sourceTable: "activeBuilds",
+          });
+        }
+      } else if (
+        builds[0] &&
+        builds[0].brokerageId === proposal.brokerageId &&
+        builds[0].organizationId === proposal.organizationId
+      ) {
+        patch.activeBuildId = builds[0]._id;
+      }
+    } else if (closings.length > 0 || builds.length > 0) {
+      issues.push({
+        reason:
+          "A non-closed proposal has closing or active-Build evidence; lifecycle state requires operator reconciliation.",
+        sourceRecordId: String(proposal._id),
+        sourceTable: builds.length > 0 ? "activeBuilds" : "proposalClosings",
+      });
+    }
+
+    for (const issue of issues) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        ...issue,
+      });
+    }
+    if (Object.keys(patch).length === 0) return;
+
+    await ctx.db.patch(proposal._id, patch);
+    await recordPhase9MigrationAudit(ctx, proposal, {
+      command: "reconcileLenderPortalProposalLifecycle",
+      candidateSha: migrationRun.candidateSha,
+      eventType: "lender_portal.migration.lifecycle_reconciled",
+      newState: JSON.stringify({
+        patchedFields: Object.keys(patch).sort(),
+        proposalId: String(proposal._id),
+      }),
+      reconciliationKey: `lender-portal-phase9:${migrationRun.runToken}:lifecycle:${String(proposal._id)}`,
+      runToken: migrationRun.runToken,
+    });
+  },
+});
+
+/** Rebuilds the existing proposal Kanban projection from canonical proposals. */
+export const rebuildLenderPortalProposalKanbanProjection = migrations.define({
+  table: "buildProposals",
+  batchSize: 1,
+  migrateOne: async (ctx, proposal) => {
+    const migrationRun = await requireAuthorizedLenderPortalPhase9Migration(
+      ctx,
+      proposal
+    );
+    if (!migrationRun) return;
+    const [builder, cards] = await Promise.all([
+      proposal.builderProfileId ? ctx.db.get(proposal.builderProfileId) : null,
+      ctx.db
+        .query("proposalKanbanCards")
+        .withIndex("by_proposal", (query) =>
+          query.eq("proposalId", proposal._id)
+        )
+        .take(2),
+    ]);
+    if (
+      builder &&
+      (builder.brokerageId !== proposal.brokerageId ||
+        builder.organizationId !== proposal.organizationId)
+    ) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Proposal Builder projection source is outside the proposal tenant scope; no card was rebuilt.",
+        sourceRecordId: String(proposal._id),
+        sourceTable: "buildProposals",
+      });
+      return;
+    }
+    if (cards.length > 1) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Multiple proposal Kanban projections exist; migration stopped without deleting history.",
+        sourceRecordId: String(proposal._id),
+        sourceTable: "buildProposals",
+      });
+      return;
+    }
+    const projection = {
+      brokerageId: proposal.brokerageId,
+      builderName: builder?.displayName ?? "Unassigned builder",
+      column: proposal.status,
+      href: `/backoffice/proposals/${String(proposal._id)}`,
+      organizationId: proposal.organizationId,
+      proposalId: proposal._id,
+      sortAt: proposal.updatedAt,
+      subtitle: proposal.location,
+      title: proposal.buildName,
+      totalBudgetCents: proposal.totalBudgetCents,
+      updatedAt: proposal.updatedAt,
+    };
+    const card = cards[0];
+    const unchanged =
+      card &&
+      card.brokerageId === projection.brokerageId &&
+      card.builderName === projection.builderName &&
+      card.column === projection.column &&
+      card.href === projection.href &&
+      card.organizationId === projection.organizationId &&
+      card.proposalId === projection.proposalId &&
+      card.sortAt === projection.sortAt &&
+      card.subtitle === projection.subtitle &&
+      card.title === projection.title &&
+      card.totalBudgetCents === projection.totalBudgetCents &&
+      card.updatedAt === projection.updatedAt;
+    if (unchanged) return;
+    if (card) {
+      await recordPhase3MigrationIssue(ctx, {
+        brokerageId: proposal.brokerageId,
+        organizationId: proposal.organizationId,
+        proposalId: proposal._id,
+        reason:
+          "Existing Kanban projection contradicts the exact proposal, tenant, or canonical field snapshot; migration did not rewrite it.",
+        sourceRecordId: String(card._id),
+        sourceTable: "buildProposals",
+      });
+      return;
+    } else {
+      await ctx.db.insert("proposalKanbanCards", projection);
+    }
+    await recordPhase9MigrationAudit(ctx, proposal, {
+      command: "rebuildLenderPortalProposalKanbanProjection",
+      candidateSha: migrationRun.candidateSha,
+      eventType: "lender_portal.migration.projection_rebuilt",
+      newState: JSON.stringify({
+        column: projection.column,
+        created: !card,
+        proposalId: String(proposal._id),
+      }),
+      reconciliationKey: `lender-portal-phase9:${migrationRun.runToken}:kanban:${String(proposal._id)}`,
+      runToken: migrationRun.runToken,
+    });
+  },
+});
+
+async function recordPhase9MigrationAudit(
+  ctx: MutationCtx,
+  proposal: Doc<"buildProposals">,
+  input: {
+    candidateSha: string;
+    command: string;
+    eventType: string;
+    newState: string;
+    reconciliationKey: string;
+    runToken: string;
+  }
+) {
+  const fingerprint = await operationalRequestFingerprint({
+    command: input.command,
+    evidence: input.newState,
+    proposalId: String(proposal._id),
+  });
+  const reconciliationKey = `${input.reconciliationKey}:${fingerprint}`;
+  const existing = await ctx.db
+    .query("auditEvents")
+    .withIndex("by_organizationId_and_reconciliationKey", (query) =>
+      query
+        .eq("organizationId", proposal.organizationId)
+        .eq("reconciliationKey", reconciliationKey)
+    )
+    .unique();
+  if (existing) return;
+  await ctx.db.insert("auditEvents", {
+    actorRoles: ["system"],
+    actorWorkosUserId: "system:lender-portal-phase9-migration",
+    brokerageId: proposal.brokerageId,
+    command: input.command,
+    createdAt: Date.now(),
+    drawFlowCorrelationId: fingerprint,
+    entityId: String(proposal._id),
+    entityType: "buildProposals",
+    eventType: input.eventType,
+    newState: JSON.stringify({
+      candidateSha: input.candidateSha,
+      evidence: JSON.parse(input.newState),
+    }),
+    organizationId: proposal.organizationId,
+    phase9RunToken: input.runToken,
+    reconciliationKey,
+    warnings: [],
+  });
+}
+
+export const runLenderPortalPhase9Migration = migrations.runner([
+  internal.migrations.validateLenderPortalPhase9ApplyManifest,
+  internal.migrations.reconcileLenderPortalPhase9PolicyAssignmentFacts,
+  internal.migrations.reconcileLenderPortalPhase9ApprovalFacts,
+  internal.migrations.reconcileLenderPortalPhase9PolicyLocks,
+  internal.migrations.reconcileLenderPortalProposalLifecycle,
+  internal.migrations.rebuildLenderPortalProposalKanbanProjection,
 ]);

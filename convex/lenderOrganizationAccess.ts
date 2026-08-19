@@ -1,7 +1,7 @@
 import type { UserIdentity } from "convex/server";
 
-import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import type { Doc, Id } from "./_generated/dataModel";
+import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import type { MutationCtx, QueryCtx } from "./types";
 
 export const LENDER_ROLE_SLUGS = [
@@ -28,7 +28,10 @@ const capabilityPermission = {
   proposal_review: "proposalReview",
   draw_decisions: "drawDecisions",
   milestone_decisions: "milestoneDecisions",
-} as const satisfies Record<LenderApprovalCapability, keyof LenderWorkflowPermissions>;
+} as const satisfies Record<
+  LenderApprovalCapability,
+  keyof LenderWorkflowPermissions
+>;
 
 export type LenderOrganizationResolution = {
   assignment: Doc<"lenderOrganizationAssignments">;
@@ -112,7 +115,7 @@ export async function listActiveSharedLenderMemberships(
  */
 export async function listActiveLenderOrganizationMembers(
   ctx: ReadCtx,
-  lenderOrganizationId: Id<"lenderOrganizations">,
+  lenderOrganizationId: Id<"lenderOrganizations">
 ) {
   const organization = await ctx.db.get(lenderOrganizationId);
   if (!organization || organization.status !== "active") {
@@ -125,71 +128,77 @@ export async function listActiveLenderOrganizationMembers(
         .eq("lenderOrganizationId", lenderOrganizationId)
         .eq("status", "active")
     )
-    .take(1_001);
-  if (assignments.length > 1_000) {
+    .take(101);
+  if (assignments.length > 100) {
     throw new Error(
       "Lender organization active member count exceeds the safe limit"
     );
   }
-
-  const members = [];
-  const seen = new Set<string>();
+  const assignmentsByUser = new Map<
+    string,
+    Doc<"lenderOrganizationAssignments">
+  >();
   for (const assignment of assignments) {
     const workosUserId = assignment.workosUserId;
-    if (!workosUserId || seen.has(workosUserId)) {
+    if (!workosUserId || assignmentsByUser.has(workosUserId)) {
       continue;
     }
-    const users = await ctx.db
-      .query("users")
-      .withIndex("by_workos_user_id", (query) =>
-        query.eq("workosUserId", workosUserId)
-      )
-      .take(2);
-    const user = users.length === 1 ? users[0] : undefined;
-    if (!user || user.status !== "active") {
-      continue;
-    }
-    const memberships = await listActiveSharedLenderMemberships(
-      ctx,
-      workosUserId
-    );
-    const roles = normalizeLenderRoleSlugs(
-      memberships.flatMap((membership) => [
-        membership.roleSlug,
-        ...membership.roleSlugs,
-      ])
-    );
-    if (memberships.length === 0 || roles.length === 0) {
-      continue;
-    }
-    const eligibilityEpoch = JSON.stringify({
-      assignmentId: String(assignment._id),
-      assignmentUpdatedAt: assignment.updatedAt,
-      memberships: memberships
-        .map((membership) => ({
-          membershipId: membership.workosMembershipId,
-          roleSlug: membership.roleSlug ?? null,
-          roleSlugs: [...membership.roleSlugs].sort(),
-          sourceEventId: membership.sourceEventId,
-          updatedAt: membership.updatedAt ?? null,
-        }))
-        .sort((left, right) =>
-          left.membershipId.localeCompare(right.membershipId)
-        ),
-      userSourceEventId: user.sourceEventId ?? null,
-      userUpdatedAt: user.updatedAt ?? null,
-    });
-    seen.add(workosUserId);
-    members.push({
-      assignmentId: assignment._id,
-      eligibilityEpoch,
-      email: normalizeLenderEmail(user.email),
-      name: user.name.trim(),
-      roles,
-      workosUserId,
-    });
+    assignmentsByUser.set(workosUserId, assignment);
   }
-  return members;
+  const members = await Promise.all(
+    [...assignmentsByUser.entries()].map(async ([workosUserId, assignment]) => {
+      const [users, memberships] = await Promise.all([
+        ctx.db
+          .query("users")
+          .withIndex("by_workos_user_id", (query) =>
+            query.eq("workosUserId", workosUserId)
+          )
+          .take(2),
+        listActiveSharedLenderMemberships(ctx, workosUserId),
+      ]);
+      const user = users.length === 1 ? users[0] : undefined;
+      if (!user || user.status !== "active") {
+        return null;
+      }
+      const roles = normalizeLenderRoleSlugs(
+        memberships.flatMap((membership) => [
+          membership.roleSlug,
+          ...membership.roleSlugs,
+        ])
+      );
+      if (memberships.length === 0 || roles.length === 0) {
+        return null;
+      }
+      const eligibilityEpoch = JSON.stringify({
+        assignmentId: String(assignment._id),
+        assignmentUpdatedAt: assignment.updatedAt,
+        memberships: memberships
+          .map((membership) => ({
+            membershipId: membership.workosMembershipId,
+            roleSlug: membership.roleSlug ?? null,
+            roleSlugs: [...membership.roleSlugs].sort(),
+            sourceEventId: membership.sourceEventId,
+            updatedAt: membership.updatedAt ?? null,
+          }))
+          .sort((left, right) =>
+            left.membershipId.localeCompare(right.membershipId)
+          ),
+        userSourceEventId: user.sourceEventId ?? null,
+        userUpdatedAt: user.updatedAt ?? null,
+      });
+      return {
+        assignmentId: assignment._id,
+        eligibilityEpoch,
+        email: normalizeLenderEmail(user.email),
+        name: user.name.trim(),
+        roles,
+        workosUserId,
+      };
+    })
+  );
+  return members.filter(
+    (member): member is NonNullable<typeof member> => member !== null
+  );
 }
 
 export async function resolveAssignedLenderOrganization(
@@ -319,7 +328,7 @@ export function lenderCanMakeFinalDecision(
 export async function listActiveApprovalEligibleLenderOrganizationMembers(
   ctx: ReadCtx,
   lenderOrganizationId: Id<"lenderOrganizations">,
-  capability: LenderApprovalCapability,
+  capability: LenderApprovalCapability
 ) {
   const organization = await ctx.db.get(lenderOrganizationId);
   if (
@@ -329,21 +338,38 @@ export async function listActiveApprovalEligibleLenderOrganizationMembers(
   ) {
     return [];
   }
-  return (await listActiveLenderOrganizationMembers(ctx, lenderOrganizationId))
-    .filter((member) => lenderCanMakeFinalDecision(member.roles));
+  return (
+    await listActiveLenderOrganizationMembers(ctx, lenderOrganizationId)
+  ).filter((member) => lenderCanMakeFinalDecision(member.roles));
 }
 
 export async function getLenderOrganizationApprovalEligibility(
   ctx: ReadCtx,
-  lenderOrganizationId: Id<"lenderOrganizations">,
+  lenderOrganizationId: Id<"lenderOrganizations">
 ) {
   const [proposalReview, draw, milestone] = await Promise.all([
-    listActiveApprovalEligibleLenderOrganizationMembers(ctx, lenderOrganizationId, "proposal_review"),
-    listActiveApprovalEligibleLenderOrganizationMembers(ctx, lenderOrganizationId, "draw_decisions"),
-    listActiveApprovalEligibleLenderOrganizationMembers(ctx, lenderOrganizationId, "milestone_decisions"),
+    listActiveApprovalEligibleLenderOrganizationMembers(
+      ctx,
+      lenderOrganizationId,
+      "proposal_review"
+    ),
+    listActiveApprovalEligibleLenderOrganizationMembers(
+      ctx,
+      lenderOrganizationId,
+      "draw_decisions"
+    ),
+    listActiveApprovalEligibleLenderOrganizationMembers(
+      ctx,
+      lenderOrganizationId,
+      "milestone_decisions"
+    ),
   ]);
   return {
-    counts: { proposalReview: proposalReview.length, draw: draw.length, milestone: milestone.length },
+    counts: {
+      proposalReview: proposalReview.length,
+      draw: draw.length,
+      milestone: milestone.length,
+    },
     members: { proposalReview, draw, milestone },
   };
 }
