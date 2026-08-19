@@ -250,6 +250,22 @@ describe("builder proposal detail subscription gates", () => {
     ).toEqual({ tab: "milestones", timeframe: "agenda" });
   });
 
+  test("round-trips an exact notification review target and cycle", () => {
+    expect(
+      validateBuilderProposalSearch({
+        milestoneId: "milestone-1",
+        reviewCycleId: "cycle-3",
+        reviewCycleNumber: "3",
+        tab: "milestones",
+      }),
+    ).toEqual({
+      milestoneId: "milestone-1",
+      reviewCycleId: "cycle-3",
+      reviewCycleNumber: 3,
+      tab: "milestones",
+    });
+  });
+
   test("loads heavyweight subscriptions only for matching shared tabs", () => {
     expect(shouldLoadBuilderProposalCalendarWorkspace("calendar")).toBe(true);
     expect(shouldLoadBuilderProposalCalendarWorkspace("packet")).toBe(false);

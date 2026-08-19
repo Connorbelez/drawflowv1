@@ -859,7 +859,11 @@ const communicationIntentKindValidator = v.union(
   v.literal("quote_round_cancelled"),
   v.literal("quote_response_submitted"),
   v.literal("quote_response_resubmitted"),
-  v.literal("quote_response_withdrawn")
+  v.literal("quote_response_withdrawn"),
+  v.literal("lender_portal_approval_required"),
+  v.literal("lender_portal_proposal_updated_after_decline"),
+  v.literal("lender_portal_withdrawal"),
+  v.literal("lender_portal_approval_outcome")
 );
 
 const communicationIntentStatusValidator = v.union(
@@ -3938,7 +3942,14 @@ export default defineSchema({
         actorWorkosUserId: v.string(),
         decision: lenderPortalReviewDecisionValidator,
         group: lenderPortalReviewGroupValidator,
+        lenderOrganizationAssignmentId: v.optional(
+          v.id("lenderOrganizationAssignments")
+        ),
+        lenderEligibilityEpoch: v.optional(v.string()),
       })
+    ),
+    terminalContributorDecisionIds: v.optional(
+      v.array(v.id("lenderPortalReviewDecisions"))
     ),
     updatedAt: v.number(),
   })
@@ -3969,6 +3980,10 @@ export default defineSchema({
     decision: lenderPortalReviewDecisionValidator,
     group: lenderPortalReviewGroupValidator,
     idempotencyKey: v.string(),
+    lenderOrganizationAssignmentId: v.optional(
+      v.id("lenderOrganizationAssignments")
+    ),
+    lenderEligibilityEpoch: v.optional(v.string()),
     organizationId: v.string(),
     privateRationale: v.optional(v.string()),
     requestIdentity: v.string(),
@@ -4609,7 +4624,7 @@ export default defineSchema({
   communicationIntents: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
-    buildId: v.id("activeBuilds"),
+    buildId: v.optional(v.id("activeBuilds")),
     channel: v.literal("email"),
     kind: communicationIntentKindValidator,
     status: communicationIntentStatusValidator,
@@ -4681,7 +4696,7 @@ export default defineSchema({
   communicationAttempts: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
-    buildId: v.id("activeBuilds"),
+    buildId: v.optional(v.id("activeBuilds")),
     communicationIntentId: v.id("communicationIntents"),
     attemptNumber: v.number(),
     state: communicationAttemptStateValidator,
@@ -4708,7 +4723,7 @@ export default defineSchema({
   communicationOutcomes: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
-    buildId: v.id("activeBuilds"),
+    buildId: v.optional(v.id("activeBuilds")),
     communicationIntentId: v.id("communicationIntents"),
     communicationAttemptId: v.optional(v.id("communicationAttempts")),
     eventFingerprint: v.string(),
@@ -8853,6 +8868,11 @@ export default defineSchema({
     submilestoneId: v.optional(v.id("buildSubmilestones")),
     submilestoneKeys: v.optional(v.array(v.string())),
     completedAt: v.optional(v.string()),
+    completedByGroup: v.optional(lenderPortalReviewGroupValidator),
+    completedByRole: v.optional(lenderPortalReviewerRoleValidator),
+    completedByWorkosUserId: v.optional(v.string()),
+    completionCommandFingerprint: v.optional(v.string()),
+    completionIdempotencyKey: v.optional(v.string()),
     collaborationEventRevision: v.optional(v.number()),
     scheduleIdempotencyKey: v.optional(v.string()),
     scheduleRequestFingerprint: v.optional(v.string()),

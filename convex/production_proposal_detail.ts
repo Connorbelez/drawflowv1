@@ -81,6 +81,7 @@ const appPermissionValidator = v.object({
   mode: v.union(v.literal("full"), v.literal("limited")),
   role: v.union(
     v.literal("backoffice"),
+    v.literal("lender"),
     v.literal("owner"),
     v.literal("staff")
   ),

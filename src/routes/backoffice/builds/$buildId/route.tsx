@@ -35,6 +35,7 @@ import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTy
 import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import type { CostDocumentSummary } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
 import type { DrawWorkflowCapabilities } from "#/features/draw-workflow/drawWorkflow.ts";
+import { BackofficeNotificationReviewSurface } from "#/features/lender-portal/LenderNotificationReviewSurface.tsx";
 import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityConstants.ts";
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
@@ -902,6 +903,32 @@ function RouteComponent() {
       detail.milestones ?? [],
       detail.submilestones ?? []
     );
+    const notificationTarget =
+      search.reviewCycleId &&
+      search.reviewCycleNumber !== undefined &&
+      (search.milestoneId || search.drawRequestId);
+    if (notificationTarget) {
+      return (
+        <BackofficeNotificationReviewSurface
+          onClose={() =>
+            void navigate({
+              params: { buildId },
+              search: { tab: search.tab },
+              to: "/backoffice/builds/$buildId",
+            })
+          }
+          reviewCycleId={search.reviewCycleId!}
+          reviewCycleNumber={search.reviewCycleNumber!}
+          target={
+            search.milestoneId
+              ? { kind: "milestone", milestoneId: search.milestoneId }
+              : { drawRequestId: search.drawRequestId!, kind: "draw" }
+          }
+          viewerWorkosUserId={context.userId as string}
+          workosOrganizationId={workosOrganizationId}
+        />
+      );
+    }
     return (
       <BuildDetailSheetHost
         buildId={activeBuildId as Id<"activeBuilds">}

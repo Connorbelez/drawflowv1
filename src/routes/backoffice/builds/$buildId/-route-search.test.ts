@@ -57,4 +57,19 @@ describe("Backoffice Build Cost route search", () => {
     ).toEqual({ roundId: "round-open", tab: "quotes" });
     expect(validateBuildDetailSearch({ roundId: "   " })).toEqual({});
   });
+
+  test("keeps an exact notification review target and cycle route-addressable", () => {
+    expect(
+      validateBuildDetailSearch({
+        drawRequestId: "draw-1",
+        reviewCycleId: "cycle-2",
+        reviewCycleNumber: "2",
+        tab: "draws",
+      }),
+    ).toEqual({
+      drawRequestId: "draw-1",
+      reviewCycleId: "cycle-2",
+      reviewCycleNumber: 2,
+    });
+  });
 });

@@ -174,6 +174,18 @@ import {
   PROPOSAL_CONFIRMATION_CHECKPOINTS,
 } from "./lender_portal_phase4";
 import {
+  enqueueProposalApprovalOutcomeNotifications,
+  enqueueProposalApprovalRequiredNotifications,
+  enqueueProposalUpdatedAfterDeclineNotifications,
+  enqueueProposalWithdrawalNotifications,
+} from "./lender_portal_notifications";
+import {
+  recordCanonicalBackofficeReviewDecision,
+  requireCanonicalReviewCycleCompleted,
+  submitCanonicalReviewCycle,
+  validateCanonicalSiteVisitCompletion,
+} from "./lender_portal_phase5";
+import {
   nullableProductionProposalDetailValidator,
   productionProposalDetailValidator,
 } from "./production_proposal_detail";
@@ -3582,6 +3594,13 @@ export const publishProposalRevision = authenticatedMutation
       ctx,
       args.proposalId,
     );
+    const priorConfirmationCycle = assignment
+      ? await getCurrentProposalLenderConfirmationCycle(
+          ctx,
+          auth.proposal,
+          assignment,
+        )
+      : null;
     assertExpectedProposalReviewBase({
       assignment,
       expectedAssignmentId: args.expectedAssignmentId,
@@ -3607,6 +3626,25 @@ export const publishProposalRevision = authenticatedMutation
       proposalId: args.proposalId,
       reason: args.reason,
     });
+    if (assignment && priorConfirmationCycle?.status === "declined") {
+      const confirmationCycle = await ctx.db
+        .query("proposalLenderConfirmationCycles")
+        .withIndex("by_assignment_and_revision", (query) =>
+          query
+            .eq("assignmentId", assignment._id)
+            .eq("proposalRevisionId", revision._id),
+        )
+        .unique();
+      if (!confirmationCycle) {
+        throw new Error("Published lender confirmation cycle is unavailable.");
+      }
+      await enqueueProposalUpdatedAfterDeclineNotifications(ctx, {
+        assignment,
+        confirmationCycle,
+        proposal: auth.proposal,
+        revision,
+      });
+    }
     return {
       changedCheckpoints: revision.changedCheckpoints,
       revisionId: revision._id,
@@ -4124,13 +4162,24 @@ export const assignExternalLenderOrganization = authenticatedMutation
     if (!assignment) {
       throw new Error("Created lender assignment is unavailable.");
     }
-    await createImmutableProposalRevision(ctx, {
+    const revision = await createImmutableProposalRevision(ctx, {
       assignment,
       auth: { ...auth, proposal: assignedProposal },
       idempotencyKey: `system:lender-assignment:${assignmentId}`,
       policyVersion,
       reason: "Publish the revision for the assigned lender organization.",
     });
+    const confirmationCycle = await ctx.db
+      .query("proposalLenderConfirmationCycles")
+      .withIndex("by_assignment_and_revision", (query) =>
+        query
+          .eq("assignmentId", assignment._id)
+          .eq("proposalRevisionId", revision._id),
+      )
+      .unique();
+    if (!confirmationCycle) {
+      throw new Error("Created lender confirmation cycle is unavailable.");
+    }
     await upsertKanbanCard(ctx, args.proposalId, now);
     await writeProposalEvent(ctx, {
       auth,
@@ -4144,6 +4193,12 @@ export const assignExternalLenderOrganization = authenticatedMutation
       priorState: JSON.stringify({ externalAssignment: "unassigned" }),
       proposalId: args.proposalId,
       reason: args.reason,
+    });
+    await enqueueProposalApprovalRequiredNotifications(ctx, {
+      assignment,
+      confirmationCycle,
+      proposal: assignedProposal,
+      revision,
     });
     return { assignmentId };
   })
@@ -4185,6 +4240,14 @@ export const withdrawExternalLenderAssignment = authenticatedMutation
     if (assignment.status !== "current") {
       throw new Error("External lender assignment is already withdrawn.");
     }
+    const [currentRevision, currentConfirmationCycle] = await Promise.all([
+      getCurrentProposalRevision(ctx, auth.proposal),
+      getCurrentProposalLenderConfirmationCycle(
+        ctx,
+        auth.proposal,
+        assignment,
+      ),
+    ]);
     const now = Date.now();
     const withdrawnByRole = requirePhase3BackofficeRole(auth);
     const policyVersion = await ensureDefaultProposalReviewPolicyVersion(ctx, {
@@ -4221,6 +4284,12 @@ export const withdrawExternalLenderAssignment = authenticatedMutation
       }),
       proposalId: args.proposalId,
       reason: args.reason,
+    });
+    await enqueueProposalWithdrawalNotifications(ctx, {
+      assignment,
+      confirmationCycle: currentConfirmationCycle,
+      proposal: auth.proposal,
+      revision: currentRevision,
     });
     await ctx.scheduler.runAfter(
       0,
@@ -4679,6 +4748,13 @@ export const declineExternalProposalForClosing = authenticatedMutation
       proposalId: args.proposalId,
       reason: args.reason,
     });
+    await enqueueProposalApprovalOutcomeNotifications(ctx, {
+      assignment: auth.currentLenderAssignment,
+      confirmationCycle,
+      outcome: "rejected",
+      proposal: auth.proposal,
+      revision: currentRevision,
+    });
     return { decisionId };
   })
   .public();
@@ -4846,6 +4922,13 @@ export const approveExternalProposalForClosing = authenticatedMutation
       priorState: JSON.stringify({ lenderConfirmation: "pending" }),
       proposalId: args.proposalId,
       reason: args.reason,
+    });
+    await enqueueProposalApprovalOutcomeNotifications(ctx, {
+      assignment: auth.currentLenderAssignment,
+      confirmationCycle,
+      outcome: "approved",
+      proposal: auth.proposal,
+      revision: currentRevision,
     });
     return { approvalId };
   })
@@ -14410,6 +14493,154 @@ export const getCalendarSubscriptionIcs = publicQuery
   })
   .public();
 
+type ProposalDetailProjectionAuth = {
+  brokerage: Doc<"brokerages">;
+  email?: string;
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+};
+
+async function buildProposalDetailByStringProjection(
+  ctx: QueryCtx,
+  auth: ProposalDetailProjectionAuth,
+  appPermissionsOverride?: BuilderStaffPermissionSnapshot,
+) {
+  const proposalId = auth.proposal._id;
+  const [
+    documents,
+    milestones,
+    submilestones,
+    costItems,
+    draws,
+    permitWaiver,
+  ] = await Promise.all([
+    collectByIndex(ctx, "proposalDocuments", "by_proposal", proposalId),
+    collectByIndex(ctx, "proposalMilestones", "by_proposal", proposalId),
+    collectByIndex(ctx, "proposalSubmilestones", "by_proposal", proposalId),
+    collectByIndex(ctx, "proposalCostItems", "by_proposal", proposalId),
+    collectByIndex(
+      ctx,
+      "proposalDrawScheduleRows",
+      "by_proposal",
+      proposalId,
+    ),
+    getPermitWaiver(ctx, proposalId),
+  ]);
+  const activeBuild = auth.proposal.activeBuildId
+    ? await ctx.db.get(auth.proposal.activeBuildId)
+    : null;
+  const plannedDraws = activeBuild
+    ? await collectByIndex(
+        ctx,
+        "plannedDrawScheduleRows",
+        "by_build",
+        activeBuild._id,
+      )
+    : [];
+  const currentLenderAssignment = await getCurrentProposalLenderAssignment(
+    ctx,
+    proposalId,
+  );
+  const currentLenderApproval = currentLenderAssignment
+    ? await getLenderApprovalForCurrentProposalRevision(
+        ctx,
+        auth.proposal,
+        currentLenderAssignment,
+      )
+    : null;
+  const latestLenderAssignment = await ctx.db
+    .query("proposalLenderAssignments")
+    .withIndex("by_proposal", (query) => query.eq("proposalId", proposalId))
+    .order("desc")
+    .take(1);
+  const lenderAssignmentHistory = isBackoffice(auth.roles)
+    ? await ctx.db
+        .query("proposalLenderAssignments")
+        .withIndex("by_proposal", (query) =>
+          query.eq("proposalId", proposalId),
+        )
+        .order("desc")
+        .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT)
+    : [];
+  const lenderAssignmentState =
+    currentLenderAssignment !== null
+      ? {
+          state: "assigned" as const,
+          lenderConfirmation: currentLenderApproval
+            ? ("approved" as const)
+            : ("pending" as const),
+        }
+      : latestLenderAssignment[0]?.status !== undefined &&
+          latestLenderAssignment[0].status !== "current"
+        ? {
+            state: "withdrawn" as const,
+            lenderConfirmation: "pending" as const,
+          }
+        : {
+            state: "unassigned" as const,
+            lenderConfirmation: "pending" as const,
+          };
+
+  const includeInternal = isBackoffice(auth.roles);
+  const appPermissions =
+    appPermissionsOverride ??
+    (await proposalAppPermissionProjection(ctx, auth));
+  const assignmentProjection = await buildProposalIdentityProjection(
+    ctx,
+    auth.proposal,
+    auth.brokerage,
+  );
+  return {
+    activeBuild: projectProposalDetailActiveBuild(activeBuild),
+    appPermissions,
+    assignment: projectProposalDetailAssignment(
+      assignmentProjection,
+      includeInternal,
+    ),
+    costItems: canUseAppPermission(appPermissions, "material", "view")
+      ? costItems.map((item: Doc<"proposalCostItems">) =>
+          projectProposalDetailCostItem(item, includeInternal),
+        )
+      : [],
+    documents: await projectProposalDetailDocuments(
+      ctx,
+      documents,
+      includeInternal,
+    ),
+    draws: canUseAppPermission(appPermissions, "draw", "view")
+      ? draws.map((draw: Doc<"proposalDrawScheduleRows">) =>
+          projectProposalDetailDraw(draw, includeInternal),
+        )
+      : [],
+    lifecycle: projectProposalLifecycle(auth.proposal, lenderAssignmentState),
+    lenderApproval: currentLenderApproval
+      ? projectProposalLenderApproval(currentLenderApproval)
+      : null,
+    lenderAssignment:
+      isBackoffice(auth.roles) && latestLenderAssignment[0]
+        ? projectProposalLenderAssignment(latestLenderAssignment[0])
+        : null,
+    lenderAssignmentHistory: isBackoffice(auth.roles)
+      ? lenderAssignmentHistory.map(projectProposalLenderAssignment)
+      : [],
+    milestones: canUseAppPermission(appPermissions, "milestone", "view")
+      ? milestones.map(projectProposalDetailMilestone)
+      : [],
+    permitWaiver: projectProposalDetailPermitWaiver(
+      permitWaiver,
+      includeInternal,
+    ),
+    plannedDraws: canUseAppPermission(appPermissions, "draw", "view")
+      ? plannedDraws.map(projectProposalDetailPlannedDraw)
+      : [],
+    proposal: projectProposalDetailProposal(auth.proposal, includeInternal),
+    submilestones: canUseAppPermission(appPermissions, "submilestone", "view")
+      ? submilestones.map(projectProposalDetailSubmilestone)
+      : [],
+  };
+}
+
 export const getProposalDetailByString = authenticatedQuery
   .input({
     proposalId: v.string(),
@@ -14426,136 +14657,34 @@ export const getProposalDetailByString = authenticatedQuery
       proposalId,
       args.workosOrganizationId,
     );
-    const [
-      documents,
-      milestones,
-      submilestones,
-      costItems,
-      draws,
-      permitWaiver,
-    ] = await Promise.all([
-      collectByIndex(ctx, "proposalDocuments", "by_proposal", proposalId),
-      collectByIndex(ctx, "proposalMilestones", "by_proposal", proposalId),
-      collectByIndex(ctx, "proposalSubmilestones", "by_proposal", proposalId),
-      collectByIndex(ctx, "proposalCostItems", "by_proposal", proposalId),
-      collectByIndex(
-        ctx,
-        "proposalDrawScheduleRows",
-        "by_proposal",
-        proposalId,
-      ),
-      getPermitWaiver(ctx, proposalId),
-    ]);
-    const activeBuild = auth.proposal.activeBuildId
-      ? await ctx.db.get(auth.proposal.activeBuildId)
-      : null;
-    const plannedDraws = activeBuild
-      ? await collectByIndex(
-          ctx,
-          "plannedDrawScheduleRows",
-          "by_build",
-          activeBuild._id,
-        )
-      : [];
-    const currentLenderAssignment = await getCurrentProposalLenderAssignment(
-      ctx,
-      proposalId,
-    );
-    const currentLenderApproval = currentLenderAssignment
-      ? await getLenderApprovalForCurrentProposalRevision(
-          ctx,
-          auth.proposal,
-          currentLenderAssignment,
-        )
-      : null;
-    const latestLenderAssignment = await ctx.db
-      .query("proposalLenderAssignments")
-      .withIndex("by_proposal", (query) => query.eq("proposalId", proposalId))
-      .order("desc")
-      .take(1);
-    const lenderAssignmentHistory = isBackoffice(auth.roles)
-      ? await ctx.db
-          .query("proposalLenderAssignments")
-          .withIndex("by_proposal", (query) =>
-            query.eq("proposalId", proposalId),
-          )
-          .order("desc")
-          .take(PROPOSAL_LENDER_ASSIGNMENT_HISTORY_LIMIT)
-      : [];
-    const lenderAssignmentState =
-      currentLenderAssignment !== null
-        ? {
-            state: "assigned" as const,
-            lenderConfirmation: currentLenderApproval
-              ? ("approved" as const)
-              : ("pending" as const),
-          }
-        : latestLenderAssignment[0]?.status !== undefined &&
-            latestLenderAssignment[0].status !== "current"
-          ? {
-              state: "withdrawn" as const,
-              lenderConfirmation: "pending" as const,
-            }
-          : {
-              state: "unassigned" as const,
-              lenderConfirmation: "pending" as const,
-            };
+    return await buildProposalDetailByStringProjection(ctx, auth);
+  })
+  .public();
 
-    const includeInternal = isBackoffice(auth.roles);
-    const appPermissions = await proposalAppPermissionProjection(ctx, auth);
-    const assignmentProjection = await buildProposalIdentityProjection(
+export const getCurrentLenderProposalDetail = lenderOrganizationQuery
+  .input({
+    assignmentId: v.id("proposalLenderAssignments"),
+    proposalId: v.id("buildProposals"),
+  })
+  .returns(productionProposalDetailValidator)
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposalLifecycleActor(
       ctx,
-      auth.proposal,
-      auth.brokerage,
+      args.proposalId,
+      FAIRLEND_WORKOS_ORGANIZATION_ID,
+      "proposal_review",
     );
-    return {
-      activeBuild: projectProposalDetailActiveBuild(activeBuild),
-      appPermissions,
-      assignment: projectProposalDetailAssignment(
-        assignmentProjection,
-        includeInternal,
-      ),
-      costItems: canUseAppPermission(appPermissions, "material", "view")
-        ? costItems.map((item: Doc<"proposalCostItems">) =>
-            projectProposalDetailCostItem(item, includeInternal),
-          )
-        : [],
-      documents: await projectProposalDetailDocuments(
-        ctx,
-        documents,
-        includeInternal,
-      ),
-      draws: canUseAppPermission(appPermissions, "draw", "view")
-        ? draws.map((draw: Doc<"proposalDrawScheduleRows">) =>
-            projectProposalDetailDraw(draw, includeInternal),
-          )
-        : [],
-      lifecycle: projectProposalLifecycle(auth.proposal, lenderAssignmentState),
-      lenderApproval: currentLenderApproval
-        ? projectProposalLenderApproval(currentLenderApproval)
-        : null,
-      lenderAssignment:
-        isBackoffice(auth.roles) && latestLenderAssignment[0]
-          ? projectProposalLenderAssignment(latestLenderAssignment[0])
-          : null,
-      lenderAssignmentHistory: isBackoffice(auth.roles)
-        ? lenderAssignmentHistory.map(projectProposalLenderAssignment)
-        : [],
-      milestones: canUseAppPermission(appPermissions, "milestone", "view")
-        ? milestones.map(projectProposalDetailMilestone)
-        : [],
-      permitWaiver: projectProposalDetailPermitWaiver(
-        permitWaiver,
-        includeInternal,
-      ),
-      plannedDraws: canUseAppPermission(appPermissions, "draw", "view")
-        ? plannedDraws.map(projectProposalDetailPlannedDraw)
-        : [],
-      proposal: projectProposalDetailProposal(auth.proposal, includeInternal),
-      submilestones: canUseAppPermission(appPermissions, "submilestone", "view")
-        ? submilestones.map(projectProposalDetailSubmilestone)
-        : [],
-    };
+    if (
+      !auth.isCurrentLenderActor ||
+      auth.currentLenderAssignment?._id !== args.assignmentId
+    ) {
+      throw new Error("Forbidden: current lender assignment");
+    }
+    return await buildProposalDetailByStringProjection(
+      ctx,
+      auth,
+      lenderProposalReviewPermissionProjection(),
+    );
   })
   .public();
 
@@ -25074,6 +25203,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
     actualStartedAt: v.optional(v.number()),
     buildId: v.id("activeBuilds"),
     completedDay: v.number(),
+    costDocumentIds: v.optional(v.array(v.id("costDocuments"))),
     dependencyOverrideReason: v.optional(v.string()),
     expectedEvidencePackageRevision: v.optional(v.number()),
     expectedEvidencePackageRevisions: v.optional(
@@ -25104,6 +25234,17 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
     if (args.qualityRating !== undefined) {
       await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
     }
+    if (
+      args.actualCostCents !== undefined &&
+      (!Number.isSafeInteger(args.actualCostCents) || args.actualCostCents < 0)
+    ) {
+      throw new ConvexError({
+        code: "INVALID_MILESTONE_ACTUAL_COST",
+        message:
+          "Milestone actual cost must be a non-negative whole number of cents.",
+        recoverable: true,
+      });
+    }
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -25127,6 +25268,16 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
             "This idempotency key already belongs to a different milestone completion payload.",
         });
       }
+      const currentCycleNumber =
+        milestone.currentLenderPortalReviewCycleNumber ?? 0;
+      await submitCanonicalReviewCycle(ctx, {
+        actorWorkosUserId: auth.subject,
+        costDocumentIds: args.costDocumentIds,
+        expectedCycleNumber:
+          currentCycleNumber > 0 ? currentCycleNumber - 1 : 0,
+        idempotencyKey: `${args.idempotencyKey}:lender-portal-cycle:${Math.max(1, currentCycleNumber)}`,
+        target: { kind: "milestone", milestoneId: milestone._id },
+      });
       return null;
     }
     assertExpectedMilestoneRevision(milestone, args.expectedRevision);
@@ -25324,7 +25475,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
     const completionClaim = {
       ...(args.actualCostCents === undefined
         ? {}
-        : { actualCostCents: Math.max(0, Math.round(args.actualCostCents)) }),
+        : { actualCostCents: args.actualCostCents }),
       completedDay: Math.max(0, Math.round(args.completedDay)),
       commandFingerprint: fingerprint,
       ...(args.note ? { note: args.note } : {}),
@@ -25414,6 +25565,15 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         updatedAt: now,
       });
     }
+    const expectedLenderPortalCycleNumber =
+      milestone.currentLenderPortalReviewCycleNumber ?? 0;
+    await submitCanonicalReviewCycle(ctx, {
+      actorWorkosUserId: auth.subject,
+      costDocumentIds: args.costDocumentIds,
+      expectedCycleNumber: expectedLenderPortalCycleNumber,
+      idempotencyKey: `${args.idempotencyKey}:lender-portal-cycle:${expectedLenderPortalCycleNumber + 1}`,
+      target: { kind: "milestone", milestoneId: milestone._id },
+    });
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -25487,6 +25647,14 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
     }
     const now = Date.now();
     const note = args.note?.trim();
+    const siteVisitReviewContext =
+      args.status === "complete"
+        ? await validateCanonicalSiteVisitCompletion(ctx, {
+            milestoneId: milestone._id,
+            report: note ?? "",
+            visitId: visit._id,
+          })
+        : null;
     const statusChanged = visit.status !== args.status;
     const collaborationEventRevision = statusChanged
       ? (visit.collaborationEventRevision ?? 1) + 1
@@ -25516,6 +25684,13 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
     await ctx.db.patch(visit._id, {
       collaborationEventRevision,
       completedAt: siteVisit.completedAt,
+      ...(args.status === "complete"
+        ? {
+            completedByGroup: "backoffice" as const,
+            completedByRole: "admin" as const,
+            completedByWorkosUserId: auth.subject,
+          }
+        : {}),
       recordNote: note,
       recordNoteFormat: note ? ("plain_text" as const) : undefined,
       status: args.status,
@@ -25532,9 +25707,26 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       entityId: String(visit._id),
       entityType: "buildSiteVisit",
       eventType: "active_build.site_visit.recorded",
-      newState: JSON.stringify(siteVisit),
+      newState: JSON.stringify({
+        ...siteVisit,
+        ...(siteVisitReviewContext
+          ? {
+              aclChanges: {
+                completedByGroup: "backoffice",
+                completedByRole: "admin",
+                completedByWorkosUserId: auth.subject,
+              },
+              currentCycleId: siteVisitReviewContext.currentCycleId,
+              currentCycleNumber: siteVisitReviewContext.currentCycleNumber,
+              policy: siteVisitReviewContext.policy,
+              qualifyingEvidenceReferences:
+                siteVisitReviewContext.qualifyingEvidenceReferences,
+            }
+          : {}),
+      }),
       priorState: JSON.stringify(visit),
       reason: note,
+      warnings: siteVisitReviewContext?.warnings ?? [],
     });
     return null;
   })
@@ -27539,6 +27731,23 @@ export const requestActiveBuildDraw = authenticatedMutation
       if (existing.status !== "requested") {
         throw terminalActiveBuildDrawOperationConflictError(existing);
       }
+      const currentCycleNumber =
+        existing.currentLenderPortalReviewCycleNumber ?? 0;
+      const resubmitting =
+        existing.lenderPortalReviewState === "correction_required";
+      const submittedCycleNumber = resubmitting
+        ? currentCycleNumber + 1
+        : Math.max(1, currentCycleNumber);
+      await submitCanonicalReviewCycle(ctx, {
+        actorWorkosUserId: auth.subject,
+        expectedCycleNumber: resubmitting
+          ? currentCycleNumber
+          : currentCycleNumber > 0
+            ? currentCycleNumber - 1
+            : 0,
+        idempotencyKey: `${clientOperationId}:lender-portal-cycle:${submittedCycleNumber}`,
+        target: { drawRequestId: existing._id, kind: "draw" },
+      });
       await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
         actor: { roles: auth.roles, workosUserId: auth.subject },
         activationReason: "draw_request",
@@ -27628,6 +27837,12 @@ export const requestActiveBuildDraw = authenticatedMutation
         sourceOrder: allocation.sourceOrder,
       });
     }
+    await submitCanonicalReviewCycle(ctx, {
+      actorWorkosUserId: auth.subject,
+      expectedCycleNumber: 0,
+      idempotencyKey: `${clientOperationId}:lender-portal-cycle:1`,
+      target: { drawRequestId, kind: "draw" },
+    });
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -27942,7 +28157,9 @@ export const approveActiveBuildDraw = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     drawKey: v.string(),
+    expectedReviewCycleNumber: v.optional(v.number()),
     note: v.string(),
+    reviewIdempotencyKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -27969,6 +28186,33 @@ export const approveActiveBuildDraw = authenticatedMutation
         "Draw approval reason must be between 3 and 500 characters.",
       );
     }
+    if (
+      args.expectedReviewCycleNumber === undefined ||
+      !args.reviewIdempotencyKey
+    ) {
+      throw new ConvexError({
+        code: "REVIEW_COMMAND_CONTEXT_REQUIRED",
+        message:
+          "Refresh the current review cycle before recording this approval.",
+        recoverable: true,
+      });
+    }
+    const reviewDecision = await recordCanonicalBackofficeReviewDecision(ctx, {
+      actorWorkosUserId: auth.subject,
+      decision: "approved",
+      expectedCycleNumber: args.expectedReviewCycleNumber,
+      idempotencyKey: args.reviewIdempotencyKey,
+      privateRationale: note,
+      target: { drawRequestId: draw._id, kind: "draw" },
+    });
+    if (reviewDecision.state !== "completed") {
+      return null;
+    }
+    await requireCanonicalReviewCycleCompleted(
+      ctx,
+      { drawRequestId: draw._id, kind: "draw" },
+      args.expectedReviewCycleNumber,
+    );
     const patch = {
       collaborationEventRevision: (draw.collaborationEventRevision ?? 0) + 1,
       reviewNote: note,
@@ -28008,7 +28252,9 @@ export const rejectActiveBuildDraw = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     drawKey: v.string(),
+    expectedReviewCycleNumber: v.optional(v.number()),
     note: v.string(),
+    reviewIdempotencyKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -28035,6 +28281,26 @@ export const rejectActiveBuildDraw = authenticatedMutation
         "Draw rejection reason must be between 3 and 500 characters.",
       );
     }
+    if (
+      args.expectedReviewCycleNumber === undefined ||
+      !args.reviewIdempotencyKey
+    ) {
+      throw new ConvexError({
+        code: "REVIEW_COMMAND_CONTEXT_REQUIRED",
+        message:
+          "Refresh the current review cycle before recording this rejection.",
+        recoverable: true,
+      });
+    }
+    await recordCanonicalBackofficeReviewDecision(ctx, {
+      actorWorkosUserId: auth.subject,
+      decision: "rejected",
+      expectedCycleNumber: args.expectedReviewCycleNumber,
+      idempotencyKey: args.reviewIdempotencyKey,
+      privateRationale: note,
+      revisionInstructions: note,
+      target: { drawRequestId: draw._id, kind: "draw" },
+    });
     const patch = {
       collaborationEventRevision: (draw.collaborationEventRevision ?? 0) + 1,
       reviewNote: note,
@@ -28074,6 +28340,7 @@ export const releaseActiveBuildDraw = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     drawKey: v.string(),
+    expectedReviewCycleNumber: v.optional(v.number()),
     note: v.string(),
     releaseDate: v.string(),
     workosOrganizationId: v.string(),
@@ -28090,6 +28357,18 @@ export const releaseActiveBuildDraw = authenticatedMutation
       ctx,
       args.buildId,
       args.drawKey,
+    );
+    if (args.expectedReviewCycleNumber === undefined) {
+      throw new ConvexError({
+        code: "REVIEW_COMMAND_CONTEXT_REQUIRED",
+        message: "Refresh the current review cycle before releasing this Draw.",
+        recoverable: true,
+      });
+    }
+    await requireCanonicalReviewCycleCompleted(
+      ctx,
+      { drawRequestId: draw._id, kind: "draw" },
+      args.expectedReviewCycleNumber,
     );
     if (draw.status !== "approved_for_release") {
       throw new Error("Only draws approved for release can be released.");
@@ -29273,8 +29552,10 @@ export const repairActiveBuildMilestoneReviewStates = authenticatedMutation
 export const approveActiveBuildMilestone = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    expectedReviewCycleNumber: v.optional(v.number()),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
+    reviewIdempotencyKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -29291,6 +29572,33 @@ export const approveActiveBuildMilestone = authenticatedMutation
       args.milestoneKey,
     );
     assertActiveBuildPlanningTargetActive(milestone);
+    if (
+      args.expectedReviewCycleNumber === undefined ||
+      !args.reviewIdempotencyKey
+    ) {
+      throw new ConvexError({
+        code: "REVIEW_COMMAND_CONTEXT_REQUIRED",
+        message:
+          "Refresh the current review cycle before recording this approval.",
+        recoverable: true,
+      });
+    }
+    const reviewDecision = await recordCanonicalBackofficeReviewDecision(ctx, {
+      actorWorkosUserId: auth.subject,
+      decision: "approved",
+      expectedCycleNumber: args.expectedReviewCycleNumber,
+      idempotencyKey: args.reviewIdempotencyKey,
+      privateRationale: args.note,
+      target: { kind: "milestone", milestoneId: milestone._id },
+    });
+    if (reviewDecision.state !== "completed") {
+      return null;
+    }
+    await requireCanonicalReviewCycleCompleted(
+      ctx,
+      { kind: "milestone", milestoneId: milestone._id },
+      args.expectedReviewCycleNumber,
+    );
     const completionReview = {
       ...(milestone.completionReview ?? {}),
       ...(args.note ? { note: args.note } : {}),
@@ -29341,8 +29649,10 @@ export const approveActiveBuildMilestone = authenticatedMutation
 export const rejectActiveBuildMilestone = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    expectedReviewCycleNumber: v.optional(v.number()),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
+    reviewIdempotencyKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -29359,6 +29669,27 @@ export const rejectActiveBuildMilestone = authenticatedMutation
       args.milestoneKey,
     );
     assertActiveBuildPlanningTargetActive(milestone);
+    const revisionInstructions = args.note?.trim();
+    if (
+      args.expectedReviewCycleNumber === undefined ||
+      !args.reviewIdempotencyKey
+    ) {
+      throw new ConvexError({
+        code: "REVIEW_COMMAND_CONTEXT_REQUIRED",
+        message:
+          "Refresh the current review cycle before recording this rejection.",
+        recoverable: true,
+      });
+    }
+    await recordCanonicalBackofficeReviewDecision(ctx, {
+      actorWorkosUserId: auth.subject,
+      decision: "rejected",
+      expectedCycleNumber: args.expectedReviewCycleNumber,
+      idempotencyKey: args.reviewIdempotencyKey,
+      privateRationale: revisionInstructions,
+      revisionInstructions,
+      target: { kind: "milestone", milestoneId: milestone._id },
+    });
     const completionReview = {
       ...(milestone.completionReview ?? {}),
       ...(args.note ? { note: args.note } : {}),
@@ -30707,7 +31038,7 @@ interface BuilderStaffPermissionSnapshot {
     resourceType: BuilderStaffPermissionResource;
   }>;
   mode: "full" | "limited";
-  role: "backoffice" | "owner" | "staff";
+  role: "backoffice" | "lender" | "owner" | "staff";
 }
 
 async function requireBuilderStaffPermission(
@@ -30953,6 +31284,20 @@ function fullBuilderStaffPermissionGrants(): BuilderStaffPermissionSnapshot["gra
     canView: true,
     resourceType,
   }));
+}
+
+function lenderProposalReviewPermissionProjection(): BuilderStaffPermissionSnapshot {
+  return {
+    grants: BUILDER_STAFF_PERMISSION_RESOURCES.map((resourceType) => ({
+      canCreate: false,
+      canDelete: false,
+      canUpdate: false,
+      canView: true,
+      resourceType,
+    })),
+    mode: "limited",
+    role: "lender",
+  };
 }
 
 function normalizeBuilderStaffPermissionRows(
@@ -37174,7 +37519,11 @@ async function authorizeProposalLifecycleActor(
   if (
     !currentLenderAssignment ||
     currentLenderAssignment.lenderOrganizationId !==
-      authorization.activeOrganization.lenderOrganizationId
+      authorization.activeOrganization.lenderOrganizationId ||
+    currentLenderAssignment.lenderBrokerageId !==
+      authorization.activeOrganization.brokerageId ||
+    currentLenderAssignment.brokerageId !== proposal.brokerageId ||
+    currentLenderAssignment.organizationId !== proposal.organizationId
   ) {
     throw new Error("Forbidden: current lender assignment");
   }
@@ -45820,6 +46169,63 @@ async function seedCloseProposal(
   if (!proposal?.workflowRuleSnapshotId) {
     throw new Error("Seeded proposal is missing workflow rule snapshot.");
   }
+  let reviewPolicyLock = proposal.lockedReviewPolicyId
+    ? await ctx.db.get(proposal.lockedReviewPolicyId)
+    : null;
+  if (!reviewPolicyLock && proposal.status === "approved") {
+    if (!proposal.backOfficeApprovedByWorkosUserId) {
+      await ctx.db.patch(proposal._id, {
+        backOfficeApprovedByWorkosUserId: input.auth.subject,
+      });
+    }
+    const approvedProposal = await ctx.db.get(proposal._id);
+    if (!approvedProposal) {
+      throw new Error("Seeded proposal is unavailable before policy lock.");
+    }
+    const policyVersion = await ensureDefaultProposalReviewPolicyVersion(ctx, {
+      auth: { ...input.auth, proposal: approvedProposal },
+      now: input.now,
+    });
+    const revisionProposal = await ctx.db.get(proposal._id);
+    if (!revisionProposal) {
+      throw new Error("Seeded proposal is unavailable before revision.");
+    }
+    const revision = await createImmutableProposalRevision(ctx, {
+      assignment: null,
+      auth: { ...input.auth, proposal: revisionProposal },
+      idempotencyKey: "system:seed-review-policy-revision",
+      policyVersion,
+      reason: "Create the canonical review-policy revision for seeded closing.",
+    });
+    const reviewPolicyLockId = await ctx.db.insert(
+      "proposalReviewPolicyLocks",
+      {
+        activeLenderMemberCount: 0,
+        brokerageId: input.auth.brokerage._id,
+        eligibleLenderApproverCount: 0,
+        eligibleLenderApproverCounts: {
+          draw: 0,
+          milestone: 0,
+          proposalReview: 0,
+        },
+        idempotencyKey: "system:seed-review-policy-lock",
+        lockedAt: input.now,
+        lockedByRole: requirePhase3BackofficeRole(input.auth),
+        lockedByWorkosUserId: input.auth.subject,
+        organizationId: input.organizationId,
+        policy: policyVersion.policy,
+        policyVersionId: policyVersion._id,
+        proposalId: proposal._id,
+        proposalRevisionId: revision._id,
+        proposalRevisionNumber: revision.revisionNumber,
+        reason: "Lock the canonical review policy for seeded closing.",
+      },
+    );
+    await ctx.db.patch(proposal._id, {
+      lockedReviewPolicyId: reviewPolicyLockId,
+    });
+    reviewPolicyLock = await ctx.db.get(reviewPolicyLockId);
+  }
   const permit = await getPermitDocument(ctx, input.proposalId);
   const permitWaiver = await getPermitWaiver(ctx, input.proposalId);
   const assignedBuilderProfileId = assignedBuilderProfileIdOrThrow(proposal);
@@ -45841,6 +46247,12 @@ async function seedCloseProposal(
     permitDocumentId: permit?._id,
     permitWaiverId: permitWaiver?._id,
     proposalId: input.proposalId,
+    ...(reviewPolicyLock
+      ? {
+          reviewPolicyLockId: reviewPolicyLock._id,
+          reviewPolicySnapshot: reviewPolicyLock.policy,
+        }
+      : {}),
     startDate: input.buildStartDate,
     status:
       new Date(`${input.buildStartDate}T00:00:00Z`).getTime() > input.now

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
+import resendTest from "@convex-dev/resend/test";
 import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
@@ -69,6 +70,74 @@ async function phase4CommandBaseForTest(t: any, proposalId: any) {
     expectedProposalRevisionId:
       projection.currentCycle.proposalRevisionId,
   };
+}
+
+async function phase8ProposalIntents(
+  t: any,
+  proposalId: any,
+): Promise<Array<Doc<"communicationIntents">>> {
+  return (await t.run(async (ctx: any) =>
+    await ctx.db
+      .query("communicationIntents")
+      .withIndex(
+        "by_relatedEntityType_and_relatedEntityId_and_createdAt",
+        (query: any) =>
+          query
+            .eq("relatedEntityType", "proposal")
+            .eq("relatedEntityId", String(proposalId)),
+      )
+      .collect(),
+  )) as Array<Doc<"communicationIntents">>;
+}
+
+function phase8ProposalPayload(intent: Doc<"communicationIntents">) {
+  return JSON.parse(intent.payloadSnapshot) as {
+    audience: "backoffice" | "builder" | "lender";
+    eventClass:
+      | "approval-required"
+      | "approval-outcome"
+      | "proposal-updated-after-decline"
+      | "withdrawal";
+    proposalId?: string;
+    recipientWorkosUserId: string;
+  };
+}
+
+async function projectDeletedWorkosUser(base: any, workosUserId: string) {
+  const now = new Date().toISOString();
+  await base.mutation(internal.auth.authKitEvent, {
+    data: {
+      createdAt: now,
+      email: `${workosUserId}@example.com`,
+      emailVerified: true,
+      firstName: workosUserId,
+      id: workosUserId,
+      profilePictureUrl: null,
+      updatedAt: now,
+    },
+    event: "user.deleted",
+  });
+}
+
+async function projectWorkosUserEmail(
+  base: any,
+  event: "user.created" | "user.updated",
+  workosUserId: string,
+  email: string,
+) {
+  const now = new Date().toISOString();
+  await base.mutation(internal.auth.authKitEvent, {
+    data: {
+      createdAt: now,
+      email,
+      emailVerified: true,
+      firstName: workosUserId,
+      id: workosUserId,
+      profilePictureUrl: null,
+      updatedAt: now,
+    },
+    event,
+  });
 }
 
 async function approveCurrentProposalConfirmationForTest(
@@ -144,6 +213,432 @@ async function seededPhase4Proposal(buildName: string) {
 }
 
 describe("Lender Portal Phase 4 confirmation and remediation", () => {
+  test("commits approval-required intents for every current eligible lender approver", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    resendTest.register(base);
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_phase8_assignment_notifications",
+      userId: "user_phase8_lender_admin",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender",
+      userId: "user_phase8_lender",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender-admin",
+      userId: "user_phase8_lender_two",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender-admin",
+      userId: "user_phase8_lender_race",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender-admin",
+      userId: "user_phase8_lender_cross_scope",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender-admin",
+      userId: "user_phase8_lender_identity",
+    });
+    await seedAdditionalLenderOrganizationMember(t, {
+      brokerageId: lender.brokerageId,
+      lenderOrganizationId: lender.lenderOrganizationId,
+      role: "lender-staff",
+      userId: "user_phase8_lender_staff",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Phase 8 assignment notifications",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the Phase 8 assignment notification fixture.",
+      workosOrganizationId: ORG,
+    });
+
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Assign the proposal and notify every eligible approver.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const eligibleLenderViewer = withIdentity(
+      base,
+      ["lender"],
+      "user_phase8_lender",
+      lender.organizationId,
+    );
+    await expect(
+      eligibleLenderViewer.query(
+        (api as any).production_proposals.getCurrentLenderProposalDetail,
+        {
+          assignmentId: assignment.assignmentId,
+          proposalId,
+        },
+      ),
+    ).resolves.toMatchObject({
+      proposal: {
+        _id: proposalId,
+        buildName: "Phase 8 assignment notifications",
+      },
+    });
+    await expect(
+      withIdentity(
+        base,
+        ["lender-staff"],
+        "user_phase8_lender_staff",
+        lender.organizationId,
+      ).query(
+        (api as any).production_proposals.getCurrentLenderProposalDetail,
+        {
+          assignmentId: assignment.assignmentId,
+          proposalId,
+        },
+      ),
+    ).rejects.toThrow("final lender decision authority proposal_review");
+
+    const intents = await phase8ProposalIntents(t, proposalId);
+    expect(intents).toHaveLength(6);
+    expect(intents.map((intent) => intent.kind)).toEqual([
+      "lender_portal_approval_required",
+      "lender_portal_approval_required",
+      "lender_portal_approval_required",
+      "lender_portal_approval_required",
+      "lender_portal_approval_required",
+      "lender_portal_approval_required",
+    ]);
+    const payloads = intents.map(phase8ProposalPayload);
+    expect(
+      payloads.map((payload) => payload.recipientWorkosUserId).sort(),
+    ).toEqual([
+      "user_phase8_lender",
+      "user_phase8_lender_admin",
+      "user_phase8_lender_cross_scope",
+      "user_phase8_lender_identity",
+      "user_phase8_lender_race",
+      "user_phase8_lender_two",
+    ]);
+    expect(payloads).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          audience: "lender",
+          eventClass: "approval-required",
+          proposalId: String(proposalId),
+        }),
+      ]),
+    );
+    expect(intents.every((intent) => intent.payloadSnapshot.includes("reason") === false)).toBe(true);
+
+    const intentByRecipient = new Map<string, Doc<"communicationIntents">>(
+      intents.map((intent) => [
+        phase8ProposalPayload(intent).recipientWorkosUserId,
+        intent,
+      ] as const),
+    );
+    const retryIntent = intentByRecipient.get("user_phase8_lender");
+    const staleIntent = intentByRecipient.get("user_phase8_lender_two");
+    const workerIntent = intentByRecipient.get("user_phase8_lender_admin");
+    const raceIntent = intentByRecipient.get("user_phase8_lender_race");
+    const crossScopeIntent = intentByRecipient.get(
+      "user_phase8_lender_cross_scope",
+    );
+    const identityIntent = intentByRecipient.get("user_phase8_lender_identity");
+    if (!(retryIntent && staleIntent && workerIntent && raceIntent && crossScopeIntent && identityIntent)) {
+      throw new Error("Phase 8 communication intent fixture is incomplete.");
+    }
+
+    const lenderAdminViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lender.userId,
+      lender.organizationId,
+    );
+    await expect(
+      lenderAdminViewer.query(
+        (api as any).lender_portal_notifications
+          .authorizeLenderPortalNotificationLink,
+        {
+          intentId: workerIntent._id,
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).resolves.toMatchObject({
+      audience: "lender",
+      eventClass: "approval-required",
+      readOnly: false,
+    });
+    await projectWorkosUserEmail(
+      base,
+      "user.updated",
+      "user_phase8_lender_identity",
+      "phase8-changed-email@example.com",
+    );
+    await projectWorkosUserEmail(
+      base,
+      "user.created",
+      "user_phase8_duplicate_email",
+      "user_phase8_lender_identity@example.com",
+    );
+    await expect(
+      withIdentity(
+        base,
+        ["lender-admin"],
+        "user_phase8_lender_identity",
+        lender.organizationId,
+      ).query(
+        (api as any).lender_portal_notifications
+          .authorizeLenderPortalNotificationLink,
+        {
+          intentId: identityIntent._id,
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).resolves.toMatchObject({
+      audience: "lender",
+      eventClass: "approval-required",
+    });
+    await projectWorkosUserEmail(
+      base,
+      "user.updated",
+      "user_phase8_lender_identity",
+      "user_phase8_lender_identity@example.com",
+    );
+    await expect(
+      lenderAdminViewer.query(
+        (api as any).lender_portal_notifications
+          .authorizeLenderPortalNotificationLink,
+        {
+          intentId: retryIntent._id,
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("no longer available");
+
+    const firstAttempt = await t.mutation(
+      internal.quote_notifications.claimCommunicationIntent,
+      { intentId: retryIntent._id, now: retryIntent.nextAttemptAt },
+    );
+    if (!firstAttempt) {
+      throw new Error("Expected the current lender intent to be claimable.");
+    }
+    await t.mutation(
+      internal.quote_notifications.recordCommunicationDispatchFailure,
+      {
+        attemptId: firstAttempt.attemptId,
+        intentId: retryIntent._id,
+        now: retryIntent.nextAttemptAt + 1,
+        retryable: true,
+        safeError: "Transient Phase 8 provider failure.",
+      },
+    );
+    const retryScheduled = await t.run((ctx: any) =>
+      ctx.db.get(retryIntent._id),
+    );
+    const secondAttempt = await t.mutation(
+      internal.quote_notifications.claimCommunicationIntent,
+      { intentId: retryIntent._id, now: retryScheduled.nextAttemptAt },
+    );
+    if (!secondAttempt) {
+      throw new Error("Expected the Phase 8 retry to be claimable.");
+    }
+    await t.mutation(
+      internal.quote_notifications.recordCommunicationDispatchFailure,
+      {
+        attemptId: secondAttempt.attemptId,
+        intentId: retryIntent._id,
+        now: retryScheduled.nextAttemptAt + 1,
+        retryable: false,
+        safeError: "Permanent Phase 8 provider failure.",
+      },
+    );
+    const retryPersistence = await t.run(async (ctx: any) => ({
+      attempts: await ctx.db
+        .query("communicationAttempts")
+        .withIndex(
+          "by_communicationIntentId_and_attemptNumber",
+          (query: any) => query.eq("communicationIntentId", retryIntent._id),
+        )
+        .collect(),
+      intent: await ctx.db.get(retryIntent._id),
+    }));
+    expect(retryPersistence.attempts).toHaveLength(2);
+    expect(retryPersistence.intent).toMatchObject({
+      attemptCount: 2,
+      status: "action_required",
+    });
+    expect(retryPersistence.intent).not.toHaveProperty("buildId");
+
+    await projectDeletedWorkosUser(base, "user_phase8_lender_two");
+    await expect(
+      t.mutation(internal.quote_notifications.claimCommunicationIntent, {
+        intentId: staleIntent._id,
+        now: staleIntent.nextAttemptAt,
+      }),
+    ).resolves.toBeNull();
+    const stalePersistence = await t.run(async (ctx: any) => ({
+      attempts: await ctx.db
+        .query("communicationAttempts")
+        .withIndex(
+          "by_communicationIntentId_and_attemptNumber",
+          (query: any) => query.eq("communicationIntentId", staleIntent._id),
+        )
+        .collect(),
+      intent: await ctx.db.get(staleIntent._id),
+      outcomes: await ctx.db
+        .query("communicationOutcomes")
+        .withIndex(
+          "by_communicationIntentId_and_providerCreatedAt",
+          (query: any) => query.eq("communicationIntentId", staleIntent._id),
+        )
+        .collect(),
+    }));
+    expect(stalePersistence.attempts).toEqual([]);
+    expect(stalePersistence.intent).toMatchObject({ status: "suppressed" });
+    expect(stalePersistence.outcomes).toEqual([
+      expect.objectContaining({ outcomeType: "dispatch_suppressed" }),
+    ]);
+    await expect(
+      withIdentity(
+        base,
+        ["lender-admin"],
+        "user_phase8_lender_two",
+        lender.organizationId,
+      ).query(
+        (api as any).lender_portal_notifications
+          .authorizeLenderPortalNotificationLink,
+        {
+          intentId: staleIntent._id,
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).rejects.toThrow("no longer available");
+
+    const raceClaim = await t.mutation(
+      internal.quote_notifications.claimCommunicationIntent,
+      { intentId: raceIntent._id, now: raceIntent.nextAttemptAt },
+    );
+    if (!raceClaim) {
+      throw new Error("Expected the race intent to be claimed.");
+    }
+    await projectDeletedWorkosUser(base, "user_phase8_lender_race");
+    await expect(
+      t.mutation(
+        internal.quote_notifications.authorizeCommunicationProviderSubmission,
+        {
+          attemptId: raceClaim.attemptId,
+          intentId: raceIntent._id,
+          now: raceIntent.nextAttemptAt + 1,
+        },
+      ),
+    ).resolves.toBe(false);
+    const racePersistence = await t.run(async (ctx: any) => ({
+      attempt: await ctx.db.get(raceClaim.attemptId),
+      intent: await ctx.db.get(raceIntent._id),
+      outcomes: await ctx.db
+        .query("communicationOutcomes")
+        .withIndex(
+          "by_communicationIntentId_and_providerCreatedAt",
+          (query: any) => query.eq("communicationIntentId", raceIntent._id),
+        )
+        .collect(),
+    }));
+    expect(racePersistence.attempt).toMatchObject({
+      state: "abandoned",
+      finishedAt: raceIntent.nextAttemptAt + 1,
+    });
+    expect(racePersistence.intent).toMatchObject({ status: "suppressed" });
+    expect(racePersistence.outcomes).toEqual([
+      expect.objectContaining({
+        communicationAttemptId: raceClaim.attemptId,
+        outcomeType: "dispatch_suppressed",
+      }),
+    ]);
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(crossScopeIntent._id, {
+        brokerageId: lender.brokerageId,
+      });
+    });
+    await expect(
+      t.mutation(internal.quote_notifications.claimCommunicationIntent, {
+        intentId: crossScopeIntent._id,
+        now: crossScopeIntent.nextAttemptAt,
+      }),
+    ).resolves.toBeNull();
+    const crossScopePersistence = await t.run((ctx: any) =>
+      ctx.db.get(crossScopeIntent._id),
+    );
+    expect(crossScopePersistence).toMatchObject({ status: "suppressed" });
+
+    vi.stubEnv("DRAWFLOW_APP_ORIGINS", "https://drawflow.example");
+    vi.stubEnv(
+      "RESEND_FROM_EMAIL",
+      "DrawFlow <notifications@updates.fairlend.ca>",
+    );
+    vi.stubEnv("RESEND_API_KEY", "re_phase8_worker_test");
+    const resendFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "email_phase8_worker" }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", resendFetch);
+    await base.action(
+      internal.quote_notifications.processDueCommunicationIntents,
+      {},
+    );
+    const workerPersistence = await t.run((ctx: any) =>
+      ctx.db.get(workerIntent._id),
+    );
+    expect(workerPersistence).toMatchObject({
+      attemptCount: 1,
+      status: "sent",
+    });
+    expect(workerPersistence).not.toHaveProperty("buildId");
+    const resendRequest = resendFetch.mock.calls[0]?.[1] as
+      | { body?: string }
+      | undefined;
+    expect(resendRequest?.body).toContain(
+      `/notifications/${String(workerIntent._id)}`,
+    );
+    expect(resendRequest?.body).not.toContain("Assign the proposal");
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+
+    await t.mutation(
+      (api as any).production_proposals.withdrawExternalLenderAssignment,
+      {
+        assignmentId: assignment.assignmentId,
+        proposalId,
+        reason: "Prove stale assignments cannot load current lender detail.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      eligibleLenderViewer.query(
+        (api as any).production_proposals.getCurrentLenderProposalDetail,
+        {
+          assignmentId: assignment.assignmentId,
+          proposalId,
+        },
+      ),
+    ).rejects.toThrow("Forbidden: current lender assignment");
+  });
+
   test("requires all immutable checkpoints before lender approval", async () => {
     const { base, lender, lenderViewer, proposalId, t } =
       await seededPhase4Proposal("Phase 4 partial confirmation");
@@ -308,6 +803,11 @@ describe("Lender Portal Phase 4 confirmation and remediation", () => {
         },
       ),
     ).rejects.toThrow("A reason is required");
+    expect(
+      (await phase8ProposalIntents(t, proposalId)).filter(
+        (intent: any) => intent.kind === "lender_portal_approval_outcome",
+      ),
+    ).toHaveLength(0);
     const declineArgs = {
       ...firstBase,
       declinedCheckpoint: "scheduleTimeline" as const,
@@ -325,6 +825,27 @@ describe("Lender Portal Phase 4 confirmation and remediation", () => {
       declineArgs,
     );
     expect(declinedRetry).toEqual(declined);
+    const declineOutcomeIntents = (
+      await phase8ProposalIntents(t, proposalId)
+    ).filter(
+      (intent: any) => intent.kind === "lender_portal_approval_outcome",
+    );
+    expect(declineOutcomeIntents.length).toBeGreaterThan(0);
+    expect(
+      new Set(
+        declineOutcomeIntents.map((intent: any) => intent.idempotencyKey),
+      ).size,
+    ).toBe(declineOutcomeIntents.length);
+    expect(
+      declineOutcomeIntents.every(
+        (intent: any) =>
+          !intent.payloadSnapshot.includes(lender.userId) &&
+          !intent.payloadSnapshot.includes(
+            "construction start date needs lender review",
+          ) &&
+          !intent.payloadSnapshot.includes("privateRationale"),
+      ),
+    ).toBe(true);
     const proposalAfterDecline = await base.run((ctx: any) =>
       ctx.db.get(proposalId),
     );
@@ -383,6 +904,16 @@ describe("Lender Portal Phase 4 confirmation and remediation", () => {
         reason: "Publish the same-proposal schedule remediation.",
         workosOrganizationId: ORG,
       },
+    );
+    const postDeclineIntents = (
+      await phase8ProposalIntents(t, proposalId)
+    ).filter(
+      (intent: any) =>
+        intent.kind === "lender_portal_proposal_updated_after_decline",
+    );
+    expect(postDeclineIntents).toHaveLength(1);
+    expect(postDeclineIntents[0].payloadSnapshot).not.toContain(
+      "construction start date needs lender review",
     );
     const lenderAfterPublish = await lenderViewer.query(
       (api as any).production_proposals.getLenderProposalConfirmation,
@@ -538,6 +1069,15 @@ describe("Lender Portal Phase 4 confirmation and remediation", () => {
     });
     expect(approved.history.page).toHaveLength(3);
     expect(approved.currentCycle.acknowledgements).toHaveLength(5);
+    const allPhase8Intents = await phase8ProposalIntents(t, proposalId);
+    expect(
+      allPhase8Intents.some(
+        (intent: any) => intent.kind === "lender_portal_approval_outcome",
+      ),
+    ).toBe(true);
+    expect(
+      new Set(allPhase8Intents.map((intent: any) => intent.idempotencyKey)).size,
+    ).toBe(allPhase8Intents.length);
   });
 
   test("serializes competing approve and decline decisions without duplicate history", async () => {
@@ -2228,6 +2768,36 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
     ).resolves.toMatchObject({ status: "building" });
     await base.finishAllScheduledFunctions(() => vi.runAllTimers());
     vi.useRealTimers();
+    const withdrawalIntents = (
+      await phase8ProposalIntents(t, proposalId)
+    ).filter((intent: any) => intent.kind === "lender_portal_withdrawal");
+    expect(withdrawalIntents).toHaveLength(1);
+    expect(withdrawalIntents[0]).toMatchObject({
+      recipientEmailSnapshot: `${lender.userId}@example.com`,
+      status: "pending",
+    });
+    expect(withdrawalIntents[0].payloadSnapshot).not.toContain(
+      "Borrower returned to the internal path",
+    );
+    await expect(
+      withIdentity(
+        base,
+        ["lender-admin"],
+        lender.userId,
+        lender.organizationId,
+      ).query(
+        (api as any).lender_portal_notifications
+          .authorizeLenderPortalNotificationLink,
+        {
+          intentId: withdrawalIntents[0]._id,
+          workosOrganizationId: lender.organizationId,
+        },
+      ),
+    ).resolves.toMatchObject({
+      audience: "lender",
+      eventClass: "withdrawal",
+      readOnly: true,
+    });
     await expect(
       t.query((api as any).production_proposals.getProposalLenderArchiveStatus, {
         assignmentId: assigned.assignmentId,
@@ -7402,7 +7972,9 @@ describe("production proposal foundation", () => {
       {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "Lender review requires another supporting invoice.",
+        reviewIdempotencyKey: "builder-note-visibility-reject-cycle-1",
         workosOrganizationId: ORG,
       },
     );
@@ -11115,12 +11687,15 @@ describe("production proposal foundation", () => {
     await t.mutation((api as any).production_proposals.approveActiveBuildDraw, {
       buildId: closing.buildId,
       drawKey: drawReceipt.requestKey,
+      expectedReviewCycleNumber: 1,
       note: "Approved for release after operations review.",
+      reviewIdempotencyKey: "policy-lifecycle-approve-draw-cycle-1",
       workosOrganizationId: ORG,
     });
     await t.mutation((api as any).production_proposals.releaseActiveBuildDraw, {
       buildId: closing.buildId,
       drawKey: drawReceipt.requestKey,
+      expectedReviewCycleNumber: 1,
       note: "Released after admin approval.",
       releaseDate: "2026-08-24",
       workosOrganizationId: ORG,
@@ -11413,15 +11988,19 @@ describe("production proposal foundation", () => {
         (group: { buildId: string }) => group.buildId === closing.buildId,
       ),
     ).toBe(true);
-    await t.mutation(
-      (api as any).production_proposals.approveActiveBuildMilestone,
-      {
-        buildId: closing.buildId,
-        milestoneKey: "foundation",
-        note: "Milestone approved from production build detail.",
-        workosOrganizationId: ORG,
-      },
-    );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.approveActiveBuildMilestone,
+        {
+          buildId: closing.buildId,
+          expectedReviewCycleNumber: 1,
+          milestoneKey: "foundation",
+          note: "Milestone approved from production build detail.",
+          reviewIdempotencyKey: "production-detail-approve-milestone-cycle-1",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("REVIEW_REQUEST_UNAVAILABLE");
 
     const workspace = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
@@ -11549,7 +12128,7 @@ describe("production proposal foundation", () => {
     );
     expect(workspace.milestones[0]).toMatchObject({
       completionReview: expect.objectContaining({
-        note: "Milestone approved from production build detail.",
+        note: "Add final inspection card.",
         siteVisit: expect.objectContaining({
           note: "Verify footing photo location.",
           recordNote:
@@ -11558,10 +12137,10 @@ describe("production proposal foundation", () => {
           requestedDay: 23,
           status: "complete",
         }),
-        status: "approved",
+        status: "revisionRequested",
       }),
-      evidenceState: "Approved",
-      status: "complete",
+      evidenceState: "Site visit report submitted",
+      status: "in_progress",
     });
     expect(workspace.quickActionEvents).toEqual([]);
     expect(JSON.stringify(workspace.auditEvents)).not.toMatch(
@@ -11611,7 +12190,6 @@ describe("production proposal foundation", () => {
         "active_build.milestone.info_requested",
         "active_build.site_visit.requested",
         "active_build.site_visit.token_report_submitted",
-        "active_build.milestone.approved",
       ]),
     );
   });
@@ -16974,8 +17552,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.approveActiveBuildMilestone,
       {
         buildId: closing.buildId,
+        expectedReviewCycleNumber: 1,
         milestoneKey: "foundation",
         note: "Completion evidence approved.",
+        reviewIdempotencyKey: "draw-availability-approve-milestone-cycle-1",
         workosOrganizationId: ORG,
       },
     );
@@ -17031,8 +17611,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.approveActiveBuildMilestone,
       {
         buildId: closing.buildId,
+        expectedReviewCycleNumber: 1,
         milestoneKey: "foundation",
         note: "Completion evidence approved.",
+        reviewIdempotencyKey: "draw-approval-approve-milestone-cycle-1",
         workosOrganizationId: ORG,
       },
     );
@@ -17059,7 +17641,9 @@ describe("production proposal foundation", () => {
       t.mutation((api as any).production_proposals.approveActiveBuildDraw, {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "Approve release.",
+        reviewIdempotencyKey: "direct-draw-approve-cycle-1",
         workosOrganizationId: ORG,
       }),
     ).resolves.toBeNull();
@@ -17887,7 +18471,9 @@ describe("production proposal foundation", () => {
       {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "Admin approved the attributed reimbursement.",
+        reviewIdempotencyKey: "draw-lifecycle-approve-cycle-1",
         workosOrganizationId: ORG,
       },
     );
@@ -17902,6 +18488,7 @@ describe("production proposal foundation", () => {
       {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "Funds released against the approved source allocation.",
         releaseDate: "2026-07-27",
         workosOrganizationId: ORG,
@@ -18835,7 +19422,9 @@ describe("production proposal foundation", () => {
       t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "   ",
+        reviewIdempotencyKey: "reject-reason-validation-cycle-1",
         workosOrganizationId: ORG,
       }),
     ).rejects.toThrow(/reason/i);
@@ -18844,6 +19433,8 @@ describe("production proposal foundation", () => {
       t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
+        reviewIdempotencyKey: "reject-reason-validation-cycle-1",
         workosOrganizationId: ORG,
       }),
     ).rejects.toThrow(/note/i);
@@ -18851,7 +19442,9 @@ describe("production proposal foundation", () => {
       t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "",
+        reviewIdempotencyKey: "reject-reason-validation-cycle-1",
         workosOrganizationId: ORG,
       }),
     ).rejects.toThrow(/reason/i);
@@ -18860,7 +19453,9 @@ describe("production proposal foundation", () => {
     await t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
       buildId: closing.buildId,
       drawKey: receipt.requestKey,
+      expectedReviewCycleNumber: 1,
       note: reason,
+      reviewIdempotencyKey: "reject-reason-validation-cycle-1",
       workosOrganizationId: ORG,
     });
     const detail = await t.query(
@@ -21046,16 +21641,15 @@ describe("recipient delivery inbox", () => {
         workosOrganizationId: ORG,
       },
     );
-    for (const note of [
-      "Add the missing footing photos.",
-      "Add the missing footing photos before resubmitting.",
-    ]) {
+    for (const note of Array(2).fill("Add the missing footing photos.")) {
       await admin.mutation(
         (api as any).production_proposals.rejectActiveBuildMilestone,
         {
           buildId: closing.buildId,
+          expectedReviewCycleNumber: 1,
           milestoneKey: "foundation",
           note,
+          reviewIdempotencyKey: "milestone-rejection-delivery-cycle-1",
           workosOrganizationId: ORG,
         },
       );
@@ -21075,7 +21669,7 @@ describe("recipient delivery inbox", () => {
       }),
     ]);
     expect(inbox.deliveries[0].body).toContain(
-      "Add the missing footing photos before resubmitting.",
+      "Add the missing footing photos.",
     );
 
     await builder.mutation(
@@ -21168,7 +21762,9 @@ describe("recipient delivery inbox", () => {
       {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "Evidence approved.",
+        reviewIdempotencyKey: "draw-delivery-approve-cycle-1",
         workosOrganizationId: ORG,
       },
     );
@@ -21177,6 +21773,7 @@ describe("recipient delivery inbox", () => {
       {
         buildId: closing.buildId,
         drawKey: receipt.requestKey,
+        expectedReviewCycleNumber: 1,
         note: "Reimbursement released.",
         releaseDate: "2026-06-15",
         workosOrganizationId: ORG,

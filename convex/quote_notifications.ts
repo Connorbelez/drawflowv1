@@ -24,6 +24,7 @@ import {
   quoteInvitationUrl,
   resolveInvitationScope,
 } from "./quote_invitation_access";
+import { lenderPortalCommunicationSuppressionReason } from "./lender_portal_notifications";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const DISPATCH_BATCH_SIZE = 40;
@@ -407,6 +408,18 @@ export const claimCommunicationIntent = internalMutation
       );
       return null;
     }
+    const lenderPortalSuppressionReason =
+      await lenderPortalCommunicationSuppressionReason(ctx, intent);
+    if (lenderPortalSuppressionReason) {
+      await suppressStaleLenderPortalIntent(
+        ctx,
+        intent,
+        latestAttempt,
+        lenderPortalSuppressionReason,
+        args.now,
+      );
+      return null;
+    }
     if (intent.status === "dispatching" && latestAttempt) {
       await ctx.db.patch(latestAttempt._id, {
         finishedAt: args.now,
@@ -484,6 +497,52 @@ export const claimCommunicationIntent = internalMutation
   })
   .internal();
 
+async function suppressStaleLenderPortalIntent(
+  ctx: MutationCtx,
+  intent: Doc<"communicationIntents">,
+  attempt: Doc<"communicationAttempts"> | null,
+  reason: string,
+  now: number,
+) {
+  const eventFingerprint = `dispatch-suppressed:${String(intent._id)}`;
+  const existingOutcome = await ctx.db
+    .query("communicationOutcomes")
+    .withIndex("by_eventFingerprint", (query) =>
+      query.eq("eventFingerprint", eventFingerprint),
+    )
+    .unique();
+  if (attempt?.state === "claimed") {
+    await ctx.db.patch(attempt._id, {
+      finishedAt: now,
+      safeError: reason,
+      state: "abandoned",
+      updatedAt: now,
+    });
+  }
+  await ctx.db.patch(intent._id, {
+    lastOutcomeAt: now,
+    nextAttemptAt: now + 24 * 60 * 60 * 1000,
+    status: "suppressed",
+    suppressionReason: reason,
+    updatedAt: now,
+  });
+  if (!existingOutcome) {
+    await ctx.db.insert("communicationOutcomes", {
+      brokerageId: intent.brokerageId,
+      buildId: intent.buildId,
+      communicationAttemptId: attempt?._id,
+      communicationIntentId: intent._id,
+      eventFingerprint,
+      organizationId: intent.organizationId,
+      outcomeType: "dispatch_suppressed",
+      precedence: 100,
+      providerCreatedAt: now,
+      receivedAt: now,
+      safeDetail: reason,
+    });
+  }
+}
+
 export const authorizeCommunicationProviderSubmission = internalMutation
   .input({
     attemptId: v.id("communicationAttempts"),
@@ -510,6 +569,18 @@ export const authorizeCommunicationProviderSubmission = internalMutation
         intent,
         attempt,
         args.now
+      );
+      return false;
+    }
+    const lenderPortalSuppressionReason =
+      await lenderPortalCommunicationSuppressionReason(ctx, intent);
+    if (lenderPortalSuppressionReason) {
+      await suppressStaleLenderPortalIntent(
+        ctx,
+        intent,
+        attempt,
+        lenderPortalSuppressionReason,
+        args.now,
       );
       return false;
     }
@@ -1165,6 +1236,25 @@ async function renderCommunicationEmail(work: {
   const payload = parsePayload(work.payloadSnapshot);
   const sender = requiredSender();
   const recipientName = work.recipientNameSnapshot?.trim() || "there";
+  if (work.templateKey.startsWith("lender_portal_")) {
+    const linkPath = String(payload.linkPath ?? "");
+    // Validate the immutable destination, but send recipients through the
+    // authenticated link-open boundary. The intent ID identifies the record;
+    // it never grants access by itself.
+    lenderPortalPublicUrl(linkPath);
+    const link = lenderPortalPublicUrl(
+      `/notifications/${String(work.intentId)}`,
+    );
+    const subject = lenderPortalSubject(payload);
+    const body = lenderPortalBody(payload);
+    const text = `Hello ${recipientName},\n\n${body}\n\nOpen DrawFlow: ${link}`;
+    return {
+      html: `<p>Hello ${escapeHtml(recipientName)},</p><p>${escapeHtml(body)}</p><p><a href="${escapeHtml(link)}">Open DrawFlow</a></p>`,
+      sender,
+      subject,
+      text,
+    };
+  }
   if (work.templateKey.startsWith("quote_invitation")) {
     const accessLinkAllowed = !(
       work.templateKey === "quote_invitation_revoked" ||
@@ -1266,6 +1356,9 @@ function subjectForIntentPayload(
   templateKey: string,
   payload: Record<string, unknown>
 ) {
+  if (templateKey.startsWith("lender_portal_")) {
+    return lenderPortalSubject(payload);
+  }
   if (templateKey === "cost_document_integrity_action_required_v1") {
     return `Action required: ${String(payload.title ?? "Cost Document integrity")}`;
   }
@@ -1285,6 +1378,63 @@ function subjectForIntentPayload(
     return "Quote invitation access link replaced";
   }
   return "DrawFlow Quote Package update";
+}
+
+function lenderPortalSubject(payload: Record<string, unknown>) {
+  const title = String(payload.title ?? "DrawFlow review");
+  switch (payload.eventClass) {
+    case "approval-required":
+      return `Action required: ${title}`;
+    case "proposal-updated-after-decline":
+      return `Proposal updated: ${title}`;
+    case "withdrawal":
+      return `Lender assignment withdrawn: ${title}`;
+    case "approval-outcome":
+      return payload.outcome === "approved"
+        ? `Review approved: ${title}`
+        : `Review needs revision: ${title}`;
+    default:
+      throw new Error("Unsupported lender portal notification event.");
+  }
+}
+
+function lenderPortalBody(payload: Record<string, unknown>) {
+  switch (payload.eventClass) {
+    case "approval-required":
+      return "A current DrawFlow approval group requires your review.";
+    case "proposal-updated-after-decline":
+      return "The proposal has a new revision and a new full confirmation cycle ready for review.";
+    case "withdrawal":
+      return "The lender assignment was withdrawn. The retained proposal record is read-only.";
+    case "approval-outcome":
+      return payload.outcome === "approved"
+        ? "The current review cycle was approved."
+        : "The current review cycle needs revision. Open DrawFlow for the information available to your role.";
+    default:
+      throw new Error("Unsupported lender portal notification event.");
+  }
+}
+
+function lenderPortalPublicUrl(linkPath: string) {
+  if (!linkPath.startsWith("/") || linkPath.startsWith("//")) {
+    throw new Error("Lender portal notification link is invalid.");
+  }
+  const configuredOrigin = (process.env.DRAWFLOW_APP_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .find(Boolean);
+  if (!configuredOrigin) {
+    throw new Error("DRAWFLOW_APP_ORIGINS is not configured.");
+  }
+  const origin = new URL(configuredOrigin);
+  if (
+    origin.protocol !== "https:" &&
+    origin.hostname !== "localhost" &&
+    origin.hostname !== "127.0.0.1"
+  ) {
+    throw new Error("DrawFlow application origin must use HTTPS.");
+  }
+  return new URL(linkPath, origin).toString();
 }
 
 function bodyForIntentPayload(

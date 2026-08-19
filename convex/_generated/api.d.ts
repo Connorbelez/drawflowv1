@@ -157,6 +157,7 @@ import type * as http from "../http.js";
 import type * as lenderOrganizationAccess from "../lenderOrganizationAccess.js";
 import type * as lenderOrganizations from "../lenderOrganizations.js";
 import type * as lender_portal from "../lender_portal.js";
+import type * as lender_portal_notifications from "../lender_portal_notifications.js";
 import type * as lender_portal_phase3 from "../lender_portal_phase3.js";
 import type * as lender_portal_phase4 from "../lender_portal_phase4.js";
 import type * as lender_portal_phase5 from "../lender_portal_phase5.js";
@@ -345,6 +346,7 @@ declare const fullApi: ApiFromModules<{
   lenderOrganizationAccess: typeof lenderOrganizationAccess;
   lenderOrganizations: typeof lenderOrganizations;
   lender_portal: typeof lender_portal;
+  lender_portal_notifications: typeof lender_portal_notifications;
   lender_portal_phase3: typeof lender_portal_phase3;
   lender_portal_phase4: typeof lender_portal_phase4;
   lender_portal_phase5: typeof lender_portal_phase5;

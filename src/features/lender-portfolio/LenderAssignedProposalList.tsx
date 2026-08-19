@@ -50,6 +50,11 @@ export function LenderAssignedProposalList({
                       : { proposalId: proposal.proposalId }
                   }
                   preload="intent"
+                  search={
+                    linkTo === "/lender/proposals/$proposalId"
+                      ? { assignmentId: proposal.assignmentId }
+                      : undefined
+                  }
                   to={linkTo}
                   viewTransition
                 >

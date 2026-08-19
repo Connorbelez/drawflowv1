@@ -32,6 +32,7 @@ import { Route as PrototypeContractorQuotesRouteImport } from './routes/prototyp
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
+import { Route as NotificationsIntentIdRouteImport } from './routes/notifications/$intentId'
 import { Route as LenderPrototypeRouteImport } from './routes/lender.prototype'
 import { Route as LenderProposalConfirmationPrototypeRouteImport } from './routes/lender.proposal-confirmation-prototype'
 import { Route as LenderOrganizationManagementPrototypeRouteImport } from './routes/lender.organization-management-prototype'
@@ -229,6 +230,11 @@ const PrototypeActionItemsRoute = PrototypeActionItemsRouteImport.update({
 const ProposalClaimClaimTokenRoute = ProposalClaimClaimTokenRouteImport.update({
   id: '/proposal-claim/$claimToken',
   path: '/proposal-claim/$claimToken',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotificationsIntentIdRoute = NotificationsIntentIdRouteImport.update({
+  id: '/notifications/$intentId',
+  path: '/notifications/$intentId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LenderPrototypeRoute = LenderPrototypeRouteImport.update({
@@ -724,6 +730,7 @@ export interface FileRoutesByFullPath {
   '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
   '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
   '/lender/prototype': typeof LenderPrototypeRoute
+  '/notifications/$intentId': typeof NotificationsIntentIdRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
@@ -814,6 +821,7 @@ export interface FileRoutesByTo {
   '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
   '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
   '/lender/prototype': typeof LenderPrototypeRoute
+  '/notifications/$intentId': typeof NotificationsIntentIdRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
@@ -917,6 +925,7 @@ export interface FileRoutesById {
   '/lender/organization-management-prototype': typeof LenderOrganizationManagementPrototypeRoute
   '/lender/proposal-confirmation-prototype': typeof LenderProposalConfirmationPrototypeRoute
   '/lender/prototype': typeof LenderPrototypeRoute
+  '/notifications/$intentId': typeof NotificationsIntentIdRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
@@ -1024,6 +1033,7 @@ export interface FileRouteTypes {
     | '/lender/organization-management-prototype'
     | '/lender/proposal-confirmation-prototype'
     | '/lender/prototype'
+    | '/notifications/$intentId'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
@@ -1114,6 +1124,7 @@ export interface FileRouteTypes {
     | '/lender/organization-management-prototype'
     | '/lender/proposal-confirmation-prototype'
     | '/lender/prototype'
+    | '/notifications/$intentId'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
@@ -1216,6 +1227,7 @@ export interface FileRouteTypes {
     | '/lender/organization-management-prototype'
     | '/lender/proposal-confirmation-prototype'
     | '/lender/prototype'
+    | '/notifications/$intentId'
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
@@ -1286,6 +1298,7 @@ export interface RootRouteChildren {
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   ApiReleaseRoute: typeof ApiReleaseRoute
+  NotificationsIntentIdRoute: typeof NotificationsIntentIdRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
@@ -1459,6 +1472,13 @@ declare module '@tanstack/react-router' {
       path: '/proposal-claim/$claimToken'
       fullPath: '/proposal-claim/$claimToken'
       preLoaderRoute: typeof ProposalClaimClaimTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notifications/$intentId': {
+      id: '/notifications/$intentId'
+      path: '/notifications/$intentId'
+      fullPath: '/notifications/$intentId'
+      preLoaderRoute: typeof NotificationsIntentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lender/prototype': {
@@ -2415,6 +2435,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
   ApiReleaseRoute: ApiReleaseRoute,
+  NotificationsIntentIdRoute: NotificationsIntentIdRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,

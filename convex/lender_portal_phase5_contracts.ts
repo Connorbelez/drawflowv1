@@ -50,16 +50,90 @@ export const lenderPortalReviewRequirementsValidator = v.object({
   siteVisitRequired: v.boolean(),
 });
 
-export const lenderPortalReviewEvidenceReferenceValidator = v.object({
-  evidenceAssetId: v.optional(v.id("buildEvidenceAssets")),
-  evidencePackageRevisionId: v.optional(
-    v.id("buildSubmilestoneEvidencePackageRevisions")
+export const lenderPortalReviewEvidenceReferenceValidator = v.union(
+  v.object({
+    association: v.union(
+      v.object({
+        evidencePackageItemId: v.id("buildSubmilestoneEvidencePackageItems"),
+        evidencePackageRevisionId: v.id(
+          "buildSubmilestoneEvidencePackageRevisions"
+        ),
+        kind: v.literal("package_revision"),
+      }),
+      v.object({
+        kind: v.literal("site_visit"),
+        siteVisitId: v.id("buildSiteVisits"),
+      })
+    ),
+    evidenceAssetId: v.id("buildEvidenceAssets"),
+    kind: v.literal("asset"),
+    label: v.string(),
+    locationFailureReason: v.optional(v.string()),
+    locationVerified: v.boolean(),
+    milestoneKey: v.string(),
+    submilestoneKey: v.optional(v.string()),
+  }),
+  v.object({
+    evidencePackageRevisionId: v.id(
+      "buildSubmilestoneEvidencePackageRevisions"
+    ),
+    kind: v.literal("package_revision"),
+    label: v.string(),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+  }),
+  v.object({
+    amountCents: v.number(),
+    costDocumentId: v.id("costDocuments"),
+    currency: v.literal("CAD"),
+    documentKind: v.union(v.literal("invoice"), v.literal("receipt")),
+    kind: v.literal("cost_document"),
+    label: v.string(),
+    milestoneKey: v.string(),
+  }),
+  v.object({
+    assetId: v.id("buildCollaborationAssets"),
+    costDocumentId: v.id("costDocuments"),
+    costDocumentPageId: v.id("costDocumentPages"),
+    kind: v.literal("cost_document_page"),
+    label: v.string(),
+    milestoneKey: v.string(),
+    order: v.number(),
+  }),
+  v.object({
+    completedAt: v.string(),
+    kind: v.literal("site_visit"),
+    label: v.string(),
+    milestoneKey: v.string(),
+    report: v.string(),
+    siteVisitId: v.id("buildSiteVisits"),
+  })
+);
+
+export const lenderPortalReviewEvidenceFileValidator = v.object({
+  downloadUrl: v.union(v.string(), v.null()),
+  fileName: v.string(),
+  mimeType: v.string(),
+  reference: v.union(
+    v.object({
+      evidenceAssetId: v.id("buildEvidenceAssets"),
+      kind: v.literal("asset"),
+    }),
+    v.object({
+      assetId: v.id("buildCollaborationAssets"),
+      costDocumentId: v.id("costDocuments"),
+      costDocumentPageId: v.id("costDocumentPages"),
+      kind: v.literal("cost_document_page"),
+    })
   ),
-  kind: v.union(v.literal("asset"), v.literal("package_revision")),
-  label: v.string(),
-  locationVerified: v.optional(v.boolean()),
-  milestoneKey: v.optional(v.string()),
-  submilestoneKey: v.optional(v.string()),
+  sizeBytes: v.number(),
+});
+
+export const lenderPortalReviewEvidenceProjectionValidator = v.object({
+  cycleId: v.id("lenderPortalReviewCycles"),
+  cycleNumber: v.number(),
+  evidenceReferences: v.array(lenderPortalReviewEvidenceReferenceValidator),
+  files: v.array(lenderPortalReviewEvidenceFileValidator),
 });
 
 export const lenderPortalMilestoneSubmissionSnapshotValidator = v.object({
@@ -105,6 +179,7 @@ export const lenderPortalReviewDecisionProjectionValidator = v.object({
   createdAt: v.number(),
   decision: lenderPortalReviewDecisionValidator,
   decisionId: v.id("lenderPortalReviewDecisions"),
+  countsTowardCurrentApproval: v.boolean(),
   group: lenderPortalReviewGroupValidator,
   privateRationale: v.union(v.string(), v.null()),
   revisionInstructions: v.union(v.string(), v.null()),
@@ -206,6 +281,12 @@ export const lenderPortalDecisionResultValidator = v.object({
   replayed: v.boolean(),
   requestIdentity: v.string(),
   state: lenderPortalReviewRequestStateValidator,
+});
+
+export const lenderPortalSiteVisitCompletionResultValidator = v.object({
+  replayed: v.boolean(),
+  siteVisitId: v.id("buildSiteVisits"),
+  status: v.literal("complete"),
 });
 
 export type LenderPortalReviewTarget = Infer<

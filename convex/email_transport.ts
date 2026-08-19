@@ -20,11 +20,15 @@ export type CommunicationIntentKind =
   | "quote_round_cancelled"
   | "quote_response_submitted"
   | "quote_response_resubmitted"
-  | "quote_response_withdrawn";
+  | "quote_response_withdrawn"
+  | "lender_portal_approval_required"
+  | "lender_portal_proposal_updated_after_decline"
+  | "lender_portal_withdrawal"
+  | "lender_portal_approval_outcome";
 
 export interface CommunicationIntentInput {
   brokerageId: Id<"brokerages">;
-  buildId: Id<"activeBuilds">;
+  buildId?: Id<"activeBuilds">;
   idempotencyKey: string;
   kind: CommunicationIntentKind;
   nextAttemptAt?: number;

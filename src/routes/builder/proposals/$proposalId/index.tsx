@@ -11,6 +11,7 @@ import {
   hasAnyAppPermission,
 } from "#/features/builder-staff/app-permissions.ts";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import { BuilderNotificationReviewSurface } from "#/features/lender-portal/LenderNotificationReviewSurface.tsx";
 import {
   createProposalCalendarEditHandler,
   type ProposalCalendarAdapterActions,
@@ -40,6 +41,10 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { BuildCollaborationRole } from "../../../../../convex/build_collaboration_model";
 
 export type BuilderProposalSearch = {
+  drawRequestId?: string;
+  milestoneId?: string;
+  reviewCycleId?: string;
+  reviewCycleNumber?: number;
   tab?: ProductionReviewTab;
   timeframe?: CalendarTimeframe;
 };
@@ -88,6 +93,19 @@ export function validateBuilderProposalSearch(
       : undefined;
 
   return {
+    ...(typeof search.drawRequestId === "string"
+      ? { drawRequestId: search.drawRequestId }
+      : {}),
+    ...(typeof search.milestoneId === "string"
+      ? { milestoneId: search.milestoneId }
+      : {}),
+    ...(typeof search.reviewCycleId === "string"
+      ? { reviewCycleId: search.reviewCycleId }
+      : {}),
+    ...(typeof search.reviewCycleNumber === "string" &&
+    Number.isSafeInteger(Number(search.reviewCycleNumber))
+      ? { reviewCycleNumber: Number(search.reviewCycleNumber) }
+      : {}),
     ...(tab ? { tab } : {}),
     ...(timeframe ? { timeframe } : {}),
   };
@@ -427,6 +445,33 @@ export function BuilderProductionProposalWorkspace({
       detail.proposal.proposedStartDate ??
       "2026-06-01",
   });
+
+  const notificationTarget =
+    search.reviewCycleId &&
+    search.reviewCycleNumber !== undefined &&
+    (search.milestoneId || search.drawRequestId);
+  if (notificationTarget) {
+    return (
+      <BuilderNotificationReviewSurface
+        onClose={() =>
+          void navigate({
+            params: { proposalId },
+            search: { tab: search.tab },
+            to: "/builder/proposals/$proposalId/",
+          })
+        }
+        reviewCycleId={search.reviewCycleId!}
+        reviewCycleNumber={search.reviewCycleNumber!}
+        target={
+          search.milestoneId
+            ? { kind: "milestone", milestoneId: search.milestoneId }
+            : { drawRequestId: search.drawRequestId!, kind: "draw" }
+        }
+        viewerWorkosUserId=""
+        workosOrganizationId={workosOrganizationId}
+      />
+    );
+  }
 
   return (
     <ProductionProposalReviewSurface
