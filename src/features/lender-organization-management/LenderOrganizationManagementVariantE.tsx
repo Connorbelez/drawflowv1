@@ -1,7 +1,6 @@
 import {
   ArrowRight,
   Building2,
-  Check,
   FileLock2,
   History,
   LockKeyhole,
@@ -12,16 +11,11 @@ import {
   UserRoundCheck,
   UserRoundCog,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "#/components/ui/card.tsx";
+import { Card, CardContent } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
@@ -315,34 +309,6 @@ export function LenderOrganizationManagementVariantE({
           ) : null}
         </FramePanel>
       </Frame>
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Membership context</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <CheckLine text="Select a member to inspect their WorkOS organization membership" />
-            <CheckLine text="Stage access and deactivation operations from the membership sheet" />
-            <CheckLine text="Review the complete draft and downstream impact before execution" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Policy boundary</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <BoundaryLine
-              text={
-                production
-                  ? "Membership commands wait for canonical WorkOS projection reconciliation"
-                  : "No invitation delivery, WorkOS mutation, role assignment, or policy change"
-              }
-            />
-            <BoundaryLine text="No quorum eligibility or satisfaction claim" />
-            <BoundaryLine text="Pre-closing review requirements remain Back Office-owned" />
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }
@@ -354,6 +320,7 @@ export function LenderMemberAdministrationDetails({
   mode,
   onOpenOperation,
   organizationName,
+  reviewRequirementsAction,
   showTransfer = true,
 }: {
   activeMembershipCount: number;
@@ -362,6 +329,7 @@ export function LenderMemberAdministrationDetails({
   mode: "production" | "prototype";
   onOpenOperation: (operation: LenderOrganizationOperation) => void;
   organizationName: string;
+  reviewRequirementsAction?: ReactElement;
   showTransfer?: boolean;
 }) {
   const membership = member.memberships[0];
@@ -468,13 +436,8 @@ export function LenderMemberAdministrationDetails({
               title="Transfer Principal Broker control"
             />
           ) : null}
-          <WorkflowPreview
-            action="Back Office boundary"
-            buttonLabel="Back Office only"
-            description="Review requirements and approval policy are owned by Back Office. Organization management does not introduce another manager role."
-            disabled
-            icon={LockKeyhole}
-            title="Review-requirements administration"
+          <ReviewRequirementsAdministrationWorkflow
+            action={reviewRequirementsAction}
           />
         </TabsPanel>
         <TabsPanel className="space-y-3 pt-3" value="review">
@@ -643,9 +606,32 @@ function SheetFact({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ReviewRequirementsAdministrationWorkflow({
+  action,
+}: {
+  action?: ReactElement;
+}) {
+  return (
+    <WorkflowPreview
+      action={action ? "Back Office workflow" : "Back Office boundary"}
+      buttonLabel={action ? "Open proposal policies" : "Back Office only"}
+      buttonRender={action}
+      description={
+        action
+          ? "Review requirements are proposal-specific and managed in each proposal's Closing workspace before closing."
+          : "Review requirements and approval policy are owned by Back Office. Organization management does not introduce another manager role."
+      }
+      disabled={!action}
+      icon={action ? FileLock2 : LockKeyhole}
+      title="Review requirements administration"
+    />
+  );
+}
+
 function WorkflowPreview({
   action,
   buttonLabel,
+  buttonRender,
   description,
   disabled = false,
   icon: Icon,
@@ -654,6 +640,7 @@ function WorkflowPreview({
 }: {
   action: string;
   buttonLabel: string;
+  buttonRender?: ReactElement;
   description: string;
   disabled?: boolean;
   icon: typeof UserPlus;
@@ -678,6 +665,7 @@ function WorkflowPreview({
             className="mt-3"
             disabled={disabled}
             onClick={onSelect}
+            render={buttonRender}
             size="sm"
             variant="outline"
           >
@@ -690,39 +678,3 @@ function WorkflowPreview({
   );
 }
 
-function CheckLine({ text }: { text: string }) {
-  return (
-    <Line icon={<Check className="size-3.5" />} text={text} tone="primary" />
-  );
-}
-
-function BoundaryLine({ text }: { text: string }) {
-  return (
-    <Line icon={<FileLock2 className="size-3.5" />} text={text} tone="muted" />
-  );
-}
-
-function Line({
-  icon,
-  text,
-  tone,
-}: {
-  icon: ReactNode;
-  text: string;
-  tone: "muted" | "primary";
-}) {
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <span
-        className={
-          tone === "primary"
-            ? "flex size-6 items-center justify-center rounded-full bg-primary/15 text-primary"
-            : "flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        }
-      >
-        {icon}
-      </span>
-      <span>{text}</span>
-    </div>
-  );
-}

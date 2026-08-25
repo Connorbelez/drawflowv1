@@ -81,8 +81,9 @@ describe("approved lender organization management Variant E", () => {
 
     expect(markup).toContain("Organization members");
     expect(markup).toContain("Northstar Lending");
-    expect(markup).toContain("Membership context");
-    expect(markup).toContain("Policy boundary");
+    expect(markup).toContain("Invite member");
+    expect(markup).not.toContain("Membership context");
+    expect(markup).not.toContain("Policy boundary");
     expect(markup).not.toContain("visual fixture");
     expect(markup).not.toContain("Variant E");
   });

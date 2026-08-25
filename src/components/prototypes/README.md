@@ -211,9 +211,12 @@ assets.
 production proposal detail. This is not a replacement proposal screen.
 
 **Selection status:** Variant A was explicitly approved and locked on
-2026-08-14. The selected interaction is a compact **Lender assignment** row in the
-existing proposal header that opens one focused assignment modal. Variants B
-and C were comparison hypotheses and are not part of the locked surface.
+2026-08-14. A product placement decision on 2026-08-19 moved the compact
+**Lender assignment** row from the proposal header into the shared **Approval
+status** card. It still opens one focused assignment modal. Builder, Back
+Office, and Lender proposal-review consumers use the same card placement with
+permission-shaped content. Variants B and C were comparison hypotheses and are
+not part of the locked surface.
 
 Selection records the future promotion contract only. It does not authorize
 production integration, loaders, persistence, authorization, or domain work in
@@ -222,8 +225,8 @@ this prototype task.
 **Interaction and data constraints:**
 
 - Variant A renders the real `ProductionProposalReviewSurface` with its approved
-  visual-parity fixture. The trigger and modal are prototype-only additions
-  injected without changing the production component.
+  visual-parity fixture. Production injects the permission-shaped assignment or
+  confirmation region through the shared Approval status card slot.
 - A successful assignment changes local in-memory state only. Refresh or
   direct navigation restores the unassigned fixture. No proposal, assignment,
   policy, confirmation, withdrawal, closing, activation, or audit record is
@@ -254,10 +257,11 @@ system.
 the Back Office Admin. The primary job is to assign exactly one eligible
 Lender Organization to an approved proposal regardless of capital source while
 keeping the current revision, current review policy, next actor, and closing
-effect visible. Keyboard focus returns to the header trigger after dismissal,
-selection changes clear acknowledgement, completion is announced, long names
-wrap, and modal content remains scrollable on narrow viewports. Builder-facing
-lender identity and private lender rationale remain excluded.
+effect visible. Keyboard focus returns to the Approval status card trigger
+after dismissal, selection changes clear acknowledgement, completion is
+announced, long names wrap, and modal content remains scrollable on narrow
+viewports. Builder-facing lender identity and private lender rationale remain
+excluded.
 
 **Prototype:**
 `../../routes/backoffice/proposals/lender-assignment-prototype.tsx` at

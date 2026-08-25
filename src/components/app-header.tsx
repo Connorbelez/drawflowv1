@@ -12,16 +12,6 @@ export function AppHeader({
 }: {
   workosOrganizationId?: string | null;
 }) {
-  const { loading, user } = useAuth();
-  const navUser = user
-    ? {
-        name:
-          [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-          user.email,
-        email: user.email,
-        avatar: user.profilePictureUrl ?? "",
-      }
-    : { name: "", email: "", avatar: "" };
   return (
     <header
       className={cn(
@@ -37,18 +27,38 @@ export function AppHeader({
         />
         <RouteBreadcrumbs />
       </div>
-      <div className="flex shrink-0 items-center gap-3">
-        <ThemeToggle className="size-11 md:size-8" size="icon-sm" />
-        <NotificationInbox
-          authReady={!loading && Boolean(user)}
-          workosOrganizationId={workosOrganizationId}
-        />
-        <Separator
-          className="h-4 data-[orientation=vertical]:self-center"
-          orientation="vertical"
-        />
-        <NavUser user={navUser} />
-      </div>
+      <AppHeaderActions workosOrganizationId={workosOrganizationId} />
     </header>
+  );
+}
+
+export function AppHeaderActions({
+  workosOrganizationId,
+}: {
+  workosOrganizationId?: string | null;
+}) {
+  const { loading, user } = useAuth();
+  const navUser = user
+    ? {
+        name:
+          [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+          user.email,
+        email: user.email,
+        avatar: user.profilePictureUrl ?? "",
+      }
+    : { name: "", email: "", avatar: "" };
+  return (
+    <div className="flex shrink-0 items-center gap-3">
+      <ThemeToggle className="size-11 md:size-8" size="icon-sm" />
+      <NotificationInbox
+        authReady={!loading && Boolean(user)}
+        workosOrganizationId={workosOrganizationId}
+      />
+      <Separator
+        className="h-4 data-[orientation=vertical]:self-center"
+        orientation="vertical"
+      />
+      <NavUser user={navUser} />
+    </div>
   );
 }

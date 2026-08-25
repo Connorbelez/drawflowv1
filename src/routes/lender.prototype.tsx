@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   WalletCards,
 } from "lucide-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { LenderPrototypeShell } from "../components/prototypes/LenderPrototypeShell";
 import { PrototypeVariantSwitcher } from "../components/prototypes/PrototypeVariantSwitcher";
 import { Badge } from "../components/ui/badge";
@@ -70,9 +70,21 @@ type DashboardActionItem = {
   fact: string;
   icon: ComponentType<{ className?: string }>;
   meta: string;
+  target?: DashboardActionTarget;
   title: string;
   type: "Proposal" | "Milestone" | "Draw";
 };
+
+type DashboardActionTarget =
+  | {
+      assignmentId: string;
+      kind: "proposal";
+      proposalId: string;
+    }
+  | {
+      buildId: string;
+      kind: "build";
+    };
 
 const actionItems: readonly DashboardActionItem[] = [
   {
@@ -190,7 +202,7 @@ function PageHeading({
 }: {
   eyebrow: string;
   title: string;
-  description: string;
+  description?: string;
   updatedAt?: number;
 }) {
   return (
@@ -202,9 +214,11 @@ function PageHeading({
         <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
           {title}
         </h1>
-        <p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
-          {description}
-        </p>
+        {description ? (
+          <p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
+            {description}
+          </p>
+        ) : null}
       </div>
       <Badge className="w-fit gap-1.5" variant="outline">
         <Activity className="size-3" />
@@ -339,9 +353,13 @@ function MetricCard({
 function ActionRow({ item }: { item: DashboardActionItem }) {
   const Icon = item.icon;
   return (
-    <div className="group flex items-center gap-4 px-5 py-4">
+    <DashboardActionTarget
+      ariaLabel={`Open ${item.type.toLowerCase()} ${item.title}`}
+      className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      target={item.target}
+    >
       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <Icon className="size-4" />
+        <Icon aria-hidden className="size-4" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -356,8 +374,53 @@ function ActionRow({ item }: { item: DashboardActionItem }) {
         <p className="font-medium text-foreground text-xs">{item.fact}</p>
         <p className="mt-1 text-muted-foreground text-xs">Assigned to you</p>
       </div>
-      <ChevronRight className="size-4 text-muted-foreground" />
-    </div>
+      <ChevronRight aria-hidden className="size-4 text-muted-foreground" />
+    </DashboardActionTarget>
+  );
+}
+
+function DashboardActionTarget({
+  ariaLabel,
+  children,
+  className,
+  target,
+}: {
+  ariaLabel?: string;
+  children: ReactNode;
+  className: string;
+  target?: DashboardActionTarget;
+}) {
+  if (!target) {
+    return <div className={className}>{children}</div>;
+  }
+
+  if (target.kind === "proposal") {
+    return (
+      <Link
+        aria-label={ariaLabel}
+        className={className}
+        params={{ proposalId: target.proposalId }}
+        preload="intent"
+        search={{ assignmentId: target.assignmentId }}
+        to="/lender/proposals/$proposalId"
+        viewTransition
+      >
+        {children}
+      </Link>
+    );
+  }
+
+  return (
+    <Link
+      aria-label={ariaLabel}
+      className={className}
+      params={{ buildId: target.buildId }}
+      preload="intent"
+      to="/lender/builds/$buildId"
+      viewTransition
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -410,10 +473,7 @@ function VariantB() {
         <section className="overflow-hidden rounded-lg border bg-card">
           <div className="flex items-center justify-between border-b px-5 py-4">
             <div>
-              <h2 className="font-semibold text-sm">Active Build ledger</h2>
-              <p className="mt-1 text-muted-foreground text-xs">
-                All assigned Builds with their next review state
-              </p>
+              <h2 className="font-semibold text-sm">Active Builds</h2>
             </div>
             <Badge variant="secondary">All assigned</Badge>
           </div>
@@ -469,9 +529,6 @@ function VariantB() {
         <aside className="rounded-lg border bg-card">
           <div className="border-b px-5 py-4">
             <h2 className="font-semibold text-sm">Review requirements</h2>
-            <p className="mt-1 text-muted-foreground text-xs">
-              Current workflow facts for lender review
-            </p>
           </div>
           <div className="divide-y">
             {actionItems.slice(0, 3).map((item, index) => (
@@ -504,7 +561,6 @@ function VariantD() {
   return (
     <div>
       <PageHeading
-        description="Start with lender-required decisions, then move into the complete assigned portfolio book."
         eyebrow="Variant D · Accepted action-led portfolio"
         title="Assigned portfolio"
       />
@@ -535,9 +591,6 @@ function VariantD() {
             >
               Assigned portfolio
             </h2>
-            <p className="mt-1 text-muted-foreground text-xs">
-              Complete lender book with current review state in context
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">$18.4M facility</Badge>
@@ -549,10 +602,7 @@ function VariantD() {
           <section className="overflow-hidden rounded-lg border bg-card">
             <div className="flex items-center justify-between border-b px-5 py-4">
               <div>
-                <h3 className="font-semibold text-sm">Active Build ledger</h3>
-                <p className="mt-1 text-muted-foreground text-xs">
-                  All assigned Builds with their next review state
-                </p>
+                <h3 className="font-semibold text-sm">Active Builds</h3>
               </div>
               <Badge variant="secondary">All assigned</Badge>
             </div>
@@ -610,13 +660,15 @@ function VariantD() {
           <aside className="rounded-lg border bg-card">
             <div className="border-b px-5 py-4">
               <h3 className="font-semibold text-sm">Review requirements</h3>
-              <p className="mt-1 text-muted-foreground text-xs">
-                Current workflow facts for lender review
-              </p>
             </div>
             <div className="divide-y">
               {actionItems.slice(0, 3).map((item, index) => (
-                <div className="px-5 py-4" key={item.title}>
+                <DashboardActionTarget
+                  ariaLabel={`Open ${item.type.toLowerCase()} ${item.title}`}
+                  className="block px-5 py-4 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  key={item.title}
+                  target={item.target}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       {item.type}
@@ -630,9 +682,9 @@ function VariantD() {
                   </p>
                   <div className="mt-3 flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">{item.fact}</span>
-                    <ArrowUpRight className="size-3.5" />
+                    <ArrowUpRight aria-hidden className="size-3.5" />
                   </div>
-                </div>
+                </DashboardActionTarget>
               ))}
             </div>
           </aside>
@@ -712,7 +764,6 @@ function LiveVariantD({ data }: { data: LenderDashboardData }) {
   return (
     <div>
       <PageHeading
-        description="Start with lender-required decisions, then move into the complete assigned portfolio book."
         eyebrow="Lender portfolio"
         title="Assigned portfolio"
         updatedAt={data.updatedAt}
@@ -750,9 +801,6 @@ function LiveVariantD({ data }: { data: LenderDashboardData }) {
             >
               Assigned portfolio
             </h2>
-            <p className="mt-1 text-muted-foreground text-xs">
-              Complete lender book with current review state in context
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">
@@ -770,10 +818,7 @@ function LiveVariantD({ data }: { data: LenderDashboardData }) {
           <section className="overflow-hidden rounded-lg border bg-card">
             <div className="flex items-center justify-between border-b px-5 py-4">
               <div>
-                <h3 className="font-semibold text-sm">Active Build ledger</h3>
-                <p className="mt-1 text-muted-foreground text-xs">
-                  All assigned Builds with their next review state
-                </p>
+                <h3 className="font-semibold text-sm">Active Builds</h3>
               </div>
               <Badge variant="secondary">
                 {data.stats.assignedProposalCount} assigned proposals
@@ -856,9 +901,6 @@ function LiveVariantD({ data }: { data: LenderDashboardData }) {
           <aside className="rounded-lg border bg-card">
             <div className="border-b px-5 py-4">
               <h3 className="font-semibold text-sm">Review requirements</h3>
-              <p className="mt-1 text-muted-foreground text-xs">
-                Current workflow facts for lender review
-              </p>
             </div>
             <div className="divide-y">
               {actions.length === 0 ? (
@@ -866,8 +908,13 @@ function LiveVariantD({ data }: { data: LenderDashboardData }) {
                   No open review requirements.
                 </p>
               ) : (
-                actions.slice(0, 3).map((item, index) => (
-                  <div className="px-5 py-4" key={item.title + item.fact}>
+                actions.map((item, index) => (
+                  <DashboardActionTarget
+                    ariaLabel={`Open ${item.type.toLowerCase()} ${item.title}`}
+                    className="block px-5 py-4 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    key={item.title + item.fact}
+                    target={item.target}
+                  >
                     <div className="flex items-center justify-between gap-3">
                       <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                         {item.type}
@@ -881,9 +928,9 @@ function LiveVariantD({ data }: { data: LenderDashboardData }) {
                     </p>
                     <div className="mt-3 flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">{item.fact}</span>
-                      <ArrowUpRight className="size-3.5" />
+                      <ArrowUpRight aria-hidden className="size-3.5" />
                     </div>
-                  </div>
+                  </DashboardActionTarget>
                 ))
               )}
             </div>
@@ -910,6 +957,16 @@ function toDashboardActionItem(
       action.amountCents === undefined
         ? action.meta
         : `${formatCompactCurrency(action.amountCents)} · ${action.meta}`,
+    target:
+      action.type === "Proposal" && action.proposalId && action.assignmentId
+        ? {
+            assignmentId: action.assignmentId,
+            kind: "proposal" as const,
+            proposalId: action.proposalId,
+          }
+        : action.buildId
+          ? { buildId: action.buildId, kind: "build" as const }
+          : undefined,
     title: action.title,
     type: action.type,
   };

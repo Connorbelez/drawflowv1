@@ -563,7 +563,7 @@ export function BuilderProductionProposalWorkspace({
         />
       }
       initialActiveTab={activeProposalTab}
-      lenderAssignmentSurface={
+      approvalStatusSurface={
         visualFixtureEnabled ? undefined : confirmationStateQuery ? (
           <BuilderProposalConfirmationStatus
             onLoadMoreHistory={() =>
@@ -572,15 +572,13 @@ export function BuilderProductionProposalWorkspace({
             state={confirmationStateQuery}
           />
         ) : (
-          <Frame>
-            <FramePanel
-              className="flex items-center gap-2 p-5 text-muted-foreground text-sm"
-              role="status"
-            >
-              <Loader2 aria-hidden className="size-4 animate-spin" />
-              Loading proposal confirmation status…
-            </FramePanel>
-          </Frame>
+          <div
+            className="flex items-center gap-2 text-muted-foreground text-sm"
+            role="status"
+          >
+            <Loader2 aria-hidden className="size-4 animate-spin" />
+            Loading proposal confirmation status…
+          </div>
         )
       }
       materialPlanningActions={materialPlanningActions}

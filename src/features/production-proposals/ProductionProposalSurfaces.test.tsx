@@ -506,6 +506,44 @@ describe("ProductionProposalSettingsSurface", () => {
 });
 
 describe("ProductionProposalReviewSurface", () => {
+  test("does not present Back Office approval as closing-ready while lender confirmation is pending", () => {
+    render(
+      <ProductionProposalReviewSurface
+        approvalStatusSurface={
+          <div data-testid="approval-status-surface">
+            Lender confirmation action
+          </div>
+        }
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          lifecycle: {
+            activation: "inactive",
+            backOfficeApproval: "approved",
+            capitalSource: "external",
+            closing: "pending_closing",
+            externalAssignment: "assigned",
+            lenderConfirmation: "pending",
+            proposalState: "approved",
+          },
+          proposal: { ...proposalDetail.proposal, status: "approved" },
+        }}
+        initialActiveTab="review"
+      />
+    );
+
+    expect(screen.getByText("Back Office approval complete")).toBeTruthy();
+    expect(screen.getByText("Complete lender confirmation")).toBeTruthy();
+    expect(screen.queryByText("Proposal approved for closing")).toBeNull();
+    expect(screen.queryByText("Record closing")).toBeNull();
+    expect(
+      within(screen.getByTestId("approved-proposal-confirmation")).getByTestId(
+        "approval-status-surface"
+      )
+    ).toBeTruthy();
+    expect(screen.getAllByTestId("approval-status-surface")).toHaveLength(1);
+  });
+
   test("renders pending then exact-revision approved lender confirmation", () => {
     const lifecycle = {
       activation: "inactive" as const,
@@ -1409,6 +1447,16 @@ describe("ProductionProposalReviewSurface", () => {
     expect(
       screen.getByRole("tab", { name: "Packet" }).getAttribute("aria-selected"),
     ).toBe("true");
+    const workspaceHeader = screen.getByTestId("proposal-workspace-header");
+    expect(workspaceHeader.closest('[data-slot="frame"]')).toBeNull();
+    const buildName = within(workspaceHeader).getByText(
+      proposalDetail.proposal.buildName,
+    );
+    const location = within(workspaceHeader).getByText(
+      proposalDetail.proposal.location,
+    );
+    expect(buildName.classList.contains("truncate")).toBe(false);
+    expect(location.classList.contains("truncate")).toBe(false);
     expect(screen.getByText("Build, site, and loan summary")).toBeTruthy();
     expect(screen.queryByTestId("timeline-slot")).toBeNull();
     expect(screen.queryByText("Submit proposal")).toBeNull();

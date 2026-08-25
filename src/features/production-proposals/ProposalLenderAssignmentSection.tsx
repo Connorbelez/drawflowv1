@@ -31,7 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 
 export interface ProposalLenderAssignmentRecord {
@@ -259,7 +258,6 @@ export function ProposalLenderAssignmentSection({
 
   return (
     <>
-      <Separator />
       <div className="grid w-full min-w-0 grid-cols-1 items-center gap-3 sm:flex sm:flex-wrap sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <Landmark className="mt-0.5 size-4 shrink-0 text-muted-foreground" />

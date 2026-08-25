@@ -25,7 +25,13 @@ const toastError = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  Link: ({
+    children,
+    to,
+  }: {
+    children: React.ReactNode;
+    to: string;
+  }) => <a href={to}>{children}</a>,
   createFileRoute: () => (config: unknown) => config,
 }));
 
@@ -312,6 +318,27 @@ describe("Back Office lender organization production route", () => {
     expect(proposalReviewToggle.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(proposalReviewToggle);
     expect(proposalReviewToggle.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("routes review-requirements administration through the canonical proposal workflow", async () => {
+    render(<LenderControlPlaneRoute />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Manage Northstar Lending" })
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View Avery Admin" })
+    );
+    fireEvent.click(
+      await screen.findByRole("tab", { name: "Administration" })
+    );
+
+    const reviewRequirementsLink = screen.getByRole("link", {
+      name: "Open proposal policies",
+    });
+    expect(reviewRequirementsLink.getAttribute("href")).toBe(
+      "/backoffice/proposals"
+    );
   });
 
   test("requires and forwards the operator-entered workflow policy audit reason", async () => {

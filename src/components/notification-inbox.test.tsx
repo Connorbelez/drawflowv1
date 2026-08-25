@@ -183,10 +183,11 @@ describe("NotificationInbox", () => {
 
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Notifications" })).toBeTruthy();
-    expect(screen.getByText("2 require action")).toBeTruthy();
+    expect(screen.getByText("2 actions required")).toBeTruthy();
     expect(screen.getByText("Milestone decision returned")).toBeTruthy();
     expect(screen.getByText("Builder Active Build · Foundation")).toBeTruthy();
     expect(screen.getAllByText("Lender Operations")).toHaveLength(2);
+    expect(screen.getAllByText("Unread")).toHaveLength(2);
 
     expect(
       screen.getByTestId("recipient-delivery-resolve-delivery-recipient")
@@ -198,6 +199,20 @@ describe("NotificationInbox", () => {
     const openLink = screen.getByTestId(
       "recipient-delivery-open-delivery-recipient"
     );
+    expect(openLink.tagName).toBe("A");
+    expect(openLink.textContent).toBe("Open build");
+    expect(openLink.getAttribute("aria-label")).toBe(
+      "Open build: Milestone decision returned"
+    );
+    expect(openLink.closest("article")?.dataset.slot).toBe("card");
+    expect(
+      screen.getByRole("button", {
+        name: "Resolve Milestone decision returned",
+      })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Dismiss Draw review required" })
+    ).toBeTruthy();
     openLink.addEventListener("click", (event) => event.preventDefault());
     fireEvent.click(openLink);
     await waitFor(() => {
@@ -210,15 +225,24 @@ describe("NotificationInbox", () => {
     fireEvent.click(
       screen.getByTestId("recipient-delivery-dismiss-delivery-domain")
     );
-    fireEvent.click(
-      screen.getByTestId("recipient-delivery-resolve-delivery-recipient")
-    );
-
     await waitFor(() => {
       expect(dismiss).toHaveBeenCalledWith({
         deliveryId: "delivery-domain",
         workosOrganizationId: "org_production_foundation",
       });
+      expect(
+        (
+          screen.getByTestId(
+            "recipient-delivery-resolve-delivery-recipient"
+          ) as HTMLButtonElement
+        ).disabled
+      ).toBe(false);
+    });
+
+    fireEvent.click(
+      screen.getByTestId("recipient-delivery-resolve-delivery-recipient")
+    );
+    await waitFor(() => {
       expect(resolve).toHaveBeenCalledWith({
         deliveryId: "delivery-recipient",
         workosOrganizationId: "org_production_foundation",
@@ -228,6 +252,62 @@ describe("NotificationInbox", () => {
     expect(document.body.textContent).not.toMatch(
       /recipientWorkosUserId|payloadPreview|requestId|stack/i
     );
+  });
+
+  test("prevents duplicate delivery actions while a mutation is pending", async () => {
+    let finishResolve: (() => void) | undefined;
+    resolve.mockImplementationOnce(
+      () =>
+        new Promise<void>((complete) => {
+          finishResolve = complete;
+        })
+    );
+    render(
+      <NotificationInbox workosOrganizationId="org_production_foundation" />
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Notifications, 2 unread" })
+    );
+
+    const resolveButton = await screen.findByRole("button", {
+      name: "Resolve Milestone decision returned",
+    });
+    fireEvent.click(resolveButton);
+    fireEvent.click(resolveButton);
+
+    await waitFor(() => {
+      expect(resolve).toHaveBeenCalledTimes(1);
+      expect((resolveButton as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Dismiss Draw review required",
+          }) as HTMLButtonElement
+        ).disabled
+      ).toBe(true);
+    });
+
+    finishResolve?.();
+    await waitFor(() =>
+      expect((resolveButton as HTMLButtonElement).disabled).toBe(false)
+    );
+  });
+
+  test("uses singular action-count copy", async () => {
+    usePaginatedQuery.mockReturnValue({
+      isLoading: false,
+      loadMore,
+      results: [recipientDelivery],
+      status: "Exhausted",
+    });
+    render(
+      <NotificationInbox workosOrganizationId="org_production_foundation" />
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Notifications, 1 unread" })
+    );
+
+    expect(await screen.findByText("1 action required")).toBeTruthy();
   });
 
   test("continues through raw pages until notification counts are complete", async () => {
@@ -243,6 +323,6 @@ describe("NotificationInbox", () => {
     expect(loadMore).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
     await waitFor(() => expect(loadMore).toHaveBeenCalledWith(100));
-    expect(screen.getByText("0+ require action")).toBeTruthy();
+    expect(screen.getByText("Counting actions…")).toBeTruthy();
   });
 });

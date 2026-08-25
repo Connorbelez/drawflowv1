@@ -25,6 +25,12 @@ import {
 } from "#/components/ui/card.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "#/components/ui/collapsible.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import {
   NativeSelect,
   NativeSelectOption,
 } from "#/components/ui/native-select.tsx";
@@ -40,6 +46,10 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "#/components/ui/toggle-group.tsx";
 import { cn } from "#/lib/utils.ts";
 import type { api } from "../../../convex/_generated/api";
 
@@ -157,9 +167,9 @@ export function LenderProposalConfirmationSheet({
             <ClipboardCheck aria-hidden />
             <AlertTitle>Review the complete current revision</AlertTitle>
             <AlertDescription>
-              Expand each read-only checkpoint and acknowledge its current
-              facts. Changed badges come from the immutable server revision
-              diff, not from browser comparison.
+              Review each checkpoint. Acknowledgements are recorded on the
+              current revision. Changed badges come from the immutable server
+              revision diff, not from browser comparison.
             </AlertDescription>
           </Alert>
 
@@ -445,6 +455,9 @@ function PendingLenderDecision({
   remaining: number;
   revisionNumber: number;
 }) {
+  const followThroughId = "lender-decision-follow-through";
+  const confirmMode = decisionMode === "confirm";
+
   const submitDecision = () => {
     const action =
       decisionMode === "confirm"
@@ -452,74 +465,93 @@ function PendingLenderDecision({
         : onDecline(declinedCheckpoint, reason.trim());
     action.catch(() => undefined);
   };
-  const confirmMode = decisionMode === "confirm";
   return (
     <>
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          aria-pressed={confirmMode}
-          onClick={() => onDecisionModeChange("confirm")}
-          variant={confirmMode ? "default" : "outline"}
-        >
-          Confirm
-        </Button>
-        <Button
-          aria-pressed={!confirmMode}
-          onClick={() => onDecisionModeChange("decline")}
-          variant={confirmMode ? "outline" : "destructive"}
-        >
-          Request revision
-        </Button>
-      </div>
-      <div aria-live="polite" className="space-y-4">
-        {confirmMode ? (
-          <ApprovalReadinessAlert canDecide={canDecide} remaining={remaining} />
-        ) : (
-          <NativeSelect
-            aria-label="Checkpoint that requires revision"
-            onChange={(event) =>
-              onDeclinedCheckpointChange(
-                event.target.value as ProposalConfirmationCheckpoint
-              )
+      <div className="grid gap-2">
+        <p className="font-medium text-sm" id="lender-decision-type-label">
+          Decision type
+        </p>
+        <ToggleGroup
+          aria-controls={followThroughId}
+          aria-labelledby="lender-decision-type-label"
+          className="grid w-full grid-cols-2"
+          onValueChange={(value) => {
+            const next = value.at(-1);
+            if (next === "confirm" || next === "decline") {
+              onDecisionModeChange(next);
             }
-            value={declinedCheckpoint}
-          >
-            {CHECKPOINTS.map(([checkpoint, label]) => (
-              <NativeSelectOption key={checkpoint} value={checkpoint}>
-                {label}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        )}
-        <label
-          className="font-medium text-sm"
-          htmlFor="lender-confirmation-decision-reason"
+          }}
+          value={[decisionMode]}
+          variant="outline"
         >
-          {confirmMode
-            ? "Lender approval reason"
-            : "Private revision request reason"}
-        </label>
-        <Textarea
-          id="lender-confirmation-decision-reason"
-          onChange={(event) => onReasonChange(event.target.value)}
-          placeholder={
-            confirmMode
-              ? "Required approval reason"
-              : "State what Back Office must correct"
-          }
-          value={reason}
-        />
-        <Button
-          className="w-full"
-          disabled={pending || !reason.trim() || (confirmMode && !canDecide)}
-          onClick={submitDecision}
-          variant={confirmMode ? "default" : "destructive"}
-        >
-          {confirmMode
-            ? `Approve Revision ${revisionNumber}`
-            : `Request Revision ${revisionNumber + 1}`}
-        </Button>
+          <ToggleGroupItem aria-controls={followThroughId} value="confirm">
+            Confirm
+          </ToggleGroupItem>
+          <ToggleGroupItem aria-controls={followThroughId} value="decline">
+            Request revision
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
+      <Frame>
+        <FramePanel
+          aria-live="polite"
+          className="space-y-4 p-4"
+          id={followThroughId}
+        >
+          {confirmMode ? (
+            <ApprovalReadinessAlert
+              canDecide={canDecide}
+              remaining={remaining}
+            />
+          ) : (
+            <NativeSelect
+              aria-label="Checkpoint that requires revision"
+              onChange={(event) =>
+                onDeclinedCheckpointChange(
+                  event.target.value as ProposalConfirmationCheckpoint
+                )
+              }
+              value={declinedCheckpoint}
+            >
+              {CHECKPOINTS.map(([checkpoint, label]) => (
+                <NativeSelectOption key={checkpoint} value={checkpoint}>
+                  {label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          )}
+          <div className="grid gap-2">
+            <label
+              className="font-medium text-sm"
+              htmlFor="lender-confirmation-decision-reason"
+            >
+              {confirmMode
+                ? "Lender approval reason"
+                : "Private revision request reason"}
+            </label>
+            <Textarea
+              id="lender-confirmation-decision-reason"
+              onChange={(event) => onReasonChange(event.target.value)}
+              placeholder={
+                confirmMode
+                  ? "Required approval reason"
+                  : "State what Back Office must correct"
+              }
+              value={reason}
+            />
+          </div>
+          <Button
+            className="w-full"
+            disabled={pending || !reason.trim() || (confirmMode && !canDecide)}
+            onClick={submitDecision}
+            variant={confirmMode ? "default" : "destructive"}
+          >
+            {confirmMode
+              ? `Approve Revision ${revisionNumber}`
+              : `Request Revision ${revisionNumber + 1}`}
+          </Button>
+        </FramePanel>
+      </Frame>
     </>
   );
 }
@@ -565,7 +597,7 @@ function CheckpointReviewCard({
   acknowledged: boolean;
   changed: boolean;
   checkpoint: ProposalConfirmationCheckpoint;
-  currentFacts: ReviewFact[];
+  currentFacts: ProposalReviewFact[];
   expanded: boolean;
   icon: ComponentType<{ className?: string }>;
   index: number;
@@ -574,74 +606,118 @@ function CheckpointReviewCard({
   onAcknowledge: () => Promise<void>;
   onToggle: () => void;
   pending: boolean;
-  previousFacts?: ReviewFact[];
+  previousFacts?: ProposalReviewFact[];
   readOnly: boolean;
 }) {
   const detailsId = `proposal-confirmation-${checkpoint}`;
   const acknowledgementId = `proposal-confirmation-ack-${checkpoint}`;
+  const acknowledgementLocked = pending || readOnly || acknowledged;
+  const changedLabels = checkpointChangedFactLabels(
+    currentFacts,
+    previousFacts
+  );
   return (
     <Card className="overflow-hidden">
-      <Button
-        aria-controls={detailsId}
-        aria-expanded={expanded}
-        className="h-auto w-full justify-start rounded-none px-5 py-4 text-left hover:bg-muted/40"
-        onClick={onToggle}
-        variant="ghost"
+      <Collapsible
+        onOpenChange={(open) => {
+          if (open !== expanded) {
+            onToggle();
+          }
+        }}
+        open={expanded}
       >
-        <span className="flex min-w-0 flex-1 items-center gap-3">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full border text-xs">
-            {index + 1}
-          </span>
-          <span className="min-w-0">
-            <span className="block font-semibold text-sm">{label}</span>
-            <span className="mt-1 flex items-center gap-1 text-muted-foreground text-xs">
-              <Icon aria-hidden className="size-3" /> Required checkpoint
-            </span>
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-2">
-          {acknowledged ? <Badge>Acknowledged</Badge> : null}
-          <Badge variant={changed ? "default" : "outline"}>
-            {changed ? "Changed" : "Unchanged"}
-          </Badge>
-          {checkpoint === "accessReviewPolicy" ? (
-            <Badge variant="secondary">Read-only</Badge>
-          ) : null}
-          <ChevronDown
-            aria-hidden
-            className={cn(
-              "size-4 transition-transform",
-              expanded && "rotate-180"
-            )}
-          />
-        </span>
-      </Button>
-
-      {expanded ? (
-        <CardContent className="border-t bg-muted/20 py-5" id={detailsId}>
-          <div className={cn("grid gap-3", previousFacts && "lg:grid-cols-2")}>
-            {previousFacts ? (
-              <ProposalCheckpointFacts
-                facts={previousFacts}
-                label="Prior reviewed revision"
-                muted
+        <h3 className="m-0 min-w-0 font-normal text-base leading-normal">
+          <CollapsibleTrigger
+            aria-controls={detailsId}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${label} checkpoint`}
+            render={
+              <Button
+                className="grid h-auto min-w-0 w-full shrink grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 whitespace-normal rounded-none px-5 py-4 text-left hover:bg-muted/40 focus-visible:ring-inset focus-visible:ring-offset-0 sm:h-auto sm:grid-cols-[auto_minmax(0,1fr)_auto] [&_svg]:mx-0"
+                variant="ghost"
               />
-            ) : null}
-            <ProposalCheckpointFacts
-              facts={currentFacts}
-              label="Current revision"
-            />
-          </div>
-        </CardContent>
-      ) : null}
+            }
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full border text-xs">
+              {index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-pretty font-semibold text-sm">
+                {label}
+              </span>
+              <span className="mt-1 flex items-center gap-1 text-muted-foreground text-xs">
+                <Icon aria-hidden className="size-3 shrink-0" /> Required
+                checkpoint
+              </span>
+            </span>
+            <span className="col-start-2 flex min-w-0 flex-wrap items-center justify-end gap-2 sm:col-start-3">
+              {acknowledged ? (
+                <Badge variant="success">Acknowledged</Badge>
+              ) : null}
+              <Badge variant={changed ? "warning" : "outline"}>
+                {changed ? "Changed" : "Unchanged"}
+              </Badge>
+              {checkpoint === "accessReviewPolicy" ? (
+                <Badge variant="secondary">Read-only</Badge>
+              ) : null}
+              <ChevronDown
+                aria-hidden
+                className={cn(
+                  "ml-0.5 size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
+                  expanded && "rotate-180"
+                )}
+              />
+            </span>
+          </CollapsibleTrigger>
+        </h3>
+        <CollapsiblePanel
+          className="motion-reduce:transition-none"
+          id={detailsId}
+        >
+          <CardContent className="border-t bg-muted/20 px-5 py-5">
+            <div
+              className={cn(
+                "grid min-w-0 gap-3",
+                previousFacts && "lg:grid-cols-2"
+              )}
+            >
+              {previousFacts ? (
+                <Frame className="min-w-0">
+                  <FramePanel className="min-w-0 overflow-hidden p-3">
+                    <ProposalCheckpointFacts
+                      changedLabels={changedLabels}
+                      facts={previousFacts}
+                      label="Prior reviewed revision"
+                      muted
+                    />
+                  </FramePanel>
+                </Frame>
+              ) : null}
+              <Frame className="min-w-0">
+                <FramePanel className="min-w-0 overflow-hidden p-3">
+                  <ProposalCheckpointFacts
+                    changedLabels={changedLabels}
+                    facts={currentFacts}
+                    label="Current revision"
+                  />
+                </FramePanel>
+              </Frame>
+            </div>
+          </CardContent>
+        </CollapsiblePanel>
+      </Collapsible>
 
       <Separator />
-      <CardContent className="py-4">
-        <div className="flex items-start gap-3">
+      <CardContent className="px-5 py-4">
+        <label
+          className={cn(
+            "flex min-h-10 items-start gap-3",
+            acknowledgementLocked ? "cursor-not-allowed" : "cursor-pointer"
+          )}
+          htmlFor={acknowledgementId}
+        >
           <Checkbox
-            aria-label={`Acknowledge ${label}`}
             checked={acknowledged}
-            disabled={pending || readOnly || acknowledged}
+            disabled={acknowledgementLocked}
             id={acknowledgementId}
             onCheckedChange={(checked) => {
               if (checked === true) {
@@ -649,34 +725,33 @@ function CheckpointReviewCard({
               }
             }}
           />
-          <div className="min-w-0 flex-1">
-            <label
-              className="font-semibold text-xs"
-              htmlFor={acknowledgementId}
-            >
+          <span className="min-w-0 flex-1">
+            <span className="font-semibold text-xs">
               I acknowledge the current {label.toLowerCase()} facts
-            </label>
-            <p className="mt-1 text-muted-foreground text-xs">
+            </span>
+            <span className="mt-1 block text-muted-foreground text-xs">
               Acknowledgements are immutable audit records for this cycle.
-            </p>
+            </span>
             {latestAcknowledgement ? (
-              <p className="mt-2 text-muted-foreground text-xs">
+              <span className="mt-2 block text-muted-foreground text-xs">
                 Audit #{latestAcknowledgement.sequence} ·{" "}
                 {formatDateTime(latestAcknowledgement.acknowledgedAt)}
-              </p>
+              </span>
             ) : null}
-          </div>
-        </div>
+          </span>
+        </label>
       </CardContent>
     </Card>
   );
 }
 
 export function ProposalCheckpointFacts({
+  changedLabels,
   facts,
   label,
   muted = false,
 }: {
+  changedLabels?: ReadonlySet<string>;
   facts: ProposalReviewFact[];
   label: string;
   muted?: boolean;
@@ -684,23 +759,49 @@ export function ProposalCheckpointFacts({
   return (
     <section
       aria-label={label}
-      className={cn(muted && "text-muted-foreground")}
+      className={cn("min-w-0", muted && "text-muted-foreground")}
     >
       <p className="mb-2 font-semibold text-xs uppercase tracking-wide">
         {label}
       </p>
-      <dl className="grid gap-2">
-        {facts.map((fact) => (
-          <div
-            className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-xs"
-            key={fact.label}
-          >
-            <dt className="text-muted-foreground">{fact.label}</dt>
-            <dd className="break-all text-right font-medium">{fact.value}</dd>
-          </div>
-        ))}
+      <dl className="grid min-w-0 gap-3">
+        {facts.map((fact) => {
+          const isChanged = changedLabels?.has(fact.label) ?? false;
+          return (
+            <div className="min-w-0" key={fact.label}>
+              <dt className="text-pretty text-muted-foreground text-xs">
+                {fact.label}
+              </dt>
+              <dd
+                className={cn(
+                  "mt-1 min-w-0 font-medium text-xs tabular-nums [overflow-wrap:anywhere]",
+                  isChanged && "text-warning-foreground"
+                )}
+              >
+                {fact.value}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
     </section>
+  );
+}
+
+function checkpointChangedFactLabels(
+  currentFacts: readonly ProposalReviewFact[],
+  previousFacts?: readonly ProposalReviewFact[]
+) {
+  if (!previousFacts) {
+    return undefined;
+  }
+  const previousByLabel = new Map(
+    previousFacts.map((fact) => [fact.label, fact.value])
+  );
+  return new Set(
+    currentFacts
+      .filter((fact) => previousByLabel.get(fact.label) !== fact.value)
+      .map((fact) => fact.label)
   );
 }
 
