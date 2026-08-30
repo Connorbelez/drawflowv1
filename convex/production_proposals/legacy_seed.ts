@@ -2,24 +2,40 @@
  * Production proposals legacy seed bounded-context implementation.
  * The parent facade re-exports its handlers to preserve production_proposals function references.
  */
-import { type RoleSlug } from "../authz";
+import type { RoleSlug } from "../authz";
 import { requireDefaultBrokerMember } from "../brokerAssignments";
+import { ensureActiveBuildPlanningActivationRevision } from "../build_collaboration_planning_reconciliation";
 import { scheduleCurrentMilestoneSystemPostActivations } from "../build_collaboration_scheduling";
 import { validateBuildTimezone } from "../build_collaboration_system_posts";
-import { ensureActiveBuildPlanningActivationRevision } from "../build_collaboration_planning_reconciliation";
+import { createCanonicalContractorProfile } from "../contractor_profile_application";
 import { normalizeSiteVisitGuidance } from "../demo_site_visit_guidance";
 import { attachSubmilestoneFieldGuidanceBuildLineage } from "../submilestone_field_guidance";
 import { attachSubmilestoneScopeBuildLineage } from "../submilestone_scope_contracts";
-import { type Doc, type Id, type MutationCtx } from "../types";
+import type { Doc, Id, MutationCtx } from "../types";
 import { addDaysIso } from "./active_capital_evidence.js";
 import { assignedBuilderProfileIdOrThrow } from "./authorization_core.js";
 import { normalizeIsoDateOnly } from "./contractor_policy_helpers.js";
 import { PROPOSAL_TIMELINE_MIN_DAY } from "./contracts_foundation.js";
 import { resolveBorrowerStartingCashCents } from "./directory_cards.js";
-import { upsertKanbanCard, writeProposalEvent, writeActiveBuildEvent, copyProposalOperationalRowsToActiveBuild, copyProposalCapitalEventsToActiveBuild, activeBuildDrawStatusFromProposal } from "./proposal_copy_audit.js";
+import {
+  activeBuildDrawStatusFromProposal,
+  copyProposalCapitalEventsToActiveBuild,
+  copyProposalOperationalRowsToActiveBuild,
+  upsertKanbanCard,
+  writeActiveBuildEvent,
+  writeProposalEvent,
+} from "./proposal_copy_audit.js";
 import { requireReason } from "./proposal_lender_approval.js";
-import { requirePhase3BackofficeRole, ensureDefaultProposalReviewPolicyVersion, createImmutableProposalRevision } from "./review_lifecycle_helpers.js";
-import { getPermitDocument, getPermitWaiver, collectByIndex } from "./storage_helpers.js";
+import {
+  createImmutableProposalRevision,
+  ensureDefaultProposalReviewPolicyVersion,
+  requirePhase3BackofficeRole,
+} from "./review_lifecycle_helpers.js";
+import {
+  collectByIndex,
+  getPermitDocument,
+  getPermitWaiver,
+} from "./storage_helpers.js";
 
 const LEGACY_ACTIVE_BUILD_LOAN_WARNING =
   "loan_facility_not_reconstructed_missing_authoritative_terms";
@@ -37,12 +53,12 @@ export async function repairLegacyClosedProposalActiveBuildAggregate(
     ianaTimezone?: string;
     reason: string;
     warnings?: string[];
-  },
+  }
 ) {
   requireReason(input.reason);
   const buildStartDate = normalizeIsoDateOnly(
     input.buildStartDate,
-    "Legacy Active Build start date",
+    "Legacy Active Build start date"
   );
   const timezone =
     input.ianaTimezone === undefined
@@ -195,13 +211,13 @@ async function copyProposalContractorsToActiveBuild(
     now: number;
     organizationId: string;
     proposalId: Id<"buildProposals">;
-  },
+  }
 ) {
   const proposalContractors = await collectByIndex(
     ctx,
     "proposalContractorAssignments",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   const buildContractorAssignmentByProposalAssignment = new Map<
     string,
@@ -212,7 +228,7 @@ async function copyProposalContractorsToActiveBuild(
       continue;
     }
     const contractor = (await ctx.db.get(
-      assignment.contractorId,
+      assignment.contractorId
     )) as Doc<"contractorProfiles"> | null;
     if (
       !contractor ||
@@ -239,29 +255,29 @@ async function copyProposalContractorsToActiveBuild(
         startDate: input.buildStartDate,
         status: "active",
         updatedAt: input.now,
-      },
+      }
     );
     buildContractorAssignmentByProposalAssignment.set(
       String(assignment._id),
-      buildContractorAssignmentId,
+      buildContractorAssignmentId
     );
   }
   const proposalMilestoneContractors = await collectByIndex(
     ctx,
     "proposalMilestoneContractorAssignments",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   for (const assignment of proposalMilestoneContractors) {
     if (assignment.status === "removed") {
       continue;
     }
     const buildMilestoneId = input.buildMilestoneIds.get(
-      String(assignment.proposalMilestoneId),
+      String(assignment.proposalMilestoneId)
     );
     const buildContractorAssignmentId =
       buildContractorAssignmentByProposalAssignment.get(
-        String(assignment.proposalContractorAssignmentId),
+        String(assignment.proposalContractorAssignmentId)
       );
     if (!(buildMilestoneId && buildContractorAssignmentId)) {
       continue;
@@ -279,7 +295,7 @@ async function copyProposalContractorsToActiveBuild(
       buildMilestoneId,
       buildSubmilestoneId: assignment.proposalSubmilestoneId
         ? input.buildSubmilestoneIds.get(
-            String(assignment.proposalSubmilestoneId),
+            String(assignment.proposalSubmilestoneId)
           )
         : undefined,
       contractorId: assignment.contractorId,
@@ -321,7 +337,7 @@ export async function seedCloseProposal(
     proposalNewState?: string;
     reason?: string;
     warnings?: string[];
-  },
+  }
 ) {
   const proposal = await ctx.db.get(input.proposalId);
   if (!proposal?.workflowRuleSnapshotId) {
@@ -377,7 +393,7 @@ export async function seedCloseProposal(
         proposalRevisionId: revision._id,
         proposalRevisionNumber: revision.revisionNumber,
         reason: "Lock the canonical review policy for seeded closing.",
-      },
+      }
     );
     await ctx.db.patch(proposal._id, {
       lockedReviewPolicyId: reviewPolicyLockId,
@@ -448,7 +464,7 @@ export async function seedCloseProposal(
       organizationId: input.organizationId,
       paybackDate: addDaysIso(
         input.buildStartDate,
-        proposal.timelineRangeMax ?? 365,
+        proposal.timelineRangeMax ?? 365
       ),
       principalCents: input.loanFacility.principalCents,
       proposalId: input.proposalId,
@@ -478,7 +494,7 @@ export async function seedCloseProposal(
     ctx,
     "proposalMilestones",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   for (const milestone of milestones) {
     const buildMilestoneId = await ctx.db.insert("buildMilestones", {
@@ -517,11 +533,11 @@ export async function seedCloseProposal(
     ctx,
     "proposalSubmilestones",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   for (const submilestone of submilestones) {
     const buildMilestoneId = buildMilestoneIds.get(
-      submilestone.proposalMilestoneId,
+      submilestone.proposalMilestoneId
     );
     if (!buildMilestoneId) {
       continue;
@@ -566,7 +582,7 @@ export async function seedCloseProposal(
     ctx,
     "proposalDrawScheduleRows",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   for (const draw of draws) {
     await ctx.db.insert("plannedDrawScheduleRows", {
@@ -699,7 +715,7 @@ export async function ensureSeedContractorProfile(
     brokerageId: Id<"brokerages">;
     now: number;
     organizationId: string;
-  },
+  }
 ) {
   const existing = (
     await ctx.db
@@ -710,16 +726,17 @@ export async function ensureSeedContractorProfile(
   if (existing) {
     return existing._id;
   }
-  return await ctx.db.insert("contractorProfiles", {
+  return await createCanonicalContractorProfile(ctx, {
     brokerageId: input.brokerageId,
-    createdAt: input.now,
-    email: "seed.contractor@example.com",
-    name: "Seed Scenario Contractor LLC",
+    fields: {
+      email: "seed.contractor@example.com",
+      name: "Seed Scenario Contractor LLC",
+      phone: "555-0100",
+      status: "active",
+      trades: ["foundation", "framing"],
+    },
+    now: input.now,
     organizationId: input.organizationId,
-    phone: "555-0100",
-    status: "active",
-    trades: ["foundation", "framing"],
-    updatedAt: input.now,
   });
 }
 

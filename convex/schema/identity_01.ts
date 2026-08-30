@@ -84,6 +84,39 @@ export const schemaTables = {
     assignedByWorkosUserId: v.string(),
     assignedByRole: v.string(),
     reason: v.string(),
+    // Stage 1 keeps these optional while the production backfill runs. Stage
+    // 2 makes both fields required after the coverage check reaches 100%.
+    decisionPermissions: v.optional(
+      v.object({
+        proposalReview: v.boolean(),
+        milestoneDecisions: v.boolean(),
+        drawDecisions: v.boolean(),
+      })
+    ),
+    decisionPermissionsVersion: v.optional(v.number()),
+    deactivation: v.optional(
+      v.object({
+        adapter: v.optional(v.union(v.literal("fake"), v.literal("workos"))),
+        acceptedAt: v.optional(v.number()),
+        error: v.optional(v.string()),
+        failedAt: v.optional(v.number()),
+        idempotencyKey: v.string(),
+        membershipId: v.string(),
+        reason: v.string(),
+        reconciledAt: v.optional(v.number()),
+        requestedAt: v.number(),
+        requestedByRole: v.string(),
+        requestedByRoles: v.array(v.string()),
+        requestedByWorkosUserId: v.string(),
+        state: v.union(
+          v.literal("requested"),
+          v.literal("accepted"),
+          v.literal("failed"),
+          v.literal("reconciled")
+        ),
+        workosId: v.optional(v.string()),
+      })
+    ),
     assignedAt: v.number(),
     updatedAt: v.number(),
     unassignedAt: v.optional(v.number()),
@@ -286,6 +319,15 @@ export const schemaTables = {
     inviterWorkosUserId: v.string(),
     // WorkOS organization invitation id returned by the Management API.
     workosInvitationId: v.optional(v.string()),
+    // Durable state for the asynchronous WorkOS invitation handoff. This is
+    // separate from the claim lifecycle because a failed handoff is retryable.
+    invitationDeliveryStatus: v.optional(
+      v.union(v.literal("queued"), v.literal("sent"), v.literal("failed")),
+    ),
+    invitationDeliveryError: v.optional(v.string()),
+    // Each send/resend gets an attempt id so an older scheduled action cannot
+    // overwrite the status for a newer attempt.
+    invitationDeliveryAttemptId: v.optional(v.string()),
     state: schemaValidators.contractorInviteClaimStateValidator,
     // The WorkOS user that accepted the organization invitation. Populated
     // after AuthKit acceptance, before contractor confirmation (PRD §7.3.6).

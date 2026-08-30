@@ -1,9 +1,11 @@
 export type ScheduleHealth = "on_track" | "behind_schedule";
 
 export interface ScheduleHealthInput {
+  actualStartedAt?: number | null;
   currentDay?: number | null;
   endDay?: number | null;
   lifecycleStatus?: string | null;
+  startDay?: number | null;
 }
 
 export interface ScheduleHealthResult {
@@ -23,6 +25,7 @@ export function deriveScheduleHealth(
 ): ScheduleHealthResult {
   const currentDay = normalizeBuildDay(input.currentDay);
   const endDay = normalizeBuildDay(input.endDay);
+  const startDay = normalizeBuildDay(input.startDay);
   const lifecycleStatus = input.lifecycleStatus?.trim();
 
   if (
@@ -35,8 +38,16 @@ export function deriveScheduleHealth(
   }
 
   const overdueDays = currentDay - endDay;
-  return overdueDays > 0
-    ? { health: "behind_schedule", overdueDays }
+  if (overdueDays > 0) {
+    return { health: "behind_schedule", overdueDays };
+  }
+
+  const started =
+    normalizeTimestamp(input.actualStartedAt) !== undefined ||
+    lifecycleStatus === "in_progress";
+  const missedStartDays = startDay === undefined ? 0 : currentDay - startDay;
+  return !started && missedStartDays > 0
+    ? { health: "behind_schedule", overdueDays: missedStartDays }
     : onTrack();
 }
 
@@ -47,5 +58,11 @@ function onTrack(): ScheduleHealthResult {
 function normalizeBuildDay(value?: number | null) {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.round(value)
+    : undefined;
+}
+
+function normalizeTimestamp(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
     : undefined;
 }

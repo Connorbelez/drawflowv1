@@ -7,8 +7,12 @@
 - Source prototype path: `src/routes/lender.organization-management-prototype.tsx`.
 - Source commit and file hash: checkout `62b8eb75e9c1ebfa6ac3323a38e303d9af2b1df4`; source SHA-256 `6bf373524e86244a3af2096d4544188bb3b99eb2eb4f49e909408619c9e74414`.
 - Production destination paths: `src/routes/backoffice/lenders/-lender-control-plane.tsx`, `src/features/lender-organization-management/LenderOrganizationManagementVariantE.tsx`, `src/features/lender-organization-management/LenderOrganizationOperationDialog.tsx`, and the shared `UserManagementDirectoryTable` / `UserDetailSheet` composition.
-- Supported routes: Platform Admin management at `/backoffice/lenders`; read-only assigned lender view or contact-admin privacy state at `/lender/organization`.
-- Domain/auth owner: application Lender Organizations, Brokerage relationship, assignments, workflow policy, and audit remain owned by `convex/lenderOrganizations.ts`; shared identity, invitation, membership, and role commands remain WorkOS-owned through `convex/workosManagement.ts`.
+- Supported routes: Platform Admin management at `/backoffice/lenders`; assigned-member directory and lender-admin member operations, or contact-admin privacy state, at `/lender/organization`.
+- Domain/auth owner: application Lender Organizations, Brokerage relationship,
+  assignments, immutable default Review Requirements, and audit remain
+  application-owned; shared identity, invitation, membership, and role commands
+  remain WorkOS-owned through `convex/workosManagement.ts`. Only Back Office may
+  configure organization defaults.
 - Release owner: not assigned in this dirty checkout.
 
 ## Direct-promotion checkpoint
@@ -18,7 +22,7 @@
 - Preserved composition: directory-first hierarchy, member search/status filters, shared directory table, four member-detail tabs, staged draft/review operation dialog, membership effects, and policy boundary.
 - Productionization edits: canonical app-organization/member projection adapter; exact lender roles; reviewed existing-user assignment with an operator-entered audit reason; persistent pending reconciliation states; WorkOS-first invitation, role-change, and deactivation; app unassignment only after the scoped WorkOS projection confirms deactivation; no optimistic projection writes; nested production heading semantics; no Principal Broker transfer control.
 - Locked-render protection: prototype mode retains the original `Verified active members` summary and count while the production-only branch may show active plus pending app assignments. The frozen route file remains byte-clean and a route render test covers Variant E.
-- Corrected ownership departure: production mounts Variant E in `/backoffice/lenders`, not the lender route. `/lender/organization` remains app-level and read-only, as required by the corrected locked contract.
+- Approved 2026-08-25 amendment: production also mounts the production-owned Variant E directory and shared member sheet at `/lender/organization`. The organization policy remains read-only; only active same-organization `lender-admin` users receive versioned member-decision controls and eligible-member deactivation. Invitation, role change, Brokerage controls, and Back Office proposal operations stay absent.
 - Prototype-only comparison fixtures, rejected variants, local draft history, and Principal Broker transfer behavior are not shipped through the production route.
 
 ## Wiring ledger
@@ -27,11 +31,13 @@
 | --- | --- | --- | --- | --- |
 | Production entry | `/backoffice/lenders` route and `LenderControlPlaneRoute` | `requireIntegrationAdminAccess`; non-Platform-Admin roles fail closed | organization table, assignment queue, selected organization drawer | `src/routes/backoffice/lenders/-index.test.ts`, `-lender-control-plane.test.tsx` |
 | Organization directory | `listLenderOrganizations` and `listLenderOrganizationMembersForAdmin` | exact target app organization under a validated Brokerage | Variant E table, exact lender roles, active/pending counts, reconciliation rows | `-lender-control-plane.test.tsx`, `convex/lenderOrganizations.test.ts` |
+| Default Review Requirements | `getLenderOrganizationDefaultReviewPolicy` and `saveLenderOrganizationDefaultReviewPolicy` | Back Office, exact Brokerage and app Lender Organization, expected current version, approval-eligible quorum | current immutable version or explicit baseline; actor/time/reason; actionable membership-drift failure; future-assignment copy notice | `-lender-control-plane.test.tsx`, `convex/lenderOrganizations.test.ts` |
 | Existing-user assignment | `listUnassignedLenderUsers` then `assignLenderUser` | eligible shared WorkOS user, active target app organization, exact Brokerage scope | both production entry points require an operator reason and a review step; no command before confirmation | `-lender-control-plane.test.tsx`, `convex/lenderOrganizations.test.ts` |
 | Invitation | `inviteLenderUser` | exact app organization plus exact lender starting role | accepted command waits for WorkOS webhook/projection reconciliation | `-lender-control-plane.test.tsx`, `convex/lenderOrganizations.test.ts` |
 | Access change | `updateSharedLenderMembershipRoles` plus `getLenderMembershipReconciliation` | current app assignment and exact shared WorkOS membership under the selected app organization | accepted command remains visibly pending; success appears only when the reactive projection has the exact requested role; errors leave the current projection unchanged | `-lender-control-plane.test.tsx`, `convex/lenderOrganizations.test.ts` |
-| Deactivation | `deactivateSharedLenderMembership`, scoped reconciliation query, then `unassignLenderUser` | exact lender organization, membership, Brokerage, and assignment | accepted command remains pending; app assignment removal waits for projected inactive/deleted membership state; finalization failure is persistent and retryable | `-lender-control-plane.test.tsx`, `convex/lenderOrganizations.test.ts` |
-| Lender privacy | `getCurrentLenderOrganization` | current active assignment only | assigned read-only view or contact-admin state with no directory data | `src/routes/lender/-organization.test.tsx`, `convex/lenderOrganizations.test.ts` |
+| Member grants | `updateLenderMemberDecisionPermissions` | active same-organization `lender-admin`, target assignment, expected permission version | reviewed proposal/Milestone/Draw grant update, organization-capped effective state, stale-version refresh, audit | `src/routes/lender/-organization.test.tsx`, `convex/lenderOrganizations.test.ts` |
+| Deactivation | `deactivateSharedLenderMembership` plus webhook finalization | scope derived from assignment; self/last-admin/cross-organization/inactive targets rejected | accepted command suspends authority and remains pending until inactive/deleted projection finalizes; provider failure restores access and remains retryable | `-lender-control-plane.test.tsx`, `src/routes/lender/-organization.test.tsx`, `convex/lenderOrganizations.test.ts` |
+| Lender privacy | `getCurrentLenderOrganization` | current active assignment only | assigned Variant E directory with role-shaped member controls, or contact-admin state with no directory data | `src/routes/lender/-organization.test.tsx`, `convex/lenderOrganizations.test.ts` |
 
 ## Interface review
 
@@ -44,14 +50,17 @@
 
 ## Verification
 
-- Focused tests: `bun x vitest run src/routes/backoffice/lenders/-lender-control-plane.test.tsx src/routes/-lender.organization-management-prototype.test.tsx src/features/lender-organization-management/LenderOrganizationManagementVariantE.test.tsx convex/lenderOrganizations.test.ts src/routes/backoffice/lenders/-index.test.ts src/routes/lender/-organization.test.tsx --reporter=dot` — 6 files, 45 tests passed.
+- Focused tests: `bun run test -- convex/lenderOrganizations.test.ts convex/production_proposals.test.ts convex/lender_portal_phase5.test.ts src/routes/lender/-organization.test.tsx src/routes/backoffice/lenders/-lender-control-plane.test.tsx --reporter=dot` — 5 files, 290 tests passed.
+- Convex generation: `bun x convex codegen` passed, including function upload to the configured development deployment, generated bindings, and Convex TypeScript validation.
 - Typecheck: `bun run typecheck` passed, including Convex TypeScript and client/server typecheck builds.
 - Production build: `bun run build` passed; Convex deployment registration was skipped outside Vercel. Existing large-chunk and plugin-timing warnings remain.
-- Lender execution validator: `bun run validate:lender-portal-execution` is blocked by a pre-existing changed source hash for `docs/lender_portal_mvp_feature_brief.md`; GAP-13 did not edit or refresh that user-owned traceability input.
+- Lender execution validator: `bun run validate:lender-portal-execution` is blocked by the pre-existing `proof-surface-dashboard` trust-root assertion, which no longer uniquely matches its executable body and observable route behavior. This amendment does not own that dashboard proof.
 - Diff hygiene: `git diff --check` passed.
-- Browser/visual evidence: not captured in this turn.
+- Interface gates: `better-interface`, `make-interfaces-feel-better`, `impeccable harden`, and `impeccable polish` completed against the production composition. The one-time Impeccable detector returned `[]` for the three changed production UI files.
+- Browser/visual evidence: the in-app browser control runtime was not exposed to this task. Route-level render and interaction tests cover direct-route authorization, directory pagination, member-sheet controls, reviewed permission saving, read-only role behavior, and destructive safeguards, but no authenticated browser screenshot is claimed.
+- Migration release gate: Stage 1 keeps the new assignment fields optional so the idempotent backfill can run. `getLenderMemberDecisionPermissionMigrationCoverage` must report `complete: true` before the Stage 2 required-field schema cutover and operator enablement deployment.
 - Exact release commit: unavailable; work remains in a shared dirty checkout and no commit was authorized.
-- Rollback: remove the Variant E production composition and adapter/operation wiring together while retaining the pre-existing canonical backend owners and read-only lender route. WorkOS mutations already accepted before rollback still reconcile through their canonical webhook owner.
-- Known limitations: no authenticated browser, keyboard-only browser, screen-reader, 200% zoom, responsive screenshot, deployed-SHA, WorkOS-provider, or release-owner verification. The coordinator's GAP-06 waiver for pre-existing user-owned `src/routes/lender.prototype.tsx` hunks remains in effect; GAP-13 did not edit that file.
-- Final status: Wired.
+- Rollback: remove the lender-route capability composition and member command wiring together while retaining the pre-existing canonical backend owners and Back Office Variant E composition. WorkOS mutations accepted before rollback still reconcile through their canonical webhook owner.
+- Known limitations: no authenticated browser, screen-reader, 200% zoom, responsive screenshot, deployed-SHA, live WorkOS-provider, Stage 2 required-field cutover, or release-owner verification. The coordinator's GAP-06 waiver for pre-existing user-owned `src/routes/lender.prototype.tsx` hunks remains in effect; GAP-13 did not edit that file.
+- Final status: Wired; release-gated by Stage 2 required-field cutover and authenticated browser evidence.
 - Sign-offs: product: selected/locked contract; domain-auth: focused implementation evidence complete, independent review pending; design-accessibility: source/test review complete, browser evidence pending; release: pending.

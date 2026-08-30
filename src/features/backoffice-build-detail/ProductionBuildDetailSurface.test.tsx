@@ -1413,6 +1413,68 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBeTruthy();
   });
 
+  test("rolls a missed unstarted Sub-milestone into both the behind-schedule and next-upcoming Milestone lanes", () => {
+    const missedStartDetail: ProductionBuildDetail = {
+      ...detail,
+      milestones: [
+        {
+          ...detail.milestones[0],
+          dayEnd: 10,
+          dayStart: 3,
+          status: "planned",
+        },
+      ],
+      submilestones: [
+        {
+          ...detail.submilestones[0],
+          actualStartedAt: undefined,
+          durationDays: 4,
+          key: "demo-ex",
+          name: "DEMO EX",
+          startDay: 3,
+          status: "planned",
+        },
+      ],
+    };
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={missedStartDetail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        timelineWorkspace={{
+          ...timelineWorkspace,
+          plan: { ...timelineWorkspace.plan, currentDay: 4 },
+        }}
+      />,
+    );
+
+    expect(
+      within(screen.getByTestId("behind-schedule-milestones")).getByText(
+        "Foundation",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId("next-upcoming-milestone")).getByText(
+        "Foundation",
+      ),
+    ).toBeTruthy();
+
+    const sheet = toProductionMilestoneSheetData(
+      missedStartDetail,
+      "foundation",
+    );
+    expect(sheet?.submilestones[0]).toMatchObject({
+      name: "DEMO EX",
+      scheduleHealth: {
+        health: "behind_schedule",
+        overdueDays: expect.any(Number),
+      },
+    });
+  });
+
   test("uses canonical milestone progress and surfaces reconciliation warnings", () => {
     render(
       <ProductionBuildDetailSurface

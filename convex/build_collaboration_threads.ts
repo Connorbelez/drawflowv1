@@ -25,13 +25,17 @@ import {
 } from "./build_collaboration_contracts";
 import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
-import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
+import {
+  canonicalizeTiptapReferences,
+  type ReferenceInput,
+} from "./build_collaboration_publication_bundle";
 import {
   type CanonicalBuildCollaborationReference,
   resolveCanonicalBuildCollaborationReferences,
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { reopenResolvedThreadForReply } from "./build_collaboration_resolution";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import {
@@ -42,7 +46,6 @@ import {
 import { isDrawSystemPost } from "./build_collaboration_system_event_access";
 import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
-
 
 import {
   canPinForBuild,
@@ -82,182 +85,198 @@ export const addBuildCollaborationComment = authenticatedMutation
       ctx,
       args
     );
-    assertHumanPublication(authorization.viewer.subject);
-    const post = await ctx.db.get(args.postId);
-    if (
-      !post ||
-      post.buildId !== authorization.build._id ||
-      !(await canReadCollaborationPost(ctx, authorization, post)) ||
-      (isDrawSystemPost(post) &&
-        !(await canReadDrawCoordination(ctx, { authorization, post })))
-    ) {
-      throw new Error("Forbidden: collaboration post");
-    }
-    const submittedContent = validateCommentContent(args);
-    const parent = args.parentCommentId
-      ? await ctx.db.get(args.parentCommentId)
-      : null;
-    if (
-      args.parentCommentId &&
-      (!parent ||
-        parent.organizationId !== authorization.organizationId ||
-        parent.brokerageId !== authorization.brokerage._id ||
-        parent.postId !== post._id ||
-        parent.buildId !== authorization.build._id ||
-        parent.contentState !== "active")
-    ) {
-      throw new Error("The parent reply is unavailable.");
-    }
-    const logicalDepth = parent ? parent.logicalDepth + 1 : 0;
-    if (logicalDepth > MAX_LOGICAL_DEPTH) {
-      throw new Error(
-        `Reply nesting may not exceed ${MAX_LOGICAL_DEPTH} logical levels.`
-      );
-    }
-    const currentReaderIds = isDrawSystemPost(post)
-      ? await resolveCurrentDrawCoordinationReaderIds(ctx, authorization, post)
-      : await resolveCurrentCollaborationPostReaderIds(ctx, authorization, post);
-    const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
+    return await addBuildCollaborationCommentForAuthorization(
+      ctx,
       authorization,
-      readerIds: currentReaderIds,
-      references: args.references.slice(0, 100),
-    });
-    const content = canonicalizeTiptapReferences(
-      submittedContent.tiptapJson,
-      references
+      args
     );
-    const now = Date.now();
-    const displayName =
-      authorization.participants.find(
-        (participant) =>
-          participant.workosUserId === authorization.viewer.subject
-      )?.displayName ??
-      authorization.viewer.email ??
-      authorization.viewer.subject;
-    const commentId = await ctx.db.insert("buildCollaborationComments", {
-      authorDisplayNameSnapshot: displayName,
-      authorRole: authorization.effectiveRole.role,
-      authorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      contentState: "active",
-      createdAt: now,
-      logicalDepth,
-      organizationId: authorization.organizationId,
-      parentCommentId: parent?._id,
-      postId: post._id,
-      revision: 1,
-      updatedAt: now,
-    });
-    const revisionId = await ctx.db.insert(
-      "buildCollaborationCommentRevisions",
-      {
-        authorRole: authorization.effectiveRole.role,
-        authorWorkosUserId: authorization.viewer.subject,
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        commentId,
-        contentHash: stableContentHash(content.tiptapJson),
-        createdAt: now,
-        organizationId: authorization.organizationId,
-        plainText: content.plainText,
-        postId: post._id,
-        revision: 1,
-        tiptapJson: content.tiptapJson,
-      }
-    );
-    await ctx.db.patch(commentId, { currentRevisionId: revisionId });
-    await persistCommentAttachments(ctx, {
-      assetIds: args.attachmentAssetIds ?? [],
-      authorization,
-      now,
-      post,
-      revisionId,
-      readerWorkosUserIds: currentReaderIds,
-    });
-    await reopenResolvedThreadForReply(ctx, {
-      authorization,
-      now,
-      post,
-    });
-    await ctx.db.patch(post._id, {
-      commentCount: post.commentCount + 1,
-      lastMeaningfulActivityAt: now,
-      latestActivityActorWorkosUserId: authorization.viewer.subject,
-      updatedAt: now,
-    });
-    for (const reference of references) {
-      await ctx.db.insert("buildCollaborationReferences", {
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        createdAt: now,
-        entityId: reference.entityId,
-        entityKind: reference.entityKind,
-        labelSnapshot: reference.label,
-        organizationId: authorization.organizationId,
-        ownerKind: "commentRevision",
-        ownerRecordId: revisionId,
-        postId: post._id,
-        primary: reference.primary ?? false,
-        summarySnapshot: reference.summary,
-      });
-    }
-    await ensureFollow(ctx, {
-      authorization,
-      now,
-      postId: post._id,
-      reason: "commenter",
-      workosUserId: authorization.viewer.subject,
-    });
-    const notificationReaderIds =
-      await resolveCurrentCollaborationNotificationReaderIds(
-        ctx,
-        authorization,
-        post
-      );
-    await emitCommentNotifications(ctx, {
-      authorization,
-      commentId,
-      now,
-      plainText: content.plainText,
-      post,
-      readerIds: notificationReaderIds,
-      references,
-    });
-    await ctx.db.insert("auditEvents", {
-      actorRoles: authorization.roles,
-      actorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      command: "addBuildCollaborationComment",
-      createdAt: now,
-      entityId: commentId,
-      entityType: "buildCollaborationComment",
-      eventType: "build.collaboration.comment.published",
-      newState: JSON.stringify({ postId: post._id, revision: 1 }),
-      organizationId: authorization.organizationId,
-      warnings: [],
-    });
-    await emitBuildCollaborationWebhookEvent(ctx, {
-      actorRole: authorization.effectiveRole.role,
-      actorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      entityId: commentId,
-      entityType: "comment",
-      eventType: "build.collaboration.comment.published",
-      idempotencyKey: `comment:${commentId}:published:1`,
-      metadata: { postId: post._id, revision: 1 },
-      occurredAt: now,
-      organizationId: authorization.organizationId,
-    });
-    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
-      authorization,
-      owner: { id: commentId, kind: "comment" },
-      postId: post._id,
-    });
-    return commentId;
   })
   .public();
+
+export async function addBuildCollaborationCommentForAuthorization(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  args: {
+    attachmentAssetIds?: Id<"buildCollaborationAssets">[];
+    parentCommentId?: Id<"buildCollaborationComments">;
+    plainText: string;
+    postId: Id<"buildCollaborationPosts">;
+    references: ReferenceInput[];
+    tiptapJson: string;
+  }
+) {
+  assertHumanPublication(authorization.viewer.subject);
+  await requireBuildCollaborationWritable(ctx, authorization);
+  const post = await ctx.db.get(args.postId);
+  if (
+    !post ||
+    post.buildId !== authorization.build._id ||
+    !(await canReadCollaborationPost(ctx, authorization, post)) ||
+    (isDrawSystemPost(post) &&
+      !(await canReadDrawCoordination(ctx, { authorization, post })))
+  ) {
+    throw new Error("Forbidden: collaboration post");
+  }
+  const submittedContent = validateCommentContent(args);
+  const parent = args.parentCommentId
+    ? await ctx.db.get(args.parentCommentId)
+    : null;
+  if (
+    args.parentCommentId &&
+    (!parent ||
+      parent.organizationId !== authorization.organizationId ||
+      parent.brokerageId !== authorization.brokerage._id ||
+      parent.postId !== post._id ||
+      parent.buildId !== authorization.build._id ||
+      parent.contentState !== "active")
+  ) {
+    throw new Error("The parent reply is unavailable.");
+  }
+  const logicalDepth = parent ? parent.logicalDepth + 1 : 0;
+  if (logicalDepth > MAX_LOGICAL_DEPTH) {
+    throw new Error(
+      `Reply nesting may not exceed ${MAX_LOGICAL_DEPTH} logical levels.`
+    );
+  }
+  const currentReaderIds = isDrawSystemPost(post)
+    ? await resolveCurrentDrawCoordinationReaderIds(ctx, authorization, post)
+    : await resolveCurrentCollaborationPostReaderIds(ctx, authorization, post);
+  const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
+    authorization,
+    readerIds: currentReaderIds,
+    references: args.references.slice(0, 100),
+  });
+  const content = canonicalizeTiptapReferences(
+    submittedContent.tiptapJson,
+    references
+  );
+  const now = Date.now();
+  const displayName =
+    authorization.participants.find(
+      (participant) => participant.workosUserId === authorization.viewer.subject
+    )?.displayName ??
+    authorization.viewer.email ??
+    authorization.viewer.subject;
+  const commentId = await ctx.db.insert("buildCollaborationComments", {
+    authorDisplayNameSnapshot: displayName,
+    authorRole: authorization.effectiveRole.role,
+    authorWorkosUserId: authorization.viewer.subject,
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    contentState: "active",
+    createdAt: now,
+    logicalDepth,
+    organizationId: authorization.organizationId,
+    parentCommentId: parent?._id,
+    postId: post._id,
+    revision: 1,
+    updatedAt: now,
+  });
+  const revisionId = await ctx.db.insert("buildCollaborationCommentRevisions", {
+    authorRole: authorization.effectiveRole.role,
+    authorWorkosUserId: authorization.viewer.subject,
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    commentId,
+    contentHash: stableContentHash(content.tiptapJson),
+    createdAt: now,
+    organizationId: authorization.organizationId,
+    plainText: content.plainText,
+    postId: post._id,
+    revision: 1,
+    tiptapJson: content.tiptapJson,
+  });
+  await ctx.db.patch(commentId, { currentRevisionId: revisionId });
+  await persistCommentAttachments(ctx, {
+    assetIds: args.attachmentAssetIds ?? [],
+    authorization,
+    now,
+    post,
+    revisionId,
+    readerWorkosUserIds: currentReaderIds,
+  });
+  await reopenResolvedThreadForReply(ctx, {
+    authorization,
+    now,
+    post,
+  });
+  await ctx.db.patch(post._id, {
+    commentCount: post.commentCount + 1,
+    lastMeaningfulActivityAt: now,
+    latestActivityActorWorkosUserId: authorization.viewer.subject,
+    updatedAt: now,
+  });
+  for (const reference of references) {
+    await ctx.db.insert("buildCollaborationReferences", {
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      createdAt: now,
+      entityId: reference.entityId,
+      entityKind: reference.entityKind,
+      labelSnapshot: reference.label,
+      organizationId: authorization.organizationId,
+      ownerKind: "commentRevision",
+      ownerRecordId: revisionId,
+      postId: post._id,
+      primary: reference.primary ?? false,
+      summarySnapshot: reference.summary,
+    });
+  }
+  await ensureFollow(ctx, {
+    authorization,
+    now,
+    postId: post._id,
+    reason: "commenter",
+    workosUserId: authorization.viewer.subject,
+  });
+  const notificationReaderIds =
+    await resolveCurrentCollaborationNotificationReaderIds(
+      ctx,
+      authorization,
+      post
+    );
+  await emitCommentNotifications(ctx, {
+    authorization,
+    commentId,
+    now,
+    plainText: content.plainText,
+    post,
+    readerIds: notificationReaderIds,
+    references,
+  });
+  await ctx.db.insert("auditEvents", {
+    actorRoles: authorization.roles,
+    actorWorkosUserId: authorization.viewer.subject,
+    brokerageId: authorization.brokerage._id,
+    command: "addBuildCollaborationComment",
+    createdAt: now,
+    entityId: commentId,
+    entityType: "buildCollaborationComment",
+    eventType: "build.collaboration.comment.published",
+    newState: JSON.stringify({ postId: post._id, revision: 1 }),
+    organizationId: authorization.organizationId,
+    warnings: [],
+  });
+  await emitBuildCollaborationWebhookEvent(ctx, {
+    actorRole: authorization.effectiveRole.role,
+    actorWorkosUserId: authorization.viewer.subject,
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    entityId: commentId,
+    entityType: "comment",
+    eventType: "build.collaboration.comment.published",
+    idempotencyKey: `comment:${commentId}:published:1`,
+    metadata: { postId: post._id, revision: 1 },
+    occurredAt: now,
+    organizationId: authorization.organizationId,
+  });
+  await queueBuildCollaborationSearchOwnerRebuild(ctx, {
+    authorization,
+    owner: { id: commentId, kind: "comment" },
+    postId: post._id,
+  });
+  return commentId;
+}
 
 export const listBuildCollaborationComments = authenticatedQuery
   .input({
@@ -274,7 +293,8 @@ export const listBuildCollaborationComments = authenticatedQuery
     const post = await ctx.db.get(args.postId);
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
-      (post && isDrawSystemPost(post) &&
+      (post &&
+        isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Forbidden: collaboration post");
@@ -349,7 +369,8 @@ export const reactToBuildCollaborationPost = authenticatedMutation
     const post = await ctx.db.get(args.postId);
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
-      (post && isDrawSystemPost(post) &&
+      (post &&
+        isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Forbidden: collaboration post");
@@ -472,7 +493,8 @@ export const toggleBuildCollaborationPin = authenticatedMutation
     const post = await ctx.db.get(args.postId);
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
-      (post && isDrawSystemPost(post) &&
+      (post &&
+        isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Forbidden: collaboration post");
@@ -575,7 +597,8 @@ export const toggleBuildCollaborationFollow = authenticatedMutation
     const post = await ctx.db.get(args.postId);
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
-      (post && isDrawSystemPost(post) &&
+      (post &&
+        isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Forbidden: collaboration post");
@@ -624,7 +647,8 @@ export const markBuildCollaborationPostViewed = authenticatedMutation
     const post = await ctx.db.get(args.postId);
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
-      (post && isDrawSystemPost(post) &&
+      (post &&
+        isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Forbidden: collaboration post");

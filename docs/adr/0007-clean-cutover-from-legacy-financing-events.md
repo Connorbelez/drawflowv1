@@ -1,0 +1,3 @@
+# Cleanly migrate legacy Build financing into Loans
+
+Existing construction `loanFacilities` will become each Build's single reimbursement-gated Loan, while existing `homeEquityTakeout` events will become upfront-funded Loans that preserve their current full-cash behavior and original event dates. Already approved or active Builds receive an immutable Synthetic Financing Approval Cutoff, and this migration is the only mechanism allowed to establish Loans after Build activation. The product will not retain a parallel legacy financing model or reinterpret historical cash projections as on-demand HELOC capacity; source identifiers and migration provenance remain available for audit and reconciliation.

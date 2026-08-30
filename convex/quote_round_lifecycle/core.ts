@@ -8,20 +8,17 @@ import {
   type AuditOverrideKind,
   appendGovernedAuditEvent,
 } from "../administrative_override_policy";
-import { type AuthorizedViewer } from "../authz";
+import type { AuthorizedViewer } from "../authz";
+import { createCanonicalContractorProfile } from "../contractor_profile_application";
 import { assertOrganizationRetentionWritable } from "../data_retention";
 import { authorizeQuoteAdministrativeRecovery } from "../quote_authoring_access";
-import {
-  type MutationCtx,
-} from "../types";
-import { migratePriorRevisionDraftForAccess } from "../quote_response_drafts";
-import {
+import type {
   resolveQuoteInvitationBrowserWriteAccess,
   resolveQuoteInvitationClaimedWriteAccess,
 } from "../quote_invitation_access";
-import { prepareEffectiveLabourLinesForPackageRevision } from "../quote_rounds";
-
-import type { Doc, Id } from "../types";
+import { migratePriorRevisionDraftForAccess } from "../quote_response_drafts";
+import type { prepareEffectiveLabourLinesForPackageRevision } from "../quote_rounds";
+import type { Doc, Id, MutationCtx } from "../types";
 
 export const MAX_REOPEN_CLONE_SERIALIZED_BYTES = 12 * 1024 * 1024;
 export const MAX_PACKAGE_REVISION_HISTORY = 20;
@@ -425,21 +422,22 @@ export async function createReplacementRecipientProfile(
   email: string,
   now: number
 ) {
-  const profileId = await ctx.db.insert("contractorProfiles", {
+  const profileId = await createCanonicalContractorProfile(ctx, {
     brokerageId: authorization.brokerage._id,
-    createdAt: now,
-    email,
-    kind: "company",
-    name: invitation.recipientNameSnapshot,
-    normalizedEmail: email,
-    onboardingStatus: "profile_only",
+    fields: {
+      email,
+      kind: "company",
+      name: invitation.recipientNameSnapshot,
+      normalizedEmail: email,
+      onboardingStatus: "profile_only",
+      quoteRecipientCapabilities: invitation.recipientCapabilitiesSnapshot,
+      quoteRecipientProvisioningState: "provisional",
+      source: "builder_created",
+      status: "active",
+      trades: [],
+    },
+    now,
     organizationId: authorization.organizationId,
-    quoteRecipientCapabilities: invitation.recipientCapabilitiesSnapshot,
-    quoteRecipientProvisioningState: "provisional",
-    source: "builder_created",
-    status: "active",
-    trades: [],
-    updatedAt: now,
   });
   const profile = await ctx.db.get(profileId);
   if (!profile) {

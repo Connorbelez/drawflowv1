@@ -1,25 +1,12 @@
-import {
-  appendGovernedAuditEvent,
-} from "../administrative_override_policy";
 import type { ActiveBuildAuthorization } from "../activeBuildAccess";
+import { appendGovernedAuditEvent } from "../administrative_override_policy";
 import { isCleanCollaborationAsset } from "../build_collaboration_asset_access";
+import { assertCurrentCostDocumentAllocationScope } from "../cost_document_access";
 import { enqueueCommunicationIntent } from "../email_transport";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
-import {
-  COST_DOCUMENT_INTEGRITY_KINDS,
-  MAX_PAGES,
-  isCurrentCostDocument,
-} from "./contracts";
-import {
-  assertCurrentCostDocumentAllocationScope,
-  authorizeCostDocumentIntent,
-} from "../cost_document_access";
-import {
-  listBatchDrafts,
-} from "./draft_state";
-import {
-  recordCostDocumentAudit,
-} from "./submission";
+import type { Doc, Id, MutationCtx } from "../types";
+import { recordCostDocumentAudit } from "./audit";
+import { isCurrentCostDocument } from "./contracts";
+import { listBatchDrafts } from "./draft_state";
 
 export async function replayCostDocumentCorrection(
   ctx: MutationCtx,

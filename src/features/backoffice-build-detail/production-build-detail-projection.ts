@@ -17,7 +17,12 @@ import { initialsFor } from "./format";
 import {
   type MilestoneSheetData,
 } from "./MilestoneDetailSheet";
-import { deriveScheduleHealth } from "./scheduleHealth";
+import {
+  productionMilestoneHasStartedSubmilestone,
+  productionMilestoneScheduleHealth,
+  productionSubmilestoneScheduleDays,
+  productionSubmilestoneScheduleHealth,
+} from "./production-schedule-health.ts";
 import type {
   ProductionBuildDetail,
   ProductionBuildProjection,
@@ -156,16 +161,15 @@ export function buildMilestoneSheetData(
       ? parsedSubmittedAt
       : undefined,
     submilestones: sourceSubmilestones.map((submilestone) => {
-      const startDay =
-        submilestone.startDay ??
-        milestone.dayStart + Math.max(0, submilestone.order - 1);
-      const durationDays = Math.max(1, submilestone.durationDays ?? 1);
-      const endDay = startDay + durationDays - 1;
-      const scheduleHealth = deriveScheduleHealth({
+      const { endDay, startDay } = productionSubmilestoneScheduleDays(
+        milestone,
+        submilestone,
+      );
+      const scheduleHealth = productionSubmilestoneScheduleHealth(
+        milestone,
+        submilestone,
         currentDay,
-        endDay,
-        lifecycleStatus: submilestone.status,
-      });
+      );
       const assignments = (detail.milestoneContractorAssignments ?? [])
         .filter(
           (assignment) =>
@@ -397,12 +401,17 @@ export function buildCurrentBuildOverview(
   );
   const behindSchedule = incompleteMilestones
     .filter(
-      (milestone) =>
-        deriveScheduleHealth({
-          currentDay,
-          endDay: milestone.dayEnd,
-          lifecycleStatus: milestone.status,
-        }).health === "behind_schedule"
+      (milestone) => {
+        const submilestones =
+          projection.submilestonesByMilestone.get(milestone.key) ?? [];
+        return (
+          productionMilestoneScheduleHealth(
+            milestone,
+            submilestones,
+            currentDay,
+          ).health === "behind_schedule"
+        );
+      },
     )
     .sort(compareMilestonesMostOverdueFirst);
   const behindScheduleKeys = new Set(
@@ -419,11 +428,20 @@ export function buildCurrentBuildOverview(
   const next =
     incompleteMilestones
       .filter(
-        (milestone) =>
-          !(
-            behindScheduleKeys.has(milestone.key) ||
-            currentKeys.has(milestone.key)
-          )
+        (milestone) => {
+          if (currentKeys.has(milestone.key)) {
+            return false;
+          }
+          if (!behindScheduleKeys.has(milestone.key)) {
+            return true;
+          }
+          const submilestones =
+            projection.submilestonesByMilestone.get(milestone.key) ?? [];
+          return (
+            submilestones.length > 0 &&
+            !productionMilestoneHasStartedSubmilestone(submilestones)
+          );
+        },
       )
       .sort(compareMilestonesScheduleFirst)[0] ?? null;
   const approvedMilestoneAvailabilityCents = projection.milestones

@@ -19,7 +19,10 @@ import {
 import { stableContentHash } from "./build_collaboration_hash";
 import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
-import { collaborationRoleTier } from "./build_collaboration_model";
+import {
+  type BuildCollaborationRole,
+  collaborationRoleTier,
+} from "./build_collaboration_model";
 import {
   type BuildCollaborationNotificationKind,
   emitCanonicalBuildCollaborationNotification,
@@ -93,15 +96,7 @@ const systemPostBackfillValidator = v.object({
 });
 
 export type SystemPostHistoricalBackfill = {
-  historicalActorRole?:
-    | "admin"
-    | "principle-broker"
-    | "broker"
-    | "builder"
-    | "broker-staff"
-    | "builder-staff"
-    | "homeowner"
-    | "contractor";
+  historicalActorRole?: BuildCollaborationRole;
   historicalActorWorkosUserId?: string;
   historicalAt?: number;
   materializedAt: number;

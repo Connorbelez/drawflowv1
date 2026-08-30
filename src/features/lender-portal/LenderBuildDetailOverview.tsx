@@ -15,6 +15,7 @@ import { Fragment, type ReactNode, useState } from "react";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { Separator } from "#/components/ui/separator.tsx";
 import {
   Table,
   TableBody,
@@ -27,6 +28,7 @@ import {
   MilestoneDetailSheet,
   type MilestoneSheetData,
 } from "#/features/backoffice-build-detail/MilestoneDetailSheet.tsx";
+import { LenderBuildCollaboration } from "#/features/lender-portal/LenderBuildCollaboration.tsx";
 import { LenderMilestoneSiteVisitCompletion } from "#/features/lender-portal/LenderMilestoneSiteVisitCompletion.tsx";
 import { cn } from "#/lib/utils.ts";
 import type { api } from "../../../convex/_generated/api";
@@ -212,6 +214,8 @@ export function LenderBuildDetailOverview({
             <section className="py-6" id="build-overview">
               <h2 className="font-semibold text-sm">Overview</h2>
               <BuildIdentity detail={detail} />
+              <Separator className="my-6" />
+              <ReviewPolicy policy={detail.reviewPolicy} />
             </section>
 
             <section className="py-6" id="build-milestones">
@@ -375,48 +379,7 @@ export function LenderBuildDetailOverview({
             </section>
 
             <section className="py-6" id="build-collaboration">
-              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-                <div>
-                  <h2 className="font-semibold text-sm">Collaboration</h2>
-                  <p className="mt-1 text-muted-foreground text-xs">
-                    Participant-visible Build-wide updates.
-                  </p>
-                </div>
-                <Badge variant="outline">Read-only</Badge>
-              </div>
-              <div className="mt-4 divide-y border-y">
-                {detail.collaboration.length > 0 ? (
-                  detail.collaboration.map((update) => (
-                    <article className="flex gap-3 py-4" key={update.postId}>
-                      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                        <MessageCircle aria-hidden="true" className="size-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                          <p className="font-medium text-sm">
-                            {update.sourceLabel}
-                          </p>
-                          <time
-                            className="text-muted-foreground text-xs"
-                            dateTime={new Date(
-                              update.publishedAt
-                            ).toISOString()}
-                          >
-                            {formatDate(update.publishedAt)}
-                          </time>
-                        </div>
-                        <p className="mt-1 max-w-[72ch] whitespace-pre-wrap text-pretty break-words text-sm leading-6">
-                          {update.body}
-                        </p>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="py-5 text-muted-foreground text-sm">
-                    No participant-visible updates have been posted.
-                  </p>
-                )}
-              </div>
+              <LenderBuildCollaboration buildId={detail.build.buildId} />
             </section>
           </div>
         </div>
@@ -471,6 +434,107 @@ function BuildIdentity({ detail }: { detail: LenderBuildDetailData }) {
       </div>
     </dl>
   );
+}
+
+function ReviewPolicy({
+  policy,
+}: {
+  policy: LenderBuildDetailData["reviewPolicy"];
+}) {
+  return (
+    <section aria-labelledby="lender-build-review-policy">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-sm" id="lender-build-review-policy">
+            Review policy
+          </h3>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Immutable approval and evidence requirements for this Build.
+          </p>
+        </div>
+        {policy.state === "locked" ? (
+          <Badge variant="outline">Locked</Badge>
+        ) : null}
+      </div>
+      {policy.state === "unavailable" ? (
+        <p className="mt-4 text-muted-foreground text-sm">
+          The locked review policy is unavailable for this Build.
+        </p>
+      ) : (
+        <div className="mt-5 grid gap-x-8 gap-y-5 sm:grid-cols-2">
+          <PolicyColumn
+            approval={approvalPolicyLabel(
+              policy.milestone.approvalMode,
+              policy.milestone.lenderQuorum
+            )}
+            heading="Milestone review"
+            requirements={[
+              policy.milestone.siteVisitRequired
+                ? "Site Visit required"
+                : "Site Visit not required",
+              policy.milestone.receiptInvoiceRequired
+                ? "Receipts or invoices required"
+                : "Receipts or invoices not required",
+            ]}
+          />
+          <PolicyColumn
+            approval={approvalPolicyLabel(
+              policy.draw.approvalMode,
+              policy.draw.lenderQuorum
+            )}
+            heading="Draw review"
+            requirements={[]}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PolicyColumn({
+  approval,
+  heading,
+  requirements,
+}: {
+  approval: string;
+  heading: string;
+  requirements: string[];
+}) {
+  return (
+    <div>
+      <p className="font-medium text-sm">{heading}</p>
+      <p className="mt-2 text-sm">{approval}</p>
+      {requirements.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-muted-foreground text-xs">
+          {requirements.map((requirement) => (
+            <li key={requirement}>{requirement}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function approvalPolicyLabel(
+  mode: "backoffice_only" | "both" | "lender_quorum",
+  lenderQuorum: number | null
+) {
+  if (mode === "backoffice_only") {
+    return "Back Office approval is required.";
+  }
+  const lenderApproval =
+    lenderQuorum === null
+      ? "the configured lender quorum"
+      : `${lenderQuorum} lender approval${lenderQuorum === 1 ? "" : "s"}`;
+  return mode === "both"
+    ? `Back Office approval and ${lenderApproval} are required.`
+    : `${sentenceCase(lenderApproval)}${
+        lenderQuorum === 1 ? " is required." : " are required."
+      }`;
+}
+
+function sentenceCase(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function ConsoleNavLink({

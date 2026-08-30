@@ -14,31 +14,13 @@ import { resolveCurrentBuildCollaborationReference } from "./build_collaboration
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { isBuildCollaborationValidationError } from "./build_collaboration_validation";
 import { canReadDrawCoordination } from "./build_draw_coordination";
+import {
+  isRecipientDeliveryVisible,
+  paginateRecipientDeliveries,
+  projectRecipientDelivery,
+  recipientDeliveryProjectionValidator,
+} from "./recipient_delivery_projection";
 import type { Doc, Id, QueryCtx } from "./types";
-
-const recipientDeliveryStatusValidator = v.union(
-  v.literal("unread"),
-  v.literal("read"),
-  v.literal("dismissed"),
-  v.literal("resolved")
-);
-
-const recipientDeliveryProjectionValidator = v.object({
-  _id: v.id("recipientDeliveries"),
-  actionLabel: v.string(),
-  actionRequired: v.boolean(),
-  body: v.string(),
-  createdAt: v.number(),
-  entityId: v.string(),
-  entityLabel: v.string(),
-  entityType: v.string(),
-  href: v.string(),
-  resolutionMode: v.union(v.literal("domain"), v.literal("recipient")),
-  sourceLabel: v.string(),
-  status: recipientDeliveryStatusValidator,
-  title: v.string(),
-  updatedAt: v.number(),
-});
 
 interface CollaborationDeliverySourceRevision {
   commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
@@ -58,27 +40,18 @@ export const listRecipientInbox = authenticatedQuery
       ctx,
       args.workosOrganizationId
     );
-    const records = await ctx.db
-      .query("recipientDeliveries")
-      .withIndex("by_recipient", (query) =>
-        query
-          .eq("organizationId", args.workosOrganizationId)
-          .eq("recipientWorkosUserId", ctx.viewer.subject)
-      )
-      .order("desc")
-      .paginate({
-        cursor: args.paginationOpts.cursor,
-        numItems: Math.min(100, Math.max(1, args.paginationOpts.numItems)),
-      });
-    const visibleRecords = args.includeResolved
-      ? records.page.filter((record) => record.inAppVisible !== false)
-      : records.page.filter(
-          (record) =>
-            record.inAppVisible !== false &&
-            record.status !== "dismissed" &&
-            record.status !== "resolved"
-        );
-    const deliveries: ReturnType<typeof projectStoredDelivery>[] = [];
+    const records = await paginateRecipientDeliveries(ctx, {
+      organizationId: args.workosOrganizationId,
+      paginationOpts: args.paginationOpts,
+      recipientWorkosUserId: ctx.viewer.subject,
+    });
+    const visibleRecords = records.page.filter((record) =>
+      isRecipientDeliveryVisible(record, {
+        includeResolved: args.includeResolved,
+        requireInAppVisible: true,
+      })
+    );
+    const deliveries: ReturnType<typeof projectRecipientDelivery>[] = [];
     for (const record of visibleRecords) {
       if (record.brokerageId !== brokerage._id) {
         continue;
@@ -173,7 +146,7 @@ async function projectReadableDelivery(
   record: Doc<"recipientDeliveries">
 ) {
   if (!record.collaborationBuildId) {
-    return projectStoredDelivery(record);
+    return projectRecipientDelivery(record);
   }
   try {
     const authorization = await authorizeActiveBuildCollaborationAccess(ctx, {
@@ -216,7 +189,7 @@ export async function projectAuthorizedCollaborationDelivery(
         entityId: record.collaborationBuildSubmilestoneId,
         entityKind: "submilestone",
       });
-      return projectStoredDelivery(record, {
+      return projectRecipientDelivery(record, {
         actionLabel: "Open Sub-milestone",
         body: reference.label,
         entityId: reference.entityId,
@@ -254,7 +227,7 @@ export async function projectAuthorizedCollaborationDelivery(
               entityKind: "submilestone",
             }
           );
-          return projectStoredDelivery(record, {
+          return projectRecipientDelivery(record, {
             actionLabel: "Open Sub-milestone",
             body: reference.label,
             entityId: reference.entityId,
@@ -275,7 +248,7 @@ export async function projectAuthorizedCollaborationDelivery(
           throw error;
         }
       }
-      return projectStoredDelivery(record, {
+      return projectRecipientDelivery(record, {
         actionLabel: "Open Sub-milestone",
         body: item.title,
         entityId: item._id,
@@ -290,7 +263,7 @@ export async function projectAuthorizedCollaborationDelivery(
         title: canonicalNotificationTitle(record.collaborationEventKind),
       });
     }
-    return projectStoredDelivery(record, {
+    return projectRecipientDelivery(record, {
       actionLabel: "Open Action Item",
       body: item.title,
       entityId: item._id,
@@ -334,7 +307,7 @@ export async function projectAuthorizedCollaborationDelivery(
     if (!revision || revision.commentId !== comment._id) {
       return null;
     }
-    return projectStoredDelivery(record, {
+    return projectRecipientDelivery(record, {
       actionLabel: "Open reply",
       body: boundedNotificationPreview(revision.plainText),
       entityId: comment._id,
@@ -354,7 +327,7 @@ export async function projectAuthorizedCollaborationDelivery(
   if (!revision || revision.postId !== post._id) {
     return null;
   }
-  return projectStoredDelivery(record, {
+  return projectRecipientDelivery(record, {
     actionLabel: "Open thread",
     body: boundedNotificationPreview(revision.plainText),
     entityId: post._id,
@@ -676,36 +649,6 @@ async function canReadCollaborationNotificationAttachment(
       (asset.maximumAudienceMode === "build_wide" ||
         asset.readerWorkosUserIds?.includes(authorization.viewer.subject))
   );
-}
-
-function projectStoredDelivery(
-  record: Doc<"recipientDeliveries">,
-  canonical?: Partial<{
-    actionLabel: string;
-    body: string;
-    entityId: string;
-    entityLabel: string;
-    entityType: string;
-    href: string;
-    title: string;
-  }>
-) {
-  return {
-    _id: record._id,
-    actionLabel: canonical?.actionLabel ?? record.actionLabel,
-    actionRequired: record.actionRequired,
-    body: canonical?.body ?? record.body,
-    createdAt: record.createdAt,
-    entityId: canonical?.entityId ?? record.entityId,
-    entityLabel: canonical?.entityLabel ?? record.entityLabel,
-    entityType: canonical?.entityType ?? record.entityType,
-    href: canonical?.href ?? record.href,
-    resolutionMode: record.resolutionMode,
-    sourceLabel: record.sourceLabel,
-    status: record.status,
-    title: canonical?.title ?? record.title,
-    updatedAt: record.updatedAt,
-  };
 }
 
 function canonicalNotificationTitle(kind?: BuildCollaborationNotificationKind) {

@@ -1,37 +1,35 @@
-import { v } from "convex/values";
-
-import type { ActiveBuildAuthorization } from "../activeBuildAccess";
 import {
   paginationOptsValidator,
   paginationResultValidator,
 } from "convex/server";
+import { v } from "convex/values";
+import type { ActiveBuildAuthorization } from "../activeBuildAccess";
 import {
   type AuthorizedViewer,
   authenticatedMutation,
   authenticatedQuery,
   backofficeQuery,
 } from "../authz";
+import { createCanonicalContractorProfile } from "../contractor_profile_application";
 import { normalizeContractorEmail } from "../contractorWorkspace";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
 import {
-  MAX_VENDOR_DUPLICATE_CANDIDATES,
-  MAX_VENDOR_OPTIONS,
-  activeBuildScopeFields,
-  costDocumentCategoryValidator,
-  costDocumentVendorCreationResultValidator,
-  costDocumentVendorCreateAccessValidator,
-  costDocumentVendorOptionValidator,
-  costDocumentVendorPartyTypeValidator,
-  costDocumentVendorHistorySummaryValidator,
-  requiredText,
-  optionalText,
-} from "./contracts";
-import type { AuthorizedCostDocumentCtx } from "./submission_support";
-import {
+  authorizeCostDocumentIntent,
   canCreateCostDocumentVendor,
   requireCurrentContractorCostDocumentScope,
-  authorizeCostDocumentIntent,
 } from "../cost_document_access";
+import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
+import {
+  activeBuildScopeFields,
+  costDocumentVendorCreateAccessValidator,
+  costDocumentVendorCreationResultValidator,
+  costDocumentVendorHistorySummaryValidator,
+  costDocumentVendorOptionValidator,
+  costDocumentVendorPartyTypeValidator,
+  MAX_VENDOR_DUPLICATE_CANDIDATES,
+  MAX_VENDOR_OPTIONS,
+  optionalText,
+  requiredText,
+} from "./contracts";
 
 export const listCostDocumentSubmilestoneOptions = authenticatedQuery
   .input(activeBuildScopeFields)
@@ -179,7 +177,10 @@ export const listCostDocumentVendorOptions = authenticatedQuery
   })
   .returns(v.array(costDocumentVendorOptionValidator))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "create",
+    });
     const normalizedSearch = args.search?.trim().toLocaleLowerCase("en-CA");
     const profiles = await listCostDocumentVendorProfiles(ctx, authorization);
     return profiles
@@ -201,7 +202,10 @@ export const getCostDocumentVendorCreateAccess = authenticatedQuery
   .input(activeBuildScopeFields)
   .returns(costDocumentVendorCreateAccessValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentVendorAccess(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.read",
+    });
     return { canCreate: canCreateCostDocumentVendor(authorization) };
   })
   .public();
@@ -223,16 +227,19 @@ export const createCostDocumentVendorProfile = authenticatedMutation
   })
   .returns(costDocumentVendorCreationResultValidator)
   .handler(async (ctx, args) => {
-    const accessAuthorization = await authorizeCostDocumentVendorAccess(
-      ctx,
-      args
-    );
+    const accessAuthorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.read",
+    });
     if (!canCreateCostDocumentVendor(accessAuthorization)) {
       throw new Error(
         "You do not have permission to create a party from Cost Document capture."
       );
     }
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "create",
+    });
 
     const name = requiredText(args.name, "Party name", 160);
     const email = optionalText(args.email, "Email", 320);
@@ -247,7 +254,7 @@ export const createCostDocumentVendorProfile = authenticatedMutation
       authorization
     );
     const existingEmailProfile = normalizedEmail
-      ? (await findCostDocumentVendorProfileByNormalizedEmail(
+      ? ((await findCostDocumentVendorProfileByNormalizedEmail(
           ctx,
           authorization,
           normalizedEmail
@@ -255,7 +262,7 @@ export const createCostDocumentVendorProfile = authenticatedMutation
         duplicateCandidates.find(
           (profile) =>
             normalizeContractorEmail(profile.email) === normalizedEmail
-        )
+        ))
       : undefined;
     if (existingEmailProfile) {
       return {
@@ -278,28 +285,29 @@ export const createCostDocumentVendorProfile = authenticatedMutation
     }
 
     const now = Date.now();
-    const profileId = await ctx.db.insert("contractorProfiles", {
+    const profileId = await createCanonicalContractorProfile(ctx, {
       brokerageId: authorization.brokerage._id,
-      city,
-      costDocumentPartyType: args.partyType,
-      createdAt: now,
-      email,
-      kind: "company",
-      name,
-      normalizedEmail: normalizedEmail || undefined,
-      onboardingStatus: "profile_only",
+      fields: {
+        city,
+        costDocumentPartyType: args.partyType,
+        email,
+        kind: "company",
+        name,
+        normalizedEmail: normalizedEmail || undefined,
+        onboardingStatus: "profile_only",
+        quoteRecipientCapabilities:
+          args.partyType === "vendor" ? [] : [args.partyType],
+        source:
+          authorization.effectiveRole.role === "admin" ||
+          authorization.effectiveRole.role === "principle-broker"
+            ? "backoffice_created"
+            : "builder_created",
+        status: "active",
+        phone,
+        trades: [],
+      },
+      now,
       organizationId: authorization.organizationId,
-      quoteRecipientCapabilities:
-        args.partyType === "vendor" ? [] : [args.partyType],
-      source:
-        authorization.effectiveRole.role === "admin" ||
-        authorization.effectiveRole.role === "principle-broker"
-          ? "backoffice_created"
-          : "builder_created",
-      status: "active",
-      phone,
-      trades: [],
-      updatedAt: now,
     });
     const profile = await ctx.db.get(profileId);
     if (!profile) {
@@ -395,32 +403,6 @@ export const listCostDocumentsByVendor = backofficeQuery
     return { ...page, page: projected };
   })
   .public();
-
-export async function authorizeCostDocumentBuilder(
-  ctx: AuthorizedCostDocumentCtx,
-  input: {
-    actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"];
-    buildId: Id<"activeBuilds">;
-    organizationId: string;
-  }
-) {
-  return await authorizeCostDocumentIntent(ctx, { ...input, intent: "create" });
-}
-
-export async function authorizeCostDocumentVendorAccess(
-  ctx: AuthorizedCostDocumentCtx,
-  input: {
-    actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"];
-    buildId: Id<"activeBuilds">;
-    organizationId: string;
-  }
-) {
-  return await authorizeCostDocumentIntent(ctx, {
-    ...input,
-    intent: "submitted.read",
-  });
-}
-
 
 async function listCostDocumentVendorProfiles(
   ctx: QueryCtx | MutationCtx,

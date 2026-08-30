@@ -32,16 +32,16 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 
 import { LenderOrganizationDetailSheet } from "./-lender-control-plane-detail.tsx";
 import { LenderOrganizationProvisionDialog } from "./-lender-control-plane-provision.tsx";
-import { LenderControlPlaneUnassignedUsers } from "./-lender-control-plane-unassigned-users.tsx";
 import {
-  ExistingLenderUserAssignmentDialog,
-  Metric,
   buildLenderOrganizationDirectoryUsers,
+  ExistingLenderUserAssignmentDialog,
   filterAssignableLenderUsers,
   findMemberByMembershipId,
+  Metric,
   reconciliationPresentation,
   requireWaitingForWebhook,
 } from "./-lender-control-plane-support.tsx";
+import { LenderControlPlaneUnassignedUsers } from "./-lender-control-plane-unassigned-users.tsx";
 
 type OrganizationPage = FunctionReturnType<
   typeof api.lenderOrganizations.listLenderOrganizations
@@ -217,9 +217,6 @@ export function LenderControlPlaneSurface() {
   const assignLenderUser = useMutation(
     api.lenderOrganizations.assignLenderUser
   );
-  const unassignLenderUser = useMutation(
-    api.lenderOrganizations.unassignLenderUser
-  );
   const updatePermissions = useMutation(
     api.lenderOrganizations.updateLenderOrganizationPermissions
   );
@@ -356,32 +353,9 @@ export function LenderControlPlaneSurface() {
       return;
     }
 
-    setWorkosReconciliation({ ...reconciliation, status: "finalizing" });
-    unassignLenderUser({
-      assignmentId: reconciliation.assignmentId,
-      reason: reconciliation.reason,
-    })
-      .then(() => {
-        setWorkosReconciliation((current) =>
-          current?.membershipId === reconciliation.membershipId
-            ? { ...current, status: "reconciled" }
-            : current
-        );
-        toast.success(`${reconciliation.memberName} deactivated`);
-      })
-      .catch((error: unknown) => {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Unable to finish the app assignment update";
-        setWorkosReconciliation((current) =>
-          current?.membershipId === reconciliation.membershipId
-            ? { ...current, errorMessage: message, status: "error" }
-            : current
-        );
-        toast.error(message);
-      });
-  }, [reconciliationProjection, unassignLenderUser, workosReconciliation]);
+    setWorkosReconciliation({ ...reconciliation, status: "reconciled" });
+    toast.success(`${reconciliation.memberName} deactivated`);
+  }, [reconciliationProjection, workosReconciliation]);
 
   const run = async (operation: () => Promise<unknown>, message: string) => {
     try {
@@ -479,8 +453,8 @@ export function LenderControlPlaneSurface() {
           );
         }
         const result = await deactivateMembership({
-          lenderOrganizationId: selectedOrganization.id,
-          membershipId: request.membershipId,
+          assignmentId: member.assignmentId,
+          idempotencyKey: `lender-member-deactivate:${member.assignmentId}`,
           reason: request.reason,
         });
         requireWaitingForWebhook(result);
@@ -536,7 +510,7 @@ export function LenderControlPlaneSurface() {
   };
 
   const handleExistingUserAssignment = async (reason: string) => {
-    if (!assignmentDraft || !reason.trim()) {
+    if (!(assignmentDraft && reason.trim())) {
       return;
     }
     setAssignmentPending(true);
@@ -702,7 +676,7 @@ export function LenderControlPlaneSurface() {
                   <span className="truncate text-muted-foreground text-sm">
                     {organization.brokerageName}
                   </span>
-                  <span className="tabular-nums text-sm">
+                  <span className="text-sm tabular-nums">
                     {organization.memberCount}
                     {organization.pendingCount ? (
                       <span className="text-muted-foreground">
@@ -766,7 +740,9 @@ export function LenderControlPlaneSurface() {
         members={members}
         onOpenAssignmentDraft={openAssignmentDraft}
         onOpenChange={(open) => {
-          if (!open) setSelectedOrganizationId(null);
+          if (!open) {
+            setSelectedOrganizationId(null);
+          }
         }}
         onOpenOperation={openOrganizationOperation}
         onOpenUser={setSelectedDirectoryUserId}
@@ -867,7 +843,7 @@ export function LenderControlPlaneSurface() {
         <ExistingLenderUserAssignmentDialog
           draft={assignmentDraft}
           onOpenChange={(open) => {
-            if (!open && !assignmentPending) {
+            if (!(open || assignmentPending)) {
               setAssignmentDraft(null);
             }
           }}

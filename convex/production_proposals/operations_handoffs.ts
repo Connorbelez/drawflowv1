@@ -4,12 +4,35 @@
  */
 import { ConvexError, v } from "convex/values";
 import { authenticatedMutation, authenticatedQuery } from "../authz";
+import {
+  loadRecipientDeliverySummary,
+  recipientDeliveryProjectionValidator,
+} from "../recipient_delivery_projection.js";
 import { authorizeBrokerage } from "./authorization_core.js";
 import { requireAnyRole } from "./contractor_policy_helpers.js";
 import { APPROVER_ROLES } from "./contracts_foundation.js";
-import { recipientDeliveryProjectionValidator, operationsHandoffReturnDecisionValidator, operationsHandoffProjectionValidator, integrationEndpointProjectionValidator, integrationDeliveryProjectionValidator } from "./contracts_workflow.js";
-import { integrationEndpointProjection, integrationDeliveryProjection, authorizeIntegrationAdmin, getRecipientDeliveryOrThrow } from "./integration_helpers.js";
-import { operationsHandoffProjection, authorizeOperationsQueueMutation, getOperationsHandoffOrThrow, resolveOperationsQueueTarget, requireOperationsHandoffText, normalizeOperationsHandoffWarnings, operationsHandoffAuditState, writeOperationsHandoffEvent } from "./operations_helpers.js";
+import {
+  integrationDeliveryProjectionValidator,
+  integrationEndpointProjectionValidator,
+  operationsHandoffProjectionValidator,
+  operationsHandoffReturnDecisionValidator,
+} from "./contracts_workflow.js";
+import {
+  authorizeIntegrationAdmin,
+  getRecipientDeliveryOrThrow,
+  integrationDeliveryProjection,
+  integrationEndpointProjection,
+} from "./integration_helpers.js";
+import {
+  authorizeOperationsQueueMutation,
+  getOperationsHandoffOrThrow,
+  normalizeOperationsHandoffWarnings,
+  operationsHandoffAuditState,
+  operationsHandoffProjection,
+  requireOperationsHandoffText,
+  resolveOperationsQueueTarget,
+  writeOperationsHandoffEvent,
+} from "./operations_helpers.js";
 
 export const escalateOperationsQueueItem = authenticatedMutation
   .input({
@@ -26,7 +49,7 @@ export const escalateOperationsQueueItem = authenticatedMutation
   .handler(async (ctx, args) => {
     const auth = await authorizeOperationsQueueMutation(
       ctx,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     const target = await resolveOperationsQueueTarget(ctx, {
       auth,
@@ -38,7 +61,7 @@ export const escalateOperationsQueueItem = authenticatedMutation
       .withIndex("by_brokerage_queue_item", (q) =>
         q
           .eq("brokerageId", auth.brokerage._id)
-          .eq("queueItemId", args.queueItemId),
+          .eq("queueItemId", args.queueItemId)
       )
       .order("desc")
       .first();
@@ -47,14 +70,14 @@ export const escalateOperationsQueueItem = authenticatedMutation
       activeHandoff.acknowledgementState !== "acknowledged"
     ) {
       throw new ConvexError(
-        "This queue item already has an active escalation.",
+        "This queue item already has an active escalation."
       );
     }
 
     const now = Date.now();
     const escalationReason = requireOperationsHandoffText(
       args.reason,
-      "Escalation reason",
+      "Escalation reason"
     );
     const handoffId = await ctx.db.insert("operationsQueueHandoffs", {
       acknowledgementState: "pending_decision",
@@ -62,23 +85,23 @@ export const escalateOperationsQueueItem = authenticatedMutation
       createdAt: now,
       decisionPreview: requireOperationsHandoffText(
         args.decisionPreview,
-        "Decision preview",
+        "Decision preview"
       ),
       escalatedByWorkosUserId: auth.subject,
       escalationReason,
       evidenceSummary: requireOperationsHandoffText(
         args.evidenceSummary,
-        "Evidence summary",
+        "Evidence summary"
       ),
       organizationId: args.workosOrganizationId,
       queueItemId: args.queueItemId,
       recommendation: requireOperationsHandoffText(
         args.recommendation,
-        "Recommendation",
+        "Recommendation"
       ),
       requiredAction: requireOperationsHandoffText(
         args.requiredAction,
-        "Required action",
+        "Required action"
       ),
       targetHref: target.href,
       targetLabel: target.label,
@@ -117,7 +140,7 @@ export const returnOperationsEscalationDecision = authenticatedMutation
     const { auth, handoff } = await getOperationsHandoffOrThrow(
       ctx,
       args.handoffId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     if (handoff.acknowledgementState !== "pending_decision") {
@@ -127,13 +150,13 @@ export const returnOperationsEscalationDecision = authenticatedMutation
     const priorState = operationsHandoffAuditState(handoff);
     const returnReason = requireOperationsHandoffText(
       args.reason,
-      "Return reason",
+      "Return reason"
     );
     await ctx.db.patch(handoff._id, {
       acknowledgementState: "returned",
       followUpAssignment: requireOperationsHandoffText(
         args.followUpAssignment,
-        "Follow-up assignment",
+        "Follow-up assignment"
       ),
       returnDecision: args.decision,
       returnedAt: now,
@@ -169,16 +192,16 @@ export const acknowledgeOperationsEscalationReturn = authenticatedMutation
     const { auth, handoff } = await getOperationsHandoffOrThrow(
       ctx,
       args.handoffId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     if (auth.subject !== handoff.escalatedByWorkosUserId) {
       throw new ConvexError(
-        "Only the escalating operator can acknowledge this return.",
+        "Only the escalating operator can acknowledge this return."
       );
     }
     if (handoff.acknowledgementState !== "returned") {
       throw new ConvexError(
-        "This escalation has no returned decision to acknowledge.",
+        "This escalation has no returned decision to acknowledge."
       );
     }
     const now = Date.now();
@@ -217,52 +240,15 @@ export const listRecipientInbox = authenticatedQuery
       actionRequiredCount: v.number(),
       deliveries: v.array(recipientDeliveryProjectionValidator),
       unreadCount: v.number(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
-    const records = await ctx.db
-      .query("recipientDeliveries")
-      .withIndex("by_recipient", (q) =>
-        q
-          .eq("organizationId", args.workosOrganizationId)
-          .eq("recipientWorkosUserId", auth.subject),
-      )
-      .order("desc")
-      .take(100);
-    const visibleRecords = args.includeResolved
-      ? records
-      : records.filter(
-          (record) =>
-            record.status !== "dismissed" && record.status !== "resolved",
-        );
-
-    return {
-      actionRequiredCount: visibleRecords.filter(
-        (record) =>
-          record.actionRequired &&
-          record.status !== "dismissed" &&
-          record.status !== "resolved",
-      ).length,
-      deliveries: visibleRecords.map((record) => ({
-        _id: record._id,
-        actionLabel: record.actionLabel,
-        actionRequired: record.actionRequired,
-        body: record.body,
-        createdAt: record.createdAt,
-        entityId: record.entityId,
-        entityLabel: record.entityLabel,
-        entityType: record.entityType,
-        href: record.href,
-        resolutionMode: record.resolutionMode,
-        sourceLabel: record.sourceLabel,
-        status: record.status,
-        title: record.title,
-        updatedAt: record.updatedAt,
-      })),
-      unreadCount: visibleRecords.filter((record) => record.status === "unread")
-        .length,
-    };
+    return await loadRecipientDeliverySummary(ctx, {
+      includeResolved: args.includeResolved,
+      organizationId: args.workosOrganizationId,
+      recipientWorkosUserId: auth.subject,
+    });
   })
   .public();
 
@@ -276,7 +262,7 @@ export const markRecipientDeliveryRead = authenticatedMutation
     const delivery = await getRecipientDeliveryOrThrow(
       ctx,
       args.deliveryId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     if (delivery.status === "unread") {
       await ctx.db.patch(delivery._id, {
@@ -298,7 +284,7 @@ export const dismissRecipientDelivery = authenticatedMutation
     const delivery = await getRecipientDeliveryOrThrow(
       ctx,
       args.deliveryId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     if (delivery.status !== "dismissed" && delivery.status !== "resolved") {
       await ctx.db.patch(delivery._id, {
@@ -320,7 +306,7 @@ export const resolveRecipientDelivery = authenticatedMutation
     const delivery = await getRecipientDeliveryOrThrow(
       ctx,
       args.deliveryId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     if (delivery.resolutionMode !== "recipient") {
       throw new ConvexError("Resolve this delivery from its related workflow.");
@@ -341,34 +327,34 @@ export const getIntegrationOperations = authenticatedQuery
     v.object({
       attempts: v.array(integrationDeliveryProjectionValidator),
       endpoints: v.array(integrationEndpointProjectionValidator),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeIntegrationAdmin(
       ctx,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     const [endpoints, attempts] = await Promise.all([
       ctx.db
         .query("integrationEndpoints")
         .withIndex("by_organization", (q) =>
-          q.eq("organizationId", args.workosOrganizationId),
+          q.eq("organizationId", args.workosOrganizationId)
         )
         .order("desc")
         .take(100),
       ctx.db
         .query("integrationDeliveryAttempts")
         .withIndex("by_organization_attempted", (q) =>
-          q.eq("organizationId", args.workosOrganizationId),
+          q.eq("organizationId", args.workosOrganizationId)
         )
         .order("desc")
         .take(200),
     ]);
     const visibleEndpoints = endpoints.filter(
-      (endpoint) => endpoint.brokerageId === auth.brokerage._id,
+      (endpoint) => endpoint.brokerageId === auth.brokerage._id
     );
     const endpointById = new Map(
-      visibleEndpoints.map((endpoint) => [String(endpoint._id), endpoint]),
+      visibleEndpoints.map((endpoint) => [String(endpoint._id), endpoint])
     );
 
     return {

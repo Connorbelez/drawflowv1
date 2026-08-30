@@ -71,6 +71,8 @@ function RouteComponent() {
   const [manageError, setManageError] = useState("");
   const [pendingIdentity, setPendingIdentity] = useState(false);
   const [identityError, setIdentityError] = useState("");
+  const invitationDeliveryFailed =
+    detail?.invitation?.deliveryStatus === "failed";
 
   const onboardingApi = api.contractorOnboarding;
   const mergeApi = api.contractorMerge;
@@ -165,8 +167,10 @@ function RouteComponent() {
         contractorId: contractorId as Id<"contractorProfiles">,
         workosOrganizationId,
       });
-    } catch (err) {
-      setIdentityError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setIdentityError(
+        "The invitation could not be queued. Check the contractor email and try again, or contact support.",
+      );
     } finally {
       setPendingIdentity(false);
     }
@@ -265,6 +269,22 @@ function RouteComponent() {
                 {identityError ? (
                   <p className="text-destructive text-xs">{identityError}</p>
                 ) : null}
+                {detail.invitation?.deliveryError ? (
+                  <p aria-live="polite" className="text-destructive text-xs">
+                    {detail.invitation.deliveryError}
+                  </p>
+                ) : null}
+                {detail.invitation?.deliveryStatus === "queued" ? (
+                  <p aria-live="polite" className="text-muted-foreground text-xs">
+                    Invitation queued. The WorkOS handoff is in progress.
+                  </p>
+                ) : null}
+                {detail.invitation?.deliveryStatus === "sent" ? (
+                  <p aria-live="polite" className="text-emerald-600 text-xs">
+                    Invitation handoff accepted. The custom email is queued for
+                    delivery.
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <Button
                     disabled={pendingIdentity}
@@ -272,7 +292,7 @@ function RouteComponent() {
                     size="sm"
                     type="button"
                   >
-                    Send invite
+                    {invitationDeliveryFailed ? "Retry invite" : "Send invite"}
                   </Button>
                   <Button
                     disabled={pendingIdentity}

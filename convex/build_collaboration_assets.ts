@@ -6,55 +6,34 @@ import {
   selectActiveBuildAuthorizationCapacity,
 } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
-import {
-  canReadCollaborationPost,
-  resolveCurrentCollaborationPostReaderIds,
-} from "./build_collaboration_access";
 import { authorizeActiveBuildCollaborationPreparerAccess } from "./build_collaboration_actor";
+import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
 import {
-  canReadAssetStagingContext,
-  canReadCollaborationAsset,
-} from "./build_collaboration_asset_access";
-import { canReadDrawCoordination } from "./build_draw_coordination";
+  abandonUnpublishedAsset,
+  assertAssetSize,
+  assertSourceCapturedAt,
+  assertStagingCapacity,
+  authorizeStagingContext,
+  boundedText,
+  canInspectAsset,
+  canManageStagingSession,
+  canonicalMimeType,
+  projectAssetStatus,
+  recordAssetAudit,
+  requireOwnedOpenSession,
+  resolveVersionPlacement,
+  stagingAudience,
+} from "./build_collaboration_assets/helpers";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationAssetStagingContextValidator } from "./build_collaboration_validators";
 import { resolveCostDocumentDraftAccessForAuthorization } from "./cost_document_access";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
-import {
-  authorizeStagingContext,
-  authorizeCostDocumentDraftStagingContext,
-  requireOwnedOpenSession,
-  resolveVersionPlacement,
-  assertStagingCapacity,
-  stagingAudience,
-  readablePost,
-  canManageStagingSession,
-  canInspectAsset,
-  projectAssetStatus,
-  canonicalMimeType,
-  assertSourceCapturedAt,
-  assertAssetSize,
-  boundedText,
-  recordAssetAudit,
-  abandonUnpublishedAsset,
-} from "./build_collaboration_assets/helpers";
-const MAX_ASSET_BYTES = 100 * 1024 * 1024;
 const MAX_ASSETS_PER_REQUEST = 100;
-const MAX_ACTIVE_STAGING_SESSIONS = 25;
-const MAX_COST_DOCUMENT_DRAFT_ACTIVE_STAGING_SESSIONS = 50;
 const STAGING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const COST_DOCUMENT_DRAFT_STAGING_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_CAPTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-const BLOCKED_MIME_TYPES = new Set([
-  "application/javascript",
-  "application/x-httpd-php",
-  "application/x-msdownload",
-  "application/x-sh",
-  "image/svg+xml",
-  "text/html",
-]);
 
 interface FinalizeAssetUploadInput {
   buildId: Id<"activeBuilds">;
@@ -65,6 +44,20 @@ interface FinalizeAssetUploadInput {
   stagingSessionId: Id<"buildCollaborationAssetStagingSessions">;
   storageId: Id<"_storage">;
   supersedesAssetId?: Id<"buildCollaborationAssets">;
+}
+
+export interface BeginBuildCollaborationAssetUploadInput {
+  contextKind:
+    | "composer"
+    | "costDocumentDraft"
+    | "draft"
+    | "post"
+    | "actionItem";
+  contextRecordId?: string;
+  fileName: string;
+  mimeType?: string;
+  sizeBytes: number;
+  sourceCapturedAt?: number;
 }
 
 const finalizeAssetUploadFields = {
@@ -78,7 +71,7 @@ const finalizeAssetUploadFields = {
   supersedesAssetId: v.optional(v.id("buildCollaborationAssets")),
 };
 
-const assetStatusValidator = v.object({
+export const buildCollaborationAssetStatusValidator = v.object({
   _id: v.id("buildCollaborationAssets"),
   contentHashSha256: v.optional(v.string()),
   fileName: v.string(),
@@ -123,85 +116,99 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
     })
   )
   .handler(async (ctx, args) => {
-    let authorization = await authorizeActiveBuildCollaborationPreparerAccess(
+    const authorization = await authorizeActiveBuildCollaborationPreparerAccess(
       ctx,
       args
     );
-    if (
-      authorization.viewer.actorKind === "agent" &&
-      args.contextKind !== "draft"
-    ) {
-      throw new Error("Agents may stage assets only inside an owned draft.");
-    }
-    const expectedFileName = boundedText(args.fileName, "File name", 240);
-    const expectedMimeType = canonicalMimeType(undefined, args.mimeType);
-    assertAssetSize(args.sizeBytes);
-    const stagingContext = await authorizeStagingContext(ctx, {
+    return await beginBuildCollaborationAssetUploadForAuthorization(
+      ctx,
       authorization,
-      contextKind: args.contextKind,
-      contextRecordId: args.contextRecordId,
-    });
-    authorization = stagingContext.authorization;
-    const contextRecordId = stagingContext.contextRecordId;
-    const now = Date.now();
-    assertSourceCapturedAt(args.sourceCapturedAt, now);
-    await assertStagingCapacity(ctx, authorization, now, args.contextKind);
-    const expiresAt =
-      now +
-      (args.contextKind === "costDocumentDraft"
-        ? COST_DOCUMENT_DRAFT_STAGING_SESSION_TTL_MS
-        : STAGING_SESSION_TTL_MS);
-    const stagingSessionId = await ctx.db.insert(
-      "buildCollaborationAssetStagingSessions",
-      {
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        actorCapacity:
-          args.contextKind === "costDocumentDraft"
-            ? authorization.effectiveRole.role
-            : undefined,
-        contextKind: args.contextKind,
-        contextRecordId,
-        createdAt: now,
-        expectedFileName,
-        expectedMimeType,
-        expectedSizeBytes: args.sizeBytes,
-        sourceCapturedAt: args.sourceCapturedAt,
-        expiresAt,
-        organizationId: authorization.organizationId,
-        ownerWorkosUserId: authorization.viewer.subject,
-        state: "open",
-        updatedAt: now,
-      }
+      args
     );
-    await recordAssetAudit(ctx, authorization, {
-      command: "beginBuildCollaborationAssetUpload",
-      entityId: stagingSessionId,
-      entityType: "buildCollaborationAssetStagingSession",
-      eventType: "build.collaboration.asset.upload_authorized",
-      newState: JSON.stringify({
-        contextKind: args.contextKind,
-        expectedFileName,
-        expectedMimeType,
-        expectedSizeBytes: args.sizeBytes,
-        expiresAt,
-        sourceCapturedAt: args.sourceCapturedAt,
-      }),
-      now,
-    });
-    await ctx.scheduler.runAt(
-      expiresAt,
-      internal.build_collaboration_asset_maintenance
-        .expireBuildCollaborationAssetStagingSession,
-      { stagingSessionId }
-    );
-    return {
-      expiresAt,
-      stagingSessionId,
-      uploadUrl: await ctx.storage.generateUploadUrl(),
-    };
   })
   .public();
+
+export async function beginBuildCollaborationAssetUploadForAuthorization(
+  ctx: MutationCtx,
+  initialAuthorization: ActiveBuildAuthorization,
+  args: BeginBuildCollaborationAssetUploadInput
+) {
+  let authorization = initialAuthorization;
+  await requireBuildCollaborationWritable(ctx, authorization);
+  if (
+    authorization.viewer.actorKind === "agent" &&
+    args.contextKind !== "draft"
+  ) {
+    throw new Error("Agents may stage assets only inside an owned draft.");
+  }
+  const expectedFileName = boundedText(args.fileName, "File name", 240);
+  const expectedMimeType = canonicalMimeType(undefined, args.mimeType);
+  assertAssetSize(args.sizeBytes);
+  const stagingContext = await authorizeStagingContext(ctx, {
+    authorization,
+    contextKind: args.contextKind,
+    contextRecordId: args.contextRecordId,
+  });
+  authorization = stagingContext.authorization;
+  const contextRecordId = stagingContext.contextRecordId;
+  const now = Date.now();
+  assertSourceCapturedAt(args.sourceCapturedAt, now);
+  await assertStagingCapacity(ctx, authorization, now, args.contextKind);
+  const expiresAt =
+    now +
+    (args.contextKind === "costDocumentDraft"
+      ? COST_DOCUMENT_DRAFT_STAGING_SESSION_TTL_MS
+      : STAGING_SESSION_TTL_MS);
+  const stagingSessionId = await ctx.db.insert(
+    "buildCollaborationAssetStagingSessions",
+    {
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      actorCapacity:
+        args.contextKind === "costDocumentDraft"
+          ? authorization.effectiveRole.role
+          : undefined,
+      contextKind: args.contextKind,
+      contextRecordId,
+      createdAt: now,
+      expectedFileName,
+      expectedMimeType,
+      expectedSizeBytes: args.sizeBytes,
+      sourceCapturedAt: args.sourceCapturedAt,
+      expiresAt,
+      organizationId: authorization.organizationId,
+      ownerWorkosUserId: authorization.viewer.subject,
+      state: "open",
+      updatedAt: now,
+    }
+  );
+  await recordAssetAudit(ctx, authorization, {
+    command: "beginBuildCollaborationAssetUpload",
+    entityId: stagingSessionId,
+    entityType: "buildCollaborationAssetStagingSession",
+    eventType: "build.collaboration.asset.upload_authorized",
+    newState: JSON.stringify({
+      contextKind: args.contextKind,
+      expectedFileName,
+      expectedMimeType,
+      expectedSizeBytes: args.sizeBytes,
+      expiresAt,
+      sourceCapturedAt: args.sourceCapturedAt,
+    }),
+    now,
+  });
+  await ctx.scheduler.runAt(
+    expiresAt,
+    internal.build_collaboration_asset_maintenance
+      .expireBuildCollaborationAssetStagingSession,
+    { stagingSessionId }
+  );
+  return {
+    expiresAt,
+    stagingSessionId,
+    uploadUrl: await ctx.storage.generateUploadUrl(),
+  };
+}
 
 export const finalizeBuildCollaborationAssetUpload = authenticatedMutation
   .input(finalizeAssetUploadFields)
@@ -222,58 +229,70 @@ export const registerBuildCollaborationAssetUploadedStorage =
     })
     .returns(v.null())
     .handler(async (ctx, args) => {
-      let authorization = await authorizeActiveBuildCollaborationPreparerAccess(
-        ctx,
-        args
-      );
-      const now = Date.now();
-      const openSession = await requireOwnedOpenSession(
+      const authorization =
+        await authorizeActiveBuildCollaborationPreparerAccess(ctx, args);
+      return await registerBuildCollaborationAssetStorageForAuthorization(
         ctx,
         authorization,
-        args.stagingSessionId,
-        now
+        args
       );
-      const { session } = openSession;
-      authorization = openSession.authorization;
-      if (
-        session.pendingStorageId &&
-        session.pendingStorageId !== args.storageId
-      ) {
-        throw new Error("This staging session already owns another upload.");
-      }
-      const metadata = await ctx.db.system.get(args.storageId);
-      if (!metadata) {
-        throw new Error("The uploaded file is unavailable.");
-      }
-      const [existingAsset, existingSessions] = await Promise.all([
-        ctx.db
-          .query("buildCollaborationAssets")
-          .withIndex("by_storageId", (query) =>
-            query.eq("storageId", args.storageId)
-          )
-          .unique(),
-        ctx.db
-          .query("buildCollaborationAssetStagingSessions")
-          .withIndex("by_pendingStorageId", (query) =>
-            query.eq("pendingStorageId", args.storageId)
-          )
-          .take(2),
-      ]);
-      if (
-        existingAsset ||
-        existingSessions.some(
-          (existingSession) => existingSession._id !== session._id
-        )
-      ) {
-        throw new Error("This uploaded storage identity is already in use.");
-      }
-      await ctx.db.patch(session._id, {
-        pendingStorageId: args.storageId,
-        updatedAt: now,
-      });
-      return null;
     })
     .public();
+
+export async function registerBuildCollaborationAssetStorageForAuthorization(
+  ctx: MutationCtx,
+  initialAuthorization: ActiveBuildAuthorization,
+  args: {
+    stagingSessionId: Id<"buildCollaborationAssetStagingSessions">;
+    storageId: Id<"_storage">;
+  }
+) {
+  let authorization = initialAuthorization;
+  await requireBuildCollaborationWritable(ctx, authorization);
+  const now = Date.now();
+  const openSession = await requireOwnedOpenSession(
+    ctx,
+    authorization,
+    args.stagingSessionId,
+    now
+  );
+  const { session } = openSession;
+  authorization = openSession.authorization;
+  if (session.pendingStorageId && session.pendingStorageId !== args.storageId) {
+    throw new Error("This staging session already owns another upload.");
+  }
+  const metadata = await ctx.db.system.get(args.storageId);
+  if (!metadata) {
+    throw new Error("The uploaded file is unavailable.");
+  }
+  const [existingAsset, existingSessions] = await Promise.all([
+    ctx.db
+      .query("buildCollaborationAssets")
+      .withIndex("by_storageId", (query) =>
+        query.eq("storageId", args.storageId)
+      )
+      .unique(),
+    ctx.db
+      .query("buildCollaborationAssetStagingSessions")
+      .withIndex("by_pendingStorageId", (query) =>
+        query.eq("pendingStorageId", args.storageId)
+      )
+      .take(2),
+  ]);
+  if (
+    existingAsset ||
+    existingSessions.some(
+      (existingSession) => existingSession._id !== session._id
+    )
+  ) {
+    throw new Error("This uploaded storage identity is already in use.");
+  }
+  await ctx.db.patch(session._id, {
+    pendingStorageId: args.storageId,
+    updatedAt: now,
+  });
+  return null;
+}
 
 export const finalizeBuildCollaborationAssetUploadForAction =
   authenticatedMutation
@@ -285,15 +304,35 @@ export const finalizeBuildCollaborationAssetUploadForAction =
     )
     .internal();
 
+export async function finalizeBuildCollaborationAssetUploadForAuthorization(
+  ctx: MutationCtx & { viewer: ActiveBuildAuthorization["viewer"] },
+  authorization: ActiveBuildAuthorization,
+  args: Omit<FinalizeAssetUploadInput, "buildId" | "organizationId">,
+  options: { scanInBackground: boolean }
+) {
+  await requireBuildCollaborationWritable(ctx, authorization);
+  return await finalizeAssetUpload(
+    ctx,
+    {
+      ...args,
+      buildId: authorization.build._id,
+      organizationId: authorization.organizationId,
+    },
+    { ...options, authorization }
+  );
+}
+
 async function finalizeAssetUpload(
   ctx: MutationCtx & { viewer: ActiveBuildAuthorization["viewer"] },
   args: FinalizeAssetUploadInput,
-  options: { scanInBackground: boolean }
+  options: {
+    authorization?: ActiveBuildAuthorization;
+    scanInBackground: boolean;
+  }
 ) {
-  let authorization = await authorizeActiveBuildCollaborationPreparerAccess(
-    ctx,
-    args
-  );
+  let authorization =
+    options.authorization ??
+    (await authorizeActiveBuildCollaborationPreparerAccess(ctx, args));
   const now = Date.now();
   const openSession = await requireOwnedOpenSession(
     ctx,
@@ -419,27 +458,39 @@ export const listBuildCollaborationAssetStatuses = authenticatedQuery
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
   })
-  .returns(v.array(assetStatusValidator))
+  .returns(v.array(buildCollaborationAssetStatusValidator))
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildCollaborationAccess(
       ctx,
       args
     );
-    if (args.assetIds.length > MAX_ASSETS_PER_REQUEST) {
-      throw new Error(
-        `At most ${MAX_ASSETS_PER_REQUEST} assets may be requested.`
-      );
-    }
-    const rows: ReturnType<typeof projectAssetStatus>[] = [];
-    for (const assetId of new Set(args.assetIds)) {
-      const asset = await ctx.db.get(assetId);
-      if (asset && (await canInspectAsset(ctx, authorization, asset))) {
-        rows.push(projectAssetStatus(asset));
-      }
-    }
-    return rows;
+    return await listBuildCollaborationAssetStatusesForAuthorization(
+      ctx,
+      authorization,
+      args.assetIds
+    );
   })
   .public();
+
+export async function listBuildCollaborationAssetStatusesForAuthorization(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  assetIds: Id<"buildCollaborationAssets">[]
+) {
+  if (assetIds.length > MAX_ASSETS_PER_REQUEST) {
+    throw new Error(
+      `At most ${MAX_ASSETS_PER_REQUEST} assets may be requested.`
+    );
+  }
+  const rows: ReturnType<typeof projectAssetStatus>[] = [];
+  for (const assetId of new Set(assetIds)) {
+    const asset = await ctx.db.get(assetId);
+    if (asset && (await canInspectAsset(ctx, authorization, asset))) {
+      rows.push(projectAssetStatus(asset));
+    }
+  }
+  return rows;
+}
 
 export const authorizeBuildCollaborationAssetDownload = authenticatedMutation
   .input({
@@ -454,30 +505,39 @@ export const authorizeBuildCollaborationAssetDownload = authenticatedMutation
       args,
       { allowClosed: true }
     );
-    const asset = await ctx.db.get(args.assetId);
-    if (
-      !(
-        asset &&
-        (await canReadCollaborationAsset(ctx, { asset, authorization }))
-      )
-    ) {
-      throw new Error("The collaboration asset is unavailable.");
-    }
-    const url = await ctx.storage.getUrl(asset.storageId);
-    if (!url) {
-      throw new Error("The collaboration asset file is unavailable.");
-    }
-    await recordAssetAudit(ctx, authorization, {
-      command: "authorizeBuildCollaborationAssetDownload",
-      entityId: asset._id,
-      entityType: "buildCollaborationAsset",
-      eventType: "build.collaboration.asset.download_authorized",
-      newState: JSON.stringify({ version: asset.version }),
-      now: Date.now(),
-    });
-    return url;
+    return await authorizeBuildCollaborationAssetDownloadForAuthorization(
+      ctx,
+      authorization,
+      args.assetId
+    );
   })
   .public();
+
+export async function authorizeBuildCollaborationAssetDownloadForAuthorization(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  assetId: Id<"buildCollaborationAssets">
+) {
+  const asset = await ctx.db.get(assetId);
+  if (
+    !(asset && (await canReadCollaborationAsset(ctx, { asset, authorization })))
+  ) {
+    throw new Error("The collaboration asset is unavailable.");
+  }
+  const url = await ctx.storage.getUrl(asset.storageId);
+  if (!url) {
+    throw new Error("The collaboration asset file is unavailable.");
+  }
+  await recordAssetAudit(ctx, authorization, {
+    command: "authorizeBuildCollaborationAssetDownload",
+    entityId: asset._id,
+    entityType: "buildCollaborationAsset",
+    eventType: "build.collaboration.asset.download_authorized",
+    newState: JSON.stringify({ version: asset.version }),
+    now: Date.now(),
+  });
+  return url;
+}
 
 export const abandonMyBuildCollaborationAssets = authenticatedMutation
   .input({
@@ -492,77 +552,93 @@ export const abandonMyBuildCollaborationAssets = authenticatedMutation
       ctx,
       args
     );
-    const assetIds = [...new Set(args.assetIds)];
-    if (assetIds.length > 25) {
-      throw new Error("At most 25 staged assets may be abandoned at once.");
-    }
-    const reason = boundedText(args.reason, "Abandonment reason", 500);
-    const now = Date.now();
-    let abandoned = 0;
-    for (const assetId of assetIds) {
-      const asset = await ctx.db.get(assetId);
-      const session = asset?.stagingSessionId
-        ? await ctx.db.get(asset.stagingSessionId)
-        : null;
-      const sessionAuthorization = session
-        ? selectActiveBuildAuthorizationCapacity(
-            authorization,
-            session.actorCapacity
-          )
-        : authorization;
-      const assetAuthorization = session
-        ? (
-            await authorizeStagingContext(ctx, {
-              authorization: sessionAuthorization,
-              contextKind: session.contextKind,
-              contextRecordId: session.contextRecordId,
-            })
-          ).authorization
-        : authorization;
-      if (
-        !(asset && session) ||
-        asset.organizationId !== assetAuthorization.organizationId ||
-        asset.buildId !== assetAuthorization.build._id ||
-        asset.brokerageId !== assetAuthorization.brokerage._id ||
-        asset.publishedAt ||
-        !(await canManageStagingSession(ctx, assetAuthorization, session))
-      ) {
-        throw new Error("A staged collaboration asset is unavailable.");
-      }
-      const activeCostDocumentDraftPages = await ctx.db
-        .query("costDocumentDraftPages")
-        .withIndex("by_assetId_and_state", (query) =>
-          query.eq("assetId", asset._id).eq("state", "active")
-        )
-        .take(1);
-      if (activeCostDocumentDraftPages.length > 0) {
-        throw new Error(
-          "Cost Document draft source pages cannot be abandoned while still bound."
-        );
-      }
-      const attachments = await ctx.db
-        .query("buildCollaborationAttachments")
-        .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
-          query
-            .eq("buildId", authorization.build._id)
-            .eq("attachmentKind", "collaborationAsset")
-            .eq("attachmentId", asset._id)
-        )
-        .take(1);
-      if (attachments.length > 0) {
-        throw new Error("Published collaboration assets cannot be abandoned.");
-      }
-      await abandonUnpublishedAsset(ctx, assetAuthorization, {
-        asset,
-        now,
-        reason,
-        session,
-      });
-      abandoned += 1;
-    }
-    return abandoned;
+    return await abandonBuildCollaborationAssetsForAuthorization(
+      ctx,
+      authorization,
+      args
+    );
   })
   .public();
+
+export async function abandonBuildCollaborationAssetsForAuthorization(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  args: {
+    assetIds: Id<"buildCollaborationAssets">[];
+    reason: string;
+  }
+) {
+  await requireBuildCollaborationWritable(ctx, authorization);
+  const assetIds = [...new Set(args.assetIds)];
+  if (assetIds.length > 25) {
+    throw new Error("At most 25 staged assets may be abandoned at once.");
+  }
+  const reason = boundedText(args.reason, "Abandonment reason", 500);
+  const now = Date.now();
+  let abandoned = 0;
+  for (const assetId of assetIds) {
+    const asset = await ctx.db.get(assetId);
+    const session = asset?.stagingSessionId
+      ? await ctx.db.get(asset.stagingSessionId)
+      : null;
+    const sessionAuthorization = session
+      ? selectActiveBuildAuthorizationCapacity(
+          authorization,
+          session.actorCapacity
+        )
+      : authorization;
+    const assetAuthorization = session
+      ? (
+          await authorizeStagingContext(ctx, {
+            authorization: sessionAuthorization,
+            contextKind: session.contextKind,
+            contextRecordId: session.contextRecordId,
+          })
+        ).authorization
+      : authorization;
+    if (
+      !(asset && session) ||
+      asset.organizationId !== assetAuthorization.organizationId ||
+      asset.buildId !== assetAuthorization.build._id ||
+      asset.brokerageId !== assetAuthorization.brokerage._id ||
+      asset.publishedAt ||
+      !(await canManageStagingSession(ctx, assetAuthorization, session))
+    ) {
+      throw new Error("A staged collaboration asset is unavailable.");
+    }
+    const activeCostDocumentDraftPages = await ctx.db
+      .query("costDocumentDraftPages")
+      .withIndex("by_assetId_and_state", (query) =>
+        query.eq("assetId", asset._id).eq("state", "active")
+      )
+      .take(1);
+    if (activeCostDocumentDraftPages.length > 0) {
+      throw new Error(
+        "Cost Document draft source pages cannot be abandoned while still bound."
+      );
+    }
+    const attachments = await ctx.db
+      .query("buildCollaborationAttachments")
+      .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
+        query
+          .eq("buildId", authorization.build._id)
+          .eq("attachmentKind", "collaborationAsset")
+          .eq("attachmentId", asset._id)
+      )
+      .take(1);
+    if (attachments.length > 0) {
+      throw new Error("Published collaboration assets cannot be abandoned.");
+    }
+    await abandonUnpublishedAsset(ctx, assetAuthorization, {
+      asset,
+      now,
+      reason,
+      session,
+    });
+    abandoned += 1;
+  }
+  return abandoned;
+}
 
 export async function abandonUnpublishedCostDocumentDraftAsset(
   ctx: MutationCtx,

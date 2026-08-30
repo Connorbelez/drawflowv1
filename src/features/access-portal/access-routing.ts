@@ -5,7 +5,8 @@ export type AccessDestination =
   | "/builder"
   | "/builder-staff"
   | "/contractor"
-  | "/contractor/onboarding";
+  | "/contractor/onboarding"
+  | "/lender";
 
 const BACKOFFICE_ROLES = new Set([
   "admin",
@@ -30,6 +31,13 @@ export function resolveAccessDestination(
   }
   if (normalizedRoles.includes("contractor")) {
     return "/contractor";
+  }
+  if (
+    normalizedRoles.includes("lender") ||
+    normalizedRoles.includes("lender-admin") ||
+    normalizedRoles.includes("lender-staff")
+  ) {
+    return "/lender";
   }
   if (normalizedRoles.includes("member")) {
     return "/contractor/onboarding";

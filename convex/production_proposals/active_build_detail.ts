@@ -10,7 +10,10 @@ import { normalizeSiteVisitGuidance } from "../demo_site_visit_guidance";
 import { type Doc } from "../types";
 import { resolveAuditCanonicalSubmilestone, auditEventHasSubmilestoneScope, productionSubmilestoneAuditTab, activeBuildAuditPermissionResource, activeBuildAuditResourceType } from "./active_build_staff.js";
 import { latestBuildCapitalPlan } from "./active_cost.js";
-import { activeBuildDrawFundingSnapshot } from "./active_funding.js";
+import {
+  loadActiveBuildProjectionRows,
+  projectActiveBuildFunding,
+} from "./active_build_projection.js";
 import { projectAuditStateChanges } from "./audit_helpers.js";
 import { authorizeBrokerage, authorizeActiveBuild } from "./authorization_core.js";
 import { activeBuildAppPermissionProjection, canUseAppPermission } from "./builder_staff_access.js";
@@ -112,31 +115,16 @@ export const getActiveBuildDetailByString = authenticatedQuery
       throw cause;
     });
     const [
-      loanFacilities,
+      projectionRows,
       capitalPlans,
-      milestones,
-      submilestones,
       costItems,
-      plannedDraws,
-      drawRequests,
-      drawAllocations,
       facilityChangeRequests,
       budgetRevisionRequests,
       proposalMilestones,
     ] = await Promise.all([
-      collectByIndex(ctx, "loanFacilities", "by_build", buildId),
+      loadActiveBuildProjectionRows(ctx, buildId),
       collectByIndex(ctx, "buildCapitalPlans", "by_build", buildId),
-      collectByIndex(ctx, "buildMilestones", "by_build", buildId),
-      collectByIndex(ctx, "buildSubmilestones", "by_build", buildId),
       collectByIndex(ctx, "buildCostItems", "by_build", buildId),
-      collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
-      collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
-      collectByIndex(
-        ctx,
-        "activeBuildDrawRequestAllocations",
-        "by_build",
-        buildId,
-      ),
       collectByIndex(
         ctx,
         "activeBuildFacilityChangeRequests",
@@ -156,6 +144,14 @@ export const getActiveBuildDetailByString = authenticatedQuery
         auth.proposal._id,
       ),
     ]);
+    const {
+      drawAllocations,
+      drawRequests,
+      facilities: loanFacilities,
+      milestones,
+      plannedDraws,
+      submilestones,
+    } = projectionRows;
     // Phase 4: keep domain collections for workspace UI, but cap audit / URL fan-out.
     // Follow-up: split evidence/audit/assignment trees into dedicated queries for first paint.
     const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
@@ -278,9 +274,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
           a.milestoneKey.localeCompare(b.milestoneKey),
       );
     }
-    const drawFunding = await activeBuildDrawFundingSnapshot(ctx, buildId, {
-      allowLegacyUnattributedRequests: true,
-    });
+    const drawFunding = projectActiveBuildFunding(projectionRows);
     const contractorById = new Map(
       contractorProfilesForBuild.map((contractor) => [
         String(contractor._id),

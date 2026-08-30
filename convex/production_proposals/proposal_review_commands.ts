@@ -4,27 +4,71 @@
  */
 import { ConvexError, v } from "convex/values";
 import { authenticatedMutation } from "../authz";
-import { getLenderOrganizationApprovalEligibility } from "../lenderOrganizationAccess";
 import { getBuilderBrokerAssignmentHealth } from "../brokerAssignments";
 import { normalizeOperationalIdempotencyKey } from "../build_operational_idempotency";
-import { publishSavedV1ScopeDraftsForProposal } from "../submilestone_scope_contracts";
-import { assertProposalCollaborationEditAllowed, pushProposalPlanningSnapshot } from "../proposal_collaboration_model";
-import { assertProposalLifecycleTransition } from "../production_proposal_lifecycle";
-import { normalizeProposalReviewPolicy, proposalReviewPoliciesEqual, validateProposalReviewPolicyQuorums } from "../lender_portal_phase3";
 import { enqueueProposalApprovalRequiredNotifications } from "../lender_portal_notifications";
-import { type Id } from "../types";
-import { authorizeProposal, assertBuilderProfileScope, assignedBuilderProfileIdOrThrow, assertBuilderOwnership } from "./authorization_core.js";
+import {
+  normalizeProposalReviewPolicy,
+  proposalReviewPoliciesEqual,
+  validateProposalReviewPolicyQuorums,
+} from "../lender_portal_phase3";
+import { getLenderOrganizationApprovalEligibility } from "../lenderOrganizationAccess";
+import { assertProposalLifecycleTransition } from "../production_proposal_lifecycle";
+import {
+  assertProposalCollaborationEditAllowed,
+  pushProposalPlanningSnapshot,
+} from "../proposal_collaboration_model";
+import { publishSavedV1ScopeDraftsForProposal } from "../submilestone_scope_contracts";
+import type { Doc, Id, MutationCtx } from "../types";
+import {
+  assertBuilderOwnership,
+  assertBuilderProfileScope,
+  assignedBuilderProfileIdOrThrow,
+  authorizeProposal,
+} from "./authorization_core.js";
 import { requireProposalAppPermission } from "./builder_staff_access.js";
-import { requireBackofficeProposalWrite, requireAnyRole } from "./contractor_policy_helpers.js";
-import { BACKOFFICE_ROLES, APPROVER_ROLES, BUILDER_ROLES, proposalReviewPolicyInputValidator } from "./contracts_foundation.js";
-import { productionSelectedPlanKeyInput, productionSelectedPlanMetricsInput } from "./contracts_workflow.js";
-import { getCurrentProposalLenderAssignment, assertNoArchivingProposalLenderAssignment, resolvePolicyLenderOrganization } from "./lender_assignment_auth.js";
+import {
+  requireAnyRole,
+  requireBackofficeProposalWrite,
+} from "./contractor_policy_helpers.js";
+import {
+  APPROVER_ROLES,
+  BACKOFFICE_ROLES,
+  BUILDER_ROLES,
+  proposalReviewPolicyInputValidator,
+} from "./contracts_foundation.js";
+import {
+  productionSelectedPlanKeyInput,
+  productionSelectedPlanMetricsInput,
+} from "./contracts_workflow.js";
+import {
+  assertNoArchivingProposalLenderAssignment,
+  getCurrentProposalLenderAssignment,
+  resolvePolicyLenderOrganization,
+} from "./lender_assignment_auth.js";
 import { isBackoffice } from "./proposal_claim.js";
 import { upsertKanbanCard, writeProposalEvent } from "./proposal_copy_audit.js";
-import { productionSelectedPlanNames, normalizeSelectedPlanMetric } from "./proposal_draft_persistence.js";
+import {
+  normalizeSelectedPlanMetric,
+  productionSelectedPlanNames,
+} from "./proposal_draft_persistence.js";
 import { requireReason } from "./proposal_lender_approval.js";
-import { requireState, requirePhase3BackofficeRole, assertExpectedProposalReviewBase, getCurrentProposalReviewPolicyVersion, ensureDefaultProposalReviewPolicyVersion, getCurrentProposalRevision, createImmutableProposalRevision, openProposalLenderConfirmationCycle } from "./review_lifecycle_helpers.js";
-import { getActiveWorkflowRule, getWorkflowSnapshot, getPermitDocument, collectByIndex } from "./storage_helpers.js";
+import {
+  assertExpectedProposalReviewBase,
+  createImmutableProposalRevision,
+  ensureDefaultProposalReviewPolicyVersion,
+  getCurrentProposalReviewPolicyVersion,
+  getCurrentProposalRevision,
+  openProposalLenderConfirmationCycle,
+  requirePhase3BackofficeRole,
+  requireState,
+} from "./review_lifecycle_helpers.js";
+import {
+  collectByIndex,
+  getActiveWorkflowRule,
+  getPermitDocument,
+  getWorkflowSnapshot,
+} from "./storage_helpers.js";
 
 export const selectProposalPlan = authenticatedMutation
   .input({
@@ -39,7 +83,7 @@ export const selectProposalPlan = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireState(auth.proposal, "draft");
     requireAnyRole(auth.roles, BUILDER_ROLES);
@@ -54,43 +98,43 @@ export const selectProposalPlan = authenticatedMutation
       metrics: {
         drawCount: normalizeSelectedPlanMetric(
           args.metrics.drawCount,
-          "Draw count",
+          "Draw count"
         ),
         drawFeesCents: normalizeSelectedPlanMetric(
           args.metrics.drawFeesCents,
-          "Draw fees",
+          "Draw fees"
         ),
         interestCostCents: normalizeSelectedPlanMetric(
           args.metrics.interestCostCents,
-          "Interest cost",
+          "Interest cost"
         ),
         minimumCashReserveCents: normalizeSelectedPlanMetric(
           args.metrics.minimumCashReserveCents,
-          "Minimum cash reserve",
+          "Minimum cash reserve"
         ),
         projectedDurationDays: normalizeSelectedPlanMetric(
           args.metrics.projectedDurationDays,
-          "Projected duration",
+          "Projected duration"
         ),
         ...(args.metrics.requiredWorkingCapitalCents === undefined
           ? {}
           : {
               requiredWorkingCapitalCents: normalizeSelectedPlanMetric(
                 args.metrics.requiredWorkingCapitalCents,
-                "Required working capital",
+                "Required working capital"
               ),
             }),
         startingCashCents: normalizeSelectedPlanMetric(
           args.metrics.startingCashCents,
-          "Starting cash",
+          "Starting cash"
         ),
         totalCostCents: normalizeSelectedPlanMetric(
           args.metrics.totalCostCents,
-          "Total cost",
+          "Total cost"
         ),
         totalDrawAmountCents: normalizeSelectedPlanMetric(
           args.metrics.totalDrawAmountCents,
-          "Total draw amount",
+          "Total draw amount"
         ),
       },
       name: productionSelectedPlanNames[args.planKey],
@@ -130,7 +174,7 @@ export const submitProposal = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     assertProposalLifecycleTransition({
       command: "submit",
@@ -143,7 +187,7 @@ export const submitProposal = authenticatedMutation
       const builderProfile = await assertBuilderProfileScope(
         ctx,
         builderProfileId,
-        auth.brokerage._id,
+        auth.brokerage._id
       );
       const assignmentHealth = await getBuilderBrokerAssignmentHealth(ctx, {
         brokerage: auth.brokerage,
@@ -163,7 +207,7 @@ export const submitProposal = authenticatedMutation
       ctx,
       "proposalMilestones",
       "by_proposal",
-      args.proposalId,
+      args.proposalId
     );
     if (milestones.length === 0) {
       throw new Error("At least one milestone is required before submission.");
@@ -225,7 +269,7 @@ export const requestChanges = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     assertProposalLifecycleTransition({
@@ -266,7 +310,7 @@ export const rejectProposal = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     assertProposalLifecycleTransition({
@@ -306,7 +350,7 @@ export const approveProposal = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     assertProposalLifecycleTransition({
@@ -317,7 +361,7 @@ export const approveProposal = authenticatedMutation
     requireReason(args.reason);
     const builderProfileId = assignedBuilderProfileIdOrThrow(
       auth.proposal,
-      "Assign an active builder before approving the proposal.",
+      "Assign an active builder before approving the proposal."
     );
     await assertBuilderProfileScope(ctx, builderProfileId, auth.brokerage._id);
     const snapshot = await getWorkflowSnapshot(ctx, auth.proposal);
@@ -326,11 +370,11 @@ export const approveProposal = authenticatedMutation
     if (!permit && snapshot.requirePermitForApproval) {
       if (!args.permitWaiverReason?.trim()) {
         throw new Error(
-          "A permit waiver reason is required when no permit waiver exists.",
+          "A permit waiver reason is required when no permit waiver exists."
         );
       }
       const actorRole = auth.roles.find((role) =>
-        snapshot.allowPermitWaiverByRoles.includes(role),
+        snapshot.allowPermitWaiverByRoles.includes(role)
       );
       if (!actorRole) {
         throw new Error("Forbidden: permit waiver");
@@ -365,7 +409,10 @@ export const approveProposal = authenticatedMutation
       now,
     });
     await createImmutableProposalRevision(ctx, {
-      assignment: await getCurrentProposalLenderAssignment(ctx, args.proposalId),
+      assignment: await getCurrentProposalLenderAssignment(
+        ctx,
+        args.proposalId
+      ),
       auth: { ...auth, proposal: approvedProposal },
       idempotencyKey: `system:backoffice-approval:${now}`,
       policyVersion,
@@ -386,12 +433,38 @@ export const approveProposal = authenticatedMutation
   })
   .public();
 
+async function resolveConfiguredPolicyLenderOrganization(
+  ctx: MutationCtx,
+  assignment: Doc<"proposalLenderAssignments"> | null,
+  policy: ReturnType<typeof normalizeProposalReviewPolicy>
+) {
+  if (!assignment) {
+    if (
+      policy.drawLenderQuorum !== null ||
+      policy.milestoneLenderQuorum !== null
+    ) {
+      throw new Error(
+        "Lender-quorum policy configuration requires a current lender assignment."
+      );
+    }
+    return null;
+  }
+  const organization = await resolvePolicyLenderOrganization(
+    ctx,
+    assignment,
+    "policy configuration"
+  );
+  const eligibility = await getLenderOrganizationApprovalEligibility(
+    ctx,
+    organization._id
+  );
+  validateProposalReviewPolicyQuorums(policy, eligibility.counts);
+  return organization;
+}
+
 export const configureProposalReviewPolicy = authenticatedMutation
   .input({
-    expectedAssignmentId: v.union(
-      v.id("proposalLenderAssignments"),
-      v.null(),
-    ),
+    expectedAssignmentId: v.union(v.id("proposalLenderAssignments"), v.null()),
     expectedProposalRevisionNumber: v.union(v.number(), v.null()),
     idempotencyKey: v.string(),
     policy: proposalReviewPolicyInputValidator,
@@ -404,32 +477,37 @@ export const configureProposalReviewPolicy = authenticatedMutation
       policyVersionId: v.id("proposalReviewPolicyVersions"),
       revisionId: v.union(v.id("proposalRevisions"), v.null()),
       revisionNumber: v.union(v.number(), v.null()),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
     requireReason(args.reason);
-    if (auth.proposal.status === "closed" || auth.proposal.lockedReviewPolicyId) {
-      throw new Error("Review policy cannot change after policy lock or closing.");
+    if (
+      auth.proposal.status === "closed" ||
+      auth.proposal.lockedReviewPolicyId
+    ) {
+      throw new Error(
+        "Review policy cannot change after policy lock or closing."
+      );
     }
     await assertNoArchivingProposalLenderAssignment(ctx, args.proposalId);
     const policy = normalizeProposalReviewPolicy(args.policy);
     const idempotencyKey = normalizeOperationalIdempotencyKey(
       args.idempotencyKey,
-      "Review policy idempotency key",
+      "Review policy idempotency key"
     );
     const existing = await ctx.db
       .query("proposalReviewPolicyVersions")
       .withIndex("by_proposal_and_idempotency_key", (query) =>
         query
           .eq("proposalId", args.proposalId)
-          .eq("idempotencyKey", idempotencyKey),
+          .eq("idempotencyKey", idempotencyKey)
       )
       .unique();
     if (existing) {
@@ -438,14 +516,16 @@ export const configureProposalReviewPolicy = authenticatedMutation
         existing.reason !== args.reason.trim() ||
         !proposalReviewPoliciesEqual(existing.policy, policy)
       ) {
-        throw new Error("Review policy idempotency key was reused with different values.");
+        throw new Error(
+          "Review policy idempotency key was reused with different values."
+        );
       }
       const revision = await ctx.db
         .query("proposalRevisions")
         .withIndex("by_proposal_and_idempotency_key", (query) =>
           query
             .eq("proposalId", args.proposalId)
-            .eq("idempotencyKey", `policy:${idempotencyKey}`),
+            .eq("idempotencyKey", `policy:${idempotencyKey}`)
         )
         .unique();
       return {
@@ -456,7 +536,7 @@ export const configureProposalReviewPolicy = authenticatedMutation
     }
     const assignment = await getCurrentProposalLenderAssignment(
       ctx,
-      args.proposalId,
+      args.proposalId
     );
     assertExpectedProposalReviewBase({
       assignment,
@@ -464,29 +544,11 @@ export const configureProposalReviewPolicy = authenticatedMutation
       expectedProposalRevisionNumber: args.expectedProposalRevisionNumber,
       proposal: auth.proposal,
     });
-    if (
-      !assignment &&
-      (policy.drawLenderQuorum !== null ||
-        policy.milestoneLenderQuorum !== null)
-    ) {
-      throw new Error(
-        "Lender-quorum policy configuration requires a current lender assignment.",
-      );
-    }
-    if (assignment) {
-      const lenderOrganization = await resolvePolicyLenderOrganization(
-        ctx,
-        assignment,
-        "policy configuration",
-      );
-      validateProposalReviewPolicyQuorums(
-        policy,
-        (await getLenderOrganizationApprovalEligibility(ctx, lenderOrganization._id)).counts,
-      );
-    }
+    const policyLenderOrganization =
+      await resolveConfiguredPolicyLenderOrganization(ctx, assignment, policy);
     const currentPolicy = await getCurrentProposalReviewPolicyVersion(
       ctx,
-      auth.proposal,
+      auth.proposal
     );
     const configuredByRole = requirePhase3BackofficeRole(auth);
     const now = Date.now();
@@ -500,10 +562,18 @@ export const configureProposalReviewPolicy = authenticatedMutation
         idempotencyKey,
         organizationId: auth.proposal.organizationId,
         policy,
+        provenance: "build_override",
         proposalId: args.proposalId,
         reason: args.reason.trim(),
+        ...(policyLenderOrganization
+          ? {
+              sourceLenderOrganizationId: policyLenderOrganization._id,
+              sourceLenderOrganizationName:
+                policyLenderOrganization.displayName,
+            }
+          : {}),
         version: (currentPolicy?.version ?? 0) + 1,
-      },
+      }
     );
     await ctx.db.patch(args.proposalId, {
       currentReviewPolicyVersionId: policyVersionId,
@@ -512,8 +582,16 @@ export const configureProposalReviewPolicy = authenticatedMutation
     });
     const policyVersion = await ctx.db.get(policyVersionId);
     const proposal = await ctx.db.get(args.proposalId);
-    if (!policyVersion || !proposal) {
+    if (!(policyVersion && proposal)) {
       throw new Error("Configured proposal review policy is unavailable.");
+    }
+    if (assignment) {
+      await ctx.db.patch(assignment._id, {
+        organizationReviewPolicyVersion: undefined,
+        organizationReviewPolicyVersionId: undefined,
+        reviewPolicyProvenance: "build_override",
+        reviewPolicyVersionId: policyVersionId,
+      });
     }
     const revision =
       proposal.status === "approved"
@@ -532,6 +610,7 @@ export const configureProposalReviewPolicy = authenticatedMutation
       newState: JSON.stringify({
         policy,
         policyVersionId,
+        provenance: "build_override",
         revisionId: revision?._id ?? null,
       }),
       priorState: currentPolicy
@@ -567,32 +646,36 @@ export const repairMissingLenderProposalConfirmation = authenticatedMutation
       policyVersionId: v.id("proposalReviewPolicyVersions"),
       proposalRevisionId: v.id("proposalRevisions"),
       proposalRevisionNumber: v.number(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
     requireReason(args.reason);
     if (auth.proposal.status !== "approved") {
-      throw new Error("Only an approved proposal can restore lender confirmation.");
+      throw new Error(
+        "Only an approved proposal can restore lender confirmation."
+      );
     }
     if (auth.proposal.lockedReviewPolicyId) {
-      throw new Error("Lender confirmation cannot be restored after policy lock.");
+      throw new Error(
+        "Lender confirmation cannot be restored after policy lock."
+      );
     }
     await assertNoArchivingProposalLenderAssignment(ctx, args.proposalId);
 
     const idempotencyKey = normalizeOperationalIdempotencyKey(
       args.idempotencyKey,
-      "Lender confirmation repair idempotency key",
+      "Lender confirmation repair idempotency key"
     );
     const assignment = await getCurrentProposalLenderAssignment(
       ctx,
-      args.proposalId,
+      args.proposalId
     );
     if (!assignment || assignment._id !== args.expectedAssignmentId) {
       throw new Error("Stale lender assignment.");
@@ -603,7 +686,7 @@ export const repairMissingLenderProposalConfirmation = authenticatedMutation
       .withIndex("by_proposal_and_idempotency_key", (query) =>
         query
           .eq("proposalId", args.proposalId)
-          .eq("idempotencyKey", idempotencyKey),
+          .eq("idempotencyKey", idempotencyKey)
       )
       .unique();
     if (idempotentRevision) {
@@ -613,11 +696,11 @@ export const repairMissingLenderProposalConfirmation = authenticatedMutation
         idempotentRevision.reason !== args.reason.trim()
       ) {
         throw new Error(
-          "Lender confirmation repair idempotency key was reused with different values.",
+          "Lender confirmation repair idempotency key was reused with different values."
         );
       }
       const policyVersion = await ctx.db.get(
-        idempotentRevision.reviewPolicyVersionId,
+        idempotentRevision.reviewPolicyVersionId
       );
       if (
         !policyVersion ||
@@ -632,7 +715,7 @@ export const repairMissingLenderProposalConfirmation = authenticatedMutation
         .withIndex("by_assignment_and_revision", (query) =>
           query
             .eq("assignmentId", assignment._id)
-            .eq("proposalRevisionId", idempotentRevision._id),
+            .eq("proposalRevisionId", idempotentRevision._id)
         )
         .unique();
       const confirmationCycle =
@@ -652,7 +735,10 @@ export const repairMissingLenderProposalConfirmation = authenticatedMutation
       };
     }
 
-    const currentRevision = await getCurrentProposalRevision(ctx, auth.proposal);
+    const currentRevision = await getCurrentProposalRevision(
+      ctx,
+      auth.proposal
+    );
     if (
       (currentRevision?.revisionNumber ?? null) !==
       args.expectedProposalRevisionNumber
@@ -661,22 +747,26 @@ export const repairMissingLenderProposalConfirmation = authenticatedMutation
     }
     if (currentRevision?.assignmentId !== undefined) {
       if (currentRevision.assignmentId !== assignment._id) {
-        throw new Error("Current proposal revision does not match the lender assignment.");
+        throw new Error(
+          "Current proposal revision does not match the lender assignment."
+        );
       }
       const currentCycle = await ctx.db
         .query("proposalLenderConfirmationCycles")
         .withIndex("by_assignment_and_revision", (query) =>
           query
             .eq("assignmentId", assignment._id)
-            .eq("proposalRevisionId", currentRevision._id),
+            .eq("proposalRevisionId", currentRevision._id)
         )
         .unique();
       if (currentCycle) {
-        throw new Error("The current lender confirmation cycle already exists.");
+        throw new Error(
+          "The current lender confirmation cycle already exists."
+        );
       }
       const policyVersion = await getCurrentProposalReviewPolicyVersion(
         ctx,
-        auth.proposal,
+        auth.proposal
       );
       if (
         !policyVersion ||
@@ -739,7 +829,7 @@ export const repairMissingLenderProposalConfirmation = authenticatedMutation
       .withIndex("by_assignment_and_revision", (query) =>
         query
           .eq("assignmentId", assignment._id)
-          .eq("proposalRevisionId", revision._id),
+          .eq("proposalRevisionId", revision._id)
       )
       .unique();
     if (!confirmationCycle) {

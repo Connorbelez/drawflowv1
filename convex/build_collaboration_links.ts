@@ -36,6 +36,10 @@ function buildCollaborationRoutePrefix(role?: BuildCollaborationRole) {
       return "/builder-staff/builds";
     case "builder":
       return "/builder/builds";
+    case "lender":
+    case "lender-admin":
+    case "lender-staff":
+      return "/lender/builds";
     default:
       return "/backoffice/builds";
   }

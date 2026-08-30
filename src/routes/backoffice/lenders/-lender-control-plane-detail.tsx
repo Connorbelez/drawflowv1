@@ -1,7 +1,9 @@
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { RefreshCw, Search, UserPlus } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
-
+import { Badge } from "#/components/ui/badge.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import {
   Combobox,
   ComboboxEmpty,
@@ -10,8 +12,7 @@ import {
   ComboboxList,
   ComboboxPopup,
 } from "#/components/ui/combobox.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import {
@@ -23,6 +24,7 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import { LenderOrganizationDefaultReviewPolicy } from "#/features/lender-organization-management/LenderOrganizationDefaultReviewPolicy.tsx";
 import {
   LenderOrganizationManagementVariantE,
   type LenderOrganizationOperation,
@@ -32,18 +34,18 @@ import type {
   OrganizationProvisioning,
   WorkosOrganizationRow,
 } from "#/routes/backoffice/-user-management-types.ts";
-import type { api } from "../../../../convex/_generated/api";
+import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import {
   type ControlPlaneMember,
   formatAssignableUserInputValue,
   formatRole,
   initials,
-  permissionEntries,
   type Permissions,
+  permissionEntries,
   type UnassignedUser,
-  type WorkosReconciliationState,
   WorkosReconciliationNotice,
+  type WorkosReconciliationState,
 } from "./-lender-control-plane-support.tsx";
 
 type OrganizationPage = FunctionReturnType<
@@ -213,11 +215,11 @@ export function LenderOrganizationDetailSheet({
                   isItemEqualToValue={(left, right) =>
                     left.workosUserId === right.workosUserId
                   }
+                  items={filteredExistingUsers}
                   itemToStringLabel={(user) =>
                     user ? `${user.name} ${user.email}` : ""
                   }
                   itemToStringValue={(user) => user.workosUserId}
-                  items={filteredExistingUsers}
                   modal={false}
                   onInputValueChange={(nextQuery, details) => {
                     setExistingUserQuery(nextQuery);
@@ -394,6 +396,14 @@ export function LenderOrganizationDetailSheet({
                 </Button>
               </section>
 
+              <Separator />
+
+              <LenderOrganizationDefaultReviewPolicyPanel
+                lenderOrganizationId={selectedOrganization.id}
+              />
+
+              <Separator />
+
               <section className="space-y-3">
                 <div className="flex justify-end">
                   <Button
@@ -458,5 +468,44 @@ export function LenderOrganizationDetailSheet({
         </SheetPanel>
       </SheetPopup>
     </Sheet>
+  );
+}
+
+function LenderOrganizationDefaultReviewPolicyPanel({
+  lenderOrganizationId,
+}: {
+  lenderOrganizationId: LenderOrganizationId;
+}) {
+  const defaultReviewPolicy = useQuery(
+    api.lenderOrganizationReviewPolicies
+      .getLenderOrganizationDefaultReviewPolicy,
+    { lenderOrganizationId }
+  );
+  const saveDefaultReviewPolicy = useMutation(
+    api.lenderOrganizationReviewPolicies
+      .saveLenderOrganizationDefaultReviewPolicy
+  );
+
+  if (defaultReviewPolicy === undefined) {
+    return (
+      <Frame aria-busy="true" aria-label="Loading default review requirements">
+        <FramePanel className="p-5 text-muted-foreground text-sm">
+          Loading default review requirements…
+        </FramePanel>
+      </Frame>
+    );
+  }
+
+  return (
+    <LenderOrganizationDefaultReviewPolicy
+      defaultReviewPolicy={defaultReviewPolicy}
+      key={`${lenderOrganizationId}:${defaultReviewPolicy.version ?? "baseline"}`}
+      onSave={(command) =>
+        saveDefaultReviewPolicy({
+          ...command,
+          lenderOrganizationId,
+        })
+      }
+    />
   );
 }

@@ -1,3 +1,5 @@
+import { Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Autocomplete,
   AutocompleteEmpty,
@@ -8,13 +10,11 @@ import {
 } from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import {
-  ContractorQuickAddDrawer,
-  type ContractorDrawerAvailableContractor,
-} from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import { formatCurrency } from "#/features/builder-proposal-demo/template-helpers.ts";
-import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  type ContractorDrawerAvailableContractor,
+  ContractorQuickAddDrawer,
+} from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import {
   parseOptionalCurrencyCents,
   parseOptionalHours,
@@ -46,6 +46,7 @@ export function ContractorAssignmentEditor({
   scopeSubMilestoneId?: string;
 }) {
   const [contractorName, setContractorName] = useState("");
+  const [selectedContractorId, setSelectedContractorId] = useState("");
   const [contractorPickerOpen, setContractorPickerOpen] = useState(false);
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
   const [estimatedCostText, setEstimatedCostText] = useState("");
@@ -64,10 +65,20 @@ export function ContractorAssignmentEditor({
     () => filterContractorOptions(contractorOptions, normalizedContractorQuery),
     [contractorOptions, normalizedContractorQuery]
   );
-  const selectedContractor = contractorOptions.find(
-    (option) =>
-      option.name.trim().toLowerCase() === contractorName.trim().toLowerCase()
-  );
+  const selectedContractor = selectedContractorId
+    ? contractorOptions.find(
+        (option) => option.contractorId === selectedContractorId
+      )
+    : contractorOptions.find(
+        (option) =>
+          option.name.trim().toLowerCase() ===
+          contractorName.trim().toLowerCase()
+      );
+  const assignmentContractor =
+    selectedContractor ??
+    (selectedContractorId
+      ? { contractorId: selectedContractorId, name: contractorName }
+      : undefined);
   const hasContractorOptions = contractorOptions.length > 0;
   const canCreateContractor = Boolean(contractorActions?.onCreate);
   const drawerAvailableContractors =
@@ -78,6 +89,18 @@ export function ContractorAssignmentEditor({
       setSubMilestoneIds([scopeSubMilestoneId]);
     }
   }, [scopeSubMilestoneId]);
+
+  useEffect(() => {
+    if (!selectedContractorId) {
+      return;
+    }
+    const refreshedContractor = contractorOptions.find(
+      (option) => option.contractorId === selectedContractorId
+    );
+    if (refreshedContractor) {
+      setContractorName(refreshedContractor.name);
+    }
+  }, [contractorOptions, selectedContractorId]);
 
   const toggleSubMilestone = (subMilestoneId: string, checked: boolean) => {
     if (scopeSubMilestoneId) {
@@ -97,7 +120,7 @@ export function ContractorAssignmentEditor({
       estimatedHoursText,
       role,
       scopeSubMilestoneId,
-      selectedContractor,
+      selectedContractor: assignmentContractor,
       subMilestoneIds,
     });
     if (!draft) {
@@ -105,6 +128,7 @@ export function ContractorAssignmentEditor({
     }
     onAddAssignment(draft);
     setContractorName("");
+    setSelectedContractorId("");
     setEstimatedCostText("");
     setEstimatedHoursText("");
     setRole("");
@@ -116,6 +140,7 @@ export function ContractorAssignmentEditor({
     option: TimelineMilestoneWorksheetContractorOption
   ) => {
     setContractorName(option.name);
+    setSelectedContractorId(option.contractorId);
     if (!role.trim()) {
       setRole(option.trades?.[0]?.trim() ?? "Contractor");
     }
@@ -129,6 +154,7 @@ export function ContractorAssignmentEditor({
     trades?: string[];
   }) => {
     setContractorName(input.name);
+    setSelectedContractorId(input.contractorId ?? "");
     setRole(
       input.role?.trim() ||
         input.trades?.[0]?.trim() ||
@@ -207,6 +233,13 @@ export function ContractorAssignmentEditor({
                 }
                 onValueChange={(nextQuery) => {
                   setContractorName(nextQuery);
+                  setSelectedContractorId(
+                    contractorOptions.find(
+                      (option) =>
+                        option.name.trim().toLowerCase() ===
+                        nextQuery.trim().toLowerCase()
+                    )?.contractorId ?? ""
+                  );
                   setContractorPickerOpen(
                     hasContractorOptions && Boolean(nextQuery.trim())
                   );

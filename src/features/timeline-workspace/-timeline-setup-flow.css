@@ -750,6 +750,30 @@
   grid-row: 2;
 }
 
+.timeline-setup-action-footer {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 18px;
+  padding-top: 6px;
+}
+
+.timeline-setup-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.timeline-setup-action-copy {
+  display: grid;
+  max-width: 58ch;
+  gap: 4px;
+}
+
+.timeline-setup-footer-primary {
+  min-width: 280px;
+}
+
 .timeline-blueprint-input {
   width: 100%;
   min-width: 0;
@@ -909,6 +933,7 @@
 }
 
 .timeline-setup-primary {
+  min-width: 280px;
   border-color: light-dark(oklch(0.45 0.2 145), oklch(0.83 0.16 145));
   background: light-dark(oklch(0.45 0.2 145), oklch(0.82 0.18 145));
   color: light-dark(oklch(0.985 0.01 235), oklch(0.12 0.02 150));
@@ -2131,10 +2156,12 @@
 }
 
 .timeline-blueprint-input[data-align="right"] {
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
 .timeline-blueprint-input[data-align="center"] {
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
@@ -3310,8 +3337,9 @@
 
 .timeline-submilestone-remove {
   display: grid;
-  width: 34px;
+  width: 40px;
   height: 100%;
+  min-height: 40px;
   place-items: center;
   border: 0;
   border-left: 1px solid
@@ -3770,6 +3798,24 @@
 
   .timeline-setup-budget-input-panel {
     gap: 14px;
+  }
+
+  .timeline-setup-action-bar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .timeline-setup-footer-primary,
+  .timeline-setup-primary {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .timeline-setup-money-input input,
+  .timeline-setup-address-field input {
+    font-size: 1rem;
   }
 
   .timeline-setup-side-card dl div {

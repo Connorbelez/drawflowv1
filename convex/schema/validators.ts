@@ -747,6 +747,7 @@ export const emailMessageStatusValidator = v.union(
 );
 
 export const communicationIntentKindValidator = v.union(
+  v.literal("identity_invitation"),
   v.literal("cost_document_integrity_action_required"),
   v.literal("cost_document_receipt"),
   v.literal("quote_invitation_initial"),

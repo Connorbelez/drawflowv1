@@ -225,6 +225,103 @@ describe("ProductionProposalMilestoneWorksheet", () => {
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
   });
 
+  test("cascades Sub-milestone budgets against the persisted proposal total", () => {
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={{
+          milestones: [
+            {
+              budgetCents: 100_000_00,
+              dayEnd: 3,
+              dayStart: 0,
+              durationDays: 4,
+              icon: "foundation",
+              key: "foundation",
+              name: "Foundation",
+              order: 1,
+            },
+          ],
+          proposal: {
+            proposedStartDate: "2026-06-01",
+            status: "draft",
+            totalBudgetCents: 100_000_00,
+          },
+          submilestones: [
+            {
+              budgetCents: 10_000_00,
+              durationDays: 1,
+              key: "sub-1",
+              milestoneKey: "foundation",
+              name: "Sub 1",
+              order: 1,
+              startDay: 0,
+            },
+            {
+              budgetCents: 30_000_00,
+              durationDays: 1,
+              key: "sub-2",
+              milestoneKey: "foundation",
+              name: "Sub 2",
+              order: 2,
+              startDay: 1,
+            },
+            {
+              budgetCents: 50_000_00,
+              durationDays: 1,
+              key: "sub-3",
+              milestoneKey: "foundation",
+              name: "Sub 3",
+              order: 3,
+              startDay: 2,
+            },
+            {
+              budgetCents: 10_000_00,
+              durationDays: 1,
+              key: "sub-4",
+              milestoneKey: "foundation",
+              name: "Sub 4",
+              order: 4,
+              startDay: 3,
+            },
+          ],
+        }}
+        templateTitle="Cascade proposal"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-budget-cascade-toggle")
+    );
+    const editedInput = screen.getByTestId(
+      "timeline-setup-table-subrow-budget-sub-2"
+    );
+    fireEvent.change(editedInput, { target: { value: "20000" } });
+    fireEvent.blur(editedInput);
+
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-table-subrow-budget-sub-1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("$10,000");
+    expect((editedInput as HTMLInputElement).value).toBe("$20,000");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-table-subrow-budget-sub-3"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("$58,333.33");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-table-subrow-budget-sub-4"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("$11,666.67");
+  });
+
   test("uses the shared Scope revision controller after first submission", () => {
     render(
       <ProductionProposalMilestoneWorksheet

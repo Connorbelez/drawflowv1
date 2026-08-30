@@ -5,64 +5,55 @@ import {
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import {
-  type ActiveBuildAuthorization,
-  type ActiveBuildParticipantProjection,
-  projectActiveBuildParticipants,
-} from "./activeBuildAccess";
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
+  buildPolicyBuildActionItemDeadlinePatch,
+  buildPolicyOverrideBuildActionItemDeadlinePatch,
+  persistCanonicalBuildActionItemPatch,
+} from "./build_action_item_application";
+import {
   advanceBuildActionItemDeadlineSchedule,
-  BUILD_ACTION_ITEM_DEADLINE_DAY_MS,
-  type BuildActionItemDeadlineStage,
   buildActionItemQueueSortAt,
   dueBuildActionItemDeadlineStages,
   resetBuildActionItemDeadlineSchedule,
 } from "./build_action_item_deadline_model";
-import { actionItemRequiresAcceptance } from "./build_action_item_governance";
-import { recordBuildActionItemRevision } from "./build_action_item_history";
-import { syncBuildActionItemReferenceQueueSortAt } from "./build_action_item_queue_projection";
 import {
-  authorizeBuildActionItemOperation,
-  isBuildActionItemCoordinator,
-} from "./build_action_item_rbac";
+  actionItemDecision,
+  actionItemOverdueState,
+  assertActionItemReferenceScope,
+  assertExpectedRevision,
+  boundedQueuePagination,
+  emitEligibleDeadlineStages,
+  isClosedActionItem,
+  loadSystemAuthorization,
+  overdueByBuildLocalDate,
+  quarantineBuildActionItemDeadline,
+  recordActionItemDeadlineChange,
+  recordMaterialReferenceChange,
+  requireScopedActionItem,
+  sameReferences,
+} from "./build_action_item_queues/helpers";
+import { isBuildActionItemCoordinator } from "./build_action_item_rbac";
 import {
   filterReadableBuildActionItems,
   requireReadableActionItem,
 } from "./build_action_items";
-import {
-  resolveCurrentCollaborationNotificationReaderIds,
-  resolveCurrentCollaborationPostReaderIds,
-} from "./build_collaboration_access";
+import { resolveCurrentCollaborationPostReaderIds } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { systemActionItemPresentationValidator } from "./build_collaboration_contracts";
 import { claimBuildCollaborationWriteByBuildId } from "./build_collaboration_lifecycle_state";
-import { buildCollaborationDeepLink } from "./build_collaboration_links";
-import {
-  type BuildCollaborationRole,
-  collaborationRoleTier,
-} from "./build_collaboration_model";
-import {
-  emitCanonicalBuildCollaborationNotification,
-  notificationKindForDeadlineStage,
-} from "./build_collaboration_notifications";
 import {
   canonicalizeTiptapReferences,
   referenceInputValidator,
 } from "./build_collaboration_publication_bundle";
-import {
-  type CanonicalBuildCollaborationReference,
-  resolveCanonicalBuildCollaborationReferences,
-} from "./build_collaboration_references";
+import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import {
   authorizeActiveBuildCollaborationAccess,
   BUILD_COLLABORATION_UNAVAILABLE_ERROR,
 } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
-import {
-  buildLocalMidnightUtc,
-  deriveMilestoneSystemActionItemPresentation,
-} from "./build_collaboration_system_posts";
+import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
@@ -70,25 +61,9 @@ import {
 } from "./build_collaboration_validators";
 import { canReadDrawCoordination } from "./build_draw_coordination";
 import { internalMutation } from "./fluent";
-import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
-import {
-  actionItemDecision,
-  actionItemOverdueState,
-  assertActionItemReferenceScope,
-  assertExpectedRevision,
-  boundedQueuePagination,
-  buildActionItemDeadlineHref,
-  eligibleDeadlineStages,
-  emitEligibleDeadlineStages,
-  isClosedActionItem,
-  loadSystemAuthorization,
-  quarantineBuildActionItemDeadline,
-  recordActionItemDeadlineChange,
-  recordMaterialReferenceChange,
-  requireScopedActionItem,
-  sameReferences,
-  overdueByBuildLocalDate,
-} from "./build_action_item_queues/helpers";
+import type { Doc, Id, QueryCtx } from "./types";
+
+// biome-ignore lint/performance/noBarrelFile: Compatibility exports preserve existing queue read references.
 export {
   actionItemOverdueState,
   buildActionItemDeadlineHref,
@@ -96,11 +71,7 @@ export {
 } from "./build_action_item_queues/helpers";
 
 const MAX_REFERENCES_PER_ACTION_ITEM = 100;
-const MAX_ACTIVE_PARTICIPANTS = 500;
-const MAX_GLOBAL_AUTHORITY_MEMBERSHIPS = 2000;
 const DEADLINE_BATCH_SIZE = 25;
-const MAX_QUEUE_PAGE_SIZE = 50;
-const DAY_MS = BUILD_ACTION_ITEM_DEADLINE_DAY_MS;
 
 function isSupersededGeneratedActionItem(
   item: Pick<
@@ -308,33 +279,17 @@ export const applyBuildActionItemPolicyDueDate = internalMutation
       throw new Error("A valid policy key and due date are required.");
     }
     const now = Date.now();
-    const deadlineSchedule =
-      args.dueAt === item.dueAt
-        ? {}
-        : resetBuildActionItemDeadlineSchedule(
-            args.dueAt,
-            item.status,
-            item.deadlineScheduleGeneration
-          );
-    await ctx.db.patch(item._id, {
-      currentRevision: item.currentRevision + 1,
-      ...deadlineSchedule,
-      dueAt: args.dueAt,
-      dueDateOverrideReason: undefined,
-      dueDateOverriddenAt: undefined,
-      dueDateOverriddenByWorkosUserId: undefined,
-      dueDatePolicyKey: policyKey,
-      dueDateSource: "policy",
-      policyDueAt: args.dueAt,
-      queueSortAt: buildActionItemQueueSortAt(args.dueAt, item.status),
-      updatedAt: now,
-    });
-    await syncBuildActionItemReferenceQueueSortAt(
-      ctx,
+    const updated = await persistCanonicalBuildActionItemPatch(ctx, {
       item,
-      buildActionItemQueueSortAt(args.dueAt, item.status)
-    );
-    const updated = await requireScopedActionItem(ctx, args);
+      patch: {
+        currentRevision: item.currentRevision + 1,
+        ...buildPolicyBuildActionItemDeadlinePatch(item, {
+          dueAt: args.dueAt,
+          policyKey,
+        }),
+        updatedAt: now,
+      },
+    });
     const authorization = await loadSystemAuthorization(ctx, updated);
     await recordActionItemDeadlineChange(ctx, {
       authorization,
@@ -394,34 +349,19 @@ export const overrideBuildActionItemPolicyDueDate = authenticatedMutation
       throw new Error("A valid policy due date is required.");
     }
     const now = Date.now();
-    const deadlineSchedule =
-      args.dueAt === item.dueAt
-        ? {}
-        : resetBuildActionItemDeadlineSchedule(
-            args.dueAt,
-            item.status,
-            item.deadlineScheduleGeneration
-          );
-    await ctx.db.patch(item._id, {
-      currentRevision: item.currentRevision + 1,
-      ...deadlineSchedule,
-      dueAt: args.dueAt,
-      dueDateOverrideReason: reason,
-      dueDateOverriddenAt: now,
-      dueDateOverriddenByWorkosUserId: authorization.viewer.subject,
-      queueSortAt: buildActionItemQueueSortAt(args.dueAt, item.status),
-      updatedAt: now,
-    });
-    await syncBuildActionItemReferenceQueueSortAt(
-      ctx,
+    const updated = await persistCanonicalBuildActionItemPatch(ctx, {
       item,
-      buildActionItemQueueSortAt(args.dueAt, item.status)
-    );
-    const updated = await requireReadableActionItem(
-      ctx,
-      authorization,
-      item._id
-    );
+      patch: {
+        currentRevision: item.currentRevision + 1,
+        ...buildPolicyOverrideBuildActionItemDeadlinePatch(item, {
+          dueAt: args.dueAt,
+          now,
+          reason,
+          workosUserId: authorization.viewer.subject,
+        }),
+        updatedAt: now,
+      },
+    });
     await recordActionItemDeadlineChange(ctx, {
       authorization,
       eventType: "policy_due_date_overridden",
@@ -531,19 +471,17 @@ export const replaceBuildActionItemReferences = authenticatedMutation
     }
     const primary =
       references.find((reference) => reference.primary) ?? references[0];
-    await ctx.db.patch(item._id, {
-      currentRevision: item.currentRevision + 1,
-      descriptionPlainText: canonicalContent.plainText,
-      descriptionTiptapJson: canonicalContent.tiptapJson,
-      primaryReferenceId: primary?.entityId,
-      primaryReferenceKind: primary?.entityKind,
-      updatedAt: now,
+    const updated = await persistCanonicalBuildActionItemPatch(ctx, {
+      item,
+      patch: {
+        currentRevision: item.currentRevision + 1,
+        descriptionPlainText: canonicalContent.plainText,
+        descriptionTiptapJson: canonicalContent.tiptapJson,
+        primaryReferenceId: primary?.entityId,
+        primaryReferenceKind: primary?.entityKind,
+        updatedAt: now,
+      },
     });
-    const updated = await requireReadableActionItem(
-      ctx,
-      authorization,
-      item._id
-    );
     await recordMaterialReferenceChange(ctx, {
       authorization,
       decision,
@@ -692,6 +630,7 @@ export const processOneBuildActionItemDeadline = internalMutation
   })
   .internal();
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Scope-specific indexed reads preserve the public build, post, and entity queue contracts.
 async function resolveBuildQueuePage(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,

@@ -67,7 +67,20 @@ describe("/lender production Dashboard", () => {
           type: index === 0 ? "Proposal" : index === 1 ? "Milestone" : "Draw",
           updatedAt: 1_000 - index,
         })),
-        builds: [],
+        builds: [
+          {
+            buildId: "build_behind_schedule",
+            buildName: "Behind Schedule Build",
+            facilityCents: 100_000_000,
+            location: "Toronto, ON",
+            milestonesBehindSchedule: 1,
+            nextState: "Lender confirmation required",
+            progressPercent: 20,
+            releasedCents: 10_000_000,
+            status: "needs_action",
+            updatedAt: 1_000,
+          },
+        ],
         stats: {
           activeBuildCount: 0,
           assignedProposalCount: 4,
@@ -98,6 +111,7 @@ describe("/lender production Dashboard", () => {
     ).toBeTruthy();
     expect(screen.getByText("12 Milestones")).toBeTruthy();
     expect(screen.getByText("7 Draws")).toBeTruthy();
+    expect(screen.getByText("1 Milestone behind schedule")).toBeTruthy();
     for (const title of actionTitles) {
       expect(screen.getAllByText(title)).toHaveLength(2);
     }

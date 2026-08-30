@@ -1,29 +1,20 @@
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import {
-  CheckCircle2,
-  FileCheck2,
-  FileText,
-  LockKeyhole,
-  MapPinCheck,
-  Milestone,
-  RefreshCw,
-} from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { LockKeyhole, RefreshCw } from "lucide-react";
+import { useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Card } from "#/components/ui/card.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
-import { Frame, FrameHeader, FramePanel } from "#/components/ui/frame.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Label } from "#/components/ui/label.tsx";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "#/components/ui/native-select.tsx";
-import { Radio, RadioGroup } from "#/components/ui/radio-group.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  ReviewRequirementsPolicyFields,
+  reviewRequirementsPoliciesEqual,
+  validateReviewRequirementsPolicy,
+} from "#/features/production-proposals/ReviewRequirementsPolicyFields.tsx";
 import type { api } from "../../../convex/_generated/api";
 
 export type ProposalReviewControlProjection = FunctionReturnType<
@@ -42,31 +33,15 @@ type LockCommand = Omit<
   FunctionArgs<typeof api.production_proposals.lockProposalReviewPolicy>,
   "proposalId" | "workosOrganizationId"
 >;
+type RestoreCommand = Omit<
+  FunctionArgs<
+    typeof api.production_proposals.restoreProposalReviewPolicyFromOrganizationDefault
+  >,
+  "proposalId" | "workosOrganizationId"
+>;
 type Policy = ReviewControl["policyVersions"][number]["policy"];
 type ReviewMode = Policy["drawApprovalMode"];
 
-const reviewModeOptions = [
-  {
-    description: "One authorized Back Office approval completes the review.",
-    label: "Back Office only",
-    value: "backoffice_only",
-  },
-  {
-    description: "The selected lender quorum completes the review.",
-    label: "Lender quorum only",
-    value: "lender_quorum",
-  },
-  {
-    description:
-      "Back Office and the lender quorum are both required, in either order.",
-    label: "Both",
-    value: "both",
-  },
-] as const satisfies readonly {
-  description: string;
-  label: string;
-  value: ReviewMode;
-}[];
 const UNCAUGHT_ERROR_PATTERN = /Uncaught Error:\s*([^\n]+)/;
 const STALE_REVIEW_BASE_PATTERN =
   /Stale (proposal revision|lender assignment)/i;
@@ -77,6 +52,7 @@ export function ProposalReviewPolicyControl({
   onConfigure,
   onLock,
   onPublish,
+  onRestore,
   proposalId,
   proposalStatus,
 }: {
@@ -84,6 +60,7 @@ export function ProposalReviewPolicyControl({
   onConfigure: (command: ConfigureCommand) => Promise<unknown> | unknown;
   onLock: (command: LockCommand) => Promise<unknown> | unknown;
   onPublish: (command: PublishCommand) => Promise<unknown> | unknown;
+  onRestore?: (command: RestoreCommand) => Promise<unknown> | unknown;
   proposalId: string;
   proposalStatus: "approved" | "closed" | "draft" | "submitted";
 }) {
@@ -118,6 +95,7 @@ export function ProposalReviewPolicyControl({
       onConfigure={onConfigure}
       onLock={onLock}
       onPublish={onPublish}
+      onRestore={onRestore}
       proposalId={proposalId}
       proposalStatus={proposalStatus}
     />
@@ -130,6 +108,7 @@ function ReviewPolicyEditor({
   onConfigure,
   onLock,
   onPublish,
+  onRestore,
   proposalId,
   proposalStatus,
 }: {
@@ -138,6 +117,7 @@ function ReviewPolicyEditor({
   onConfigure: (command: ConfigureCommand) => Promise<unknown> | unknown;
   onLock: (command: LockCommand) => Promise<unknown> | unknown;
   onPublish: (command: PublishCommand) => Promise<unknown> | unknown;
+  onRestore?: (command: RestoreCommand) => Promise<unknown> | unknown;
   proposalId: string;
   proposalStatus: "approved" | "closed" | "draft" | "submitted";
 }) {
@@ -145,7 +125,7 @@ function ReviewPolicyEditor({
   const [reason, setReason] = useState("");
   const [lockAcknowledged, setLockAcknowledged] = useState(false);
   const [pendingOperation, setPendingOperation] = useState<
-    "configure" | "lock" | "publish" | null
+    "configure" | "lock" | "publish" | "restore" | null
   >(null);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
@@ -157,7 +137,14 @@ function ReviewPolicyEditor({
     proposalReview: 0,
   };
   const hasAssignment = control.currentAssignmentId !== null;
-  const policyChanged = !policiesEqual(policy, canonicalPolicy);
+  const currentPolicyVersion =
+    control.policyVersions.find(
+      (version) => version.policyVersionId === control.currentPolicyVersionId
+    ) ?? control.policyVersions.at(-1);
+  const policyChanged = !reviewRequirementsPoliciesEqual(
+    policy,
+    canonicalPolicy
+  );
   const currentRevision = control.revisions.find(
     (revision) => revision.proposalRevisionId === control.currentRevisionId
   );
@@ -173,17 +160,20 @@ function ReviewPolicyEditor({
         control.latestLenderReviewedRevisionNumber ===
           control.currentRevisionNumber)
   );
-  const validationMessages = validatePolicy(policy, {
+  const validationMessages = validateReviewRequirementsPolicy(policy, {
     eligibleCounts,
-    hasAssignment,
     lenderEligibilityIssue: control.currentLenderEligibilityIssue,
+    lenderScopeAvailable: hasAssignment,
   });
   const auditReason = reason.trim();
   const canConfigure = Boolean(
     editable && auditReason && validationMessages.length === 0 && policyChanged
   );
   const canPublish = Boolean(
-    editable && auditReason && currentPolicyVersion(control) && !policyChanged
+    editable && auditReason && currentPolicyVersion && !policyChanged
+  );
+  const canRestore = Boolean(
+    editable && auditReason && hasAssignment && !policyChanged && onRestore
   );
   const canLock = Boolean(
     editable &&
@@ -200,7 +190,7 @@ function ReviewPolicyEditor({
     expectedProposalRevisionNumber: control.currentRevisionNumber,
   };
   const runCommand = async (
-    operation: "configure" | "lock" | "publish",
+    operation: "configure" | "lock" | "publish" | "restore",
     action: () => Promise<unknown> | unknown,
     successMessage: string
   ) => {
@@ -218,10 +208,6 @@ function ReviewPolicyEditor({
     }
   };
 
-  const updateMilestone = (patch: Partial<Policy>) =>
-    setPolicy((current) => ({ ...current, ...patch }));
-  const updateDraw = (patch: Partial<Policy>) =>
-    setPolicy((current) => ({ ...current, ...patch }));
   const publishRevision = async () => {
     await runCommand(
       "publish",
@@ -275,6 +261,28 @@ function ReviewPolicyEditor({
       "Review policy locked for closing."
     );
   };
+  const restoreOrganizationDefault = async () => {
+    const assignmentId = control.currentAssignmentId;
+    if (!(onRestore && assignmentId)) {
+      return;
+    }
+    await runCommand(
+      "restore",
+      () =>
+        onRestore({
+          expectedAssignmentId: assignmentId,
+          expectedProposalRevisionNumber: control.currentRevisionNumber,
+          idempotencyKey: reviewPolicyIdempotencyKey({
+            base: commandBase,
+            operation: "restore",
+            proposalId,
+            reason: auditReason,
+          }),
+          reason: auditReason,
+        }),
+      "Current organization default restored and revision published."
+    );
+  };
 
   return (
     <div
@@ -283,14 +291,15 @@ function ReviewPolicyEditor({
       id="proposal-review-policy-control"
       tabIndex={-1}
     >
-      <ReviewPolicyRequirements
-        editable={editable}
+      <ReviewPolicyProvenance version={currentPolicyVersion} />
+
+      <ReviewRequirementsPolicyFields
+        description="Configure the active Build policy before closing is recorded."
+        disabled={!editable || pendingOperation !== null}
         eligibleCounts={eligibleCounts}
-        hasAssignment={hasAssignment}
+        lenderScopeAvailable={hasAssignment}
         locked={locked}
-        onDrawChange={updateDraw}
-        onMilestoneChange={updateMilestone}
-        pending={pendingOperation !== null}
+        onChange={setPolicy}
         policy={policy}
       />
 
@@ -307,6 +316,7 @@ function ReviewPolicyEditor({
           canConfigure={canConfigure}
           canLock={canLock}
           canPublish={canPublish}
+          canRestore={canRestore}
           currentRevisionNumber={control.currentRevisionNumber}
           error={error}
           hasAssignment={hasAssignment}
@@ -323,6 +333,7 @@ function ReviewPolicyEditor({
           onLockAcknowledgedChange={setLockAcknowledged}
           onPublish={publishRevision}
           onReasonChange={setReason}
+          onRestore={restoreOrganizationDefault}
           pendingOperation={pendingOperation}
           reason={reason}
           validationMessages={validationMessages}
@@ -336,98 +347,38 @@ function ReviewPolicyEditor({
   );
 }
 
-function ReviewPolicyRequirements({
-  editable,
-  eligibleCounts,
-  hasAssignment,
-  locked,
-  onDrawChange,
-  onMilestoneChange,
-  pending,
-  policy,
+function ReviewPolicyProvenance({
+  version,
 }: {
-  editable: boolean;
-  eligibleCounts: { draw: number; milestone: number; proposalReview: number };
-  hasAssignment: boolean;
-  locked: boolean;
-  onDrawChange: (patch: Partial<Policy>) => void;
-  onMilestoneChange: (patch: Partial<Policy>) => void;
-  pending: boolean;
-  policy: Policy;
+  version: ReviewControl["policyVersions"][number] | undefined;
 }) {
-  const disabled = !editable || pending;
+  if (!version) {
+    return null;
+  }
+  const provenance = version.provenance ?? "build_override";
+  const label =
+    provenance === "organization_default"
+      ? `Inherited from ${version.sourceLenderOrganizationName ?? "Lender Organization"} default v${version.sourceOrganizationReviewPolicyVersion ?? "?"}`
+      : provenance === "system_baseline"
+        ? version.sourceLenderOrganizationName
+          ? `Inherited from ${version.sourceLenderOrganizationName} system baseline`
+          : "System / Back Office baseline"
+        : "Customized for this Build";
   return (
     <Frame>
-      <FrameHeader className="gap-1">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0">
-            <p className="font-semibold text-base text-wrap-balance">
-              Review requirements
-            </p>
-            <p className="text-pretty text-muted-foreground text-sm">
-              Configure the active Build policy before closing is recorded.
-            </p>
-          </div>
-          <Badge variant={locked ? "success" : "outline"}>
-            {locked ? <CheckCircle2 /> : <LockKeyhole />}
-            {locked ? "Locked" : "Locks before closing"}
-          </Badge>
+      <FramePanel className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="font-semibold text-sm">{label}</p>
+          <p className="mt-1 text-pretty text-muted-foreground text-xs tabular-nums">
+            Policy v{version.version} · Changes here create a new immutable
+            Build policy revision.
+          </p>
         </div>
-      </FrameHeader>
-      <FramePanel className="grid gap-6 p-5 xl:grid-cols-2">
-        <RequirementSection
-          disabled={disabled}
-          eligibleCount={eligibleCounts.milestone}
-          hasAssignment={hasAssignment}
-          icon={Milestone}
-          mode={policy.milestoneApprovalMode}
-          onModeChange={(milestoneApprovalMode) =>
-            onMilestoneChange({
-              milestoneApprovalMode,
-              milestoneLenderQuorum: needsLenderQuorum(milestoneApprovalMode)
-                ? Math.max(1, Math.min(eligibleCounts.milestone, 1))
-                : null,
-            })
-          }
-          onQuorumChange={(milestoneLenderQuorum) =>
-            onMilestoneChange({ milestoneLenderQuorum })
-          }
-          quorum={policy.milestoneLenderQuorum}
-          title="Milestone review"
+        <Badge
+          variant={provenance === "build_override" ? "warning" : "secondary"}
         >
-          <Separator />
-          <EvidenceControls
-            disabled={disabled}
-            onReceiptInvoiceChange={(milestoneReceiptInvoiceRequired) =>
-              onMilestoneChange({ milestoneReceiptInvoiceRequired })
-            }
-            onSiteVisitChange={(milestoneSiteVisitRequired) =>
-              onMilestoneChange({ milestoneSiteVisitRequired })
-            }
-            receiptInvoiceRequired={policy.milestoneReceiptInvoiceRequired}
-            siteVisitRequired={policy.milestoneSiteVisitRequired}
-          />
-        </RequirementSection>
-        <RequirementSection
-          disabled={disabled}
-          eligibleCount={eligibleCounts.draw}
-          hasAssignment={hasAssignment}
-          icon={FileCheck2}
-          mode={policy.drawApprovalMode}
-          onModeChange={(drawApprovalMode) =>
-            onDrawChange({
-              drawApprovalMode,
-              drawLenderQuorum: needsLenderQuorum(drawApprovalMode)
-                ? Math.max(1, Math.min(eligibleCounts.draw, 1))
-                : null,
-            })
-          }
-          onQuorumChange={(drawLenderQuorum) =>
-            onDrawChange({ drawLenderQuorum })
-          }
-          quorum={policy.drawLenderQuorum}
-          title="Draw review"
-        />
+          {provenance === "build_override" ? "Customized" : "Inherited"}
+        </Badge>
       </FramePanel>
     </Frame>
   );
@@ -437,6 +388,7 @@ function ReviewPolicyCommandPanel({
   canConfigure,
   canLock,
   canPublish,
+  canRestore,
   currentRevisionNumber,
   error,
   hasAssignment,
@@ -447,6 +399,7 @@ function ReviewPolicyCommandPanel({
   onLock,
   onLockAcknowledgedChange,
   onPublish,
+  onRestore,
   onReasonChange,
   pendingOperation,
   reason,
@@ -455,6 +408,7 @@ function ReviewPolicyCommandPanel({
   canConfigure: boolean;
   canLock: boolean;
   canPublish: boolean;
+  canRestore: boolean;
   currentRevisionNumber: number | null;
   error: string;
   hasAssignment: boolean;
@@ -465,8 +419,9 @@ function ReviewPolicyCommandPanel({
   onLock: () => Promise<void>;
   onLockAcknowledgedChange: (value: boolean) => void;
   onPublish: () => Promise<void>;
+  onRestore: () => Promise<void>;
   onReasonChange: (reason: string) => void;
-  pendingOperation: "configure" | "lock" | "publish" | null;
+  pendingOperation: "configure" | "lock" | "publish" | "restore" | null;
   reason: string;
   validationMessages: string[];
 }) {
@@ -539,6 +494,16 @@ function ReviewPolicyCommandPanel({
           </label>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Button
+              disabled={!canRestore || pending}
+              onClick={onRestore}
+              variant="outline"
+            >
+              <RefreshCw />
+              {pendingOperation === "restore"
+                ? "Restoring..."
+                : "Restore current organization default"}
+            </Button>
+            <Button
               disabled={!canPublish || pending}
               onClick={onPublish}
               variant="outline"
@@ -563,230 +528,6 @@ function ReviewPolicyCommandPanel({
         </div>
       </FramePanel>
     </Frame>
-  );
-}
-
-function RequirementSection({
-  children,
-  disabled,
-  eligibleCount,
-  hasAssignment,
-  icon: Icon,
-  mode,
-  onModeChange,
-  onQuorumChange,
-  quorum,
-  title,
-}: {
-  children?: ReactNode;
-  disabled: boolean;
-  eligibleCount: number;
-  hasAssignment: boolean;
-  icon: typeof Milestone;
-  mode: ReviewMode;
-  onModeChange: (mode: ReviewMode) => void;
-  onQuorumChange: (quorum: number) => void;
-  quorum: number | null;
-  title: string;
-}) {
-  return (
-    <div className="grid min-w-0 gap-5">
-      <div className="flex items-center gap-2">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          <Icon aria-hidden className="size-4" />
-        </span>
-        <div className="min-w-0">
-          <p className="font-semibold">{title}</p>
-          <p className="text-pretty text-muted-foreground text-xs">
-            Choose the approval group that completes this review.
-          </p>
-        </div>
-      </div>
-      <ModeRadioGroup
-        ariaLabel={`${title} requirement`}
-        disabled={disabled}
-        lenderModeAvailable={hasAssignment && eligibleCount > 0}
-        mode={mode}
-        onChange={onModeChange}
-      />
-      {needsLenderQuorum(mode) ? (
-        <QuorumSelect
-          disabled={disabled || eligibleCount < 1}
-          eligibleCount={eligibleCount}
-          onChange={onQuorumChange}
-          value={quorum ?? 1}
-        />
-      ) : null}
-      {children}
-    </div>
-  );
-}
-
-function ModeRadioGroup({
-  ariaLabel,
-  disabled,
-  lenderModeAvailable,
-  mode,
-  onChange,
-}: {
-  ariaLabel: string;
-  disabled: boolean;
-  lenderModeAvailable: boolean;
-  mode: ReviewMode;
-  onChange: (mode: ReviewMode) => void;
-}) {
-  const groupId = useId();
-
-  return (
-    <RadioGroup
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onValueChange={(value) => onChange(value as ReviewMode)}
-      value={mode}
-    >
-      {reviewModeOptions.map((option) => {
-        const optionDisabled =
-          disabled || (needsLenderQuorum(option.value) && !lenderModeAvailable);
-        return (
-          <Card
-            className="rounded-lg p-0 shadow-none has-[[data-checked]]:border-primary has-[[data-checked]]:bg-primary/5"
-            key={option.value}
-          >
-            <label
-              className="grid min-h-10 cursor-pointer grid-cols-[auto_1fr] gap-x-3 p-3 has-disabled:cursor-not-allowed has-disabled:opacity-64"
-              htmlFor={`${groupId}-${option.value}`}
-            >
-              <Radio
-                className="mt-0.5"
-                disabled={optionDisabled}
-                id={`${groupId}-${option.value}`}
-                value={option.value}
-              />
-              <span className="min-w-0">
-                <span className="block font-medium text-sm">
-                  {option.label}
-                </span>
-                <span className="block text-pretty text-muted-foreground text-xs">
-                  {option.description}
-                </span>
-              </span>
-            </label>
-          </Card>
-        );
-      })}
-    </RadioGroup>
-  );
-}
-
-function QuorumSelect({
-  disabled,
-  eligibleCount,
-  onChange,
-  value,
-}: {
-  disabled: boolean;
-  eligibleCount: number;
-  onChange: (quorum: number) => void;
-  value: number;
-}) {
-  const selectId = useId();
-  const optionCount = Math.max(eligibleCount, value);
-  return (
-    <div className="grid gap-1.5">
-      <Label htmlFor={selectId}>Lender quorum</Label>
-      <NativeSelect
-        className="w-full"
-        disabled={disabled}
-        id={selectId}
-        onChange={(event) => onChange(Number(event.target.value))}
-        value={String(value)}
-      >
-        {Array.from({ length: optionCount }, (_, index) => index + 1).map(
-          (count) => (
-            <NativeSelectOption key={count} value={count}>
-              {count} of {eligibleCount} active approval-eligible lender members
-            </NativeSelectOption>
-          )
-        )}
-      </NativeSelect>
-      <p className="text-pretty text-muted-foreground text-xs">
-        {eligibleCount > 0
-          ? `Select 1–${eligibleCount}, based on current role and permission eligibility.`
-          : "No active assigned lender member is eligible for this decision."}
-      </p>
-    </div>
-  );
-}
-
-function EvidenceControls({
-  disabled,
-  onReceiptInvoiceChange,
-  onSiteVisitChange,
-  receiptInvoiceRequired,
-  siteVisitRequired,
-}: {
-  disabled: boolean;
-  onReceiptInvoiceChange: (required: boolean) => void;
-  onSiteVisitChange: (required: boolean) => void;
-  receiptInvoiceRequired: boolean;
-  siteVisitRequired: boolean;
-}) {
-  return (
-    <div className="grid gap-3 pt-1">
-      <div>
-        <p className="font-medium text-sm">Milestone evidence</p>
-        <p className="text-pretty text-muted-foreground text-xs">
-          These controls are independent of the reviewer requirement.
-        </p>
-      </div>
-      <EvidenceCheckbox
-        checked={siteVisitRequired}
-        disabled={disabled}
-        icon={MapPinCheck}
-        label="Site visit required"
-        onCheckedChange={onSiteVisitChange}
-      />
-      <EvidenceCheckbox
-        checked={receiptInvoiceRequired}
-        disabled={disabled}
-        icon={FileText}
-        label="Receipt / invoice required"
-        onCheckedChange={onReceiptInvoiceChange}
-      />
-    </div>
-  );
-}
-
-function EvidenceCheckbox({
-  checked,
-  disabled,
-  icon: Icon,
-  label,
-  onCheckedChange,
-}: {
-  checked: boolean;
-  disabled: boolean;
-  icon: typeof MapPinCheck;
-  label: string;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  const checkboxId = useId();
-  return (
-    <Card className="rounded-lg p-0 shadow-none">
-      <label
-        className="flex min-h-10 cursor-pointer items-center gap-3 p-3 has-disabled:cursor-not-allowed has-disabled:opacity-64"
-        htmlFor={checkboxId}
-      >
-        <Checkbox
-          checked={checked}
-          disabled={disabled}
-          id={checkboxId}
-          onCheckedChange={(value) => onCheckedChange(value === true)}
-        />
-        <Icon aria-hidden className="size-4 text-muted-foreground" />
-        <span className="font-medium text-sm">{label}</span>
-      </label>
-    </Card>
   );
 }
 
@@ -885,10 +626,6 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function needsLenderQuorum(mode: ReviewMode) {
-  return mode === "lender_quorum" || mode === "both";
-}
-
 function reviewerSummary(mode: ReviewMode, quorum: number | null) {
   if (mode === "backoffice_only") {
     return "One Back Office approval";
@@ -897,65 +634,6 @@ function reviewerSummary(mode: ReviewMode, quorum: number | null) {
     return `${quorum ?? 0} lender approvals`;
   }
   return `One Back Office approval + ${quorum ?? 0} lender approvals`;
-}
-
-function validatePolicy(
-  policy: Policy,
-  context: {
-    eligibleCounts: { draw: number; milestone: number; proposalReview: number };
-    hasAssignment: boolean;
-    lenderEligibilityIssue?: string;
-  }
-) {
-  const messages: string[] = [];
-  if (context.lenderEligibilityIssue) {
-    messages.push(context.lenderEligibilityIssue);
-  }
-  const validateQuorum = (
-    mode: ReviewMode,
-    quorum: number | null,
-    label: string,
-    eligibleCount: number
-  ) => {
-    if (!needsLenderQuorum(mode)) {
-      return;
-    }
-    if (!context.hasAssignment) {
-      messages.push(
-        `${label} lender review requires a current lender assignment.`
-      );
-      return;
-    }
-    if (eligibleCount === 0) {
-      messages.push(
-        `${label} lender review has no active approval-eligible member.`
-      );
-      return;
-    }
-    if (
-      quorum === null ||
-      !Number.isInteger(quorum) ||
-      quorum < 1 ||
-      quorum > eligibleCount
-    ) {
-      messages.push(
-        `${label} lender quorum must be from 1 through ${eligibleCount}.`
-      );
-    }
-  };
-  validateQuorum(
-    policy.milestoneApprovalMode,
-    policy.milestoneLenderQuorum,
-    "Milestone",
-    context.eligibleCounts.milestone
-  );
-  validateQuorum(
-    policy.drawApprovalMode,
-    policy.drawLenderQuorum,
-    "Draw",
-    context.eligibleCounts.draw
-  );
-  return messages;
 }
 
 function policyInput(policy: Policy): ConfigureCommand["policy"] {
@@ -973,22 +651,12 @@ function policyInput(policy: Policy): ConfigureCommand["policy"] {
   };
 }
 
-function currentPolicyVersion(control: ReviewControl) {
-  return control.policyVersions.find(
-    (version) => version.policyVersionId === control.currentPolicyVersionId
-  );
-}
-
-function policiesEqual(left: Policy, right: Policy) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 export function reviewPolicyIdempotencyKey(input: {
   base: {
     expectedAssignmentId: unknown;
     expectedProposalRevisionNumber: number | null;
   };
-  operation: "configure" | "lock" | "publish";
+  operation: "configure" | "lock" | "publish" | "restore";
   policy?: Policy;
   proposalId: string;
   reason: string;

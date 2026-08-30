@@ -157,6 +157,7 @@ function nextActionLabel(action?: string) {
     contact_support: "Contact support to repair the handoff.",
     invite: "Send an invitation to the contractor email.",
     none: "No action is required.",
+    retry_invite: "Retry the invitation after confirming the contractor email.",
     wait_for_acknowledgement: "Waiting for the contractor to acknowledge assigned work.",
     wait_for_activation: "Waiting for account activation.",
     wait_for_claim: "Waiting for the contractor to claim the invitation.",
@@ -249,13 +250,17 @@ export function BuilderContractorWorkspaceRoute({
   const detail = result.detail;
   const relationship = detail.relationship;
   const backLink = builderContractorBackLink(search);
+  const deliveryFailed = relationship?.invitation?.deliveryStatus === "failed";
   const canInvite =
     !visualFixture &&
-    relationship?.nextAction === "invite" &&
+    (relationship?.nextAction === "invite" ||
+      relationship?.nextAction === "retry_invite") &&
     Boolean(detail.profile.email);
   const displayedLifecycleState = inviteError
     ? "failed"
-    : pendingInvite
+    : deliveryFailed
+      ? "failed"
+      : pendingInvite
       ? "sending"
       : inviteSent
         ? "invited"
@@ -268,6 +273,7 @@ export function BuilderContractorWorkspaceRoute({
   const onInvite = async () => {
     setPendingInvite(true);
     setInviteError(null);
+    setInviteSent(false);
     try {
       await sendInvite({
         contractorId: contractorId as Id<"contractorProfiles">,
@@ -380,21 +386,30 @@ export function BuilderContractorWorkspaceRoute({
                     {inviteError}
                   </p>
                 ) : null}
+                {relationship.invitation?.deliveryError ? (
+                  <p aria-live="polite" className="text-destructive text-xs">
+                    {relationship.invitation.deliveryError}
+                  </p>
+                ) : null}
                 {inviteSent ? (
                   <p aria-live="polite" className="text-emerald-600 text-xs">
-                    Invitation sent. This status will update when the contractor
-                    accepts or claims the profile.
+                    Invitation queued. This status will update when the
+                    contractor accepts or the handoff reports an error.
                   </p>
                 ) : null}
                 {canInvite ? (
                   <div>
                     <Button
-                      disabled={pendingInvite || inviteSent}
+                      disabled={pendingInvite || (inviteSent && !deliveryFailed)}
                       onClick={onInvite}
                       size="sm"
                       type="button"
                     >
-                      {pendingInvite ? "Sending…" : "Send invite"}
+                      {pendingInvite
+                        ? "Sending…"
+                        : deliveryFailed
+                          ? "Retry invite"
+                          : "Send invite"}
                     </Button>
                   </div>
                 ) : null}

@@ -15,6 +15,9 @@ export const buildCollaborationRoleValidator = v.union(
   v.literal("builder"),
   v.literal("broker-staff"),
   v.literal("builder-staff"),
+  v.literal("lender"),
+  v.literal("lender-admin"),
+  v.literal("lender-staff"),
   v.literal("homeowner"),
   v.literal("contractor")
 );
@@ -222,7 +225,7 @@ export const buildPlanningReconciliationMetadataValidator = v.object({
   activation: v.union(
     v.null(),
     buildPlanningActivationSummaryFullValidator,
-    buildPlanningActivationSummaryValidator,
+    buildPlanningActivationSummaryValidator
   ),
   current: v.object({ revision: v.number() }),
   diffsTruncated: v.boolean(),
@@ -231,8 +234,8 @@ export const buildPlanningReconciliationMetadataValidator = v.object({
   revisions: v.array(
     v.union(
       buildPlanningRevisionSummaryValidator,
-      buildPlanningRevisionContractorSummaryValidator,
-    ),
+      buildPlanningRevisionContractorSummaryValidator
+    )
   ),
 });
 
@@ -249,7 +252,7 @@ export const buildPlanningActivationSnapshotPageValidator = v.object({
   activation: v.union(
     v.null(),
     buildPlanningActivationSummaryFullValidator,
-    buildPlanningActivationSummaryValidator,
+    buildPlanningActivationSummaryValidator
   ),
   buildId: v.string(),
   isDone: v.boolean(),
@@ -277,7 +280,7 @@ export const buildPlanningReconciliationValidator = v.object({
       revision: v.number(),
       snapshot: buildPlanningSnapshotValidator,
     }),
-    buildPlanningActivationContractorValidator,
+    buildPlanningActivationContractorValidator
   ),
   current: v.object({
     revision: v.number(),
@@ -290,8 +293,8 @@ export const buildPlanningReconciliationValidator = v.object({
   revisions: v.array(
     v.union(
       buildPlanningRevisionSummaryValidator,
-      buildPlanningRevisionContractorSummaryValidator,
-    ),
+      buildPlanningRevisionContractorSummaryValidator
+    )
   ),
 });
 

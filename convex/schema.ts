@@ -18,6 +18,7 @@ import { schemaTables as schemaTables15 } from "./schema/build_collaboration_03"
 import { schemaTables as schemaTables16 } from "./schema/build_collaboration_04";
 import { schemaTables as schemaTables17 } from "./schema/scheduling_01";
 import { schemaTables as schemaTables18 } from "./schema/retention_01";
+import { schemaTables as schemaTables19 } from "./schema/review_policy_defaults_01";
 
 export default defineSchema({
   ...schemaTables1,
@@ -38,4 +39,5 @@ export default defineSchema({
   ...schemaTables16,
   ...schemaTables17,
   ...schemaTables18,
+  ...schemaTables19,
 });

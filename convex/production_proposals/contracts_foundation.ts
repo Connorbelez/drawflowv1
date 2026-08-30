@@ -3,10 +3,14 @@
  * The parent facade re-exports its handlers to preserve production_proposals function references.
  */
 import { type Infer, v } from "convex/values";
-import { type RoleSlug } from "../authz";
-import { type coerceSiteVisitGuidanceInput } from "../demo_site_visit_guidance";
+import type { RoleSlug } from "../authz";
+import type { coerceSiteVisitGuidanceInput } from "../demo_site_visit_guidance";
+import {
+  proposalReviewApprovalModeValidator,
+  proposalReviewPolicySnapshotValidator,
+  proposalRevisionCheckpointSnapshotValidator,
+} from "../lender_portal_phase3";
 import { proposalCapitalSources } from "../production_proposal_lifecycle";
-import { proposalReviewApprovalModeValidator, proposalReviewPolicySnapshotValidator, proposalRevisionCheckpointSnapshotValidator } from "../lender_portal_phase3";
 
 export type ProductionSettingsSiteVisitGuidanceInput = Parameters<
   typeof coerceSiteVisitGuidanceInput
@@ -37,7 +41,12 @@ export interface BuilderStaffProvisionResult {
   workosMembershipId: string;
 }
 
-export const PROPOSAL_COLUMNS = ["draft", "submitted", "approved", "closed"] as const;
+export const PROPOSAL_COLUMNS = [
+  "draft",
+  "submitted",
+  "approved",
+  "closed",
+] as const;
 
 export const BACKOFFICE_ROLES = [
   "admin",
@@ -84,7 +93,7 @@ export const builderOnboardingRecoveryValidator = v.optional(
       v.literal("deleted"),
       v.literal("inactive"),
       v.literal("missing"),
-      v.literal("pending"),
+      v.literal("pending")
     ),
     invitedEmail: v.optional(v.string()),
     kind: v.union(
@@ -95,7 +104,7 @@ export const builderOnboardingRecoveryValidator = v.optional(
       v.literal("missing-membership"),
       v.literal("missing-organization"),
       v.literal("projection-failed"),
-      v.literal("projection-pending"),
+      v.literal("projection-pending")
     ),
     organization: v.object({
       id: v.string(),
@@ -105,12 +114,12 @@ export const builderOnboardingRecoveryValidator = v.optional(
       v.literal("failed"),
       v.literal("missing"),
       v.literal("pending"),
-      v.literal("ready"),
+      v.literal("ready")
     ),
     requiredRole: v.literal("Builder"),
     responsibleOwner: v.string(),
     supportReference: v.string(),
-  }),
+  })
 );
 
 export const BUILDER_STAFF_PERMISSION_RESOURCES = [
@@ -194,7 +203,7 @@ export const milestoneStartSourceValidator = v.union(
   v.literal("submilestone_detail"),
   v.literal("guided_field_workflow"),
   v.literal("assistant"),
-  v.literal("completion_catch_up"),
+  v.literal("completion_catch_up")
 );
 
 export const proposalDirectoryFiltersValidator = v.object({
@@ -202,15 +211,15 @@ export const proposalDirectoryFiltersValidator = v.object({
   approvedTo: v.optional(v.number()),
   assignedBrokerWorkosUserId: v.optional(v.string()),
   assignment: v.optional(
-    v.union(v.literal("assigned"), v.literal("unassigned")),
+    v.union(v.literal("assigned"), v.literal("unassigned"))
   ),
   builderProfileId: v.optional(v.id("builderProfiles")),
   closingState: v.optional(
     v.union(
       v.literal("active_build"),
       v.literal("pending_closing"),
-      v.literal("pre_closing"),
-    ),
+      v.literal("pre_closing")
+    )
   ),
   closedFrom: v.optional(v.number()),
   closedTo: v.optional(v.number()),
@@ -231,8 +240,8 @@ export const proposalDirectoryFiltersValidator = v.object({
       v.literal("capitalConstrained"),
       v.literal("cheapestFeasible"),
       v.literal("fastest"),
-      v.literal("unselected"),
-    ),
+      v.literal("unselected")
+    )
   ),
   proposedStartFrom: v.optional(v.string()),
   proposedStartTo: v.optional(v.string()),
@@ -241,16 +250,16 @@ export const proposalDirectoryFiltersValidator = v.object({
       v.literal("none"),
       v.literal("approved"),
       v.literal("requested_changes"),
-      v.literal("rejected"),
-    ),
+      v.literal("rejected")
+    )
   ),
   stage: v.optional(
     v.union(
       v.literal("draft"),
       v.literal("submitted"),
       v.literal("approved"),
-      v.literal("closed"),
-    ),
+      v.literal("closed")
+    )
   ),
   submittedFrom: v.optional(v.number()),
   submittedTo: v.optional(v.number()),
@@ -277,7 +286,7 @@ export const proposalDirectoryCardValidator = v.object({
     v.literal("draft"),
     v.literal("submitted"),
     v.literal("approved"),
-    v.literal("closed"),
+    v.literal("closed")
   ),
   createdAt: v.number(),
   createdByEmail: v.optional(v.string()),
@@ -294,8 +303,8 @@ export const proposalDirectoryCardValidator = v.object({
     v.union(
       v.literal("capitalConstrained"),
       v.literal("cheapestFeasible"),
-      v.literal("fastest"),
-    ),
+      v.literal("fastest")
+    )
   ),
   planName: v.optional(v.string()),
   proposedStartDate: v.optional(v.string()),
@@ -304,7 +313,7 @@ export const proposalDirectoryCardValidator = v.object({
     v.literal("none"),
     v.literal("approved"),
     v.literal("requested_changes"),
-    v.literal("rejected"),
+    v.literal("rejected")
   ),
   statusLabel: v.string(),
   submittedAt: v.optional(v.number()),
@@ -317,7 +326,7 @@ export const proposalDirectoryCardValidator = v.object({
 
 const productionSettingsSiteVisitGuidanceFieldInput = v.union(
   v.string(),
-  v.array(v.string()),
+  v.array(v.string())
 );
 
 export const productionSettingsSiteVisitGuidanceInput = v.object({
@@ -337,7 +346,7 @@ export const submilestoneInput = v.object({
     v.object({
       cameraAnglesTiptapJson: v.string(),
       whatToVerifyTiptapJson: v.string(),
-    }),
+    })
   ),
   key: v.string(),
   name: v.string(),
@@ -365,7 +374,7 @@ export const documentInput = v.object({
     v.literal("permit"),
     v.literal("budget"),
     v.literal("plan"),
-    v.literal("supporting"),
+    v.literal("supporting")
   ),
   fileName: v.string(),
   mimeType: v.string(),
@@ -375,7 +384,7 @@ export const documentInput = v.object({
 
 export const proposalCapitalSourceInput = v.union(
   v.literal(proposalCapitalSources[0]),
-  v.literal(proposalCapitalSources[1]),
+  v.literal(proposalCapitalSources[1])
 );
 
 export const proposalLenderAssignmentProjectionValidator = v.object({
@@ -391,7 +400,7 @@ export const proposalLenderAssignmentProjectionValidator = v.object({
   status: v.union(
     v.literal("current"),
     v.literal("archiving"),
-    v.literal("withdrawn"),
+    v.literal("withdrawn")
   ),
   withdrawalReason: v.optional(v.string()),
   withdrawnAt: v.optional(v.number()),
@@ -410,14 +419,35 @@ export const proposalReviewPolicyVersionPageItemValidator = v.object({
   configuredByWorkosUserId: v.optional(v.string()),
   policy: proposalReviewPolicySnapshotValidator,
   policyVersionId: v.id("proposalReviewPolicyVersions"),
+  provenance: v.optional(
+    v.union(
+      v.literal("build_override"),
+      v.literal("organization_default"),
+      v.literal("system_baseline")
+    )
+  ),
   reason: v.optional(v.string()),
+  sourceLenderOrganizationId: v.optional(v.id("lenderOrganizations")),
+  sourceLenderOrganizationName: v.optional(v.string()),
+  sourceOrganizationReviewPolicyVersion: v.optional(v.number()),
+  sourceOrganizationReviewPolicyVersionId: v.optional(
+    v.id("lenderOrganizationReviewPolicyVersions")
+  ),
   version: v.number(),
 });
 
 export const proposalRevisionPageItemValidator = v.object({
   assignmentId: v.union(v.id("proposalLenderAssignments"), v.null()),
   backOfficeApprovedByWorkosUserId: v.optional(v.string()),
-  changedCheckpoints: v.array(v.union(v.literal("milestoneCount"), v.literal("budget"), v.literal("scheduleTimeline"), v.literal("builder"), v.literal("accessReviewPolicy"))),
+  changedCheckpoints: v.array(
+    v.union(
+      v.literal("milestoneCount"),
+      v.literal("budget"),
+      v.literal("scheduleTimeline"),
+      v.literal("builder"),
+      v.literal("accessReviewPolicy")
+    )
+  ),
   checkpoints: proposalRevisionCheckpointSnapshotValidator,
   createdAt: v.number(),
   createdByRole: v.optional(v.string()),

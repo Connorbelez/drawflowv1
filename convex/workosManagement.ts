@@ -35,3 +35,4 @@ export {
   buildWorkosMembershipRolesPayload,
   isWorkosConflict,
 } from "./workosManagement/shared";
+export { enqueueIdentityInvitationEmail } from "./workosManagement/invitationEmails";

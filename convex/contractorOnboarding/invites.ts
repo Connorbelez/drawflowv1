@@ -1,26 +1,64 @@
 import { v } from "convex/values";
-
-import {
-  type AuthorizedViewer,
-  type RoleSlug,
-  authenticatedMutation,
-  authenticatedQuery,
-  backofficeMutation,
-  backofficeQuery,
-  normalizeRoleSlugs,
-} from "../authz";
-import { normalizeContractorEmail } from "../contractorWorkspace";
-import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "../fairLendConfig";
 import { internal } from "../_generated/api";
+import {
+  authenticatedMutation,
+  backofficeMutation,
+  type RoleSlug,
+} from "../authz";
+import { patchCanonicalContractorProfile } from "../contractor_profile_application";
+import { normalizeContractorEmail } from "../contractorWorkspace";
+import { internalMutation } from "../fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
 
 import {
   BACKOFFICE_ROLES,
   BUILDER_ROLES,
-  resolveBrokerageScopeOrThrow,
   requireBackofficeRole,
+  resolveBrokerageScopeOrThrow,
   writeContractorIdentityEvent,
 } from "./access";
+
+const contractorInvitationDeliveryStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("sent"),
+  v.literal("failed")
+);
+
+export const updateContractorInvitationDelivery = internalMutation
+  .input({
+    claimId: v.id("contractorInviteClaims"),
+    deliveryAttemptId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    status: contractorInvitationDeliveryStatusValidator,
+    workosInvitationId: v.optional(v.string()),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const claim = await ctx.db.get(args.claimId);
+    if (!claim) {
+      return null;
+    }
+    if (
+      args.deliveryAttemptId &&
+      claim.invitationDeliveryAttemptId !== args.deliveryAttemptId
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    await ctx.db.patch(claim._id, {
+      invitationDeliveryAttemptId:
+        args.deliveryAttemptId ?? claim.invitationDeliveryAttemptId,
+      invitationDeliveryError: args.error?.trim().slice(0, 500) || undefined,
+      invitationDeliveryStatus: args.status,
+      ...(args.workosInvitationId
+        ? { workosInvitationId: args.workosInvitationId }
+        : {}),
+      updatedAt: now,
+    });
+    return null;
+  })
+  .internal();
+
 export async function createContractorProfileInviteClaim(
   ctx: MutationCtx,
   input: {
@@ -59,12 +97,15 @@ export async function createContractorProfileInviteClaim(
     input.expiresInDays === undefined
       ? undefined
       : now + Math.max(1, input.expiresInDays) * 86_400_000;
+  const deliveryAttemptId = crypto.randomUUID();
   const claimId = await ctx.db.insert("contractorInviteClaims", {
     brokerageId: input.brokerageId,
     contractorId: input.contractor._id,
     expiresAt,
     invitedNormalizedEmail: normalizedEmail,
     inviterWorkosUserId: input.actorSubject,
+    invitationDeliveryAttemptId: deliveryAttemptId,
+    invitationDeliveryStatus: "queued",
     organizationId: input.workosOrganizationId,
     state: "invited",
     createdAt: now,
@@ -72,17 +113,25 @@ export async function createContractorProfileInviteClaim(
   });
 
   if (!input.contractor.accountWorkosUserId) {
-    await ctx.db.patch(input.contractor._id, {
-      onboardingStatus: "invited",
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: input.brokerageId,
+      contractorId: input.contractor._id,
+      now,
+      organizationId: input.workosOrganizationId,
+      patch: { onboardingStatus: "invited" },
     });
   }
   await ctx.scheduler.runAfter(
     0,
     internal.workosManagement.inviteContractorUser,
     {
+      brokerageId: input.brokerageId,
+      claimId,
+      deliveryAttemptId,
       email: normalizedEmail,
       organizationId: input.workosOrganizationId,
+      recipientName: input.contractor.name,
+      relatedEntityId: String(claimId),
     }
   );
   await writeContractorIdentityEvent(ctx, {
@@ -290,7 +339,11 @@ export const resendContractorProfileInvite = backofficeMutation
     // can be controlled without creating duplicate intent rows (PRD user story
     // 67). `claimed` is terminal and cannot be resent.
     const now = Date.now();
+    const deliveryAttemptId = crypto.randomUUID();
     await ctx.db.patch(claim._id, {
+      invitationDeliveryAttemptId: deliveryAttemptId,
+      invitationDeliveryError: undefined,
+      invitationDeliveryStatus: "queued",
       state: "invited",
       revokedAt: undefined,
       revokedByWorkosUserId: undefined,
@@ -303,8 +356,12 @@ export const resendContractorProfileInvite = backofficeMutation
         0,
         internal.workosManagement.inviteContractorUser,
         {
+          brokerageId: scope.brokerage._id,
+          claimId: claim._id,
+          deliveryAttemptId,
           email,
           organizationId: args.workosOrganizationId,
+          relatedEntityId: String(claim._id),
         }
       );
     }

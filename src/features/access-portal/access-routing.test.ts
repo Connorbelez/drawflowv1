@@ -11,6 +11,8 @@ describe("resolveAccessDestination", () => {
     { destination: "/builder-staff", roles: ["builder-staff"] },
     { destination: "/contractor", roles: ["contractor"] },
     { destination: "/contractor/onboarding", roles: ["member"] },
+    { destination: "/lender", roles: ["lender"] },
+    { destination: "/lender", roles: ["lender-admin"] },
   ])("routes $roles to $destination", ({ destination, roles }) => {
     expect(resolveAccessDestination(roles)).toBe(destination);
   });

@@ -64,6 +64,7 @@ export const lenderBuildListRow = v.object({
   buildId: v.id("activeBuilds"),
   buildName: v.string(),
   location: v.string(),
+  milestonesBehindSchedule: v.number(),
   proposalId: v.id("buildProposals"),
   status: v.union(v.literal("active"), v.literal("future_start")),
   updatedAt: v.number(),
@@ -91,6 +92,7 @@ export const lenderDashboardBuildRow = v.object({
   buildName: v.string(),
   facilityCents: v.number(),
   location: v.string(),
+  milestonesBehindSchedule: v.number(),
   nextState: v.string(),
   progressPercent: v.number(),
   releasedCents: v.number(),
@@ -316,21 +318,6 @@ export const lenderBuildDetailData = v.object({
   builder: v.object({
     displayName: v.string(),
   }),
-  collaboration: v.array(
-    v.object({
-      body: v.string(),
-      postId: v.id("buildCollaborationPosts"),
-      primaryReferenceId: v.union(v.string(), v.null()),
-      primaryReferenceKind: v.union(
-        v.literal("milestone"),
-        v.literal("submilestone"),
-        v.literal("draw"),
-        v.null()
-      ),
-      publishedAt: v.number(),
-      sourceLabel: v.string(),
-    })
-  ),
   facility: v.union(
     v.object({
       interestAnnualBps: v.number(),
@@ -349,6 +336,30 @@ export const lenderBuildDetailData = v.object({
   }),
   milestones: v.array(lenderBuildDetailMilestone),
   releasedCents: v.number(),
+  reviewPolicy: v.union(
+    v.object({ state: v.literal("unavailable") }),
+    v.object({
+      draw: v.object({
+        approvalMode: v.union(
+          v.literal("backoffice_only"),
+          v.literal("lender_quorum"),
+          v.literal("both")
+        ),
+        lenderQuorum: v.union(v.number(), v.null()),
+      }),
+      milestone: v.object({
+        approvalMode: v.union(
+          v.literal("backoffice_only"),
+          v.literal("lender_quorum"),
+          v.literal("both")
+        ),
+        lenderQuorum: v.union(v.number(), v.null()),
+        receiptInvoiceRequired: v.boolean(),
+        siteVisitRequired: v.boolean(),
+      }),
+      state: v.literal("locked"),
+    })
+  ),
   reviewSummary: v.string(),
 });
 
@@ -415,7 +426,8 @@ export const lenderDrawQueueRow = v.object({
   workOrderKey: v.union(v.string(), v.null()),
 });
 
-export const lenderDrawQueuePage = paginationResultValidator(lenderDrawQueueRow);
+export const lenderDrawQueuePage =
+  paginationResultValidator(lenderDrawQueueRow);
 
 export const backofficeLenderOrganizationPortfolio = v.object({
   organization: v.object({

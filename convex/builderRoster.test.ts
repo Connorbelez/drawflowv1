@@ -392,6 +392,39 @@ describe("builder roster aggregation", () => {
     });
   });
 
+  test("keeps valid brokerages available when a secondary brokerage has no principal", async () => {
+    const { admin } = await seededRoster();
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: "Unconfigured Secondary Brokerage",
+        legalName: "Unconfigured Secondary Brokerage",
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: "org_unconfigured_secondary",
+      });
+    });
+
+    const options = await admin.query(
+      (api as any).builderRoster.listAssignableBrokers,
+      {},
+    );
+    const fairLend = options.brokerages.find(
+      (brokerage: any) => brokerage.workosOrganizationId === FAIRLEND_ORG,
+    );
+    const secondary = options.brokerages.find(
+      (brokerage: any) =>
+        brokerage.workosOrganizationId === "org_unconfigured_secondary",
+    );
+
+    expect(fairLend?.brokers.length).toBeGreaterThan(0);
+    expect(secondary).toMatchObject({
+      brokers: [],
+      principalBrokerWorkosUserId: null,
+    });
+  });
+
   test("atomically assigns and reassigns selected builders with an audit reason", async () => {
     const { admin, seed } = await seededRoster();
     let secondBuilderProfileId = "";

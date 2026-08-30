@@ -1,7 +1,11 @@
 import type { ActiveBuildAuthorization } from "../activeBuildAccess";
-import type { AuthorizedViewer } from "../authz";
 import { isCleanCollaborationAsset } from "../build_collaboration_asset_access";
 import { normalizeContractorEmail } from "../contractorWorkspace";
+import {
+  currentCostDocumentBatchCreatorCapacity,
+  requireCostDocumentBatchCreator,
+  requireCurrentContractorCostDocumentScope,
+} from "../cost_document_access";
 import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
 import {
   MAX_ALLOCATIONS,
@@ -11,35 +15,16 @@ import {
   MAX_BATCH_PAGES,
   MAX_FINANCIAL_COMPONENTS,
   MAX_PAGES,
-  activeBuildScopeFields,
-  type CurrentCostDocumentContractorScope,
-  requiredText,
   optionalText,
-  requiredAssetHash,
   positiveCents,
   requiredDocumentDate,
+  requiredText,
   stepIndex,
 } from "./contracts";
 import {
-  assertCurrentCostDocumentAllocationScope,
-  authorizeCostDocumentIntent,
-  requireCostDocumentBatchCreator,
-  requireCostDocumentDraftAccess,
-  requireCurrentContractorCostDocumentScope,
-  currentCostDocumentBatchCreatorCapacity,
-} from "../cost_document_access";
-import {
-  listBatchDrafts,
   validateCompleteDraft,
-  validateDraftCapture,
   validateDraftBalance,
-  validateDraftForSubmission,
-  requiredDraftFacts,
-  currentDraftPages,
-  currentDraftAllocations,
-  currentDraftFinancialComponents,
-  resolveDraftAssets,
-  awaitSubmilestone,
+  validateDraftCapture,
   validateFinancialComponents,
   validateFinancialComponentsAgainstGross,
 } from "./draft_state";
@@ -82,31 +67,6 @@ export async function resolveCostDocumentUploaderEmail(
     );
   }
   return projectedEmail;
-}
-
-export async function authorizeCostDocumentBuilder(
-  ctx: AuthorizedCostDocumentCtx,
-  input: {
-    actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"];
-    buildId: Id<"activeBuilds">;
-    organizationId: string;
-  }
-) {
-  return await authorizeCostDocumentIntent(ctx, { ...input, intent: "create" });
-}
-
-export async function authorizeCostDocumentVendorAccess(
-  ctx: AuthorizedCostDocumentCtx,
-  input: {
-    actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"];
-    buildId: Id<"activeBuilds">;
-    organizationId: string;
-  }
-) {
-  return await authorizeCostDocumentIntent(ctx, {
-    ...input,
-    intent: "submitted.read",
-  });
 }
 
 export async function currentCostDocumentCreatorProfileId(
@@ -628,7 +588,9 @@ export function assertSubmittedReplayFinancialComponents(
   }
 }
 
-export function assertSubmittedReplayDocumentFacts(document: Doc<"costDocuments">) {
+export function assertSubmittedReplayDocumentFacts(
+  document: Doc<"costDocuments">
+) {
   try {
     requiredText(document.title, "Title", 240);
     requiredText(document.vendorName, "Vendor", 240);
@@ -792,7 +754,9 @@ export function assertDraftComponentScope(
   }
 }
 
-export function assertDraftPageMutationAllowed(draft: Doc<"costDocumentDrafts">) {
+export function assertDraftPageMutationAllowed(
+  draft: Doc<"costDocumentDrafts">
+) {
   if (draft.activeStep !== "capture_confirm" || draft.lifecycle !== "draft") {
     throw new Error(
       "Cost Document source pages can be changed only during Capture & confirm on an open draft."

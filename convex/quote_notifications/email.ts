@@ -16,6 +16,11 @@ import {
   requiredSender,
   resendClient,
 } from "../email_transport";
+import {
+  identityInvitationLandingUrl,
+  identityInvitationSubject,
+  renderIdentityInvitationEmail,
+} from "../identity_invitation_emails";
 import { internalAction, internalMutation, internalQuery } from "../fluent";
 import { authorizeQuoteAdministrativeRecovery } from "../quote_authoring_access";
 import {
@@ -143,6 +148,19 @@ export async function renderCommunicationEmail(work: {
   const payload = parsePayload(work.payloadSnapshot);
   const sender = requiredSender();
   const recipientName = work.recipientNameSnapshot?.trim() || "there";
+  if (work.kind === "identity_invitation") {
+    const roleSlug = String(payload.roleSlug ?? "");
+    const workosInvitationId = String(payload.workosInvitationId ?? "");
+    const invitationUrl = identityInvitationLandingUrl(workosInvitationId);
+    return {
+      ...renderIdentityInvitationEmail({
+        invitationUrl,
+        recipientName: work.recipientNameSnapshot,
+        roleSlug,
+      }),
+      sender,
+    };
+  }
   if (work.templateKey.startsWith("lender_portal_")) {
     const linkPath = String(payload.linkPath ?? "");
     // Validate the immutable destination, but send recipients through the
@@ -263,6 +281,9 @@ function subjectForIntentPayload(
   templateKey: string,
   payload: Record<string, unknown>
 ) {
+  if (templateKey.startsWith("identity_invitation_")) {
+    return identityInvitationSubject(String(payload.roleSlug ?? ""));
+  }
   if (templateKey.startsWith("lender_portal_")) {
     return lenderPortalSubject(payload);
   }

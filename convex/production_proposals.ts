@@ -24,6 +24,7 @@ export {
   configureProposalReviewPolicy,
   repairMissingLenderProposalConfirmation,
 } from "./production_proposals/proposal_review_commands.js";
+export { restoreProposalReviewPolicyFromOrganizationDefault } from "./production_proposals/proposal_review_restore.js";
 export {
   publishProposalRevision,
   lockProposalReviewPolicy,
@@ -200,6 +201,8 @@ export {
   listBackofficeBuildRosterSummaryLoans,
   listBackofficeBuildRosterSummaryMilestonesPage,
   listBackofficeBuildRosterSummaryMilestones,
+  listBackofficeBuildRosterSummarySubmilestonesPage,
+  listBackofficeBuildRosterSummarySubmilestones,
   listBackofficeBuildRosterSummaryDrawRequestsPage,
   listBackofficeBuildRosterSummaryDrawRequests,
 } from "./production_proposals/roster_queries.js";

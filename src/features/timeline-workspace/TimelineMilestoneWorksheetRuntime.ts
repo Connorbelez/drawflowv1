@@ -13,11 +13,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { parseCurrencyToCents } from "#/features/builder-proposal-demo/template-helpers.ts";
 import type { MaterialPlanningPayload } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import {
   DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
   DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
   cascadeBudgetEdit,
+  cascadeSubMilestoneBudgetEdit,
   createCustomMilestoneRow,
   formatBps,
   makeWorksheetId,
@@ -105,12 +107,15 @@ export function useTimelineMilestoneWorksheetRuntime({
   const [pendingMilestoneDeleteKey, setPendingMilestoneDeleteKey] = useState<
     string | null
   >(null);
+  const [pendingMilestoneDeleteSource, setPendingMilestoneDeleteSource] =
+    useState<"finalSubMilestone" | "milestone">("milestone");
   const [dirtySubMilestoneEditorKeys, setDirtySubMilestoneEditorKeys] =
     useState<Set<string>>(() => new Set());
   const [subMilestoneEditorResetVersions, setSubMilestoneEditorResetVersions] =
     useState<SubMilestoneEditorResetVersions>({});
   const [pendingUnsavedNavigation, setPendingUnsavedNavigation] =
     useState<PendingUnsavedNavigation | null>(null);
+  const [cascadeBudgetError, setCascadeBudgetError] = useState("");
   // Active tab inside the detail sheet. Seeded from `detailsSheetTarget.tab`
   // when the sheet opens (e.g. from a status-chip click), then owned by the
   // user once they start switching tabs.
@@ -120,6 +125,9 @@ export function useTimelineMilestoneWorksheetRuntime({
   const keyboardInstructionsId = useId();
   const rowsRef = useRef(rows);
   const onRowsChangeRef = useRef(onRowsChange);
+  const cascadeBudgetStartRowsRef = useRef(
+    new Map<string, TimelineMilestoneWorksheetRow[]>()
+  );
   rowsRef.current = rows;
   onRowsChangeRef.current = onRowsChange;
 
@@ -144,6 +152,23 @@ export function useTimelineMilestoneWorksheetRuntime({
       patch: Partial<TimelineMilestoneWorksheetRow>,
       meta?: TimelineMilestoneWorksheetRowsChangeMeta
     ) => {
+      const editKey = `milestone:${rowKey}`;
+      const isCascadeBudgetEdit =
+        cascadeBudgetEdits &&
+        mode === "setup" &&
+        typeof patch.budgetText === "string";
+      if (
+        isCascadeBudgetEdit &&
+        meta?.commit === false &&
+        !cascadeBudgetStartRowsRef.current.has(editKey)
+      ) {
+        cascadeBudgetStartRowsRef.current.set(editKey, rowsRef.current);
+        setCascadeBudgetError("");
+      }
+      if (!cascadeBudgetEdits && typeof patch.budgetText === "string") {
+        cascadeBudgetStartRowsRef.current.delete(editKey);
+        setCascadeBudgetError("");
+      }
       updateRows(
         rowsRef.current.map((row) =>
           row.key === rowKey ? { ...row, ...patch } : row
@@ -151,7 +176,7 @@ export function useTimelineMilestoneWorksheetRuntime({
         meta
       );
     },
-    [updateRows]
+    [cascadeBudgetEdits, mode, updateRows]
   );
 
   const updateSubMilestone = (
@@ -160,6 +185,49 @@ export function useTimelineMilestoneWorksheetRuntime({
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => {
+    const editKey = `subMilestone:${rowKey}:${subMilestoneId}`;
+    const isCascadeBudgetEdit =
+      cascadeBudgetEdits &&
+      mode === "setup" &&
+      typeof patch.budgetText === "string";
+
+    if (
+      isCascadeBudgetEdit &&
+      meta?.commit === false &&
+      !cascadeBudgetStartRowsRef.current.has(editKey)
+    ) {
+      cascadeBudgetStartRowsRef.current.set(editKey, rowsRef.current);
+      setCascadeBudgetError("");
+    }
+
+    if (isCascadeBudgetEdit && meta?.commit !== false) {
+      const startRows =
+        cascadeBudgetStartRowsRef.current.get(editKey) ?? rowsRef.current;
+      cascadeBudgetStartRowsRef.current.delete(editKey);
+      const result = cascadeSubMilestoneBudgetEdit({
+        nextBudgetCents: parseCurrencyToCents(patch.budgetText ?? ""),
+        rowKey,
+        rows: startRows,
+        subMilestoneId,
+        targetBudgetCents: targetBudgetCents ?? Number.NaN,
+      });
+      setActiveSubMilestoneByRow((current) => ({
+        ...current,
+        [rowKey]: subMilestoneId,
+      }));
+      if (result.status === "rejected") {
+        setCascadeBudgetError(result.message);
+        return updateRows(startRows, { commit: false });
+      }
+      setCascadeBudgetError("");
+      return updateRows(result.rows, meta);
+    }
+
+    if (!cascadeBudgetEdits && typeof patch.budgetText === "string") {
+      cascadeBudgetStartRowsRef.current.delete(editKey);
+      setCascadeBudgetError("");
+    }
+
     const result = updateRows(
       rowsRef.current.map((row) => {
         if (row.key !== rowKey) {
@@ -188,6 +256,15 @@ export function useTimelineMilestoneWorksheetRuntime({
   const commitRows = useCallback(() => {
     updateRows(rowsRef.current, { commit: true });
   }, [updateRows]);
+
+  const handleCascadeBudgetEditsChange = useCallback(
+    (enabled: boolean) => {
+      cascadeBudgetStartRowsRef.current.clear();
+      setCascadeBudgetError("");
+      onCascadeBudgetEditsChange?.(enabled);
+    },
+    [onCascadeBudgetEditsChange]
+  );
 
   const addSubMilestone = (rowKey: string, item?: SubMilestoneBankItem) => {
     const currentRows = rowsRef.current;
@@ -250,7 +327,12 @@ export function useTimelineMilestoneWorksheetRuntime({
   const removeSubMilestone = (rowKey: string, subMilestoneId: string) => {
     const currentRows = rowsRef.current;
     const targetRow = currentRows.find((row) => row.key === rowKey);
-    if (!targetRow || targetRow.subMilestoneDetails.length <= 1) {
+    if (!targetRow) {
+      return;
+    }
+    if (targetRow.subMilestoneDetails.length === 1) {
+      setPendingMilestoneDeleteSource("finalSubMilestone");
+      setPendingMilestoneDeleteKey(rowKey);
       return;
     }
     let nextActiveSubMilestoneId = "";
@@ -544,16 +626,53 @@ export function useTimelineMilestoneWorksheetRuntime({
           : nextRows
       );
       setPendingMilestoneDeleteKey(null);
+      setPendingMilestoneDeleteSource("milestone");
       setDetailsSheetTarget((current) =>
         current?.rowKey === rowKey ? null : current
       );
+      setExpanded((current) => {
+        if (current === true) {
+          return current;
+        }
+        const { [rowKey]: _removed, ...remaining } = current;
+        return remaining;
+      });
       setActiveSubMilestoneByRow((current) => {
         const { [rowKey]: _removed, ...remaining } = current;
         return remaining;
       });
+      setDirtySubMilestoneEditorKeys(
+        (current) =>
+          new Set(
+            [...current].filter(
+              (editorKey) => !editorKey.startsWith(`${rowKey}:`)
+            )
+          )
+      );
+      setSubMilestoneEditorResetVersions((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(
+            ([editorKey]) => !editorKey.startsWith(`${rowKey}:`)
+          )
+        )
+      );
+      for (const editKey of cascadeBudgetStartRowsRef.current.keys()) {
+        if (
+          editKey === `milestone:${rowKey}` ||
+          editKey.startsWith(`subMilestone:${rowKey}:`)
+        ) {
+          cascadeBudgetStartRowsRef.current.delete(editKey);
+        }
+      }
+      setPendingUnsavedNavigation(null);
     },
     [mode, updateRows]
   );
+
+  const requestMilestoneDelete = useCallback((rowKey: string) => {
+    setPendingMilestoneDeleteSource("milestone");
+    setPendingMilestoneDeleteKey(rowKey);
+  }, []);
 
   const reorderRows = useCallback(
     (activeIndex: number, overIndex: number) => {
@@ -596,22 +715,30 @@ export function useTimelineMilestoneWorksheetRuntime({
       const nextBudgetCents = rowBudgetCents(row);
       if (
         cascadeBudgetEdits &&
-        !row.excluded &&
-        Number.isFinite(nextBudgetCents) &&
-        Number.isFinite(targetBudgetCents) &&
-        (targetBudgetCents ?? 0) > 0
+        !row.excluded
       ) {
-        updateRows(
-          cascadeBudgetEdit({
-            nextBudgetCents,
-            rowKey,
-            rows: currentRows,
-            targetBudgetCents: targetBudgetCents ?? 0,
-          })
-        );
+        const editKey = `milestone:${rowKey}`;
+        const startRows =
+          cascadeBudgetStartRowsRef.current.get(editKey) ?? currentRows;
+        cascadeBudgetStartRowsRef.current.delete(editKey);
+        const result = cascadeBudgetEdit({
+          nextBudgetCents,
+          rowKey,
+          rows: startRows,
+          targetBudgetCents: targetBudgetCents ?? Number.NaN,
+        });
+        if (result.status === "rejected") {
+          setCascadeBudgetError(result.message);
+          updateRows(startRows, { commit: false });
+          return;
+        }
+        setCascadeBudgetError("");
+        updateRows(result.rows);
         return;
       }
 
+      cascadeBudgetStartRowsRef.current.delete(`milestone:${rowKey}`);
+      setCascadeBudgetError("");
       updateRow(rowKey, {
         budgetText: normalizeCurrencyText(row.budgetText),
       });
@@ -925,6 +1052,9 @@ export function useTimelineMilestoneWorksheetRuntime({
     rows.find((row) => row.key === pendingMilestoneDeleteKey) ?? null;
   const canDeleteMilestone = (row: TimelineMilestoneWorksheetRow) =>
     row.excluded || includedRows.length > 1;
+  const pendingMilestoneDeleteCanDelete = pendingMilestoneDeleteRow
+    ? canDeleteMilestone(pendingMilestoneDeleteRow)
+    : false;
 
   const renderMilestoneDetailTabs = (
     row: TimelineMilestoneWorksheetRow,
@@ -954,7 +1084,7 @@ export function useTimelineMilestoneWorksheetRuntime({
       scheduleDisplayMode,
       scopeRoute,
       scopeWorkosOrganizationId,
-      setPendingMilestoneDeleteKey,
+      setPendingMilestoneDeleteKey: requestMilestoneDelete,
       subMilestoneEditorResetVersions,
       updateCostItem,
       updateRow,
@@ -970,15 +1100,20 @@ export function useTimelineMilestoneWorksheetRuntime({
     createCostItem, customMilestoneName, deleteCostItem, deleteMilestone,
     detailsSheetActiveTab, detailsSheetDescription, detailsSheetOpen,
     detailsSheetRow, detailsSheetSubMilestone, detailsSheetTarget,
-    detailsSheetTestId, detailsSheetTitle, error, footerExtra,
+    detailsSheetTestId, detailsSheetTitle,
+    error: cascadeBudgetError || error, footerExtra,
     handleDetailsSheetTabChange, handleWorksheetViewChange,
     includedBudgetCents, includedRows, keyboardInstructionsId, leadingContent,
-    mode, moveSummarySubMilestone, onBack, onCascadeBudgetEditsChange,
+    mode, moveSummarySubMilestone, onBack,
+    onCascadeBudgetEditsChange: handleCascadeBudgetEditsChange,
     onComplete, onReset, onScheduleDisplayModeChange, openDetailsSheet,
     planningFocusScopeKey, projectAddress, proposedStartDate,
-    proposalSubmittedAt, pendingMilestoneDeleteRow, pendingUnsavedNavigation,
+    proposalSubmittedAt, pendingMilestoneDeleteRow,
+    pendingMilestoneDeleteCanDelete, pendingMilestoneDeleteSource,
+    pendingUnsavedNavigation,
     reportSubMilestoneEditorDirty, removeContractorAssignment,
     removeSubMilestone, renderMilestoneDetailTabs, reorderRows,
+    requestMilestoneDelete,
     requestUnsavedNavigation, rows, scheduleDisplayMode, scopeRoute,
     scopeWorkosOrganizationId, setCustomMilestoneName,
     setDirtySubMilestoneEditorKeys, setPendingMilestoneDeleteKey,

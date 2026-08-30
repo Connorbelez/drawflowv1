@@ -45,6 +45,7 @@ import { Route as LenderDrawsRouteImport } from './routes/lender/draws'
 import { Route as LenderDrawReviewSheetPrototypeRouteImport } from './routes/lender.draw-review-sheet-prototype'
 import { Route as LenderDrawReviewPrototypeRouteImport } from './routes/lender.draw-review-prototype'
 import { Route as LenderBuildDetailOverviewPrototypeRouteImport } from './routes/lender.build-detail-overview-prototype'
+import { Route as InvitationsInvitationIdRouteImport } from './routes/invitations/$invitationId'
 import { Route as ContractorWorkRouteImport } from './routes/contractor/work'
 import { Route as ContractorScheduleRouteImport } from './routes/contractor/schedule'
 import { Route as ContractorProfileRouteImport } from './routes/contractor/profile'
@@ -305,6 +306,11 @@ const LenderBuildDetailOverviewPrototypeRoute =
     path: '/build-detail-overview-prototype',
     getParentRoute: () => LenderRouteRoute,
   } as any)
+const InvitationsInvitationIdRoute = InvitationsInvitationIdRouteImport.update({
+  id: '/invitations/$invitationId',
+  path: '/invitations/$invitationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ContractorWorkRoute = ContractorWorkRouteImport.update({
   id: '/work',
   path: '/work',
@@ -724,6 +730,7 @@ export interface FileRoutesByFullPath {
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/invitations/$invitationId': typeof InvitationsInvitationIdRoute
   '/lender/build-detail-overview-prototype': typeof LenderBuildDetailOverviewPrototypeRoute
   '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
   '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
@@ -816,6 +823,7 @@ export interface FileRoutesByTo {
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/invitations/$invitationId': typeof InvitationsInvitationIdRoute
   '/lender/build-detail-overview-prototype': typeof LenderBuildDetailOverviewPrototypeRoute
   '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
   '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
@@ -921,6 +929,7 @@ export interface FileRoutesById {
   '/contractor/profile': typeof ContractorProfileRoute
   '/contractor/schedule': typeof ContractorScheduleRoute
   '/contractor/work': typeof ContractorWorkRoute
+  '/invitations/$invitationId': typeof InvitationsInvitationIdRoute
   '/lender/build-detail-overview-prototype': typeof LenderBuildDetailOverviewPrototypeRoute
   '/lender/draw-review-prototype': typeof LenderDrawReviewPrototypeRoute
   '/lender/draw-review-sheet-prototype': typeof LenderDrawReviewSheetPrototypeRoute
@@ -1030,6 +1039,7 @@ export interface FileRouteTypes {
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/invitations/$invitationId'
     | '/lender/build-detail-overview-prototype'
     | '/lender/draw-review-prototype'
     | '/lender/draw-review-sheet-prototype'
@@ -1122,6 +1132,7 @@ export interface FileRouteTypes {
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/invitations/$invitationId'
     | '/lender/build-detail-overview-prototype'
     | '/lender/draw-review-prototype'
     | '/lender/draw-review-sheet-prototype'
@@ -1226,6 +1237,7 @@ export interface FileRouteTypes {
     | '/contractor/profile'
     | '/contractor/schedule'
     | '/contractor/work'
+    | '/invitations/$invitationId'
     | '/lender/build-detail-overview-prototype'
     | '/lender/draw-review-prototype'
     | '/lender/draw-review-sheet-prototype'
@@ -1310,6 +1322,7 @@ export interface RootRouteChildren {
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   ApiReleaseRoute: typeof ApiReleaseRoute
+  InvitationsInvitationIdRoute: typeof InvitationsInvitationIdRoute
   NotificationsIntentIdRoute: typeof NotificationsIntentIdRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
@@ -1576,6 +1589,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/lender/build-detail-overview-prototype'
       preLoaderRoute: typeof LenderBuildDetailOverviewPrototypeRouteImport
       parentRoute: typeof LenderRouteRoute
+    }
+    '/invitations/$invitationId': {
+      id: '/invitations/$invitationId'
+      path: '/invitations/$invitationId'
+      fullPath: '/invitations/$invitationId'
+      preLoaderRoute: typeof InvitationsInvitationIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/contractor/work': {
       id: '/contractor/work'
@@ -2456,6 +2476,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
   ApiReleaseRoute: ApiReleaseRoute,
+  InvitationsInvitationIdRoute: InvitationsInvitationIdRoute,
   NotificationsIntentIdRoute: NotificationsIntentIdRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,

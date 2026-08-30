@@ -1,11 +1,7 @@
 import type { ActiveBuildAuthorization } from "../activeBuildAccess";
-import {
-  buildActionItemQueueSortAt,
-  resetBuildActionItemDeadlineSchedule,
-} from "../build_action_item_deadline_model";
+import { persistCanonicalBuildActionItem } from "../build_action_item_application";
 import { isCleanCollaborationAsset } from "../build_collaboration_asset_access";
 import { persistGovernedCollaborationAssetAttachments } from "../build_collaboration_asset_publication";
-import { isCanonicalCollaborationSystemPost } from "../build_collaboration_system_event_access";
 import {
   canCreateCustomCollaborationAudience,
   collaborationRoleTier,
@@ -16,6 +12,7 @@ import {
   canonicalizeTiptapContent,
   type ReferenceInput,
 } from "../build_collaboration_publication_bundle";
+import { isCanonicalCollaborationSystemPost } from "../build_collaboration_system_event_access";
 import { buildCollaborationValidationError } from "../build_collaboration_validation";
 import type { Doc, Id, MutationCtx } from "../types";
 
@@ -24,15 +21,14 @@ const MAX_RICH_TEXT_LENGTH = 250_000;
 
 export function shouldSkipBuildCollaborationFeedPost(
   post: Doc<"buildCollaborationPosts">,
-  filter: "all" | "active_operations" | undefined,
+  filter: "all" | "active_operations" | undefined
 ) {
   // Legacy operational automation (Evidence, Site Visit, Document, and
   // transition-event posts) has no canonical occurrence identity. Keep those
   // retired rows out of every feed while preserving ordinary human posts and
   // the one deterministic Milestone/Draw System Post per occurrence.
   const isRetiredAutomatedPost =
-    post.source === "system" &&
-    !isCanonicalCollaborationSystemPost(post);
+    post.source === "system" && !isCanonicalCollaborationSystemPost(post);
   // Approved-plan companions are identity records, not activity. They become
   // feed-visible only when the canonical Milestone activates.
   return (
@@ -44,11 +40,15 @@ export function shouldSkipBuildCollaborationFeedPost(
 }
 
 export function isActiveBuildCollaborationOperation(
-  post: Doc<"buildCollaborationPosts">,
+  post: Doc<"buildCollaborationPosts">
 ) {
-  if (post.contentState !== "active") return false;
+  if (post.contentState !== "active") {
+    return false;
+  }
   if (post.systemPostKind) {
-    return post.systemLifecycle !== "resolved" && post.threadState !== "resolved";
+    return (
+      post.systemLifecycle !== "resolved" && post.threadState !== "resolved"
+    );
   }
   return post.threadState !== "resolved" || post.openActionItemCount > 0;
 }
@@ -441,70 +441,33 @@ export async function createActionItems(
       actionItem.descriptionTiptapJson ??
       JSON.stringify({ content: [], type: "doc" });
     validateOptionalTiptapJson(descriptionTiptapJson);
-    const primaryReference = actionItem.references?.find(
-      (reference) => reference.primary
-    );
-    const deadlineSchedule = resetBuildActionItemDeadlineSchedule(
-      actionItem.dueAt,
-      "todo"
-    );
-    const actionItemId = await ctx.db.insert("buildActionItems", {
-      assigneeWorkosUserId: assignee,
-      assignedByWorkosUserId: assignee
-        ? input.authorization.viewer.subject
-        : undefined,
-      assignmentRequestedAt:
-        assignmentState === "requested" ? input.now : undefined,
-      assignmentState,
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      creatorWorkosUserId: input.authorization.viewer.subject,
-      creatorRole: input.authorization.effectiveRole.role,
-      currentRevision: 1,
-      descriptionPlainText,
-      descriptionTiptapJson,
-      dueAt: actionItem.dueAt,
-      dueDateSource: actionItem.dueAt === undefined ? undefined : "manual",
-      ...deadlineSchedule,
-      originatingPostId: input.postId,
-      organizationId: input.authorization.organizationId,
-      priority: actionItem.priority ?? "none",
-      primaryReferenceId: primaryReference?.entityId,
-      primaryReferenceKind: primaryReference?.entityKind,
-      queueSortAt: buildActionItemQueueSortAt(actionItem.dueAt, "todo"),
-      requiresAcceptance,
-      status: "todo",
-      title: actionItem.title,
-      updatedAt: input.now,
-    });
-    await ctx.db.insert("buildActionItemEvents", {
-      actionItemId,
-      actorRole: input.authorization.effectiveRole.role,
-      actorWorkosUserId: input.authorization.viewer.subject,
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      eventType: "created",
-      exercisedAuthority: "creator",
-      newState: JSON.stringify({
+    await persistCanonicalBuildActionItem(ctx, {
+      actionItem: {
         assigneeWorkosUserId: assignee,
+        assignedByWorkosUserId: assignee
+          ? input.authorization.viewer.subject
+          : undefined,
+        assignmentRequestedAt:
+          assignmentState === "requested" ? input.now : undefined,
         assignmentState,
+        descriptionPlainText,
+        descriptionTiptapJson,
+        dueAt: actionItem.dueAt,
         priority: actionItem.priority ?? "none",
-        status: "todo",
-      }),
-      organizationId: input.authorization.organizationId,
-      revision: 1,
-      warnings:
-        assignmentState === "requested" ? ["assignment_requested"] : undefined,
-    });
-    await persistActionItemReferences(ctx, {
-      actionItemId,
+        references: actionItem.references ?? [],
+        requiresAcceptance,
+        title: actionItem.title,
+      },
       authorization: input.authorization,
+      event: {
+        exercisedAuthority: "creator",
+        warnings:
+          assignmentState === "requested"
+            ? ["assignment_requested"]
+            : undefined,
+      },
       now: input.now,
       postId: input.postId,
-      queueSortAt: buildActionItemQueueSortAt(actionItem.dueAt, "todo"),
-      references: actionItem.references ?? [],
     });
   }
 }
@@ -542,36 +505,6 @@ function resolveApprovedActionItemAssignment(
     assignmentState: actionItem.effectiveAssignmentState,
     requiresAcceptance,
   };
-}
-
-async function persistActionItemReferences(
-  ctx: MutationCtx,
-  input: {
-    actionItemId: Id<"buildActionItems">;
-    authorization: ActiveBuildAuthorization;
-    now: number;
-    postId: Id<"buildCollaborationPosts">;
-    queueSortAt: number;
-    references: ReferenceInput[];
-  }
-) {
-  for (const reference of input.references) {
-    await ctx.db.insert("buildCollaborationReferences", {
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      entityId: reference.entityId,
-      entityKind: reference.entityKind,
-      labelSnapshot: reference.label,
-      organizationId: input.authorization.organizationId,
-      ownerKind: "actionItem",
-      ownerRecordId: input.actionItemId,
-      postId: input.postId,
-      primary: reference.primary ?? false,
-      actionItemQueueSortAt: input.queueSortAt,
-      summarySnapshot: reference.summary,
-    });
-  }
 }
 
 export async function recordPublicationAudit(

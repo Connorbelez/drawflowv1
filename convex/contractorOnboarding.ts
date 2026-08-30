@@ -11,6 +11,7 @@ export {
 } from "./contractorOnboarding/workflow";
 export {
   createContractorProfileInviteClaim,
+  updateContractorInvitationDelivery,
   sendContractorProfileInvite,
   resendContractorProfileInvite,
   revokeContractorProfileInvite,

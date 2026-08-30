@@ -12,7 +12,14 @@ import { hasProjectedWorkosPermission as hasPermission } from "../workos_permiss
 import { resolveBrokerageScope } from "./authorization_core.js";
 import { isBackoffice } from "./proposal_claim.js";
 import { buildRosterPhaseValidator, backofficeBuildRosterSortValidator, backofficeBuildRosterSortDirectionValidator, backofficeBuildRosterRowValidator, type BackofficeBuildRosterRowWithStorage, type BackofficeBuildRosterAuth, BACKOFFICE_BUILD_ROSTER_PAGE_SIZE, BACKOFFICE_BUILD_ROSTER_SUMMARY_BATCH_SIZE, BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE, paginateBackofficeBuilds } from "./roster_contracts.js";
-import { projectBackofficeBuildRosterRow, backofficeBuildRosterSearchText, productionMilestoneNeedsBackofficeReview } from "./roster_projection_helpers.js";
+import {
+  backofficeBuildRosterSearchText,
+  productionDaysActive,
+  productionMilestoneIsBehindSchedule,
+  productionMilestoneNeedsBackofficeReview,
+  productionSubmilestoneIsBehindSchedule,
+  projectBackofficeBuildRosterRow,
+} from "./roster_projection_helpers.js";
 import { createStorageUrlResolver } from "./storage_helpers.js";
 
 export const listBackofficeBuildRosterPage = authenticatedQuery
@@ -106,6 +113,7 @@ export const listBackofficeBuildRosterPage = authenticatedQuery
 const backofficeBuildRosterSummaryBuildValidator = v.object({
   buildId: v.id("activeBuilds"),
   buildStatus: v.union(v.literal("active"), v.literal("future_start")),
+  startDate: v.string(),
 });
 
 const backofficeBuildRosterSummaryLoanValidator = v.object({
@@ -114,10 +122,21 @@ const backofficeBuildRosterSummaryLoanValidator = v.object({
 });
 
 const backofficeBuildRosterSummaryMilestoneValidator = v.object({
+  behindMilestoneKeys: v.array(v.string()),
   buildId: v.id("activeBuilds"),
   milestonesComplete: v.number(),
   milestonesInReview: v.number(),
   milestonesTotal: v.number(),
+});
+
+const backofficeBuildRosterSummarySubmilestoneValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  milestoneKey: v.string(),
+});
+
+const backofficeBuildRosterScheduleInputValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  startDate: v.string(),
 });
 
 const backofficeBuildRosterSummaryDrawRequestValidator = v.object({
@@ -182,6 +201,7 @@ export const listBackofficeBuildRosterSummaryBuildsPage = internalQuery
       builds.push({
         buildId: build._id,
         buildStatus: build.status,
+        startDate: build.startDate,
       });
     }
     return {
@@ -305,6 +325,7 @@ export const listBackofficeBuildRosterSummaryLoans = internalQuery
 export const listBackofficeBuildRosterSummaryMilestonesPage = internalQuery
   .input({
     brokerageId: v.id("brokerages"),
+    buildSchedules: v.array(backofficeBuildRosterScheduleInputValidator),
     buildIds: v.array(v.id("activeBuilds")),
     organizationId: v.string(),
     paginationOpts: paginationOptsValidator,
@@ -314,6 +335,12 @@ export const listBackofficeBuildRosterSummaryMilestonesPage = internalQuery
   )
   .handler(async (ctx, args) => {
     const buildIds = new Set(args.buildIds);
+    const startDateByBuild = new Map(
+      args.buildSchedules.map((schedule) => [
+        schedule.buildId,
+        schedule.startDate,
+      ]),
+    );
     const page = await ctx.db
       .query("buildMilestones")
       .withIndex("by_brokerage", (q) => q.eq("brokerageId", args.brokerageId))
@@ -330,6 +357,7 @@ export const listBackofficeBuildRosterSummaryMilestonesPage = internalQuery
         continue;
       }
       const state = milestonesByBuild.get(milestone.buildId) ?? {
+        behindMilestoneKeys: [],
         buildId: milestone.buildId,
         milestonesComplete: 0,
         milestonesInReview: 0,
@@ -341,6 +369,16 @@ export const listBackofficeBuildRosterSummaryMilestonesPage = internalQuery
       }
       if (productionMilestoneNeedsBackofficeReview(milestone)) {
         state.milestonesInReview += 1;
+      }
+      const startDate = startDateByBuild.get(milestone.buildId);
+      if (
+        startDate &&
+        productionMilestoneIsBehindSchedule(
+          milestone,
+          productionDaysActive(startDate),
+        )
+      ) {
+        state.behindMilestoneKeys.push(milestone.key);
       }
       milestonesByBuild.set(milestone.buildId, state);
     }
@@ -355,6 +393,7 @@ export const listBackofficeBuildRosterSummaryMilestonesPage = internalQuery
 export const listBackofficeBuildRosterSummaryMilestones = internalQuery
   .input({
     brokerageId: v.id("brokerages"),
+    buildSchedules: v.array(backofficeBuildRosterScheduleInputValidator),
     buildIds: v.array(v.id("activeBuilds")),
     organizationId: v.string(),
   })
@@ -374,6 +413,7 @@ export const listBackofficeBuildRosterSummaryMilestones = internalQuery
             .listBackofficeBuildRosterSummaryMilestonesPage,
           {
             brokerageId: args.brokerageId,
+            buildSchedules: args.buildSchedules,
             buildIds: args.buildIds,
             organizationId: args.organizationId,
             paginationOpts: {
@@ -384,11 +424,13 @@ export const listBackofficeBuildRosterSummaryMilestones = internalQuery
         );
       for (const milestone of page.page) {
         const state = milestonesByBuild.get(milestone.buildId) ?? {
+          behindMilestoneKeys: [],
           buildId: milestone.buildId,
           milestonesComplete: 0,
           milestonesInReview: 0,
           milestonesTotal: 0,
         };
+        state.behindMilestoneKeys.push(...milestone.behindMilestoneKeys);
         state.milestonesComplete += milestone.milestonesComplete;
         state.milestonesInReview += milestone.milestonesInReview;
         state.milestonesTotal += milestone.milestonesTotal;
@@ -398,7 +440,129 @@ export const listBackofficeBuildRosterSummaryMilestones = internalQuery
       isDone = page.isDone;
     }
 
+    const childRisks: BackofficeBuildRosterSummarySubmilestone[] =
+      await ctx.runQuery(
+        internal.production_proposals
+          .listBackofficeBuildRosterSummarySubmilestones,
+        {
+          brokerageId: args.brokerageId,
+          buildSchedules: args.buildSchedules,
+          buildIds: args.buildIds,
+          organizationId: args.organizationId,
+        },
+      );
+    for (const risk of childRisks) {
+      const state = milestonesByBuild.get(risk.buildId);
+      if (state) {
+        state.behindMilestoneKeys.push(risk.milestoneKey);
+      }
+    }
+
+    for (const state of milestonesByBuild.values()) {
+      state.behindMilestoneKeys = [...new Set(state.behindMilestoneKeys)];
+    }
+
     return [...milestonesByBuild.values()];
+  })
+  .internal();
+
+export type BackofficeBuildRosterSummarySubmilestone = Infer<
+  typeof backofficeBuildRosterSummarySubmilestoneValidator
+>;
+
+export const listBackofficeBuildRosterSummarySubmilestonesPage = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildSchedules: v.array(backofficeBuildRosterScheduleInputValidator),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(
+    paginationResultValidator(
+      backofficeBuildRosterSummarySubmilestoneValidator,
+    ),
+  )
+  .handler(async (ctx, args) => {
+    const buildIds = new Set(args.buildIds);
+    const startDateByBuild = new Map(
+      args.buildSchedules.map((schedule) => [
+        schedule.buildId,
+        schedule.startDate,
+      ]),
+    );
+    const page = await ctx.db
+      .query("buildSubmilestones")
+      .paginate(args.paginationOpts);
+    const risks: BackofficeBuildRosterSummarySubmilestone[] = [];
+    for (const submilestone of page.page) {
+      if (
+        submilestone.organizationId !== args.organizationId ||
+        submilestone.brokerageId !== args.brokerageId ||
+        !buildIds.has(submilestone.buildId)
+      ) {
+        continue;
+      }
+      const [milestone, startDate] = [
+        await ctx.db.get(submilestone.buildMilestoneId),
+        startDateByBuild.get(submilestone.buildId),
+      ];
+      if (
+        milestone &&
+        milestone.buildId === submilestone.buildId &&
+        startDate &&
+        productionSubmilestoneIsBehindSchedule(
+          submilestone,
+          milestone,
+          productionDaysActive(startDate),
+        )
+      ) {
+        risks.push({
+          buildId: submilestone.buildId,
+          milestoneKey: submilestone.milestoneKey,
+        });
+      }
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      page: risks,
+    };
+  })
+  .internal();
+
+export const listBackofficeBuildRosterSummarySubmilestones = internalQuery
+  .input({
+    brokerageId: v.id("brokerages"),
+    buildSchedules: v.array(backofficeBuildRosterScheduleInputValidator),
+    buildIds: v.array(v.id("activeBuilds")),
+    organizationId: v.string(),
+  })
+  .returns(v.array(backofficeBuildRosterSummarySubmilestoneValidator))
+  .handler(async (ctx, args) => {
+    const risks = new Map<string, BackofficeBuildRosterSummarySubmilestone>();
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone) {
+      const page: BackofficeBuildRosterSummaryPage<BackofficeBuildRosterSummarySubmilestone> =
+        await ctx.runQuery(
+          internal.production_proposals
+            .listBackofficeBuildRosterSummarySubmilestonesPage,
+          {
+            ...args,
+            paginationOpts: {
+              cursor,
+              numItems: BACKOFFICE_BUILD_ROSTER_SUMMARY_CHILD_BATCH_SIZE,
+            },
+          },
+        );
+      for (const risk of page.page) {
+        risks.set(`${risk.buildId}:${risk.milestoneKey}`, risk);
+      }
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+    return [...risks.values()];
   })
   .internal();
 

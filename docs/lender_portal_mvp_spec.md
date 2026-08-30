@@ -28,9 +28,10 @@ shared identity organization, invitations, roles, memberships, and webhook
 projections. DrawFlow must never create a WorkOS organization to represent a
 Lender Organization.
 
-`lenderOrganizations` owns names, status, timestamps, and the organization-wide
+`lenderOrganizations` owns names, status, timestamps, the organization-wide
 proposal-review, Milestone-decision, Draw-decision, and Site Visit-review
-permission bundle. `lenderOrganizationAssignments` is a thin app relation keyed
+permission bundle, and the application policy scope for versioned default
+Review Requirements. `lenderOrganizationAssignments` is a thin app relation keyed
 by WorkOS user and application organization; it does not duplicate identity,
 role, or membership state. `/lender/organization` resolves this app assignment
 and shows an empty state with a `mailto:support@fairlend.ca` admin CTA when no
@@ -79,7 +80,7 @@ Replace simple lender proposal approval with a guided confirmation of Milestone 
 
 Before closing, Back Office locks one Build-wide review policy. Milestone and Draw approval independently require Back Office Admin, a numeric lender quorum, or both. Milestone policy also independently controls Site Visit and receipt/invoice requirements. Rejected Milestone and Draw requests return to builder correction and are resubmitted as a new cycle on the same durable request. All required approvals reset. The Builder receives published revision instructions, while reviewer identity and any separate private reviewer rationale remain private.
 
-Provide the external Lender Portal with a dashboard, proposal list and confirmation detail, active-Build list and narrow detail, Milestone queue and detail, Draw queue and detail, and a read-only application organization view. Provide Back Office Admin with `/backoffice/lenders` for provisioning, assignment, staged invitations, shared membership management, policy editing, and soft deactivation. Directly promote accepted Variant E composition where it governs the membership-management interaction, but keep the ownership boundary app-level. Use canonical domain commands and participant-specific projections so Back Office, lender, and builder surfaces remain synchronized without exposing WorkOS directory data to unassigned lenders. The narrow Build detail directly promotes locked Variant C: overview; expandable Milestone records with canonical Budget, receipt/invoice coverage, and actual-or-planned dates; focused read-only Milestone-sheet navigation; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration in read-only form.
+Provide the external Lender Portal with a dashboard, proposal list and confirmation detail, active-Build list and narrow detail, Milestone queue and detail, Draw queue and detail, and a read-only application organization view. Provide Back Office Admin with `/backoffice/lenders` for provisioning, assignment, staged invitations, shared membership management, policy editing, and soft deactivation. Directly promote accepted Variant E composition where it governs the membership-management interaction, but keep the ownership boundary app-level. Use canonical domain commands and participant-specific projections so Back Office, lender, and builder surfaces remain synchronized without exposing WorkOS directory data to unassigned lenders. The narrow Build detail directly promotes locked Variant C: overview; a read-only projection of the immutable Milestone and Draw review policy; expandable Milestone records with canonical Budget, receipt/invoice coverage, and actual-or-planned dates; focused read-only Milestone-sheet navigation; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration. Every active `lender`, `lender-admin`, or `lender-staff` member of the currently assigned Lender Organization may publish fixed Build-wide updates and paginate every authorized response. Publication, replies, governed attachments, audit, notification, moderation, search, and webhooks reuse the canonical Build Collaboration owners. Internal notes, restricted posts, moderated content, private rationale, scheduling, custom audiences, acknowledgements, Action Items, and shared domain mutations remain unavailable.
 
 ## Risk-Rated Blast Radius
 
@@ -285,8 +286,32 @@ must not be reused or renumbered after implementation evidence references them.
 - Back Office proposal surfaces include assignment, lender action/outcome, private decline reason, remediation editing, revision publication, withdrawal, policy-lock readiness, closing readiness, and activation.
 - Builder proposal state distinguishes Back Office approval, lender review, pending closing, closed, and active without private lender detail.
 - The Lender Portal includes dashboard, proposal list/detail, active-Build list/detail, Milestone queue/detail, Draw queue/detail, and Admin/Principal Broker organization administration.
-- Lender Organization Management directly promotes Variant E, **Shared user management operations**, at `/lender/organization-management-prototype?variant=E`, locked on 2026-08-13. Production reuses `UserManagementDirectoryTable` and `UserDetailSheet`, including Access, Administration, Review relationship, and History tabs; it replaces local-only execution with authorized WorkOS-first commands and projection states.
-- Organization Management is operational but does not own Back Office Review Requirements Setup. It exposes downstream access, assignment, quorum-context, recipient, queue, and audit effects without editing reviewer groups, quorum count, required evidence, Site Visit requirements, approval order, or policy satisfaction.
+- Lender Organization Management directly promotes Variant E, **Shared user management operations**, at `/lender/organization-management-prototype?variant=E`, locked on 2026-08-13. Production reuses `UserManagementDirectoryTable` and `UserDetailSheet`. The Back Office composition keeps its existing operations. The `/lender/organization` composition uses capability props to expose the same directory and sheet without invitation, role-change, review-policy, or brokerage-management controls.
+- Organization Management exposes a Back Office-only default Review
+  Requirements editor for the selected application-owned Lender Organization.
+  It saves immutable versions with optimistic concurrency, actor, time, and
+  reason. The organization-wide policy remains read-only for every lender-facing
+  role. Active same-organization `lender-admin` users may instead update the
+  selected member's versioned proposal, Milestone, and Draw grants and may
+  deactivate eligible members. Other lender roles see the same member facts and
+  effective grants read-only.
+- Effective proposal, Milestone, and Draw authority is the intersection of an
+  active WorkOS user and membership, an active application assignment, the
+  organization-wide capability, and the matching member grant. The member
+  permission version participates in eligibility epochs and decision recounts.
+- Lender-member deactivation derives its organization and membership scope from
+  the app assignment. Provider acceptance suspends DrawFlow authority
+  immediately; webhook projection finalizes the assignment. Provider failure
+  restores authority and preserves a retryable failure record. Self-deactivation
+  and deactivation of the last active `lender-admin` fail closed.
+- Assignment and reassignment validate current approval-eligible membership and
+  snapshot the selected organization's current default, or explicit system /
+  Back Office baseline, into the canonical assignment and Proposal policy
+  revision. Unsatisfiable quorum defaults fail closed without partial writes.
+- Later default edits affect future assignments only. Before policy lock, Back
+  Office may create an audited per-Build revision or restore the organization's
+  current default. These commands preserve the `accessReviewPolicy` lender
+  confirmation checkpoint and immutable revision/cycle semantics.
 - Milestone and Draw queues include all assigned requests and default to Needs my action. Needs my action is derived from current active membership, assignment, current cycle, required groups, and counting decisions.
 - The Lender Draw Queue approved implementation contract is Variant D,
   **Build packets**, at `/lender/draws-prototype?variant=D`, locked on

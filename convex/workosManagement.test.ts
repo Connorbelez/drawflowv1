@@ -11,6 +11,7 @@ import {
   isWorkosConflict,
   provisionBuilderStaffUserWithWorkos,
 } from "./workosManagement";
+import { workosInvitationUserMessage } from "./workosManagement/shared";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -347,6 +348,24 @@ describe("WorkOS management actions", () => {
       ),
     ).toBe(true);
     expect(isWorkosConflict(new Error("WorkOS invitation failed."))).toBe(false);
+  });
+
+  test("maps WorkOS invitation failures to safe user feedback", () => {
+    expect(
+      workosInvitationUserMessage(
+        new Error("Email already invited to organization."),
+      ),
+    ).toBe(
+      "An invitation is already pending for this email. Retry the invitation after confirming the address.",
+    );
+    expect(
+      workosInvitationUserMessage(
+        new Error("WorkOS invitation failed."),
+        true,
+      ),
+    ).toBe(
+      "The WorkOS invitation was created, but the custom email could not be queued. Try again or contact support.",
+    );
   });
 
   test("sends builder-staff invitation before direct membership provisioning", async () => {

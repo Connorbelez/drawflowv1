@@ -3,13 +3,26 @@
  * The parent facade re-exports its handlers to preserve production_proposals function references.
  */
 import { normalizeRoleSlugs, type RoleSlug } from "../authz";
-import { ensureBuilderBrokerAssignment, requireDefaultBrokerMember } from "../brokerAssignments";
+import { completeBuilderOnboarding } from "../brokerageProvisioning/provisioning";
 import { shareTokenHash } from "../proposal_collaboration_model";
-import { type Doc, type Id, type MutationCtx, type QueryCtx } from "../types";
-import { builderProfileBrokerageWorkosOrganizationId, builderAccountLinkWorkosState } from "./authorization_core.js";
-import { type BuilderStaffPermissionResource, isBuilderStaffPermissionResource, getOwnedBuilderProfile, getWorkosUserById, builderStaffDisplayName, normalizeBuilderStaffAssignedEmail } from "./builder_staff_access.js";
+import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
+import {
+  builderAccountLinkWorkosState,
+  builderProfileBrokerageWorkosOrganizationId,
+} from "./authorization_core.js";
+import {
+  type BuilderStaffPermissionResource,
+  builderStaffDisplayName,
+  getWorkosUserById,
+  isBuilderStaffPermissionResource,
+  normalizeBuilderStaffAssignedEmail,
+} from "./builder_staff_access.js";
 import { normalizeOptionalString } from "./contractor_policy_helpers.js";
-import { BACKOFFICE_ROLES, BUILDER_ROLES, BUILDER_STAFF_PERMISSION_RESOURCES } from "./contracts_foundation.js";
+import {
+  BACKOFFICE_ROLES,
+  BUILDER_ROLES,
+  BUILDER_STAFF_PERMISSION_RESOURCES,
+} from "./contracts_foundation.js";
 
 export function normalizeBuilderStaffPermissionInput(
   permissions: Array<{
@@ -18,14 +31,14 @@ export function normalizeBuilderStaffPermissionInput(
     canUpdate: boolean;
     canView: boolean;
     resourceType: BuilderStaffPermissionResource;
-  }>,
+  }>
 ) {
   const byResource = new Map(
     permissions
       .filter((permission) =>
-        isBuilderStaffPermissionResource(permission.resourceType),
+        isBuilderStaffPermissionResource(permission.resourceType)
       )
-      .map((permission) => [permission.resourceType, permission]),
+      .map((permission) => [permission.resourceType, permission])
   );
   return BUILDER_STAFF_PERMISSION_RESOURCES.map((resourceType) => {
     const permission = byResource.get(resourceType);
@@ -44,13 +57,13 @@ export function builderAccountRoleRank(role: "owner" | "staff") {
 }
 
 export function canonicalBuilderAccountLinks(
-  links: Array<Doc<"builderAccountLinks">>,
+  links: Array<Doc<"builderAccountLinks">>
 ) {
   const sorted = [...links].sort(
     (left, right) =>
       builderAccountRoleRank(left.role) - builderAccountRoleRank(right.role) ||
       left.createdAt - right.createdAt ||
-      String(left._id).localeCompare(String(right._id)),
+      String(left._id).localeCompare(String(right._id))
   );
   const canonicalByKey = new Map<string, Doc<"builderAccountLinks">>();
   const canonicalLinkIdById = new Map<string, string>();
@@ -69,7 +82,7 @@ export function canonicalBuilderAccountLinks(
 function builderAccountCanonicalKey(link: Doc<"builderAccountLinks">) {
   if (link.role === "staff") {
     const assignedEmail = normalizeBuilderStaffAssignedEmail(
-      link.assignedEmail,
+      link.assignedEmail
     );
     if (assignedEmail) {
       return `staff-email:${assignedEmail}`;
@@ -80,7 +93,7 @@ function builderAccountCanonicalKey(link: Doc<"builderAccountLinks">) {
 
 export async function getProposalClaimLinkByToken(
   ctx: QueryCtx | MutationCtx,
-  claimToken: string,
+  claimToken: string
 ) {
   const trimmed = claimToken.trim();
   if (!trimmed) {
@@ -90,7 +103,7 @@ export async function getProposalClaimLinkByToken(
   return await ctx.db
     .query("proposalClaimLinks")
     .withIndex("by_share_token_hash", (q) =>
-      q.eq("shareTokenHash", hashedToken),
+      q.eq("shareTokenHash", hashedToken)
     )
     .unique();
 }
@@ -121,67 +134,33 @@ export async function getOrCreateClaimantBuilderProfile(
     now: number;
     proposal: Doc<"buildProposals">;
     workosOrganizationId: string;
-  },
-) {
-  let builderProfile = await getOwnedBuilderProfile(
-    ctx,
-    input.auth.brokerage._id,
-    input.auth.subject,
-  );
-
-  if (!builderProfile) {
-    const user = await getWorkosUserById(ctx, input.auth.subject);
-    const displayName = claimBuilderDisplayName(
-      user,
-      input.proposal,
-      input.claimantEmail,
-    );
-    const builderProfileId = await ctx.db.insert("builderProfiles", {
-      brokerageId: input.auth.brokerage._id,
-      createdAt: input.now,
-      displayName,
-      legalName: displayName,
-      organizationId: input.workosOrganizationId,
-      status: "active",
-      updatedAt: input.now,
-    });
-    await ctx.db.insert("builderAccountLinks", {
-      brokerageId: input.auth.brokerage._id,
-      builderProfileId,
-      createdAt: input.now,
-      role: "owner",
-      status: "active",
-      updatedAt: input.now,
-      workosUserId: input.auth.subject,
-    });
-    const createdBuilderProfile = await ctx.db.get(builderProfileId);
-    if (!createdBuilderProfile) {
-      throw new Error("Builder profile creation failed.");
-    }
-    builderProfile = createdBuilderProfile;
   }
-
-  const { workosUserId: assignedBrokerWorkosUserId } =
-    await requireDefaultBrokerMember(ctx, input.auth.brokerage);
-  await ensureBuilderBrokerAssignment(ctx, {
+) {
+  const user = await getWorkosUserById(ctx, input.auth.subject);
+  const displayName = claimBuilderDisplayName(
+    user,
+    input.proposal,
+    input.claimantEmail
+  );
+  const result = await completeBuilderOnboarding(ctx, {
     actorRoles: input.auth.roles,
     actorWorkosUserId: input.auth.subject,
-    assignedBrokerWorkosUserId,
-    brokerage: input.auth.brokerage,
-    builderProfile,
-    command: "claimDraftProposalLink",
+    displayName,
+    mode: "attach_existing_owner",
     now: input.now,
-    reason:
-      "Assigning the brokerage principal broker while linking a claimed proposal to its builder.",
+    ownerEmail: input.claimantEmail ?? user?.email,
+    ownerName: displayName,
+    ownerWorkosUserId: input.auth.subject,
+    workosOrganizationId: input.workosOrganizationId,
   });
 
-  return builderProfile;
+  return result.builderProfile;
 }
 
 function claimBuilderDisplayName(
   user: Doc<"users"> | null,
   proposal: Doc<"buildProposals">,
-  fallbackEmail?: string,
+  fallbackEmail?: string
 ) {
   const name = user?.name?.trim();
   if (name && name !== user?.email) {
@@ -200,7 +179,7 @@ function claimBuilderDisplayName(
 
 export async function builderAccountSummaries(
   ctx: QueryCtx | MutationCtx,
-  builderProfileId: Id<"builderProfiles">,
+  builderProfileId: Id<"builderProfiles">
 ) {
   const workosOrganizationId =
     await builderProfileBrokerageWorkosOrganizationId(ctx, builderProfileId);
@@ -209,7 +188,13 @@ export async function builderAccountSummaries(
     .withIndex("by_builder", (q) => q.eq("builderProfileId", builderProfileId))
     .collect();
   const activeLinks = links.filter((link) => link.status === "active");
-  const summaries = [];
+  const summaries: Array<{
+    email?: string;
+    emailVerified: boolean;
+    name?: string;
+    role: "owner" | "staff";
+    workosUserId: string;
+  }> = [];
   for (const link of activeLinks) {
     const workosState = await builderAccountLinkWorkosState(ctx, {
       link,
@@ -239,15 +224,14 @@ export async function builderAccountSummaries(
 export async function drawReviewBuilderContact(
   ctx: QueryCtx | MutationCtx,
   builderProfileId: Id<"builderProfiles">,
-  displayName: string,
+  displayName: string
 ) {
   const accounts = await builderAccountSummaries(ctx, builderProfileId);
   const contact = accounts
     .slice()
     .sort(
       (left, right) =>
-        builderAccountRoleRank(left.role) -
-        builderAccountRoleRank(right.role),
+        builderAccountRoleRank(left.role) - builderAccountRoleRank(right.role)
     )[0];
   return {
     ...(contact?.name ? { contactName: contact.name } : {}),
@@ -255,8 +239,7 @@ export async function drawReviewBuilderContact(
     ...(contact?.email ? { email: contact.email } : {}),
     ...(contact?.role
       ? {
-          role:
-            contact.role === "owner" ? "Builder owner" : "Builder staff",
+          role: contact.role === "owner" ? "Builder owner" : "Builder staff",
         }
       : {}),
   };
@@ -267,11 +250,11 @@ export function preferredBuilderAccountEmail(
     email?: string;
     emailVerified: boolean;
     role: string;
-  }[],
+  }[]
 ) {
   return (
     accounts.find(
-      (account) => account.role === "owner" && account.emailVerified,
+      (account) => account.role === "owner" && account.emailVerified
     )?.email ??
     accounts.find((account) => account.emailVerified)?.email ??
     accounts.find((account) => account.role === "owner")?.email ??
@@ -281,7 +264,7 @@ export function preferredBuilderAccountEmail(
 
 export function workosUserSummary(
   workosUserId: string | undefined,
-  user: Doc<"users"> | null,
+  user: Doc<"users"> | null
 ) {
   if (!workosUserId) {
     return null;
@@ -296,7 +279,7 @@ export function workosUserSummary(
 export async function buildProposalIdentityProjection(
   ctx: QueryCtx | MutationCtx,
   proposal: Doc<"buildProposals">,
-  brokerage: Doc<"brokerages">,
+  brokerage: Doc<"brokerages">
 ) {
   const builderProfile = proposal.builderProfileId
     ? await ctx.db.get(proposal.builderProfileId)
@@ -309,24 +292,24 @@ export async function buildProposalIdentityProjection(
     : null;
   const createdByUser = await getWorkosUserById(
     ctx,
-    proposal.createdByWorkosUserId,
+    proposal.createdByWorkosUserId
   );
   const activeClaimLink = await ctx.db
     .query("proposalClaimLinks")
     .withIndex("by_proposal_status", (q) =>
-      q.eq("proposalId", proposal._id).eq("status", "active"),
+      q.eq("proposalId", proposal._id).eq("status", "active")
     )
     .first();
   const claimLinkActive = Boolean(
     activeClaimLink &&
-    (!activeClaimLink.expiresAt || activeClaimLink.expiresAt >= Date.now()),
+      (!activeClaimLink.expiresAt || activeClaimLink.expiresAt >= Date.now())
   );
   const builderOwnerEmail = preferredBuilderAccountEmail(builderAccounts);
 
   return {
     broker: workosUserSummary(
       proposal.assignedBrokerWorkosUserId,
-      assignedBrokerUser,
+      assignedBrokerUser
     ),
     brokerage: {
       _id: brokerage._id,
@@ -357,22 +340,13 @@ export async function buildProposalIdentityProjection(
 
 export function isBackoffice(roles: readonly RoleSlug[]) {
   return roles.some((role) =>
-    (BACKOFFICE_ROLES as readonly RoleSlug[]).includes(role),
+    (BACKOFFICE_ROLES as readonly RoleSlug[]).includes(role)
   );
 }
 
 export function hasBuilderExecutionRole(roles: readonly RoleSlug[]) {
   return roles.some(
     (role) =>
-      role === "builder" ||
-      role === "builder-staff" ||
-      role === "contractor",
+      role === "builder" || role === "builder-staff" || role === "contractor"
   );
-}
-
-function isLenderOnlyForBuilderExecution(roles: readonly RoleSlug[]) {
-  if (roles.includes("admin")) {
-    return false;
-  }
-  return isBackoffice(roles) && !hasBuilderExecutionRole(roles);
 }

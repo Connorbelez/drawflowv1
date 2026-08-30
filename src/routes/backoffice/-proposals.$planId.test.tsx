@@ -8,6 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { getFunctionName } from "convex/server";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -15,16 +16,25 @@ const lifecycleMocks = vi.hoisted(() => ({
   activateClosedProposal: vi.fn(),
   recordProposalClosing: vi.fn(),
   toast: { error: vi.fn(), success: vi.fn() },
+  useAction: vi.fn(),
   useMutation: vi.fn(),
+  useQuery: vi.fn(),
 }));
 
 vi.mock("convex/react", () => ({
+  useAction: lifecycleMocks.useAction,
   useMutation: lifecycleMocks.useMutation,
-  useQuery: vi.fn(),
+  useQuery: lifecycleMocks.useQuery,
 }));
 vi.mock("sonner", () => ({ toast: lifecycleMocks.toast }));
 
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import {
+  VISUAL_PARITY_APPROVED_PROPOSAL_ID,
+  getVisualParityProposalDetail,
+  getVisualParityTimelineWorkspace,
+} from "#/features/production-proposals/visualParityFixtures.ts";
+import { ProposalReviewRouteContent } from "./-proposal-review-route-content.tsx";
 
 vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
   AnimatedCurvedTimeline: ({
@@ -108,9 +118,16 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  configurable: true,
+  value: vi.fn(),
+});
+
 afterEach(() => cleanup());
 
 beforeEach(() => {
+  lifecycleMocks.useAction.mockReset().mockReturnValue(vi.fn());
+  lifecycleMocks.useQuery.mockReset();
   lifecycleMocks.useMutation.mockReset().mockImplementation(() =>
     lifecycleMocks.useMutation.mock.calls.length % 2 === 1
       ? lifecycleMocks.recordProposalClosing
@@ -565,6 +582,136 @@ describe("ProposalReviewSurface", () => {
 });
 
 describe("ProductionProposalReviewSurface packet CTAs", () => {
+  test("reaches canonical lender assignment through the supported Back Office proposal route", () => {
+    const detail = getVisualParityProposalDetail(
+      VISUAL_PARITY_APPROVED_PROPOSAL_ID,
+    );
+    lifecycleMocks.useQuery.mockImplementation((query, args) => {
+      if (args === "skip") {
+        return undefined;
+      }
+      const functionName = getFunctionName(query);
+      if (functionName === "production_proposals:getProposalDetailByString") {
+        return detail;
+      }
+      if (
+        functionName === "production_proposals:getProductionTimelineWorkspace"
+      ) {
+        return getVisualParityTimelineWorkspace(
+          VISUAL_PARITY_APPROVED_PROPOSAL_ID,
+        );
+      }
+      if (functionName === "production_proposals:listBrokerageBuilders") {
+        return [];
+      }
+      if (functionName === "builderRoster:listAssignableBrokers") {
+        return { brokerages: [] };
+      }
+      return undefined;
+    });
+
+    render(
+      <ProposalReviewRouteContent
+        context={{
+          organizationId: "org_backoffice",
+          role: "admin",
+          roles: ["admin"],
+          userId: "user_backoffice",
+        }}
+        navigate={vi.fn() as never}
+        planId={VISUAL_PARITY_APPROVED_PROPOSAL_ID}
+        search={{ tab: "packet" }}
+      />,
+    );
+
+    const partiesCard = screen
+      .getByText("Parties & assignment")
+      .closest('[data-slot="card"]');
+    expect(partiesCard).toBeTruthy();
+    const parties = within(partiesCard as HTMLElement);
+    expect(parties.getByText("Broker")).toBeTruthy();
+    expect(parties.getByText("Brokerage")).toBeTruthy();
+    expect(parties.getByText("Lender assignment")).toBeTruthy();
+  });
+
+  test("moves unassigned Staff to the existing Builder link flow on the supported route", async () => {
+    const detail = getVisualParityProposalDetail(
+      VISUAL_PARITY_APPROVED_PROPOSAL_ID,
+    );
+    lifecycleMocks.useQuery.mockImplementation((query, args) => {
+      if (args === "skip") {
+        return undefined;
+      }
+      const functionName = getFunctionName(query);
+      if (functionName === "production_proposals:getProposalDetailByString") {
+        return detail;
+      }
+      if (
+        functionName === "production_proposals:getProductionTimelineWorkspace"
+      ) {
+        return getVisualParityTimelineWorkspace(
+          VISUAL_PARITY_APPROVED_PROPOSAL_ID,
+        );
+      }
+      if (functionName === "production_proposals:listBrokerageBuilders") {
+        return [];
+      }
+      if (functionName === "builderRoster:listAssignableBrokers") {
+        return { brokerages: [] };
+      }
+      return undefined;
+    });
+
+    let finishNavigation: (() => void) | undefined;
+    const navigate = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishNavigation = resolve;
+        }),
+    );
+    const routeProps = {
+      context: {
+        organizationId: "org_backoffice",
+        role: "admin",
+        roles: ["admin"],
+        userId: "user_backoffice",
+      },
+      navigate: navigate as never,
+      planId: VISUAL_PARITY_APPROVED_PROPOSAL_ID,
+    };
+    const { rerender } = render(
+      <ProposalReviewRouteContent {...routeProps} search={{ tab: "staff" }} />,
+    );
+
+    expect(
+      lifecycleMocks.useQuery.mock.calls.some(
+        ([query, args]) =>
+          getFunctionName(query) ===
+            "production_proposals:listProposalBuilderStaffPermissions" &&
+          args === "skip",
+      ),
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Assign or link Builder" }),
+    );
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { planId: VISUAL_PARITY_APPROVED_PROPOSAL_ID },
+        search: { tab: "packet" },
+        to: "/backoffice/proposals/$planId",
+      }),
+    );
+
+    rerender(
+      <ProposalReviewRouteContent {...routeProps} search={{ tab: "packet" }} />,
+    );
+    finishNavigation?.();
+
+    await waitFor(() =>
+      expect(document.activeElement?.id).toBe("production-builder-assignee"),
+    );
+  });
+
   test("wires the supported Back Office detail route to explicit closing terms and separate activation", async () => {
     lifecycleMocks.recordProposalClosing.mockResolvedValue({
       closingId: "closing_1",

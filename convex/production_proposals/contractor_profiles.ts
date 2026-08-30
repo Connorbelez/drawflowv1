@@ -3,16 +3,52 @@
  * The parent facade re-exports its handlers to preserve production_proposals function references.
  */
 import { v } from "convex/values";
-import { authenticatedMutation, authenticatedQuery, type RoleSlug } from "../authz";
+import {
+  authenticatedMutation,
+  authenticatedQuery,
+  type RoleSlug,
+} from "../authz";
+import {
+  createCanonicalContractorProfile,
+  patchCanonicalContractorProfile,
+} from "../contractor_profile_application";
 import { normalizeContractorEmail } from "../contractorWorkspace";
-import { type Doc, type MutationCtx } from "../types";
+import type { Doc, MutationCtx } from "../types";
 import { authorizeBrokerage } from "./authorization_core.js";
 import { contractorDetailIntelligence } from "./contractor_active_helpers.js";
-import { requireAnyRole, normalizeOptionalString, getScopedContractorOrThrow, replaceContractorOperatingRows, hydrateContractorProfiles, addContractorRoleToExistingMembership, writeContractorProfileEvent } from "./contractor_policy_helpers.js";
+import {
+  addContractorRoleToExistingMembership,
+  getScopedContractorOrThrow,
+  hydrateContractorProfiles,
+  normalizeOptionalString,
+  replaceContractorOperatingRows,
+  requireAnyRole,
+  writeContractorProfileEvent,
+} from "./contractor_policy_helpers.js";
 import { contractorIdentityLinkViews } from "./contractor_proposal_helpers.js";
-import { builderContractorUnavailable, builderContractorRelationshipScope, builderVisibleContractorProfile, builderContractorLifecycle, assertContractorDetailReadAllowed, contractorWorkHistory, contractorPerformanceSummary } from "./contractor_relationship_helpers.js";
-import { BACKOFFICE_ROLES, APPROVER_ROLES, BUILDER_ROLES } from "./contracts_foundation.js";
-import { contractorKindInput, contractorPayRateUnitInput, contractorCapabilityInput, contractorEquipmentInput, contractorAvailabilityWindowInput, contractorProfileCreateInput, contractorIdentityLinkStatusInput } from "./contracts_workflow.js";
+import {
+  assertContractorDetailReadAllowed,
+  builderContractorLifecycle,
+  builderContractorRelationshipScope,
+  builderContractorUnavailable,
+  builderVisibleContractorProfile,
+  contractorPerformanceSummary,
+  contractorWorkHistory,
+} from "./contractor_relationship_helpers.js";
+import {
+  APPROVER_ROLES,
+  BACKOFFICE_ROLES,
+  BUILDER_ROLES,
+} from "./contracts_foundation.js";
+import {
+  contractorAvailabilityWindowInput,
+  contractorCapabilityInput,
+  contractorEquipmentInput,
+  contractorIdentityLinkStatusInput,
+  contractorKindInput,
+  contractorPayRateUnitInput,
+  contractorProfileCreateInput,
+} from "./contracts_workflow.js";
 import { isBackoffice } from "./proposal_claim.js";
 
 export const createContractorProfile = authenticatedMutation
@@ -39,7 +75,7 @@ export const createContractorProfile = authenticatedMutation
 
 function isBackofficeCreator(roles: readonly RoleSlug[]): boolean {
   return roles.some((role) =>
-    (BACKOFFICE_ROLES as readonly string[]).includes(role),
+    (BACKOFFICE_ROLES as readonly string[]).includes(role)
   );
 }
 
@@ -81,7 +117,7 @@ export async function createOrReuseContractorProfile(
       trades: string[];
     };
     workosOrganizationId: string;
-  },
+  }
 ) {
   const { auth, contractor } = input;
   // Canonical email rules (PRD §6.2, §7.4). Email is optional; when present
@@ -98,7 +134,7 @@ export async function createOrReuseContractorProfile(
       .withIndex("by_brokerage_normalized_email", (q) =>
         q
           .eq("brokerageId", auth.brokerage._id)
-          .eq("normalizedEmail", normalizedEmail),
+          .eq("normalizedEmail", normalizedEmail)
       )
       .filter((q) => q.eq(q.field("status"), "active"))
       .first();
@@ -119,34 +155,32 @@ export async function createOrReuseContractorProfile(
       return existing._id;
     }
   }
-  const contractorId = await ctx.db.insert("contractorProfiles", {
-    accountWorkosUserId: contractor.accountWorkosUserId,
+  const contractorId = await createCanonicalContractorProfile(ctx, {
     brokerageId: auth.brokerage._id,
-    city: normalizeOptionalString(contractor.city),
-    createdAt: now,
-    defaultPayRateCents:
-      contractor.defaultPayRateCents === undefined
-        ? undefined
-        : Math.max(0, Math.round(contractor.defaultPayRateCents)),
-    defaultPayRateUnit: contractor.defaultPayRateUnit,
-    email: contractor.email ? contractor.email.trim() : undefined,
-    normalizedEmail: normalizedEmail || undefined,
-    kind: contractor.kind ?? "company",
-    name: contractor.name,
-    onboardingStatus: contractor.accountWorkosUserId
-      ? "account_linked"
-      : "profile_only",
+    fields: {
+      accountWorkosUserId: contractor.accountWorkosUserId,
+      city: normalizeOptionalString(contractor.city),
+      defaultPayRateCents:
+        contractor.defaultPayRateCents === undefined
+          ? undefined
+          : Math.max(0, Math.round(contractor.defaultPayRateCents)),
+      defaultPayRateUnit: contractor.defaultPayRateUnit,
+      email: contractor.email ? contractor.email.trim() : undefined,
+      normalizedEmail: normalizedEmail || undefined,
+      kind: contractor.kind ?? "company",
+      name: contractor.name,
+      onboardingStatus: contractor.accountWorkosUserId
+        ? "account_linked"
+        : "profile_only",
+      phone: contractor.phone,
+      source: isBackofficeCreator(auth.roles)
+        ? "backoffice_created"
+        : "builder_created",
+      status: "active",
+      trades: contractor.trades,
+    },
+    now,
     organizationId: input.workosOrganizationId,
-    // Builder-created records default to builder_created source; backoffice
-    // roles creating from the backoffice roster land as backoffice_created
-    // (PRD §9 source/status badges).
-    source: isBackofficeCreator(auth.roles)
-      ? "backoffice_created"
-      : "builder_created",
-    phone: contractor.phone,
-    status: "active",
-    trades: contractor.trades,
-    updatedAt: now,
   });
   await replaceContractorOperatingRows(ctx, {
     availabilityWindows: contractor.availabilityWindows ?? [],
@@ -197,26 +231,31 @@ export const updateContractorProfile = authenticatedMutation
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
-      auth.brokerage._id,
+      auth.brokerage._id
     );
     const now = Date.now();
-    await ctx.db.patch(args.contractorId, {
-      accountWorkosUserId: normalizeOptionalString(args.accountWorkosUserId),
-      city: normalizeOptionalString(args.city),
-      defaultPayRateCents:
-        args.defaultPayRateCents === undefined
-          ? undefined
-          : Math.max(0, Math.round(args.defaultPayRateCents)),
-      defaultPayRateUnit: args.defaultPayRateUnit,
-      email: normalizeOptionalString(args.email),
-      kind: args.kind ?? contractor.kind ?? "company",
-      name: args.name.trim() || contractor.name,
-      onboardingStatus: args.accountWorkosUserId
-        ? "account_linked"
-        : contractor.onboardingStatus,
-      phone: normalizeOptionalString(args.phone),
-      trades: args.trades.map((trade) => trade.trim()).filter(Boolean),
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: auth.brokerage._id,
+      contractorId: args.contractorId,
+      now,
+      organizationId: args.workosOrganizationId,
+      patch: {
+        accountWorkosUserId: normalizeOptionalString(args.accountWorkosUserId),
+        city: normalizeOptionalString(args.city),
+        defaultPayRateCents:
+          args.defaultPayRateCents === undefined
+            ? undefined
+            : Math.max(0, Math.round(args.defaultPayRateCents)),
+        defaultPayRateUnit: args.defaultPayRateUnit,
+        email: normalizeOptionalString(args.email),
+        kind: args.kind ?? contractor.kind ?? "company",
+        name: args.name.trim() || contractor.name,
+        onboardingStatus: args.accountWorkosUserId
+          ? "account_linked"
+          : contractor.onboardingStatus,
+        phone: normalizeOptionalString(args.phone),
+        trades: args.trades.map((trade) => trade.trim()).filter(Boolean),
+      },
     });
     await replaceContractorOperatingRows(ctx, {
       availabilityWindows: args.availabilityWindows,
@@ -268,11 +307,14 @@ export const setContractorProfileStatus = authenticatedMutation
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
-      auth.brokerage._id,
+      auth.brokerage._id
     );
-    await ctx.db.patch(args.contractorId, {
-      status: args.status,
-      updatedAt: Date.now(),
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: auth.brokerage._id,
+      contractorId: args.contractorId,
+      now: Date.now(),
+      organizationId: args.workosOrganizationId,
+      patch: { status: args.status },
     });
     await writeContractorProfileEvent(ctx, {
       auth,
@@ -321,7 +363,7 @@ export const linkContractorIdentity = authenticatedMutation
       .withIndex("by_primary_linked", (q) =>
         q
           .eq("primaryContractorId", args.primaryContractorId)
-          .eq("linkedContractorId", args.linkedContractorId),
+          .eq("linkedContractorId", args.linkedContractorId)
       )
       .unique();
     const row = {
@@ -380,13 +422,18 @@ export const linkContractorProfileToWorkosUser = authenticatedMutation
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
-      auth.brokerage._id,
+      auth.brokerage._id
     );
     const now = Date.now();
-    await ctx.db.patch(args.contractorId, {
-      accountWorkosUserId: args.workosUserId,
-      onboardingStatus: "account_linked",
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: auth.brokerage._id,
+      contractorId: args.contractorId,
+      now,
+      organizationId: args.workosOrganizationId,
+      patch: {
+        accountWorkosUserId: args.workosUserId,
+        onboardingStatus: "account_linked",
+      },
     });
     await addContractorRoleToExistingMembership(ctx, {
       now,
@@ -426,8 +473,8 @@ export const listContractors = authenticatedQuery
     const enriched = await hydrateContractorProfiles(
       ctx,
       profiles.filter((profile) =>
-        args.includeInactive ? true : profile.status === "active",
-      ),
+        args.includeInactive ? true : profile.status === "active"
+      )
     );
     const search = args.search?.trim().toLowerCase();
     const contractors = enriched
@@ -435,9 +482,9 @@ export const listContractors = authenticatedQuery
         args.capabilityKey
           ? contractor.capabilities.some(
               (capability: any) =>
-                capability.capabilityKey === args.capabilityKey,
+                capability.capabilityKey === args.capabilityKey
             )
-          : true,
+          : true
       )
       .filter((contractor) =>
         search
@@ -447,7 +494,7 @@ export const listContractors = authenticatedQuery
               contractor.email,
               ...(contractor.trades ?? []),
               ...contractor.capabilities.map(
-                (capability: any) => capability.label,
+                (capability: any) => capability.label
               ),
               ...contractor.equipment.map((equipment: any) => equipment.name),
             ]
@@ -455,7 +502,7 @@ export const listContractors = authenticatedQuery
               .join(" ")
               .toLowerCase()
               .includes(search)
-          : true,
+          : true
       )
       .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -464,15 +511,15 @@ export const listContractors = authenticatedQuery
       contractors,
       summary: {
         activeCount: contractors.filter(
-          (contractor) => contractor.status === "active",
+          (contractor) => contractor.status === "active"
         ).length,
         capabilityKeys: [
           ...new Set(
             enriched.flatMap((contractor) =>
               contractor.capabilities.map(
-                (capability: any) => capability.capabilityKey,
-              ),
-            ),
+                (capability: any) => capability.capabilityKey
+              )
+            )
           ),
         ].sort(),
         totalCount: contractors.length,
@@ -492,7 +539,7 @@ export const getBuilderContractorRelationshipByString = authenticatedQuery
     requireAnyRole(auth.roles, BUILDER_ROLES);
     const contractorId = ctx.db.normalizeId(
       "contractorProfiles",
-      args.contractorId,
+      args.contractorId
     );
     if (!contractorId) {
       return builderContractorUnavailable("invalidLink");
@@ -521,7 +568,7 @@ export const getBuilderContractorRelationshipByString = authenticatedQuery
       .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
       .collect();
     const latestReview = onboardingReviews.sort(
-      (a, b) => b.updatedAt - a.updatedAt,
+      (a, b) => b.updatedAt - a.updatedAt
     )[0];
     const acknowledgements = await ctx.db
       .query("contractorAcknowledgements")
@@ -535,21 +582,21 @@ export const getBuilderContractorRelationshipByString = authenticatedQuery
             ? `build:${String(acknowledgement.buildAssignmentId)}`
             : `proposal:${String(acknowledgement.proposalAssignmentId)}`,
           acknowledgement,
-        ]),
+        ])
     );
     const hasPendingAcknowledgement = [
       ...scope.buildMilestoneAssignments.map((assignment) =>
-        acknowledgementByAssignment.get(`build:${String(assignment._id)}`),
+        acknowledgementByAssignment.get(`build:${String(assignment._id)}`)
       ),
       ...scope.proposalMilestoneAssignments.map((assignment) =>
-        acknowledgementByAssignment.get(`proposal:${String(assignment._id)}`),
+        acknowledgementByAssignment.get(`proposal:${String(assignment._id)}`)
       ),
     ].some(
       (acknowledgement) =>
         !acknowledgement ||
         acknowledgement.state === "pending_acknowledgement" ||
         acknowledgement.state === "clarification_requested" ||
-        acknowledgement.state === "scope_disputed",
+        acknowledgement.state === "scope_disputed"
     );
     const contractorAccountWorkosUserId = profile.accountWorkosUserId;
     const contractorMembership = contractorAccountWorkosUserId
@@ -557,7 +604,7 @@ export const getBuilderContractorRelationshipByString = authenticatedQuery
           await ctx.db
             .query("workosOrganizationMemberships")
             .withIndex("by_user", (q) =>
-              q.eq("workosUserId", contractorAccountWorkosUserId),
+              q.eq("workosUserId", contractorAccountWorkosUserId)
             )
             .collect()
         ).find(
@@ -565,8 +612,8 @@ export const getBuilderContractorRelationshipByString = authenticatedQuery
             membership.workosOrganizationId === args.workosOrganizationId &&
             membership.status === "active" &&
             [membership.roleSlug, ...membership.roleSlugs].includes(
-              "contractor",
-            ),
+              "contractor"
+            )
         )
       : null;
     const lifecycle = builderContractorLifecycle({
@@ -606,7 +653,7 @@ export const getBuilderContractorRelationshipByString = authenticatedQuery
         }),
         performance: contractorPerformanceSummary(
           ratings,
-          scope.buildMilestoneAssignments,
+          scope.buildMilestoneAssignments
         ),
         profile: builderVisibleContractorProfile(profile),
         ratings: ratings
@@ -640,6 +687,8 @@ export const getBuilderContractorRelationshipByString = authenticatedQuery
             ? {
                 email: latestClaim.invitedNormalizedEmail,
                 expiresAt: latestClaim.expiresAt,
+                deliveryError: latestClaim.invitationDeliveryError,
+                deliveryStatus: latestClaim.invitationDeliveryStatus,
                 sentAt: latestClaim.createdAt,
                 state: lifecycle.invitationState,
                 updatedAt: latestClaim.updatedAt,
@@ -672,7 +721,7 @@ export const getContractorDetail = authenticatedQuery
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
-      auth.brokerage._id,
+      auth.brokerage._id
     );
     if (!isBackoffice(auth.roles)) {
       await assertContractorDetailReadAllowed(ctx, {
@@ -682,16 +731,23 @@ export const getContractorDetail = authenticatedQuery
       });
     }
     const [profile] = await hydrateContractorProfiles(ctx, [contractor]);
+    const claims = await ctx.db
+      .query("contractorInviteClaims")
+      .withIndex("by_contractor", (q) =>
+        q.eq("contractorId", args.contractorId)
+      )
+      .collect();
+    const latestClaim = claims.sort((a, b) => b.updatedAt - a.updatedAt)[0];
     const assignments = await ctx.db
       .query("milestoneContractorAssignments")
       .withIndex("by_contractor", (q) =>
-        q.eq("contractorId", args.contractorId),
+        q.eq("contractorId", args.contractorId)
       )
       .collect();
     const proposalAssignments = await ctx.db
       .query("proposalMilestoneContractorAssignments")
       .withIndex("by_contractor", (q) =>
-        q.eq("contractorId", args.contractorId),
+        q.eq("contractorId", args.contractorId)
       )
       .collect();
     const openProposalAssignments = [];
@@ -704,7 +760,7 @@ export const getContractorDetail = authenticatedQuery
     const ratings = await ctx.db
       .query("contractorQualityRatings")
       .withIndex("by_contractor", (q) =>
-        q.eq("contractorId", args.contractorId),
+        q.eq("contractorId", args.contractorId)
       )
       .collect();
     const identityLinks = await contractorIdentityLinkViews(ctx, {
@@ -718,6 +774,17 @@ export const getContractorDetail = authenticatedQuery
     });
     return {
       identityLinks,
+      invitation: latestClaim
+        ? {
+            deliveryError: latestClaim.invitationDeliveryError,
+            deliveryStatus: latestClaim.invitationDeliveryStatus,
+            email: latestClaim.invitedNormalizedEmail,
+            expiresAt: latestClaim.expiresAt,
+            sentAt: latestClaim.createdAt,
+            state: latestClaim.state,
+            updatedAt: latestClaim.updatedAt,
+          }
+        : null,
       intelligence: contractorDetailIntelligence({
         assignments,
         profile,

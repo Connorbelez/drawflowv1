@@ -13,12 +13,16 @@ import {
   reviewerQueueRow,
 } from "../lender_portal_phase5";
 import { activeBuildDrawFundingSnapshotFromRows } from "../production_proposals";
+import {
+  assertActiveBuildProjectionRows,
+  loadActiveBuildProjectionRows,
+  projectActiveBuildFunding,
+} from "../production_proposals/active_build_projection.js";
 import type { QueryCtx } from "../types";
 import {
   assertLenderBuildScopedRows,
   isCurrentBuildDrawRequest,
   isCurrentBuildMilestone,
-  LENDER_PORTAL_RESULT_LIMIT,
   lenderBuildDetailData,
   lenderBuildListRow,
   lenderDrawQueueReviewCycle,
@@ -38,7 +42,6 @@ async function requireAccessibleLenderBuild(
   }
   return accessibleBuild.build;
 }
-
 
 export const listLenderActiveBuilds = lenderOrganizationQuery
   .input({})
@@ -60,61 +63,43 @@ export const getLenderBuildDetail = lenderOrganizationQuery
   .returns(lenderBuildDetailData)
   .handler(async (ctx, args) => {
     const build = await requireAccessibleLenderBuild(ctx, args.buildId);
-    const [
-      eligibleLenderWorkosUserIds,
-      builder,
-      facilities,
+    const [eligibleLenderWorkosUserIds, builder, projectionRows] =
+      await Promise.all([
+        currentLenderApproverMaps(ctx),
+        ctx.db.get(build.builderProfileId),
+        loadActiveBuildProjectionRows(ctx, build._id, {
+          includeCapitalEvents: true,
+          limits: { facilities: 50 },
+        }),
+      ]);
+    const {
       capitalEvents,
-      milestones,
-      drawRequests,
-      submilestones,
       drawAllocations,
+      drawRequests,
+      facilities,
+      milestones,
       plannedDraws,
-    ] = await Promise.all([
-      currentLenderApproverMaps(ctx),
-      ctx.db.get(build.builderProfileId),
-      ctx.db
-        .query("loanFacilities")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(50),
-      ctx.db
-        .query("capitalEvents")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(501),
-      ctx.db
-        .query("buildMilestones")
-        .withIndex("by_build_order", (query) => query.eq("buildId", build._id))
-        .take(501),
-      ctx.db
-        .query("activeBuildDrawRequests")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(501),
-      ctx.db
-        .query("buildSubmilestones")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(501),
-      ctx.db
-        .query("activeBuildDrawRequestAllocations")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(501),
-      ctx.db
-        .query("plannedDrawScheduleRows")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(501),
-    ]);
+      submilestones,
+    } = projectionRows;
     if (
       !builder ||
       builder.organizationId !== build.organizationId ||
-      builder.brokerageId !== build.brokerageId ||
-      capitalEvents.length > 500 ||
-      milestones.length > 500 ||
-      drawRequests.length > 500 ||
-      submilestones.length > 500 ||
-      drawAllocations.length > 500 ||
-      plannedDraws.length > 500
+      builder.brokerageId !== build.brokerageId
     ) {
       throw new Error("Lender Build record limit exceeded");
     }
+    assertActiveBuildProjectionRows(
+      projectionRows,
+      {
+        capitalEvents: 501,
+        drawAllocations: 501,
+        drawRequests: 501,
+        milestones: 501,
+        plannedDraws: 501,
+        submilestones: 501,
+      },
+      "Lender Build",
+    );
 
     assertLenderBuildScopedRows(build, [
       ...facilities,
@@ -186,14 +171,7 @@ export const getLenderBuildDetail = lenderOrganizationQuery
     const releasedCents = capitalEvents
       .filter((event) => event.eventType === "draw_release")
       .reduce((total, event) => total + event.amountCents, 0);
-    const funding = activeBuildDrawFundingSnapshotFromRows({
-      allocations: drawAllocations,
-      allowLegacyUnattributedRequests: true,
-      facilities,
-      milestones,
-      plannedDraws,
-      requests: drawRequests,
-    });
+    const funding = projectActiveBuildFunding(projectionRows);
     const submilestonesByMilestone = new Map<
       string,
       Doc<"buildSubmilestones">[]
@@ -246,7 +224,6 @@ export const getLenderBuildDetail = lenderOrganizationQuery
         updatedAt: build.updatedAt,
       },
       builder: { displayName: builder.displayName },
-      collaboration: await projectLenderBuildWideCollaboration(ctx, build),
       draws: visibleDraws.map((drawRequest) => {
         const beforeRequest = activeBuildDrawFundingSnapshotFromRows({
           allocations: drawAllocations,
@@ -301,6 +278,23 @@ export const getLenderBuildDetail = lenderOrganizationQuery
       },
       milestones: milestoneRows,
       releasedCents,
+      reviewPolicy: build.reviewPolicySnapshot
+        ? {
+            draw: {
+              approvalMode: build.reviewPolicySnapshot.drawApprovalMode,
+              lenderQuorum: build.reviewPolicySnapshot.drawLenderQuorum,
+            },
+            milestone: {
+              approvalMode: build.reviewPolicySnapshot.milestoneApprovalMode,
+              lenderQuorum: build.reviewPolicySnapshot.milestoneLenderQuorum,
+              receiptInvoiceRequired:
+                build.reviewPolicySnapshot.milestoneReceiptInvoiceRequired,
+              siteVisitRequired:
+                build.reviewPolicySnapshot.milestoneSiteVisitRequired,
+            },
+            state: "locked" as const,
+          }
+        : { state: "unavailable" as const },
       reviewSummary:
         actionRequiredDraws + actionRequiredMilestones > 0
           ? `${actionRequiredDraws + actionRequiredMilestones} lender review request${actionRequiredDraws + actionRequiredMilestones === 1 ? "" : "s"} require attention.`
@@ -723,72 +717,4 @@ async function projectLenderBuildMilestone(
       submilestoneId: submilestone._id,
     })),
   };
-}
-
-async function projectLenderBuildWideCollaboration(
-  ctx: QueryCtx,
-  build: Doc<"activeBuilds">
-) {
-  const posts = await ctx.db
-    .query("buildCollaborationPosts")
-    .withIndex("by_buildId_and_lastMeaningfulActivityAt", (query) =>
-      query.eq("buildId", build._id)
-    )
-    .order("desc")
-    .take(501);
-  if (posts.length > 500) {
-    throw new Error("Lender Build Collaboration record limit exceeded");
-  }
-  const visiblePosts = posts.filter(
-    (post) =>
-      post.audienceMode === "build_wide" &&
-      post.contentState === "active" &&
-      post.source !== "system" &&
-      post.currentRevisionId !== undefined &&
-      post.tombstonedAt === undefined
-  );
-  return await Promise.all(
-    visiblePosts.map(async (post) => {
-      if (
-        post.buildId !== build._id ||
-        post.organizationId !== build.organizationId ||
-        post.brokerageId !== build.brokerageId ||
-        !post.currentRevisionId
-      ) {
-        throw new Error("Lender Build Collaboration is unavailable");
-      }
-      const revision = await ctx.db.get(post.currentRevisionId);
-      if (
-        !revision ||
-        revision.postId !== post._id ||
-        revision.buildId !== build._id ||
-        revision.organizationId !== build.organizationId ||
-        revision.brokerageId !== build.brokerageId ||
-        revision.revision !== post.revision
-      ) {
-        throw new Error("Lender Build Collaboration is unavailable");
-      }
-      return {
-        body: revision.plainText,
-        postId: post._id,
-        primaryReferenceId:
-          post.primaryReferenceKind === "milestone" ||
-          post.primaryReferenceKind === "submilestone" ||
-          post.primaryReferenceKind === "draw"
-            ? (post.primaryReferenceId ?? null)
-            : null,
-        primaryReferenceKind:
-          post.primaryReferenceKind === "milestone" ||
-          post.primaryReferenceKind === "submilestone" ||
-          post.primaryReferenceKind === "draw"
-            ? post.primaryReferenceKind
-            : null,
-        publishedAt: revision.createdAt,
-        sourceLabel:
-          post.authorRole === "builder" || post.authorRole === "builder-staff"
-            ? "Builder team"
-            : "Build participant",
-      };
-    })
-  );
 }

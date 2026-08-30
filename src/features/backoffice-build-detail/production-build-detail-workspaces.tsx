@@ -46,7 +46,7 @@ import {
 import {
   type SiteVisitOrderRequest,
 } from "./SiteVisitOrderDialog.tsx";
-import { deriveScheduleHealth } from "./scheduleHealth";
+import { productionMilestoneScheduleHealth } from "./production-schedule-health.ts";
 import type {
   ProductionBuildDetail,
   ProductionBuildDetailActions,
@@ -546,11 +546,11 @@ export function resolveProductionMilestoneKanbanState({
     projection
   );
   const hasStarted = productionMilestoneHasStartedWorkflow(milestone, draw);
-  const scheduleHealth = deriveScheduleHealth({
+  const scheduleHealth = productionMilestoneScheduleHealth(
+    milestone,
+    projection.submilestonesByMilestone.get(milestone.key) ?? [],
     currentDay,
-    endDay: milestone.dayEnd,
-    lifecycleStatus: milestone.status,
-  });
+  );
   if (scheduleHealth.health === "behind_schedule") {
     return {
       canStartWork: !hasStarted,

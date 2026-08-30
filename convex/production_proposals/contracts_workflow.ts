@@ -3,7 +3,11 @@
  * The parent facade re-exports its handlers to preserve production_proposals function references.
  */
 import { v } from "convex/values";
-import { productionSettingsSiteVisitGuidanceInput, productionSettingsSubmilestoneFieldGuidanceInput, submilestoneInput } from "./contracts_foundation.js";
+import {
+  productionSettingsSiteVisitGuidanceInput,
+  productionSettingsSubmilestoneFieldGuidanceInput,
+  submilestoneInput,
+} from "./contracts_foundation.js";
 
 export const ELIGIBLE_LENDER_ORGANIZATION_LIMIT = 100;
 
@@ -26,7 +30,7 @@ export const proposalDraftDrawInput = v.object({
 export const productionSelectedPlanKeyInput = v.union(
   v.literal("cheapestFeasible"),
   v.literal("fastest"),
-  v.literal("capitalConstrained"),
+  v.literal("capitalConstrained")
 );
 
 export const productionSelectedPlanMetricsInput = v.object({
@@ -102,49 +106,25 @@ export const evidenceAssetInput = v.object({
 
 export const contractorKindInput = v.union(
   v.literal("company"),
-  v.literal("individual"),
+  v.literal("individual")
 );
 
 export const contractorPayRateUnitInput = v.union(
   v.literal("hour"),
   v.literal("day"),
-  v.literal("fixed"),
+  v.literal("fixed")
 );
-
-const recipientDeliveryStatusValidator = v.union(
-  v.literal("unread"),
-  v.literal("read"),
-  v.literal("dismissed"),
-  v.literal("resolved"),
-);
-
-export const recipientDeliveryProjectionValidator = v.object({
-  _id: v.id("recipientDeliveries"),
-  actionLabel: v.string(),
-  actionRequired: v.boolean(),
-  body: v.string(),
-  createdAt: v.number(),
-  entityId: v.string(),
-  entityLabel: v.string(),
-  entityType: v.string(),
-  href: v.string(),
-  resolutionMode: v.union(v.literal("domain"), v.literal("recipient")),
-  sourceLabel: v.string(),
-  status: recipientDeliveryStatusValidator,
-  title: v.string(),
-  updatedAt: v.number(),
-});
 
 const operationsHandoffAcknowledgementStateValidator = v.union(
   v.literal("pending_decision"),
   v.literal("returned"),
-  v.literal("acknowledged"),
+  v.literal("acknowledged")
 );
 
 export const operationsHandoffReturnDecisionValidator = v.union(
   v.literal("continue"),
   v.literal("reroute"),
-  v.literal("close"),
+  v.literal("close")
 );
 
 export const operationsHandoffProjectionValidator = v.object({
@@ -177,14 +157,14 @@ const integrationEndpointStatusValidator = v.union(
   v.literal("draft"),
   v.literal("active"),
   v.literal("disabled"),
-  v.literal("revoked"),
+  v.literal("revoked")
 );
 
 const integrationDeliveryStatusValidator = v.union(
   v.literal("pending"),
   v.literal("delivered"),
   v.literal("failed"),
-  v.literal("retry_pending"),
+  v.literal("retry_pending")
 );
 
 export const integrationEndpointProjectionValidator = v.object({
@@ -266,7 +246,7 @@ export const contractorProfileCreateInput = {
 export const contractorQualityRatingSourceInput = v.union(
   v.literal("builder_evidence"),
   v.literal("site_visit"),
-  v.literal("backoffice"),
+  v.literal("backoffice")
 );
 
 export const contractorQualityRatingInput = v.object({
@@ -282,34 +262,34 @@ export const contractorQualityRatingInput = v.object({
 export const contractorIdentityLinkStatusInput = v.union(
   v.literal("suggested"),
   v.literal("verified"),
-  v.literal("rejected"),
+  v.literal("rejected")
 );
 
 export const activeBuildNoteVisibility = v.union(
   v.literal("internal"),
-  v.literal("public"),
+  v.literal("public")
 );
 
 export const timelineCapitalEventKind = v.union(
   v.literal("cost"),
   v.literal("cashInfusion"),
-  v.literal("homeEquityTakeout"),
+  v.literal("homeEquityTakeout")
 );
 
 export const activeTimelineCapitalEventKind = v.union(
   v.literal("cost"),
-  v.literal("cashInfusion"),
+  v.literal("cashInfusion")
 );
 
 export const timelineModificationRequestType = v.union(
   v.literal("createMilestone"),
   v.literal("deleteMilestone"),
-  v.literal("updateMilestoneBudget"),
+  v.literal("updateMilestoneBudget")
 );
 
 export const activeBuildFacilityChangeRequestType = v.union(
   v.literal("principalIncrease"),
-  v.literal("paybackExtension"),
+  v.literal("paybackExtension")
 );
 
 export const productionTimelineMilestoneInput = v.object({
@@ -366,13 +346,13 @@ export const activeBuildTimelineMilestoneInput = v.object({
 
 const productionCostItemType = v.union(
   v.literal("material"),
-  v.literal("equipment"),
+  v.literal("equipment")
 );
 
 const productionCostItemBudgetTreatment = v.union(
   v.literal("logOnly"),
   v.literal("add"),
-  v.literal("maintain"),
+  v.literal("maintain")
 );
 
 const builderStaffPermissionResourceInput = v.union(
@@ -383,7 +363,7 @@ const builderStaffPermissionResourceInput = v.union(
   v.literal("contractor"),
   v.literal("material"),
   v.literal("capitalEvent"),
-  v.literal("reminder"),
+  v.literal("reminder")
 );
 
 export const builderStaffPermissionGrantInput = v.object({
@@ -434,7 +414,9 @@ export const productionCostItemCreateInput = {
   unit: v.optional(v.string()),
 };
 
-export const proposalDraftCostItemInput = v.object(productionCostItemCreateInput);
+export const proposalDraftCostItemInput = v.object(
+  productionCostItemCreateInput
+);
 
 export const proposalDraftContractorAssignmentInput = v.object({
   contractorId: v.optional(v.id("contractorProfiles")),

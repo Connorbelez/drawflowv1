@@ -5,7 +5,10 @@ import {
   type RoleSlug,
   userManagementWriteQuery,
 } from "./authz";
-import { ASSIGNABLE_BROKER_ROLES } from "./brokerAssignments";
+import {
+  ASSIGNABLE_BROKER_ROLES,
+  resolveDefaultBrokerMember,
+} from "./brokerAssignments";
 import {
   FAIRLEND_BROKERAGE_NAME,
   FAIRLEND_DEFAULT_BROKER_EMAIL,
@@ -15,20 +18,20 @@ import {
 import type { Doc } from "./types";
 
 export {
-  getTenantActivationState,
-  getBuilderBrokerRelationshipSummary,
-  repairOwnBuilderBrokerAssignment,
-  reconcileBrokerageBuilderAssignments,
-} from "./brokerageProvisioning/relationship";
-export {
-  provisionBrokerageProfile,
-  provisionFairLendBrokerage,
-  provisionBuilderProfile,
+  completeBuilderOnboardingCommand,
   linkBuilderAccount,
-  unlinkBuilderAccount,
+  provisionBrokerageProfile,
+  provisionBuilderProfile,
+  provisionFairLendBrokerage,
   provisionNewBuilder,
-  finalizeNewBuilderProvisioning,
+  unlinkBuilderAccount,
 } from "./brokerageProvisioning/provisioning";
+export {
+  getBuilderBrokerRelationshipSummary,
+  getTenantActivationState,
+  reconcileBrokerageBuilderAssignments,
+  repairOwnBuilderBrokerAssignment,
+} from "./brokerageProvisioning/relationship";
 
 const BROKER_ROLES = ASSIGNABLE_BROKER_ROLES;
 const BUILDER_ROLES = ["builder", "builder-staff"] as const;
@@ -54,7 +57,7 @@ export const listBrokerageProvisioning = userManagementWriteQuery
         ? ctx.db
             .query("workosOrganizations")
             .withIndex("by_workos_organization_id", (q) =>
-              q.eq("workosOrganizationId", organizationScope),
+              q.eq("workosOrganizationId", organizationScope)
             )
             .collect()
         : ctx.db.query("workosOrganizations").collect(),
@@ -62,7 +65,7 @@ export const listBrokerageProvisioning = userManagementWriteQuery
         ? ctx.db
             .query("workosOrganizationMemberships")
             .withIndex("by_organization", (q) =>
-              q.eq("workosOrganizationId", organizationScope),
+              q.eq("workosOrganizationId", organizationScope)
             )
             .collect()
         : ctx.db.query("workosOrganizationMemberships").collect(),
@@ -71,7 +74,7 @@ export const listBrokerageProvisioning = userManagementWriteQuery
         ? ctx.db
             .query("brokerages")
             .withIndex("by_workos_organization", (q) =>
-              q.eq("workosOrganizationId", organizationScope),
+              q.eq("workosOrganizationId", organizationScope)
             )
             .collect()
         : ctx.db.query("brokerages").collect(),
@@ -79,7 +82,7 @@ export const listBrokerageProvisioning = userManagementWriteQuery
         ? ctx.db
             .query("builderProfiles")
             .withIndex("by_organization", (q) =>
-              q.eq("organizationId", organizationScope),
+              q.eq("organizationId", organizationScope)
             )
             .collect()
         : ctx.db.query("builderProfiles").collect(),
@@ -89,26 +92,18 @@ export const listBrokerageProvisioning = userManagementWriteQuery
     const usersByWorkosId = new Map(
       users
         .filter((user) => user.workosUserId)
-        .map((user) => [user.workosUserId as string, user]),
+        .map((user) => [user.workosUserId as string, user])
     );
-    const fairLendPrincipalMembership = memberships.find((membership) => {
-      const user = usersByWorkosId.get(membership.workosUserId);
-      return (
-        membership.status === "active" &&
-        membership.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID &&
-        hasAnyRole(membershipRoleSlugs(membership), BROKER_ROLES) &&
-        user?.status === "active" &&
-        normalizeEmail(user.email) === FAIRLEND_DEFAULT_BROKER_EMAIL
-      );
+    const fairLendPrincipal = await resolveDefaultBrokerMember(ctx, {
+      principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+      principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+      workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
     });
     const brokeragesByWorkosOrg = new Map(
-      brokerages.map((brokerage) => [
-        brokerage.workosOrganizationId,
-        brokerage,
-      ]),
+      brokerages.map((brokerage) => [brokerage.workosOrganizationId, brokerage])
     );
     const builderProfilesByOrg = new Map(
-      builderProfiles.map((profile) => [profile.organizationId, profile]),
+      builderProfiles.map((profile) => [profile.organizationId, profile])
     );
     const linksByProfile = new Map<string, typeof builderAccountLinks>();
     for (const link of builderAccountLinks) {
@@ -124,23 +119,26 @@ export const listBrokerageProvisioning = userManagementWriteQuery
       fairLendBootstrap: {
         displayName: FAIRLEND_BROKERAGE_NAME,
         principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
-        principalBrokerWorkosUserId:
-          fairLendPrincipalMembership?.workosUserId ??
-          FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+        principalBrokerWorkosUserId: fairLendPrincipal.ok
+          ? fairLendPrincipal.workosUserId
+          : "",
         workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        ...(fairLendPrincipal.ok
+          ? {}
+          : { principalResolutionFailure: fairLendPrincipal.reason }),
       },
       organizations: organizations.map((organization) => {
         const brokerage = brokeragesByWorkosOrg.get(
-          organization.workosOrganizationId,
+          organization.workosOrganizationId
         );
         const orgMemberships = memberships.filter(
           (membership) =>
             membership.status === "active" &&
             membership.workosOrganizationId ===
-              organization.workosOrganizationId,
+              organization.workosOrganizationId
         );
         const projectMembership = (
-          membership: (typeof orgMemberships)[number],
+          membership: (typeof orgMemberships)[number]
         ) => {
           const user = usersByWorkosId.get(membership.workosUserId);
           return {
@@ -153,17 +151,17 @@ export const listBrokerageProvisioning = userManagementWriteQuery
         };
         const brokerMemberships = orgMemberships
           .filter((membership) =>
-            hasAnyRole(membershipRoleSlugs(membership), BROKER_ROLES),
+            hasAnyRole(membershipRoleSlugs(membership), BROKER_ROLES)
           )
           .map(projectMembership);
         const builderMemberships = orgMemberships
           .filter((membership) =>
-            hasAnyRole(membershipRoleSlugs(membership), BUILDER_ROLES),
+            hasAnyRole(membershipRoleSlugs(membership), BUILDER_ROLES)
           )
           .map(projectMembership);
 
         const builderProfile = builderProfilesByOrg.get(
-          organization.workosOrganizationId,
+          organization.workosOrganizationId
         );
         const builderAccountLinkRows = builderProfile
           ? (linksByProfile.get(builderProfile._id as string) ?? []).map(
@@ -171,7 +169,7 @@ export const listBrokerageProvisioning = userManagementWriteQuery
                 _id: link._id as string,
                 role: link.role,
                 workosUserId: link.workosUserId,
-              }),
+              })
             )
           : [];
 
@@ -217,12 +215,11 @@ export const listBrokerageProvisioning = userManagementWriteQuery
   })
   .public();
 
-
 function membershipRoleSlugs(
   membership: Pick<
     Doc<"workosOrganizationMemberships">,
     "roleSlug" | "roleSlugs"
-  >,
+  >
 ) {
   return normalizeRoleSlugs([
     membership.roleSlug,
@@ -232,20 +229,7 @@ function membershipRoleSlugs(
 
 function hasAnyRole(
   actual: readonly RoleSlug[],
-  expected: readonly RoleSlug[],
+  expected: readonly RoleSlug[]
 ) {
   return actual.some((role) => expected.includes(role));
-}
-
-function normalizeEmail(value: string): string {
-  const trimmed = value.trim().toLowerCase();
-  // Minimal structural check: exactly one @ with non-empty local and domain parts.
-  const at = trimmed.indexOf("@");
-  if (at <= 0 || at !== trimmed.lastIndexOf("@") || at === trimmed.length - 1) {
-    return "";
-  }
-  if (!trimmed.slice(at + 1).includes(".")) {
-    return "";
-  }
-  return trimmed;
 }

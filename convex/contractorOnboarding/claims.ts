@@ -1,22 +1,10 @@
 import { v } from "convex/values";
-
-import {
-  type AuthorizedViewer,
-  type RoleSlug,
-  authenticatedMutation,
-  authenticatedQuery,
-  backofficeMutation,
-  backofficeQuery,
-  normalizeRoleSlugs,
-} from "../authz";
-import { normalizeContractorEmail } from "../contractorWorkspace";
-import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "../fairLendConfig";
-import { internal } from "../_generated/api";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
+import { authenticatedMutation, authenticatedQuery } from "../authz";
+import { patchCanonicalContractorProfile } from "../contractor_profile_application";
+import type { Doc, Id, QueryCtx } from "../types";
 
 import {
   resolveBrokerageScopeOrThrow,
-  requireBackofficeRole,
   writeContractorIdentityEvent,
 } from "./access";
 export const getContractorClaimForConfirmation = authenticatedQuery
@@ -107,10 +95,15 @@ export const confirmContractorProfileClaim = authenticatedMutation
       throw new Error("This invite has expired.");
     }
     const now = Date.now();
-    await ctx.db.patch(claim.contractorId, {
-      accountWorkosUserId: scope.subject,
-      onboardingStatus: "account_linked",
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: scope.brokerage._id,
+      contractorId: claim.contractorId,
+      now,
+      organizationId: args.workosOrganizationId,
+      patch: {
+        accountWorkosUserId: scope.subject,
+        onboardingStatus: "account_linked",
+      },
     });
     await ctx.db.patch(claim._id, {
       acceptedWorkosUserId: scope.subject,

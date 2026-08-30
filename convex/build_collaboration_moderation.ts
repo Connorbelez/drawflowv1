@@ -179,6 +179,10 @@ function canRoleModerateAuthor(
     case "builder":
     case "broker-staff":
       return collaborationRoleTier(authorRole) < 3;
+    case "lender-admin":
+    case "lender":
+    case "lender-staff":
+      return false;
     case "builder-staff":
       return authorRole === "contractor";
     case "homeowner":

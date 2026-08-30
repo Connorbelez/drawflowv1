@@ -1,54 +1,44 @@
 import { v } from "convex/values";
 
-import {
-  authenticatedMutation,
-  authenticatedQuery,
-} from "../authz";
-import type { Doc, Id, QueryCtx, MutationCtx } from "../types";
-import {
-  activeBuildScopeFields,
-  costDocumentActorCapacityFields,
-  costDocumentBatchProjectionValidator,
-  costDocumentDraftProjectionValidator,
-  collaborativeCostDocumentDraftProjectionValidator,
-  optionalText,
-} from "./contracts";
+import { authenticatedMutation, authenticatedQuery } from "../authz";
 import {
   assertExpectedCostDocumentDraftRevision,
+  authorizeCostDocumentIntent,
   canManageCostDocumentDraftCollaboration,
+  costDocumentDraftCapabilities,
   currentCostDocumentBatchCreatorCapacity,
   currentCostDocumentBatchRevision,
   currentCostDocumentDraftRevision,
-  costDocumentDraftCapabilities,
   hasCurrentDraftCollaborationGrant,
-  listCurrentCostDocumentDraftCollaborators,
-  listEligibleCostDocumentDraftCollaborators,
-  requireEligibleCostDocumentDraftCollaborator,
-  requireCostDocumentBatchCreator,
   requireCostDocumentDraftAccess,
-  requireCostDocumentDraftCreator,
-  authorizeCostDocumentIntent,
+  requireEligibleCostDocumentDraftCollaborator,
 } from "../cost_document_access";
+import { recordCostDocumentDraftAudit } from "./audit";
 import {
-  listBatchDrafts,
+  activeBuildScopeFields,
+  collaborativeCostDocumentDraftProjectionValidator,
+  costDocumentActorCapacityFields,
+  costDocumentBatchProjectionValidator,
+  optionalText,
+} from "./contracts";
+import {
   projectCostDocumentBatch,
   projectCostDocumentDraft,
 } from "./draft_state";
 import {
-  recordCostDocumentDraftAudit,
-} from "./submission";
-import {
-  authorizeCostDocumentBuilder,
+  assertBatchOwnership,
   currentCostDocumentCreatorProfileId,
   findLegacyActiveCostDocumentBatch,
-  assertBatchOwnership,
   isBatchOwnedBy,
 } from "./submission_support";
 export const getActiveCostDocumentBatch = authenticatedQuery
   .input(activeBuildScopeFields)
   .returns(v.union(costDocumentBatchProjectionValidator, v.null()))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "create",
+    });
     const contractorProfileId = await currentCostDocumentCreatorProfileId(
       ctx,
       authorization
@@ -105,7 +95,10 @@ export const getCostDocumentBatch = authenticatedQuery
     if (!batchId) {
       return null;
     }
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "create",
+    });
     const contractorProfileId = await currentCostDocumentCreatorProfileId(
       ctx,
       authorization

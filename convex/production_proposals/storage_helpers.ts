@@ -554,6 +554,7 @@ export async function builderStaffActiveBuildWorkspaceRow(
   const [
     builder,
     milestones,
+    submilestones,
     draws,
     drawRequests,
     facilityChangeRequests,
@@ -561,6 +562,7 @@ export async function builderStaffActiveBuildWorkspaceRow(
   ] = await Promise.all([
     ctx.db.get(build.builderProfileId),
     collectByIndex(ctx, "buildMilestones", "by_build", buildId),
+    collectByIndex(ctx, "buildSubmilestones", "by_build", buildId),
     collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
     collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
     collectByIndex(
@@ -572,6 +574,7 @@ export async function builderStaffActiveBuildWorkspaceRow(
     collectByIndex(ctx, "buildEvidenceAssets", "by_build", buildId),
   ]);
   const buildMilestones = milestones as Doc<"buildMilestones">[];
+  const buildSubmilestones = submilestones as Doc<"buildSubmilestones">[];
   const buildDraws = draws as Doc<"plannedDrawScheduleRows">[];
   const buildDrawRequests = drawRequests as Doc<"activeBuildDrawRequests">[];
   const buildFacilityChangeRequests =
@@ -597,7 +600,13 @@ export async function builderStaffActiveBuildWorkspaceRow(
     locationLongitude: build.locationLongitude,
     milestoneCount: buildMilestones.length,
     milestonesBehindSchedule: buildMilestones.filter((milestone) =>
-      productionMilestoneIsBehindSchedule(milestone, currentDay),
+      productionMilestoneIsBehindSchedule(
+        milestone,
+        currentDay,
+        buildSubmilestones.filter(
+          (submilestone) => submilestone.milestoneKey === milestone.key,
+        ),
+      ),
     ).length,
     pendingDrawRequestCount: buildDrawRequests.filter(
       (request) => request.status === "requested",

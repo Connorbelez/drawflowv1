@@ -13,7 +13,7 @@ import type { Doc, QueryCtx } from "./types";
 export async function canReadCollaborationPost(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  post: Doc<"buildCollaborationPosts">,
+  post: Doc<"buildCollaborationPosts">
 ) {
   if (
     post.organizationId !== authorization.organizationId ||
@@ -70,7 +70,7 @@ export async function canReadCollaborationPost(
     .withIndex("by_postId_and_workosUserId", (query) =>
       query
         .eq("postId", post._id)
-        .eq("workosUserId", authorization.viewer.subject),
+        .eq("workosUserId", authorization.viewer.subject)
     )
     .unique();
   return Boolean(member);
@@ -79,25 +79,25 @@ export async function canReadCollaborationPost(
 export async function resolveCurrentCollaborationPostReaderIds(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  post: Doc<"buildCollaborationPosts">,
+  post: Doc<"buildCollaborationPosts">
 ) {
   const fixedMembers =
     post.audienceMode === "custom"
       ? await ctx.db
           .query("buildCollaborationAudienceMembers")
           .withIndex("by_postId_and_workosUserId", (query) =>
-            query.eq("postId", post._id),
+            query.eq("postId", post._id)
           )
           .take(500)
       : [];
   const fixedMemberIds = new Set(
-    fixedMembers.map((member) => member.workosUserId),
+    fixedMembers.map((member) => member.workosUserId)
   );
   const audienceReaders = authorization.participants.filter(
     (participant) =>
       post.audienceMode === "build_wide" ||
       collaborationRoleTier(participant.role) >= post.audienceFloorTier ||
-      fixedMemberIds.has(participant.workosUserId),
+      fixedMemberIds.has(participant.workosUserId)
   );
   if (isMilestoneSystemPost(post)) {
     const readerDecisions = await Promise.all(
@@ -109,7 +109,7 @@ export async function resolveCurrentCollaborationPostReaderIds(
           workosUserId: participant.workosUserId,
         }),
         participant,
-      })),
+      }))
     );
     return readerDecisions
       .filter((decision) => decision.allowed)
@@ -126,7 +126,7 @@ export async function resolveCurrentCollaborationPostReaderIds(
         workosUserId: participant.workosUserId,
       }),
       participant,
-    })),
+    }))
   );
   return readerDecisions
     .filter((decision) => decision.allowed)
@@ -136,19 +136,19 @@ export async function resolveCurrentCollaborationPostReaderIds(
 export async function resolveCurrentCollaborationNotificationReaderIds(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  post: Doc<"buildCollaborationPosts">,
+  post: Doc<"buildCollaborationPosts">
 ) {
   let readerIds = await resolveCurrentCollaborationPostReaderIds(
     ctx,
     authorization,
-    post,
+    post
   );
   if (isDrawSystemPost(post)) {
     const currentParticipants = new Map(
       authorization.participants.map((participant) => [
         participant.workosUserId,
         participant,
-      ]),
+      ])
     );
     const membershipDecisions = await Promise.all(
       readerIds.map(async (workosUserId) => {
@@ -167,14 +167,14 @@ export async function resolveCurrentCollaborationNotificationReaderIds(
           .withIndex("by_user_and_organization", (query) =>
             query
               .eq("workosUserId", workosUserId)
-              .eq("workosOrganizationId", authorization.organizationId),
+              .eq("workosOrganizationId", authorization.organizationId)
           )
           .first();
         return membership?.status === "active" ? workosUserId : null;
-      }),
+      })
     );
     readerIds = membershipDecisions.filter(
-      (workosUserId): workosUserId is string => workosUserId !== null,
+      (workosUserId): workosUserId is string => workosUserId !== null
     );
   }
   if (
@@ -184,7 +184,7 @@ export async function resolveCurrentCollaborationNotificationReaderIds(
     (await hasCurrentGlobalCollaborationRole(
       ctx,
       authorization.organizationId,
-      post.authorWorkosUserId,
+      post.authorWorkosUserId
     )) &&
     !readerIds.includes(post.authorWorkosUserId)
   ) {
@@ -196,14 +196,14 @@ export async function resolveCurrentCollaborationNotificationReaderIds(
 async function hasCurrentGlobalCollaborationRole(
   ctx: QueryCtx,
   organizationId: string,
-  workosUserId: string,
+  workosUserId: string
 ) {
   const membership = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user_and_organization", (query) =>
       query
         .eq("workosUserId", workosUserId)
-        .eq("workosOrganizationId", organizationId),
+        .eq("workosOrganizationId", organizationId)
     )
     .first();
   if (membership?.status !== "active") {
@@ -221,7 +221,7 @@ export function canSeeCollaborationReceipt(
   receipt: Pick<
     Doc<"buildCollaborationReceipts">,
     "viewerRole" | "workosUserId"
-  >,
+  >
 ) {
   return (
     receipt.workosUserId !== authorization.viewer.subject &&
@@ -231,19 +231,22 @@ export function canSeeCollaborationReceipt(
 }
 
 function roleTierForReceipt(
-  role: Doc<"buildCollaborationReceipts">["viewerRole"],
+  role: Doc<"buildCollaborationReceipts">["viewerRole"]
 ) {
   switch (role) {
     case "admin":
       return 5;
     case "principle-broker":
+    case "lender-admin":
       return 4;
     case "broker":
     case "builder":
     case "broker-staff":
+    case "lender":
       return 3;
     case "builder-staff":
     case "homeowner":
+    case "lender-staff":
       return 2;
     case "contractor":
       return 1;

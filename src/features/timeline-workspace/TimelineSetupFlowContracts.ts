@@ -8,6 +8,7 @@ import type {
   TimelineMilestoneWorksheetContractorAssignment,
   TimelineMilestoneWorksheetContractorOption,
   TimelineMilestoneWorksheetCostItem,
+  WorksheetContractorActions,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
 import type { TimelineSubmilestoneFieldGuidance } from "./-timeline-milestone-submilestones.ts";
 import type {
@@ -587,6 +588,7 @@ export interface TimelineSetupDrawResult {
 export interface TimelineSetupFlowProps {
   baseItems: TimelineItem<DemoMilestone>[];
   brokerOptions?: TimelineSetupBrokerOption[];
+  contractorActions?: WorksheetContractorActions;
   contractorOptions?: TimelineMilestoneWorksheetContractorOption[];
   defaultAssignedBrokerWorkosUserId?: string;
   onComplete: (result: TimelineSetupResult) => void;

@@ -2,24 +2,45 @@
  * Production proposals review lifecycle helpers bounded-context implementation.
  * The parent facade re-exports its handlers to preserve production_proposals function references.
  */
-import { type Infer } from "convex/values";
-import { type RoleSlug } from "../authz";
-import { normalizeOperationalIdempotencyKey, operationalRequestFingerprint } from "../build_operational_idempotency";
-import { DEFAULT_PROPOSAL_REVIEW_POLICY, deterministicProposalRevisionDiff, type ProposalReviewPolicySnapshot, type ProposalRevisionCheckpointSnapshot } from "../lender_portal_phase3";
-import { proposalRevisionLenderContentSnapshotValidator } from "../production_proposal_detail";
+import type { Infer } from "convex/values";
+import type { RoleSlug } from "../authz";
+import {
+  normalizeOperationalIdempotencyKey,
+  operationalRequestFingerprint,
+} from "../build_operational_idempotency";
+import {
+  DEFAULT_PROPOSAL_REVIEW_POLICY,
+  deterministicProposalRevisionDiff,
+  type ProposalReviewPolicySnapshot,
+  type ProposalRevisionCheckpointSnapshot,
+} from "../lender_portal_phase3";
+import {
+  getEffectiveLenderOrganizationReviewPolicy,
+  validateEffectiveLenderOrganizationReviewPolicy,
+} from "../lenderOrganizationReviewPolicies";
+import type { proposalRevisionLenderContentSnapshotValidator } from "../production_proposal_detail";
 import { MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS } from "../proposal_revision_lender_snapshot";
-import { type Doc, type Id, type MutationCtx, type QueryCtx } from "../types";
+import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
 import { assignedBuilderProfileIdOrThrow } from "./authorization_core.js";
 import { APPROVER_ROLES } from "./contracts_foundation.js";
 import { MAX_PROPOSAL_MILESTONES } from "./contracts_workflow.js";
 import { buildProposalIdentityProjection } from "./proposal_claim.js";
-import { projectProposalDetailProposal, projectProposalDetailMilestone, projectProposalDetailSubmilestone, projectProposalDetailCostItem, projectProposalDetailDraw, projectProposalDetailAssignment, projectProposalDetailPermitWaiver, projectProposalDetailActiveBuild } from "./proposal_detail_projection.js";
+import {
+  projectProposalDetailActiveBuild,
+  projectProposalDetailAssignment,
+  projectProposalDetailCostItem,
+  projectProposalDetailDraw,
+  projectProposalDetailMilestone,
+  projectProposalDetailPermitWaiver,
+  projectProposalDetailProposal,
+  projectProposalDetailSubmilestone,
+} from "./proposal_detail_projection.js";
 import { requireReason } from "./proposal_lender_approval.js";
 import { getPermitWaiver } from "./storage_helpers.js";
 
 export function requireState(
   proposal: Doc<"buildProposals">,
-  expected: Doc<"buildProposals">["status"],
+  expected: Doc<"buildProposals">["status"]
 ) {
   if (proposal.status !== expected) {
     throw new Error(`Expected proposal state ${expected}.`);
@@ -30,7 +51,7 @@ export function requirePhase3BackofficeRole(auth: {
   roles: readonly RoleSlug[];
 }) {
   const role = auth.roles.find((candidate) =>
-    APPROVER_ROLES.includes(candidate as (typeof APPROVER_ROLES)[number]),
+    APPROVER_ROLES.includes(candidate as (typeof APPROVER_ROLES)[number])
   );
   if (!role) {
     throw new Error("Forbidden: review policy authority");
@@ -44,7 +65,8 @@ export function assertExpectedProposalReviewBase(input: {
   expectedProposalRevisionNumber: number | null;
   proposal: Doc<"buildProposals">;
 }) {
-  const currentRevisionNumber = input.proposal.currentProposalRevisionNumber ?? null;
+  const currentRevisionNumber =
+    input.proposal.currentProposalRevisionNumber ?? null;
   if (input.expectedProposalRevisionNumber !== currentRevisionNumber) {
     throw new Error("Stale proposal revision.");
   }
@@ -55,7 +77,7 @@ export function assertExpectedProposalReviewBase(input: {
 
 export async function getCurrentProposalReviewPolicyVersion(
   ctx: QueryCtx | MutationCtx,
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
   if (proposal.currentReviewPolicyVersionId) {
     const current = await ctx.db.get(proposal.currentReviewPolicyVersionId);
@@ -87,11 +109,11 @@ export async function ensureDefaultProposalReviewPolicyVersion(
       subject: string;
     };
     now: number;
-  },
+  }
 ) {
   const current = await getCurrentProposalReviewPolicyVersion(
     ctx,
-    input.auth.proposal,
+    input.auth.proposal
   );
   if (current) {
     if (!input.auth.proposal.currentReviewPolicyVersionId) {
@@ -110,6 +132,7 @@ export async function ensureDefaultProposalReviewPolicyVersion(
     idempotencyKey: "system:default-backoffice-policy",
     organizationId: input.auth.proposal.organizationId,
     policy: DEFAULT_PROPOSAL_REVIEW_POLICY,
+    provenance: "system_baseline",
     proposalId: input.auth.proposal._id,
     reason: "Initialize the default Back Office-only review policy.",
     version: 1,
@@ -124,9 +147,120 @@ export async function ensureDefaultProposalReviewPolicyVersion(
   return inserted;
 }
 
+export async function snapshotLenderOrganizationReviewPolicy(
+  ctx: MutationCtx,
+  input: {
+    assignment: Doc<"proposalLenderAssignments">;
+    auth: {
+      brokerage: Doc<"brokerages">;
+      proposal: Doc<"buildProposals">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    idempotencyKey: string;
+    lenderOrganization: Doc<"lenderOrganizations">;
+    now: number;
+    reason: string;
+  }
+) {
+  if (
+    input.assignment.proposalId !== input.auth.proposal._id ||
+    input.assignment.brokerageId !== input.auth.brokerage._id ||
+    input.assignment.lenderOrganizationId !== input.lenderOrganization._id ||
+    input.lenderOrganization.brokerageId !== input.assignment.lenderBrokerageId
+  ) {
+    throw new Error(
+      "Lender organization review policy snapshot scope is inconsistent."
+    );
+  }
+  const idempotencyKey = normalizeOperationalIdempotencyKey(
+    input.idempotencyKey,
+    "Proposal review policy snapshot idempotency key"
+  );
+  const existing = await ctx.db
+    .query("proposalReviewPolicyVersions")
+    .withIndex("by_proposal_and_idempotency_key", (query) =>
+      query
+        .eq("proposalId", input.auth.proposal._id)
+        .eq("idempotencyKey", idempotencyKey)
+    )
+    .unique();
+  if (existing) {
+    if (existing.sourceLenderOrganizationId !== input.lenderOrganization._id) {
+      throw new Error(
+        "Proposal review policy snapshot idempotency key was reused for another lender organization."
+      );
+    }
+    return existing;
+  }
+  const effective = await getEffectiveLenderOrganizationReviewPolicy(
+    ctx,
+    input.lenderOrganization._id
+  );
+  await validateEffectiveLenderOrganizationReviewPolicy(
+    ctx,
+    input.lenderOrganization._id,
+    effective.policy
+  );
+  const currentPolicy = await getCurrentProposalReviewPolicyVersion(
+    ctx,
+    input.auth.proposal
+  );
+  const configuredByRole = requirePhase3BackofficeRole(input.auth);
+  const policyVersionId = await ctx.db.insert("proposalReviewPolicyVersions", {
+    brokerageId: input.auth.brokerage._id,
+    configuredAt: input.now,
+    configuredByRole,
+    configuredByWorkosUserId: input.auth.subject,
+    idempotencyKey,
+    organizationId: input.auth.proposal.organizationId,
+    policy: effective.policy,
+    provenance: effective.provenance,
+    proposalId: input.auth.proposal._id,
+    reason: input.reason.trim(),
+    sourceLenderOrganizationId: input.lenderOrganization._id,
+    sourceLenderOrganizationName: input.lenderOrganization.displayName,
+    ...(effective.policyVersion
+      ? {
+          sourceOrganizationReviewPolicyVersion:
+            effective.policyVersion.version,
+          sourceOrganizationReviewPolicyVersionId: effective.policyVersion._id,
+        }
+      : {}),
+    version: (currentPolicy?.version ?? 0) + 1,
+  });
+  await Promise.all([
+    ctx.db.patch(input.auth.proposal._id, {
+      currentReviewPolicyVersionId: policyVersionId,
+      updatedAt: input.now,
+      updatedByWorkosUserId: input.auth.subject,
+    }),
+    ctx.db.patch(input.assignment._id, {
+      ...(effective.policyVersion
+        ? {
+            organizationReviewPolicyVersion: effective.policyVersion.version,
+            organizationReviewPolicyVersionId: effective.policyVersion._id,
+          }
+        : {
+            organizationReviewPolicyVersion: undefined,
+            organizationReviewPolicyVersionId: undefined,
+          }),
+      reviewPolicyProvenance: effective.provenance,
+      reviewPolicyVersionId: policyVersionId,
+    }),
+  ]);
+  const policyVersion = await ctx.db.get(policyVersionId);
+  if (!policyVersion) {
+    throw new Error(
+      "Failed to snapshot the lender organization review policy."
+    );
+  }
+  return policyVersion;
+}
+
 export async function getCurrentProposalRevision(
   ctx: QueryCtx | MutationCtx,
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
   if (proposal.currentProposalRevisionId) {
     const current = await ctx.db.get(proposal.currentProposalRevisionId);
@@ -142,7 +276,7 @@ export async function getCurrentProposalRevision(
   const revisions = await ctx.db
     .query("proposalRevisions")
     .withIndex("by_proposal_and_revision_number", (query) =>
-      query.eq("proposalId", proposal._id),
+      query.eq("proposalId", proposal._id)
     )
     .order("desc")
     .take(1);
@@ -151,11 +285,11 @@ export async function getCurrentProposalRevision(
 
 async function getPriorLenderReviewedProposalRevision(
   ctx: QueryCtx | MutationCtx,
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
   if (proposal.latestLenderReviewedRevisionId) {
     const pointedRevision = await ctx.db.get(
-      proposal.latestLenderReviewedRevisionId,
+      proposal.latestLenderReviewedRevisionId
     );
     if (
       !pointedRevision ||
@@ -164,17 +298,17 @@ async function getPriorLenderReviewedProposalRevision(
         pointedRevision.revisionNumber !==
           proposal.latestLenderReviewedRevisionNumber)
     ) {
-      throw new Error("Latest lender-reviewed proposal revision pointer is inconsistent.");
+      throw new Error(
+        "Latest lender-reviewed proposal revision pointer is inconsistent."
+      );
     }
     return pointedRevision;
   }
   const decisions = await ctx.db
     .query("proposalLenderApprovals")
-    .withIndex("by_proposal", (query) =>
-      query.eq("proposalId", proposal._id),
-    )
+    .withIndex("by_proposal", (query) => query.eq("proposalId", proposal._id))
     .order("desc")
-    .take(1_001);
+    .take(1001);
   for (const decision of decisions) {
     if (!decision.proposalRevisionId) {
       continue;
@@ -184,9 +318,9 @@ async function getPriorLenderReviewedProposalRevision(
       return revision;
     }
   }
-  if (decisions.length > 1_000) {
+  if (decisions.length > 1000) {
     throw new Error(
-      "Legacy lender approval history exceeds the safe revision-diff recovery boundary; run the Phase 3 lifecycle backfill.",
+      "Legacy lender approval history exceeds the safe revision-diff recovery boundary; run the Phase 3 lifecycle backfill."
     );
   }
   return null;
@@ -198,7 +332,7 @@ async function buildProposalRevisionCheckpoints(
     brokerage: Doc<"brokerages">;
     policy: ProposalReviewPolicySnapshot;
     proposal: Doc<"buildProposals">;
-  },
+  }
 ): Promise<{
   checkpoints: ProposalRevisionCheckpointSnapshot;
   lenderContent: {
@@ -232,7 +366,7 @@ async function buildProposalRevisionCheckpoints(
 }> {
   const builderProfileId = assignedBuilderProfileIdOrThrow(
     input.proposal,
-    "A proposal revision requires an assigned builder.",
+    "A proposal revision requires an assigned builder."
   );
   const [
     builder,
@@ -248,23 +382,33 @@ async function buildProposalRevisionCheckpoints(
     ctx.db.get(builderProfileId),
     ctx.db
       .query("proposalMilestones")
-      .withIndex("by_proposal", (query) => query.eq("proposalId", input.proposal._id))
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", input.proposal._id)
+      )
       .take(MAX_PROPOSAL_MILESTONES + 1),
     ctx.db
       .query("proposalSubmilestones")
-      .withIndex("by_proposal", (query) => query.eq("proposalId", input.proposal._id))
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", input.proposal._id)
+      )
       .take(MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS + 1),
     ctx.db
       .query("proposalCostItems")
-      .withIndex("by_proposal", (query) => query.eq("proposalId", input.proposal._id))
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", input.proposal._id)
+      )
       .take(MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS + 1),
     ctx.db
       .query("proposalDrawScheduleRows")
-      .withIndex("by_proposal", (query) => query.eq("proposalId", input.proposal._id))
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", input.proposal._id)
+      )
       .take(MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS + 1),
     ctx.db
       .query("proposalDocuments")
-      .withIndex("by_proposal", (query) => query.eq("proposalId", input.proposal._id))
+      .withIndex("by_proposal", (query) =>
+        query.eq("proposalId", input.proposal._id)
+      )
       .take(MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS + 1),
     getPermitWaiver(ctx, input.proposal._id),
     buildProposalIdentityProjection(ctx, input.proposal, input.brokerage),
@@ -273,10 +417,18 @@ async function buildProposalRevisionCheckpoints(
       : null,
   ]);
   if (milestones.length > MAX_PROPOSAL_MILESTONES) {
-    throw new Error(`A proposal revision supports at most ${MAX_PROPOSAL_MILESTONES} milestones.`);
+    throw new Error(
+      `A proposal revision supports at most ${MAX_PROPOSAL_MILESTONES} milestones.`
+    );
   }
-  if (milestones.some((milestone) => milestone.dependencyKeys.length > MAX_PROPOSAL_MILESTONES)) {
-    throw new Error(`A proposal revision milestone supports at most ${MAX_PROPOSAL_MILESTONES} dependencies.`);
+  if (
+    milestones.some(
+      (milestone) => milestone.dependencyKeys.length > MAX_PROPOSAL_MILESTONES
+    )
+  ) {
+    throw new Error(
+      `A proposal revision milestone supports at most ${MAX_PROPOSAL_MILESTONES} dependencies.`
+    );
   }
   if (
     milestones.length +
@@ -287,7 +439,7 @@ async function buildProposalRevisionCheckpoints(
     MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS
   ) {
     throw new Error(
-      `A proposal revision supports at most ${MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS} lender-visible content rows.`,
+      `A proposal revision supports at most ${MAX_PROPOSAL_REVISION_LENDER_CONTENT_ROWS} lender-visible content rows.`
     );
   }
   if (
@@ -304,7 +456,9 @@ async function buildProposalRevisionCheckpoints(
       activeBuild.brokerageId !== input.proposal.brokerageId ||
       activeBuild.organizationId !== input.proposal.organizationId)
   ) {
-    throw new Error("Proposal revision active Build is outside the proposal scope.");
+    throw new Error(
+      "Proposal revision active Build is outside the proposal scope."
+    );
   }
   const scheduleMilestones = milestones
     .map((milestone) => ({
@@ -315,12 +469,12 @@ async function buildProposalRevisionCheckpoints(
       key: milestone.key,
       order: milestone.order,
     }))
-    .sort((left, right) =>
-      left.order - right.order || left.key.localeCompare(right.key),
+    .sort(
+      (left, right) =>
+        left.order - right.order || left.key.localeCompare(right.key)
     );
-  const milestonesFingerprint = await operationalRequestFingerprint(
-    scheduleMilestones,
-  );
+  const milestonesFingerprint =
+    await operationalRequestFingerprint(scheduleMilestones);
   return {
     checkpoints: {
       accessReviewPolicy: input.policy,
@@ -339,7 +493,7 @@ async function buildProposalRevisionCheckpoints(
     },
     lenderContent: {
       costItems: costItems.map((item) =>
-        projectProposalDetailCostItem(item, false),
+        projectProposalDetailCostItem(item, false)
       ),
       documents: documents.map((document) => ({
         _id: document._id,
@@ -388,28 +542,32 @@ export async function createImmutableProposalRevision(
     idempotencyKey: string;
     policyVersion: Doc<"proposalReviewPolicyVersions">;
     reason: string;
-  },
+  }
 ) {
   const idempotencyKey = normalizeOperationalIdempotencyKey(
     input.idempotencyKey,
-    "Proposal revision idempotency key",
+    "Proposal revision idempotency key"
   );
   const existing = await ctx.db
     .query("proposalRevisions")
     .withIndex("by_proposal_and_idempotency_key", (query) =>
       query
         .eq("proposalId", input.auth.proposal._id)
-        .eq("idempotencyKey", idempotencyKey),
+        .eq("idempotencyKey", idempotencyKey)
     )
     .unique();
   if (existing) {
     return existing;
   }
   if (input.auth.proposal.status !== "approved") {
-    throw new Error("A lender-reviewable revision requires Back Office approval.");
+    throw new Error(
+      "A lender-reviewable revision requires Back Office approval."
+    );
   }
   if (!input.auth.proposal.backOfficeApprovedByWorkosUserId) {
-    throw new Error("A proposal revision requires a Back Office approval reference.");
+    throw new Error(
+      "A proposal revision requires a Back Office approval reference."
+    );
   }
   const createdByRole = requirePhase3BackofficeRole(input.auth);
   const [currentRevision, priorLenderReviewedRevision, revisionSnapshot] =
@@ -425,7 +583,7 @@ export async function createImmutableProposalRevision(
   const revisionNumber = (currentRevision?.revisionNumber ?? 0) + 1;
   const changedCheckpoints = deterministicProposalRevisionDiff(
     priorLenderReviewedRevision?.checkpoints ?? null,
-    revisionSnapshot.checkpoints,
+    revisionSnapshot.checkpoints
   );
   const now = Date.now();
   requireReason(input.reason);
@@ -542,14 +700,14 @@ export async function openProposalLenderConfirmationCycle(
     proposal: Doc<"buildProposals">;
     proposalRevisionId: Id<"proposalRevisions">;
     proposalRevisionNumber: number;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("proposalLenderConfirmationCycles")
     .withIndex("by_assignment_and_revision", (query) =>
       query
         .eq("assignmentId", input.assignment._id)
-        .eq("proposalRevisionId", input.proposalRevisionId),
+        .eq("proposalRevisionId", input.proposalRevisionId)
     )
     .unique();
   if (existing) {
@@ -559,19 +717,21 @@ export async function openProposalLenderConfirmationCycle(
     ctx.db
       .query("proposalLenderConfirmationCycles")
       .withIndex("by_assignment_and_cycle_number", (query) =>
-        query.eq("assignmentId", input.assignment._id),
+        query.eq("assignmentId", input.assignment._id)
       )
       .order("desc")
       .take(1),
     ctx.db
       .query("proposalLenderConfirmationCycles")
       .withIndex("by_assignment_and_status", (query) =>
-        query.eq("assignmentId", input.assignment._id).eq("status", "pending"),
+        query.eq("assignmentId", input.assignment._id).eq("status", "pending")
       )
       .take(2),
   ]);
   if (pendingCycles.length > 1) {
-    throw new Error("Proposal assignment has multiple pending confirmation cycles.");
+    throw new Error(
+      "Proposal assignment has multiple pending confirmation cycles."
+    );
   }
   const now = Date.now();
   for (const pendingCycle of pendingCycles) {
@@ -594,7 +754,7 @@ export async function openProposalLenderConfirmationCycle(
       proposalRevisionId: input.proposalRevisionId,
       proposalRevisionNumber: input.proposalRevisionNumber,
       status: "pending",
-    },
+    }
   );
   const cycle = await ctx.db.get(confirmationCycleId);
   if (!cycle) {

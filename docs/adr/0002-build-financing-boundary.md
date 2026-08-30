@@ -1,0 +1,3 @@
+# Keep Build financing as a planning sub-ledger
+
+DrawFlow will own the Build-scoped planning and collaboration records for Proposed Loans, active Loans, product-version snapshots, balances, interest projections, repayments, collateral, and Loan Documents, but it will not claim to be the authoritative servicing, compliance, accounting, or contractual system. A Proposed Loan belongs to a Build Proposal and becomes a distinct Loan only through proposal closing, preserving the boundary between proposed financing and a booked contractual obligation while allowing DrawFlow to keep the complete hybrid Financing Package visible in one place.

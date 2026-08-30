@@ -24,7 +24,7 @@ const LazyFieldRichTextPreview = lazy(() =>
 );
 
 import { formatCents, formatDate, initialsFor } from "./format";
-import { deriveScheduleHealth } from "./scheduleHealth";
+import { productionMilestoneScheduleHealth } from "./production-schedule-health.ts";
 import type {
   ProductionBuildDetail,
   ProductionBuildDetailActions,
@@ -277,11 +277,11 @@ function CurrentMilestoneHorizonItem({
     viewerRole === "lender"
       ? "Review milestone completion"
       : "Complete Milestone";
-  const scheduleHealth = deriveScheduleHealth({
+  const scheduleHealth = productionMilestoneScheduleHealth(
+    milestone,
+    submilestones,
     currentDay,
-    endDay: milestone.dayEnd,
-    lifecycleStatus: milestone.status,
-  });
+  );
   const daysBehind = scheduleHealth.overdueDays;
   const itemTestId = isOperationallyActive
     ? `current-milestone-${milestone.key}`

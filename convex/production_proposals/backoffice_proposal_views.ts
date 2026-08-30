@@ -17,6 +17,7 @@ import { PROPOSAL_COLUMNS, BACKOFFICE_ROLES, APPROVER_ROLES, BACKOFFICE_DASHBOAR
 import { withBorrowerStartingCash, productionProposalDirectoryCard, productionProposalDirectoryMatchContext, proposalDirectoryCardMatches, productionDashboardProposalCard, productionProposalColumnDescription, productionBuildDisplayId, productionQueueAgeLabel } from "./directory_cards.js";
 import { titleCase } from "./legacy_seed.js";
 import { operationsHandoffProjection } from "./operations_helpers.js";
+import { loadActiveBuildDashboardProjectionRows } from "./active_build_projection.js";
 import { builderAccountSummaries, preferredBuilderAccountEmail, isBackoffice } from "./proposal_claim.js";
 import { productionDaysActive, productionBuildDashboardStatus, productionBuildStatusLabel, productionMilestoneState, productionMilestoneNeedsBackofficeReview, productionMilestoneColumn, productionMilestoneIsBehindSchedule, productionMilestoneDueLabel, productionMilestonePriority, centsToCurrency } from "./roster_projection_helpers.js";
 import { createStorageUrlResolver, visibleBuilderCards, buildAdminBuilderStaffWorkspace, buildBuilderStaffWorkspace, builderStaffActiveBuildWorkspaceRow, visibleBackofficeCards, visibleBackofficeDashboardProposalRows } from "./storage_helpers.js";
@@ -326,6 +327,7 @@ export const getBackofficeDashboard = authenticatedQuery
       firstImageStorageId: Id<"_storage"> | null;
       plannedDraws: Doc<"plannedDrawScheduleRows">[];
       milestones: Doc<"buildMilestones">[];
+      submilestones: Doc<"buildSubmilestones">[];
       proposal: Doc<"buildProposals">;
     };
 
@@ -360,25 +362,19 @@ export const getBackofficeDashboard = authenticatedQuery
         if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
           return null;
         }
-        const [milestones, plannedDraws, drawRequests, evidence] =
-          await Promise.all([
-            ctx.db
-              .query("buildMilestones")
-              .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-              .take(BACKOFFICE_DASHBOARD_MILESTONES_PER_BUILD),
-            ctx.db
-              .query("plannedDrawScheduleRows")
-              .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-              .take(BACKOFFICE_DASHBOARD_PLANNED_DRAWS_PER_BUILD),
-            ctx.db
-              .query("activeBuildDrawRequests")
-              .withIndex("by_build", (q) => q.eq("buildId", build._id))
-              .take(BACKOFFICE_DASHBOARD_DRAW_REQUESTS_PER_BUILD),
-            ctx.db
-              .query("buildEvidenceAssets")
-              .withIndex("by_build", (q) => q.eq("buildId", build._id))
-              .take(BACKOFFICE_DASHBOARD_EVIDENCE_SCAN_PER_BUILD),
-          ]);
+        const {
+          drawRequests,
+          evidenceAssets: evidence,
+          milestones,
+          plannedDraws,
+          submilestones,
+        } = await loadActiveBuildDashboardProjectionRows(ctx, build._id, {
+          drawRequests: BACKOFFICE_DASHBOARD_DRAW_REQUESTS_PER_BUILD,
+          evidenceAssets: BACKOFFICE_DASHBOARD_EVIDENCE_SCAN_PER_BUILD,
+          milestones: BACKOFFICE_DASHBOARD_MILESTONES_PER_BUILD,
+          plannedDraws: BACKOFFICE_DASHBOARD_PLANNED_DRAWS_PER_BUILD,
+          submilestones: BACKOFFICE_DASHBOARD_MILESTONES_PER_BUILD * 10,
+        });
         const firstImage = evidence.find(
           (asset) => asset.storageId && asset.mimeType.startsWith("image/"),
         );
@@ -390,6 +386,7 @@ export const getBackofficeDashboard = authenticatedQuery
           milestones,
           plannedDraws,
           proposal: withBorrowerStartingCash(proposal),
+          submilestones,
         };
       }),
     );
@@ -411,10 +408,25 @@ export const getBackofficeDashboard = authenticatedQuery
           firstImageStorageId,
           milestones,
           plannedDraws,
+          submilestones,
         }) => {
           const currentDay = productionDaysActive(build.startDate, asOfDate);
+          const submilestonesByMilestone = new Map<
+            string,
+            Doc<"buildSubmilestones">[]
+          >();
+          for (const submilestone of submilestones) {
+            const rows =
+              submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
+            rows.push(submilestone);
+            submilestonesByMilestone.set(submilestone.milestoneKey, rows);
+          }
           const milestonesBehindSchedule = milestones.filter((milestone) =>
-            productionMilestoneIsBehindSchedule(milestone, currentDay),
+            productionMilestoneIsBehindSchedule(
+              milestone,
+              currentDay,
+              submilestonesByMilestone.get(milestone.key) ?? [],
+            ),
           ).length;
           const activeMilestone =
             milestones.find((milestone) => milestone.status !== "complete") ??
@@ -482,27 +494,54 @@ export const getBackofficeDashboard = authenticatedQuery
       },
     );
 
-    const milestones = visibleActiveBuilds.flatMap(({ build, milestones }) => {
+    const milestones = visibleActiveBuilds.flatMap(
+      ({ build, milestones, submilestones }) => {
       const currentDay = productionDaysActive(build.startDate, asOfDate);
       return milestones
         .filter(
           (milestone) =>
             productionMilestoneNeedsBackofficeReview(milestone) ||
-            productionMilestoneIsBehindSchedule(milestone, currentDay),
+            productionMilestoneIsBehindSchedule(
+              milestone,
+              currentDay,
+              submilestones.filter(
+                (submilestone) =>
+                  submilestone.milestoneKey === milestone.key,
+              ),
+            ),
         )
-        .map((milestone) => ({
+        .map((milestone) => {
+          const milestoneSubmilestones = submilestones.filter(
+            (submilestone) =>
+              submilestone.milestoneKey === milestone.key,
+          );
+          return {
           address: build.location,
           buildId: productionBuildDisplayId(build),
           buildKey: String(build._id),
-          column: productionMilestoneColumn(milestone, currentDay),
-          dueLabel: productionMilestoneDueLabel(milestone, currentDay),
+          column: productionMilestoneColumn(
+            milestone,
+            currentDay,
+            milestoneSubmilestones,
+          ),
+          dueLabel: productionMilestoneDueLabel(
+            milestone,
+            currentDay,
+            milestoneSubmilestones,
+          ),
           href: `/backoffice/builds/${build._id}?milestone=${milestone.key}`,
           id: String(milestone._id),
           milestoneKey: milestone.key,
           name: milestone.name,
-          priority: productionMilestonePriority(milestone, currentDay),
-        }));
-    });
+          priority: productionMilestonePriority(
+            milestone,
+            currentDay,
+            milestoneSubmilestones,
+          ),
+        };
+        });
+      },
+    );
 
     const proposals = proposalRows.map(({ card, proposal }) =>
       productionDashboardProposalCard(card, proposal),

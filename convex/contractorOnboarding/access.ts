@@ -1,18 +1,6 @@
-import { v } from "convex/values";
-
-import {
-  type AuthorizedViewer,
-  type RoleSlug,
-  authenticatedMutation,
-  authenticatedQuery,
-  backofficeMutation,
-  backofficeQuery,
-  normalizeRoleSlugs,
-} from "../authz";
-import { normalizeContractorEmail } from "../contractorWorkspace";
+import type { RoleSlug } from "../authz";
 import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "../fairLendConfig";
-import { internal } from "../_generated/api";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
+import type { Id, QueryCtx } from "../types";
 
 export const BACKOFFICE_ROLES: readonly RoleSlug[] = [
   "admin",
@@ -31,47 +19,6 @@ export const BUILDER_ROLES: readonly RoleSlug[] = [
 // Brokerage scope resolution (self-service reachable by member role)
 // ---------------------------------------------------------------------------
 
-export interface BrokerageScope {
-  brokerage: Doc<"brokerages">;
-  roles: RoleSlug[];
-  subject: string;
-}
-
-export async function resolveBrokerageScopeOrThrow(
-  ctx: QueryCtx | MutationCtx,
-  workosOrganizationId: string,
-  viewer?: AuthorizedViewer
-): Promise<BrokerageScope> {
-  const activeViewer =
-    viewer ?? (ctx as unknown as { viewer: AuthorizedViewer }).viewer;
-  const subject = activeViewer.subject;
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (q) => q.eq("workosUserId", subject))
-    .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
-    .first();
-  const activeTokenOrganizationId = activeViewer.organizationId?.trim();
-  if (
-    (!membership || membership.status !== "active") &&
-    activeTokenOrganizationId !== workosOrganizationId
-  ) {
-    throw new Error("Forbidden: WorkOS membership");
-  }
-  const brokerage = await ctx.db
-    .query("brokerages")
-    .withIndex("by_workos_organization", (q) =>
-      q.eq("workosOrganizationId", workosOrganizationId)
-    )
-    .unique();
-  if (!brokerage) {
-    throw new Error("Forbidden: brokerage");
-  }
-  const roles = normalizeRoleSlugs(
-    activeViewer.roles ?? membership?.roleSlugs ?? []
-  );
-  return { brokerage, roles, subject };
-}
-
 export function requireBackofficeRole(roles: readonly RoleSlug[]): void {
   if (!roles.some((role) => BACKOFFICE_ROLES.includes(role))) {
     throw new Error("Forbidden: backoffice role required");
@@ -82,40 +29,8 @@ export function requireBackofficeRole(roles: readonly RoleSlug[]): void {
 // Audit helper for onboarding/claim events
 // ---------------------------------------------------------------------------
 
-export async function writeContractorIdentityEvent(
-  ctx: MutationCtx,
-  input: {
-    brokerageId: Id<"brokerages">;
-    organizationId: string;
-    actorSubject: string;
-    actorRoles: readonly RoleSlug[];
-    command: string;
-    contractorId: Id<"contractorProfiles">;
-    entityType?: string;
-    eventType: string;
-    newState?: string;
-    priorState?: string;
-    reason?: string;
-    warnings?: string[];
-  }
-) {
-  const now = Date.now();
-  await ctx.db.insert("auditEvents", {
-    actorRoles: input.actorRoles as RoleSlug[],
-    actorWorkosUserId: input.actorSubject,
-    brokerageId: input.brokerageId,
-    command: input.command,
-    createdAt: now,
-    entityId: String(input.contractorId),
-    entityType: input.entityType ?? "contractorProfile",
-    eventType: input.eventType,
-    newState: input.newState,
-    organizationId: input.organizationId,
-    priorState: input.priorState,
-    reason: input.reason,
-    warnings: input.warnings ?? [],
-  });
-}
+export { resolveBrokerageScopeOrThrow } from "../contractor_identity_scope";
+export { writeContractorIdentityEvent } from "../contractor_profile_application";
 
 // ---------------------------------------------------------------------------
 // Onboarding state machine helpers (PRD §14.1)

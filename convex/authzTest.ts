@@ -33,6 +33,7 @@ const viewerReturn = v.object({
 });
 
 const activeOrganizationReturn = v.object({
+  assignmentId: v.id("lenderOrganizationAssignments"),
   brokerageId: v.id("brokerages"),
   brokerageName: v.string(),
   lenderOrganizationId: v.id("lenderOrganizations"),
@@ -44,6 +45,12 @@ const activeOrganizationReturn = v.object({
     proposalReview: v.boolean(),
     siteVisitReview: v.boolean(),
   }),
+  decisionPermissions: v.object({
+    drawDecisions: v.boolean(),
+    milestoneDecisions: v.boolean(),
+    proposalReview: v.boolean(),
+  }),
+  decisionPermissionsVersion: v.number(),
   roles: v.array(v.string()),
   userId: v.id("users"),
   workosOrganizationId: v.string(),

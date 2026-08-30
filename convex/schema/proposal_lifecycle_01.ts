@@ -1,6 +1,5 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import * as schemaValidators from "./validators";
 import {
   lenderProposalSnapshotDecisionValidator,
   lenderProposalSnapshotDocumentValidator,
@@ -15,11 +14,11 @@ import { proposalConfirmationCycleStatusValidator } from "../lender_portal_phase
 import {
   lenderPortalReviewDecisionValidator,
   lenderPortalReviewEvidenceReferenceValidator,
+  lenderPortalReviewerRoleValidator,
   lenderPortalReviewGroupValidator,
   lenderPortalReviewRequestKindValidator,
   lenderPortalReviewRequestStateValidator,
   lenderPortalReviewRequirementsValidator,
-  lenderPortalReviewerRoleValidator,
   lenderPortalReviewSubmissionSnapshotValidator,
 } from "../lender_portal_phase5_contracts";
 import {
@@ -30,6 +29,7 @@ import {
   proposalRevisionLenderContentSnapshotValidator,
   submilestoneValidator,
 } from "../production_proposal_detail";
+import * as schemaValidators from "./validators";
 
 export const schemaTables = {
   proposalLenderAssignments: defineTable({
@@ -43,6 +43,18 @@ export const schemaTables = {
     lenderOrganizationId: v.union(v.string(), v.id("lenderOrganizations")),
     legacyLenderOrganizationId: v.optional(v.string()),
     lenderOrganizationName: v.string(),
+    organizationReviewPolicyVersion: v.optional(v.number()),
+    organizationReviewPolicyVersionId: v.optional(
+      v.id("lenderOrganizationReviewPolicyVersions")
+    ),
+    reviewPolicyProvenance: v.optional(
+      v.union(
+        v.literal("build_override"),
+        v.literal("organization_default"),
+        v.literal("system_baseline")
+      )
+    ),
+    reviewPolicyVersionId: v.optional(v.id("proposalReviewPolicyVersions")),
     status: v.union(
       v.literal("current"),
       v.literal("archiving"),
@@ -138,6 +150,19 @@ export const schemaTables = {
     configuredAt: v.number(),
     reason: v.string(),
     idempotencyKey: v.string(),
+    provenance: v.optional(
+      v.union(
+        v.literal("build_override"),
+        v.literal("organization_default"),
+        v.literal("system_baseline")
+      )
+    ),
+    sourceLenderOrganizationId: v.optional(v.id("lenderOrganizations")),
+    sourceLenderOrganizationName: v.optional(v.string()),
+    sourceOrganizationReviewPolicyVersion: v.optional(v.number()),
+    sourceOrganizationReviewPolicyVersionId: v.optional(
+      v.id("lenderOrganizationReviewPolicyVersions")
+    ),
   })
     .index("by_proposal", ["proposalId"])
     .index("by_proposal_and_version", ["proposalId", "version"])
@@ -349,6 +374,19 @@ export const schemaTables = {
     lockedByRole: v.string(),
     reason: v.string(),
     idempotencyKey: v.string(),
+    provenance: v.optional(
+      v.union(
+        v.literal("build_override"),
+        v.literal("organization_default"),
+        v.literal("system_baseline")
+      )
+    ),
+    sourceLenderOrganizationId: v.optional(v.id("lenderOrganizations")),
+    sourceLenderOrganizationName: v.optional(v.string()),
+    sourceOrganizationReviewPolicyVersion: v.optional(v.number()),
+    sourceOrganizationReviewPolicyVersionId: v.optional(
+      v.id("lenderOrganizationReviewPolicyVersions")
+    ),
   })
     .index("by_proposal", ["proposalId"])
     .index("by_proposal_and_idempotency_key", ["proposalId", "idempotencyKey"]),

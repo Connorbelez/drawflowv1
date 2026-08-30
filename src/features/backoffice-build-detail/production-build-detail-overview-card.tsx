@@ -415,7 +415,7 @@ function CurrentBuildOverviewPanel({
       <Frame data-testid="current-milestone-horizon">
         <CurrentMilestoneHorizonSection
           currentDay={currentDay}
-          description="Incomplete work past its planned end date."
+          description="Work that has not started on time or is past its planned end."
           detail={detail}
           emptyMessage="No milestones are behind schedule."
           lane="behind-schedule"

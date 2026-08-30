@@ -144,6 +144,8 @@
     "validate:lender-portal-production-acceptance-contract": "bun scripts/lender-portal-production-acceptance.ts --contract-only",
     "prepare:e2e:build-collaboration": "bun scripts/prepare-build-collaboration-e2e.ts",
     "test:e2e:build-collaboration": "playwright test --config=playwright.build-collaboration.config.ts tests/e2e/build-collaboration-participants.spec.ts --project=chromium",
+    "qa:agentmail": "bun scripts/qa/agentmail.ts",
+    "qa:cleanup-identities": "bun scripts/qa/cleanup-onboarding-identities.ts",
     "certify:build-collaboration-cutover": "bun scripts/build-collaboration-cutover-certification.ts",
     "certify:cost-quote-workflow": "bun scripts/cost-quote-workflow-certification.ts",
     "configure:resend-webhook": "bun scripts/configure-resend-webhook.ts",

@@ -150,6 +150,7 @@ function renderPanel(directoryOverride: typeof directory = directory) {
 
   render(
     <BuilderStaffPermissionsPanel
+      builderAssignmentState="assigned"
       proposalId={"proposal_test" as never}
       scope="proposal"
       workosOrganizationId="org_test"
@@ -164,6 +165,32 @@ function renderPanel(directoryOverride: typeof directory = directory) {
 }
 
 describe("BuilderStaffPermissionsPanel", () => {
+  test("renders the unassigned Builder state without starting the permissions query", () => {
+    const onOpenBuilderAssignment = vi.fn();
+    convexHooks.useQuery.mockReturnValue(undefined);
+    convexHooks.useMutation.mockReturnValue(vi.fn());
+    convexHooks.useAction.mockReturnValue(vi.fn());
+
+    render(
+      <BuilderStaffPermissionsPanel
+        builderAssignmentState="unassigned"
+        onOpenBuilderAssignment={onOpenBuilderAssignment}
+        proposalId={"proposal_unassigned" as never}
+        scope="proposal"
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    expect(convexHooks.useQuery).toHaveBeenCalledWith(expect.anything(), "skip");
+    expect(screen.getByText("Link a Builder to manage staff")).toBeTruthy();
+    expect(screen.queryByText("Loading builder staff...")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Assign or link Builder" }),
+    );
+    expect(onOpenBuilderAssignment).toHaveBeenCalledTimes(1);
+  });
+
   test("shows builder and staff emails in the roster and selected-member detail", async () => {
     renderPanel();
 

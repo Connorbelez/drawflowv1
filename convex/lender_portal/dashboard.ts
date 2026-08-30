@@ -12,6 +12,10 @@ import {
   currentLenderApproverMaps,
   reviewerQueueRow,
 } from "../lender_portal_phase5";
+import {
+  productionDaysActive,
+  productionMilestoneIsBehindSchedule,
+} from "../production_proposals/roster_projection_helpers.js";
 import { getCurrentLenderConfirmationStatus } from "./proposals.js";
 import {
   assertLenderBuildScopedRows,
@@ -147,6 +151,7 @@ export const getLenderDashboard = lenderOrganizationQuery
           facilities,
           capitalEvents,
           milestones,
+          submilestones,
           siteVisits,
           drawRequests,
         ] = await Promise.all([
@@ -165,6 +170,10 @@ export const getLenderDashboard = lenderOrganizationQuery
             )
             .take(501),
           ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_build", (query) => query.eq("buildId", build._id))
+            .take(501),
+          ctx.db
             .query("buildSiteVisits")
             .withIndex("by_build", (query) => query.eq("buildId", build._id))
             .take(501),
@@ -177,6 +186,7 @@ export const getLenderDashboard = lenderOrganizationQuery
           facilities.length > 50 ||
           capitalEvents.length > 500 ||
           milestones.length > 500 ||
+          submilestones.length > 500 ||
           siteVisits.length > 500 ||
           drawRequests.length > 500
         ) {
@@ -187,6 +197,7 @@ export const getLenderDashboard = lenderOrganizationQuery
           ...facilities,
           ...capitalEvents,
           ...milestones,
+          ...submilestones,
           ...siteVisits,
           ...drawRequests,
         ]);
@@ -210,6 +221,18 @@ export const getLenderDashboard = lenderOrganizationQuery
           .filter((event) => event.eventType === "draw_release")
           .reduce((total, event) => total + event.amountCents, 0);
         const progressPercent = averageProgress(visibleMilestones);
+        const currentDay = productionDaysActive(build.startDate);
+        const milestonesBehindSchedule = visibleMilestones.filter(
+          (milestone) =>
+            productionMilestoneIsBehindSchedule(
+              milestone,
+              currentDay,
+              submilestones.filter(
+                (submilestone) =>
+                  submilestone.milestoneKey === milestone.key,
+              ),
+            ),
+        ).length;
         await appendLenderDashboardMilestoneActions(ctx, {
           actions,
           build,
@@ -246,7 +269,12 @@ export const getLenderDashboard = lenderOrganizationQuery
             buildName: build.buildName,
             facilityCents,
             location: build.location,
-            nextState: nextAction?.fact ?? "No action required",
+            milestonesBehindSchedule,
+            nextState:
+              nextAction?.fact ??
+              (milestonesBehindSchedule > 0
+                ? `${milestonesBehindSchedule} ${milestonesBehindSchedule === 1 ? "Milestone" : "Milestones"} behind schedule`
+                : "No action required"),
             progressPercent,
             releasedCents,
             status: nextAction

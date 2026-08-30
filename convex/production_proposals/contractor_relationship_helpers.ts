@@ -180,12 +180,19 @@ export function builderContractorLifecycle(input: {
   profile: any;
 }) {
   const now = Date.now();
-  const invitationState =
+  const claimInvitationState =
     input.latestClaim?.state === "invited" &&
     input.latestClaim.expiresAt !== undefined &&
     input.latestClaim.expiresAt <= now
       ? "expired"
       : (input.latestClaim?.state ?? "not_invited");
+  const deliveryStatus = input.latestClaim?.invitationDeliveryStatus;
+  const invitationState =
+    deliveryStatus === "queued" && claimInvitationState === "invited"
+      ? "sending"
+      : deliveryStatus === "failed" && claimInvitationState === "invited"
+        ? "failed"
+        : claimInvitationState;
 
   if (input.latestReview?.status === "changes_requested") {
     return {
@@ -206,6 +213,20 @@ export function builderContractorLifecycle(input: {
       invitationState,
       lifecycleState: "sync_pending",
       nextAction: "wait_for_sync",
+    };
+  }
+  if (deliveryStatus === "failed" && claimInvitationState === "invited") {
+    return {
+      invitationState,
+      lifecycleState: "failed",
+      nextAction: "retry_invite",
+    };
+  }
+  if (deliveryStatus === "queued" && claimInvitationState === "invited") {
+    return {
+      invitationState,
+      lifecycleState: "sending",
+      nextAction: "wait_for_claim",
     };
   }
   if (

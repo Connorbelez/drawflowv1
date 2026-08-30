@@ -66,6 +66,7 @@ export function ProductionProposalReviewSurface({
   detail,
   initialActiveTab,
   lifecycleActions,
+  lenderAssignmentSurface,
   reviewPolicySurface,
   materialPlanningActions,
   onChangeCalendarTimeframe,
@@ -113,6 +114,7 @@ export function ProductionProposalReviewSurface({
   closingPolicyReady?: boolean;
   detail: ProductionProposalDetail;
   lifecycleActions?: ReactNode;
+  lenderAssignmentSurface?: ReactNode;
   materialPlanningActions?: MaterialPlanningActions;
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeReviewTab?: (tab: ProductionReviewTab) => void;
@@ -577,6 +579,7 @@ export function ProductionProposalReviewSurface({
           assignment={detail.assignment}
           brokerOptionsPending={brokerOptionsPending}
           builders={builders}
+          lenderAssignmentSurface={lenderAssignmentSurface}
           onAssignBroker={onAssignBroker}
           onAssignBuilder={onAssignBuilder}
           onCreateClaimLink={onCreateClaimLink}

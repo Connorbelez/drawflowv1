@@ -79,10 +79,10 @@ remains unselected until a separate user decision.
 ### Locked Lender Organization Management implementation contract
 
 Variant E at `/lender/organization-management-prototype?variant=E` remains the
-interaction contract, but its ownership boundary is corrected: production
-promotes the directory-first hierarchy into `/backoffice/lenders` as the
-application-owned `Brokerage → Lender Organization → assigned lender users`
-control plane. Reuse the Builder roster pattern for the organization table,
+interaction contract. Production promotes its directory-first hierarchy into
+`/backoffice/lenders` as the application-owned `Brokerage → Lender Organization
+→ assigned lender users` control plane and into `/lender/organization` as the
+current-organization member directory. Reuse the Builder roster pattern for the organization table,
 unassigned queue, detail drawer, staged invitations, membership controls,
 workflow permissions, and soft deactivation. WorkOS supplies the shared
 identity organization, invitations, roles, memberships, and read-only
@@ -102,9 +102,16 @@ reimplementation fails this plan.
 Promotion preserves the narrow Build overview; expandable Milestone ledger
 with canonical Budget, receipt/invoice coverage, and actual-or-planned dates;
 focused read-only Milestone sheet navigation; pooled Build funding and Draw
-records; review-attached evidence; and read-only participant-visible public
-Collaboration. It must keep full-workspace capabilities, private data, generic
-comments, and overview decisions or mutations out of the lender projection.
+records; review-attached evidence; the immutable Milestone and Draw review
+policy projected read-only from the active Build snapshot; and
+participant-visible public Collaboration. Active members of the currently
+assigned Lender Organization may publish fixed Build-wide updates, attach
+governed files, paginate complete authorized threads, and reply. The
+implementation must delegate to canonical Collaboration publication, comment,
+asset, lifecycle, audit, notification, moderation, search, and webhook owners.
+It must keep the full Build Workspace, private or restricted data, policy
+editing, scheduling, custom audiences, acknowledgements, Action Items, shared
+domain mutations, and overview decisions out of the lender projection.
 
 ## Baseline and cutover
 
@@ -383,9 +390,12 @@ gate if the checkout changes before Phase 1 product implementation.
 4. `LP-P1-W04` Reuse WorkOS-first invitation, shared-membership role-change, and membership-deactivation commands; never write WorkOS projection tables from product flows.
 5. `LP-P1-W05` Enforce the exact lender role set `lender`, `lender-admin`, and `lender-staff`, plus the application-wide workflow permission cap and staff final-decision restriction.
 6. `LP-P1-W06` Enforce one active or pending app assignment per WorkOS user and keep ambiguous/pending reconciliation candidates explicit.
-7. `LP-P1-W07` Promote the Variant E directory hierarchy into `/backoffice/lenders` with the Builder roster pattern; keep `/lender/organization` read-only and application-level.
-8. `LP-P1-W08` Expose command validation, authorization, pending sync, success, and failure. Reconcile route/query/write access, assignment and quorum context, recipients, queues, and audit/notification work without mutating Back Office review requirements.
-9. `LP-P1-W09` Audit Lender Organization provisioning, invitation staging, assignment, unassignment, shared role changes, policy changes, membership deactivation, and proposal organization cutover with actor, role, timestamp, prior/new state, warning, and reason where applicable.
+7. `LP-P1-W07` Promote the Variant E directory hierarchy into `/backoffice/lenders` and reuse its member directory and detail sheet at `/lender/organization`. Keep organization policy read-only there; allow only active same-organization `lender-admin` users to update versioned member decision grants or deactivate an eligible member.
+8. `LP-P1-W08` Expose command validation, authorization, pending sync, success, and failure. Reconcile route/query/write access, assignment and quorum context, recipients, queues, and audit/notification work.
+9. `LP-P1-W09` Add Back Office-only immutable, versioned default Review Requirements to each application-owned Lender Organization. Validate current eligible lender quorum at save and snapshot the current default, or explicit system baseline, during assignment and reassignment.
+10. `LP-P1-W10` Audit Lender Organization provisioning, invitation staging, assignment, unassignment, shared role changes, default-policy versions, membership deactivation, and proposal organization cutover with actor, role, timestamp, prior/new state, warning, and reason where applicable.
+11. `LP-P1-W11` Add optional member decision permissions and version fields, backfill every assignment with role/status-aware defaults, verify complete coverage, and only then deploy the required-field schema cutover and enable the operator controls.
+12. `LP-P1-W12` Include the member permission version in eligibility epochs and replace role-only proposal, Milestone, and Draw final-decision gates with the intersection of active WorkOS state, active assignment, organization cap, and member grant.
 
 ### Tests
 
@@ -396,6 +406,9 @@ gate if the checkout changes before Phase 1 product implementation.
 - `LP-P1-T05` Deactivated users cannot perform new lender reads or actions; withdrawn-record access remains available only to eligible active users in the former Lender Organization.
 - `LP-P1-T06` Historical memberships and decisions survive deactivation.
 - `LP-P1-T07` Membership changes recalculate pending review eligibility, queues, and recipients without changing the locked review policy.
+- `LP-P1-T08` Only authorized Back Office actors can create a default with the expected current version; lender and builder actors are denied and Brokerage / Lender Organization isolation is enforced.
+- `LP-P1-T09` Assignment snapshots the current organization default or explicit baseline; later default changes do not mutate existing assignments, while future assignment and reassignment receive the selected organization's current version.
+- `LP-P1-T10` Unsatisfiable saved defaults fail assignment closed without partial writes. Per-Build override and explicit restore create audited canonical policy revisions, preserve lender-confirmation cycles, and remain blocked after policy lock.
 
 ### Exit criteria
 

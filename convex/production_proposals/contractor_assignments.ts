@@ -4,16 +4,38 @@
  */
 import { v } from "convex/values";
 import { authenticatedMutation } from "../authz";
+import { createCanonicalContractorProfile } from "../contractor_profile_application";
 import { createContractorProfileInviteClaim } from "../contractorOnboarding";
 import { pushProposalPlanningSnapshot } from "../proposal_collaboration_model";
-import { type Id } from "../types";
+import type { Id } from "../types";
 import { authorizeProposal } from "./authorization_core.js";
 import { requireProposalAppPermission } from "./builder_staff_access.js";
-import { normalizeOptionalString, normalizeOptionalMoneyCents, normalizeOptionalHours, deriveContractorAssignmentCost, getScopedContractorOrThrow, replaceContractorOperatingRows, writeContractorProfileEvent } from "./contractor_policy_helpers.js";
-import { ensureProposalContractorAssignment, resolveProposalAssignmentSubmilestones, findProposalMilestoneContractorAssignment } from "./contractor_proposal_helpers.js";
+import {
+  deriveContractorAssignmentCost,
+  getScopedContractorOrThrow,
+  normalizeOptionalHours,
+  normalizeOptionalMoneyCents,
+  normalizeOptionalString,
+  replaceContractorOperatingRows,
+  writeContractorProfileEvent,
+} from "./contractor_policy_helpers.js";
+import {
+  ensureProposalContractorAssignment,
+  findProposalMilestoneContractorAssignment,
+  resolveProposalAssignmentSubmilestones,
+} from "./contractor_proposal_helpers.js";
 import { requireProposalContractorPlanningWrite } from "./contractor_relationship_helpers.js";
-import { contractorKindInput, contractorPayRateUnitInput, contractorCapabilityInput, contractorEquipmentInput, contractorAvailabilityWindowInput } from "./contracts_workflow.js";
-import { getProductionMilestoneOrThrow, writeProposalEvent } from "./proposal_copy_audit.js";
+import {
+  contractorAvailabilityWindowInput,
+  contractorCapabilityInput,
+  contractorEquipmentInput,
+  contractorKindInput,
+  contractorPayRateUnitInput,
+} from "./contracts_workflow.js";
+import {
+  getProductionMilestoneOrThrow,
+  writeProposalEvent,
+} from "./proposal_copy_audit.js";
 
 export const attachProposalContractor = authenticatedMutation
   .input({
@@ -32,13 +54,13 @@ export const attachProposalContractor = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     await requireProposalContractorPlanningWrite(ctx, auth);
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
-      auth.brokerage._id,
+      auth.brokerage._id
     );
     if (contractor.status !== "active") {
       throw new Error("Production contractor is inactive.");
@@ -92,20 +114,20 @@ export const attachAndInviteProposalContractor = authenticatedMutation
     v.object({
       contractorInviteClaimId: v.id("contractorInviteClaims"),
       proposalContractorAssignmentId: v.id("proposalContractorAssignments"),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     await requireProposalContractorPlanningWrite(ctx, auth);
     await requireProposalAppPermission(ctx, auth, "contractor", "create");
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
-      auth.brokerage._id,
+      auth.brokerage._id
     );
     if (contractor.status !== "active") {
       throw new Error("Production contractor is inactive.");
@@ -136,7 +158,7 @@ export const attachAndInviteProposalContractor = authenticatedMutation
         contractor,
         expiresInDays: args.expiresInDays,
         workosOrganizationId: args.workosOrganizationId,
-      },
+      }
     );
     await writeProposalEvent(ctx, {
       auth,
@@ -160,7 +182,7 @@ export const createAndAttachProposalContractor = authenticatedMutation
   .input({
     contractor: v.object({
       availabilityWindows: v.optional(
-        v.array(contractorAvailabilityWindowInput),
+        v.array(contractorAvailabilityWindowInput)
       ),
       capabilities: v.optional(v.array(contractorCapabilityInput)),
       city: v.optional(v.string()),
@@ -181,37 +203,38 @@ export const createAndAttachProposalContractor = authenticatedMutation
     v.object({
       contractorId: v.id("contractorProfiles"),
       proposalContractorAssignmentId: v.id("proposalContractorAssignments"),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     await requireProposalContractorPlanningWrite(ctx, auth);
     await requireProposalAppPermission(ctx, auth, "contractor", "create");
     const now = Date.now();
-    const contractorId = await ctx.db.insert("contractorProfiles", {
+    const contractorId = await createCanonicalContractorProfile(ctx, {
       brokerageId: auth.brokerage._id,
-      city: normalizeOptionalString(args.contractor.city),
-      createdAt: now,
-      defaultPayRateCents:
-        args.contractor.defaultPayRateCents === undefined
-          ? undefined
-          : Math.max(0, Math.round(args.contractor.defaultPayRateCents)),
-      defaultPayRateUnit: args.contractor.defaultPayRateUnit,
-      email: normalizeOptionalString(args.contractor.email),
-      kind: args.contractor.kind ?? "company",
-      name: args.contractor.name.trim(),
-      onboardingStatus: "profile_only",
+      fields: {
+        city: normalizeOptionalString(args.contractor.city),
+        defaultPayRateCents:
+          args.contractor.defaultPayRateCents === undefined
+            ? undefined
+            : Math.max(0, Math.round(args.contractor.defaultPayRateCents)),
+        defaultPayRateUnit: args.contractor.defaultPayRateUnit,
+        email: normalizeOptionalString(args.contractor.email),
+        kind: args.contractor.kind ?? "company",
+        name: args.contractor.name.trim(),
+        onboardingStatus: "profile_only",
+        phone: normalizeOptionalString(args.contractor.phone),
+        status: "active",
+        trades: args.contractor.trades
+          .map((trade) => trade.trim())
+          .filter(Boolean),
+      },
+      now,
       organizationId: args.workosOrganizationId,
-      phone: normalizeOptionalString(args.contractor.phone),
-      status: "active",
-      trades: args.contractor.trades
-        .map((trade) => trade.trim())
-        .filter(Boolean),
-      updatedAt: now,
     });
     await replaceContractorOperatingRows(ctx, {
       availabilityWindows: args.contractor.availabilityWindows ?? [],
@@ -281,8 +304,8 @@ export const assignProposalContractorToMilestone = authenticatedMutation
         v.literal("planned"),
         v.literal("active"),
         v.literal("completed"),
-        v.literal("removed"),
-      ),
+        v.literal("removed")
+      )
     ),
     submilestoneKeys: v.optional(v.array(v.string())),
     workosOrganizationId: v.string(),
@@ -292,13 +315,13 @@ export const assignProposalContractorToMilestone = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     await requireProposalContractorPlanningWrite(ctx, auth);
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
-      auth.brokerage._id,
+      auth.brokerage._id
     );
     if (contractor.status !== "active") {
       throw new Error("Production contractor is inactive.");
@@ -306,7 +329,7 @@ export const assignProposalContractorToMilestone = authenticatedMutation
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.milestoneKey,
+      args.milestoneKey
     );
     const proposalContractorAssignmentId =
       await ensureProposalContractorAssignment(ctx, {
@@ -327,7 +350,7 @@ export const assignProposalContractorToMilestone = authenticatedMutation
         milestoneKey: args.milestoneKey,
         proposalId: args.proposalId,
         submilestoneKeys,
-      },
+      }
     );
     const targets =
       targetSubmilestones.length > 0
@@ -384,7 +407,7 @@ export const assignProposalContractorToMilestone = authenticatedMutation
             createdAt: now,
             organizationId: args.workosOrganizationId,
             proposalId: args.proposalId,
-          }),
+          })
         );
       }
     }

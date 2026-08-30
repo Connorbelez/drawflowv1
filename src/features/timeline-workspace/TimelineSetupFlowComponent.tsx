@@ -12,7 +12,10 @@ import {
 } from "#/features/production-proposals/proposalScheduleDates.ts";
 import { parseBudgetWorkbookFile } from "#/features/proposal-import/budget-workbook-schema.ts";
 import type { GoogleAddressPlaceDetails } from "#/lib/google-maps.ts";
-import type { TimelineScheduleDisplayMode } from "./-TimelineMilestoneWorksheetTable.tsx";
+import type {
+  TimelineMilestoneWorksheetRowsChangeMeta,
+  TimelineScheduleDisplayMode,
+} from "./-TimelineMilestoneWorksheetTable.tsx";
 import {
   getReimbursementBps,
   TOTAL_REIMBURSEMENT_BPS,
@@ -59,6 +62,7 @@ import { useTimelineSetupAssistant } from "./TimelineSetupFlowAssistant.ts";
 export function TimelineSetupFlow({
   baseItems,
   brokerOptions,
+  contractorActions,
   contractorOptions = [],
   defaultAssignedBrokerWorkosUserId,
   onComplete,
@@ -467,15 +471,21 @@ export function TimelineSetupFlow({
           <BudgetStep
             cascadeBudgetEdits={cascadeBudgetEdits}
             cashText={cashText}
+            contractorActions={contractorActions}
             contractorOptions={contractorOptions}
             error={error}
             onBack={() => setStep("template")}
             onBudgetFileImport={importBudgetFile}
             onCascadeBudgetEditsChange={setCascadeBudgetEdits}
             onComplete={completeSetup}
-            onRowsChange={(nextRows) => {
+            onRowsChange={(
+              nextRows,
+              _meta?: TimelineMilestoneWorksheetRowsChangeMeta
+            ) => {
               setRows(nextRows);
-              setBudgetText(formatCurrency(setupRowsBudgetCents(nextRows)));
+              if (!cascadeBudgetEdits) {
+                setBudgetText(formatCurrency(setupRowsBudgetCents(nextRows)));
+              }
               setError("");
             }}
             onScheduleDisplayModeChange={setScheduleDisplayMode}

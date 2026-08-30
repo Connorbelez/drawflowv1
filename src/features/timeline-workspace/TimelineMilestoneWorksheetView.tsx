@@ -110,6 +110,8 @@ export interface TimelineMilestoneWorksheetViewProps {
   proposedStartDate?: string;
   proposalSubmittedAt?: number;
   pendingMilestoneDeleteRow: TimelineMilestoneWorksheetRow | null;
+  pendingMilestoneDeleteCanDelete: boolean;
+  pendingMilestoneDeleteSource: "finalSubMilestone" | "milestone";
   pendingUnsavedNavigation: PendingUnsavedNavigation | null;
   reportSubMilestoneEditorDirty: (
     rowKey: string,
@@ -124,6 +126,7 @@ export interface TimelineMilestoneWorksheetViewProps {
     placement?: "expanded" | "sheet"
   ) => ReactNode;
   reorderRows: (activeIndex: number, overIndex: number) => void;
+  requestMilestoneDelete: (rowKey: string) => void;
   requestUnsavedNavigation: (action: () => void) => void;
   rows: TimelineMilestoneWorksheetRow[];
   scheduleDisplayMode: TimelineScheduleDisplayMode;
@@ -210,12 +213,15 @@ export function TimelineMilestoneWorksheetView({
   proposedStartDate,
   proposalSubmittedAt,
   pendingMilestoneDeleteRow,
+  pendingMilestoneDeleteCanDelete,
+  pendingMilestoneDeleteSource,
   pendingUnsavedNavigation,
   reportSubMilestoneEditorDirty,
   removeContractorAssignment,
   removeSubMilestone,
   renderMilestoneDetailTabs,
   reorderRows,
+  requestMilestoneDelete,
   requestUnsavedNavigation,
   rows,
   scheduleDisplayMode,
@@ -509,7 +515,7 @@ export function TimelineMilestoneWorksheetView({
             onCommitBudgetEdit={commitBudgetEdit}
             onCommitField={commitRows}
             onCustomMilestoneNameChange={setCustomMilestoneName}
-            onDeleteMilestone={(rowKey) => setPendingMilestoneDeleteKey(rowKey)}
+            onDeleteMilestone={requestMilestoneDelete}
             onMoveSubMilestone={moveSummarySubMilestone}
             onOpenDetails={openDetailsSheet}
             onUpdateRow={updateRow}
@@ -549,6 +555,7 @@ export function TimelineMilestoneWorksheetView({
             <p
               className="timeline-blueprint-error"
               data-testid="timeline-setup-error"
+              role="alert"
             >
               {error}
             </p>
@@ -680,10 +687,18 @@ export function TimelineMilestoneWorksheetView({
       >
         <AlertDialogContent className="sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete milestone</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingMilestoneDeleteSource === "finalSubMilestone"
+                ? "Remove final Sub-milestone and Milestone?"
+                : "Delete milestone"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingMilestoneDeleteRow
-                ? `"${pendingMilestoneDeleteRow.name}" and its sub-milestones will be removed from this draft. Completion percentages will be redistributed across the remaining included sub-milestones.`
+                ? pendingMilestoneDeleteSource === "finalSubMilestone"
+                  ? pendingMilestoneDeleteCanDelete
+                    ? `Removing the final Sub-milestone also removes the ${pendingMilestoneDeleteRow.name} Milestone from this proposal plan. Its budget, schedule, assignments, and dependencies will be cleared.`
+                    : `The ${pendingMilestoneDeleteRow.name} Milestone is the final included Milestone. Add or include another Milestone before removing its final Sub-milestone.`
+                  : `"${pendingMilestoneDeleteRow.name}" and its sub-milestones will be removed from this draft. Completion percentages will be redistributed across the remaining included sub-milestones.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -693,6 +708,7 @@ export function TimelineMilestoneWorksheetView({
             />
             <Button
               data-testid="timeline-settings-delete-milestone-confirm"
+              disabled={!pendingMilestoneDeleteCanDelete}
               onClick={() => {
                 if (pendingMilestoneDeleteRow) {
                   deleteMilestone(pendingMilestoneDeleteRow.key);
@@ -700,7 +716,9 @@ export function TimelineMilestoneWorksheetView({
               }}
               variant="destructive"
             >
-              Delete milestone
+              {pendingMilestoneDeleteSource === "finalSubMilestone"
+                ? "Remove Sub-milestone and Milestone"
+                : "Delete milestone"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

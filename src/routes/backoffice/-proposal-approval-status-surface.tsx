@@ -86,99 +86,20 @@ interface ProposalApprovalStatusSurfaceProps {
 }
 
 export function ProposalApprovalStatusSurface({
-  assignExternalLender,
   canManageBrokerAssignment,
-  lenderOrganizationsQuery,
   navigate,
   planId,
   productionDetail,
   proposalId,
   proposalRemediationQuery,
   publishProposalRevision,
-  repairMissingLenderConfirmation,
   search,
-  setLenderAssignmentDialogOpen,
   setProposalConfirmationHistoryLimit,
   visualFixtureEnabled,
-  withdrawExternalLender,
   workosOrganizationId,
 }: ProposalApprovalStatusSurfaceProps) {
   return !visualFixtureEnabled && canManageBrokerAssignment ? (
     <div className="grid gap-4">
-      <ProposalLenderAssignmentSection
-        approval={productionDetail.lenderApproval}
-        assignment={productionDetail.lenderAssignment}
-        assignmentHistory={productionDetail.lenderAssignmentHistory}
-        lenderOrganizations={lenderOrganizationsQuery?.organizations ?? []}
-        lenderOrganizationsPending={lenderOrganizationsQuery === undefined}
-        needsConfirmationRepair={Boolean(
-          productionDetail.proposal.status === "approved" &&
-            productionDetail.lenderAssignment?.status === "current" &&
-            !productionDetail.proposal.currentProposalRevisionId
-        )}
-        onAssign={(lenderOrganizationId, reason) =>
-          assignExternalLender({
-            lenderOrganizationId: lenderOrganizationId as Id<
-              "lenderOrganizations"
-            >,
-            proposalId,
-            reason,
-            workosOrganizationId,
-          })
-        }
-        onDialogOpenChange={setLenderAssignmentDialogOpen}
-        onEditReviewPolicy={() => {
-          void navigate({
-            params: { planId },
-            replace: true,
-            search: { ...search, tab: "closing" },
-            to: "/backoffice/proposals/$planId",
-          }).then(() => {
-            requestAnimationFrame(() => {
-              const policyControl = document.getElementById(
-                "proposal-review-policy-control"
-              );
-              policyControl?.scrollIntoView({
-                behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
-                  .matches
-                  ? "auto"
-                  : "smooth",
-                block: "start",
-              });
-              policyControl?.focus({ preventScroll: true });
-            });
-          });
-        }}
-        onRepairLenderConfirmation={async (reason) => {
-          const assignment = productionDetail.lenderAssignment;
-          if (!assignment || assignment.status !== "current") {
-            throw new Error("A current lender assignment is required.");
-          }
-          return await repairMissingLenderConfirmation({
-            expectedAssignmentId:
-              assignment.assignmentId as Id<"proposalLenderAssignments">,
-            expectedProposalRevisionNumber:
-              productionDetail.proposal.currentProposalRevisionNumber ?? null,
-            idempotencyKey: `backoffice:lender-confirmation-repair:${proposalId}:${assignment.assignmentId}`,
-            proposalId,
-            reason,
-            workosOrganizationId,
-          });
-        }}
-        onWithdraw={(assignmentId, reason) =>
-          withdrawExternalLender({
-            assignmentId: assignmentId as Id<"proposalLenderAssignments">,
-            proposalId,
-            reason,
-            workosOrganizationId,
-          })
-        }
-        proposal={{
-          buildName: productionDetail.proposal.buildName,
-          location: productionDetail.proposal.location,
-          status: productionDetail.proposal.status,
-        }}
-      />
       {proposalRemediationQuery ? (
         <ProposalRemediationControl
           control={proposalRemediationQuery}
@@ -221,4 +142,120 @@ export function ProposalApprovalStatusSurface({
       ) : null}
     </div>
   ) : undefined;
+}
+
+export function ProposalLenderAssignmentSurface({
+  assignExternalLender,
+  canManageBrokerAssignment,
+  lenderOrganizationsQuery,
+  navigate,
+  planId,
+  productionDetail,
+  proposalId,
+  repairMissingLenderConfirmation,
+  search,
+  setLenderAssignmentDialogOpen,
+  visualFixtureEnabled,
+  withdrawExternalLender,
+  workosOrganizationId,
+}: ProposalApprovalStatusSurfaceProps) {
+  if (visualFixtureEnabled) {
+    return null;
+  }
+
+  return (
+    <ProposalLenderAssignmentSection
+      approval={productionDetail.lenderApproval}
+      assignment={productionDetail.lenderAssignment}
+      assignmentHistory={productionDetail.lenderAssignmentHistory}
+      lenderOrganizations={lenderOrganizationsQuery?.organizations ?? []}
+      lenderOrganizationsPending={
+        canManageBrokerAssignment && lenderOrganizationsQuery === undefined
+      }
+      needsConfirmationRepair={Boolean(
+        canManageBrokerAssignment &&
+          productionDetail.proposal.status === "approved" &&
+          productionDetail.lenderAssignment?.status === "current" &&
+          !productionDetail.proposal.currentProposalRevisionId
+      )}
+      onAssign={
+        canManageBrokerAssignment
+          ? (lenderOrganizationId, reason) =>
+              assignExternalLender({
+                lenderOrganizationId: lenderOrganizationId as Id<
+                  "lenderOrganizations"
+                >,
+                proposalId,
+                reason,
+                workosOrganizationId,
+              })
+          : undefined
+      }
+      onDialogOpenChange={setLenderAssignmentDialogOpen}
+      onEditReviewPolicy={
+        canManageBrokerAssignment
+          ? () => {
+              void navigate({
+                params: { planId },
+                replace: true,
+                search: { ...search, tab: "closing" },
+                to: "/backoffice/proposals/$planId",
+              }).then(() => {
+                requestAnimationFrame(() => {
+                  const policyControl = document.getElementById(
+                    "proposal-review-policy-control"
+                  );
+                  policyControl?.scrollIntoView({
+                    behavior: window.matchMedia(
+                      "(prefers-reduced-motion: reduce)"
+                    ).matches
+                      ? "auto"
+                      : "smooth",
+                    block: "start",
+                  });
+                  policyControl?.focus({ preventScroll: true });
+                });
+              });
+            }
+          : undefined
+      }
+      onRepairLenderConfirmation={
+        canManageBrokerAssignment
+          ? async (reason) => {
+              const assignment = productionDetail.lenderAssignment;
+              if (!assignment || assignment.status !== "current") {
+                throw new Error("A current lender assignment is required.");
+              }
+              return await repairMissingLenderConfirmation({
+                expectedAssignmentId:
+                  assignment.assignmentId as Id<"proposalLenderAssignments">,
+                expectedProposalRevisionNumber:
+                  productionDetail.proposal.currentProposalRevisionNumber ??
+                  null,
+                idempotencyKey: `backoffice:lender-confirmation-repair:${proposalId}:${assignment.assignmentId}`,
+                proposalId,
+                reason,
+                workosOrganizationId,
+              });
+            }
+          : undefined
+      }
+      onWithdraw={
+        canManageBrokerAssignment
+          ? (assignmentId, reason) =>
+              withdrawExternalLender({
+                assignmentId: assignmentId as Id<"proposalLenderAssignments">,
+                proposalId,
+                reason,
+                workosOrganizationId,
+              })
+          : undefined
+      }
+      proposal={{
+        buildName: productionDetail.proposal.buildName,
+        location: productionDetail.proposal.location,
+        status: productionDetail.proposal.status,
+      }}
+    />
+  );
 }

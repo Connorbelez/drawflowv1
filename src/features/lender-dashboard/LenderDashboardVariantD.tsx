@@ -254,15 +254,26 @@ export function LiveLenderDashboardVariantD({
                         </TableCell>
                         <TableCell>{build.nextState}</TableCell>
                         <TableCell className="pr-5 text-right">
-                          <Badge
-                            variant={
-                              build.status === "needs_action"
-                                ? "default"
-                                : "outline"
-                            }
-                          >
-                            {formatBuildStatus(build.status)}
-                          </Badge>
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            {build.milestonesBehindSchedule > 0 ? (
+                              <Badge className="tabular-nums" variant="warning">
+                                {build.milestonesBehindSchedule}{" "}
+                                {build.milestonesBehindSchedule === 1
+                                  ? "Milestone"
+                                  : "Milestones"}{" "}
+                                behind schedule
+                              </Badge>
+                            ) : null}
+                            <Badge
+                              variant={
+                                build.status === "needs_action"
+                                  ? "default"
+                                  : "outline"
+                              }
+                            >
+                              {formatBuildStatus(build.status)}
+                            </Badge>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );

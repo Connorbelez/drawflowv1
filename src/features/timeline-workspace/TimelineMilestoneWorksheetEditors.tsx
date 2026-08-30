@@ -210,11 +210,10 @@ export function SubMilestoneEditor({
                     aria-label={`Remove ${sanitizeSubMilestoneName(subMilestone.name)}`}
                     className="timeline-submilestone-remove"
                     data-testid={`timeline-setup-submilestone-remove-${subMilestone.id}`}
-                    disabled={subMilestones.length <= 1}
                     onClick={() => onRemoveSubMilestone(subMilestone.id)}
                     title={
                       subMilestones.length <= 1
-                        ? "Each milestone must retain at least one sub-milestone."
+                        ? "Removing the final Sub-milestone also removes this Milestone from the proposal plan."
                         : undefined
                     }
                     type="button"
@@ -681,11 +680,10 @@ export function SubMilestoneDetailEditor({
         aria-label={`Remove ${sanitizeSubMilestoneName(activeSubMilestone.name)}`}
         className="timeline-submilestone-detail-remove"
         data-testid={`timeline-setup-submilestone-detail-remove-${activeSubMilestone.id}`}
-        disabled={row.subMilestoneDetails.length <= 1}
         onClick={() => onRemoveSubMilestone(activeSubMilestone.id)}
         title={
           row.subMilestoneDetails.length <= 1
-            ? "Each milestone must retain at least one sub-milestone."
+            ? "Removing the final Sub-milestone also removes this Milestone from the proposal plan."
             : undefined
         }
         type="button"

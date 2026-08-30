@@ -22,10 +22,13 @@ import {
 import { resolveLenderOrganizationTarget } from "../lenderOrganizationAccess";
 import type { QueryCtx } from "../types";
 import {
+  productionDaysActive,
+  productionMilestoneIsBehindSchedule,
+} from "../production_proposals/roster_projection_helpers.js";
+import {
   LENDER_PORTAL_RESULT_LIMIT,
   LENDER_PROPOSAL_PORTFOLIO_MAX_PAGE_SIZE,
   backofficeLenderOrganizationPortfolio,
-  lenderBuildListRow,
   lenderProposalListRow,
   lenderProposalPortfolioPage,
   lenderProposalPortfolioViewValidator,
@@ -540,10 +543,40 @@ export async function projectLenderActiveBuilds(
           return null;
         }
 
+        const [milestones, submilestones] = await Promise.all([
+          ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_order", (query) =>
+              query.eq("buildId", build._id),
+            )
+            .take(501),
+          ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_build", (query) =>
+              query.eq("buildId", build._id),
+            )
+            .take(501),
+        ]);
+        if (milestones.length > 500 || submilestones.length > 500) {
+          throw new Error("Lender Build schedule record limit exceeded");
+        }
+        const currentDay = productionDaysActive(build.startDate);
+        const milestonesBehindSchedule = milestones.filter((milestone) =>
+          productionMilestoneIsBehindSchedule(
+            milestone,
+            currentDay,
+            submilestones.filter(
+              (submilestone) =>
+                submilestone.milestoneKey === milestone.key,
+            ),
+          ),
+        ).length;
+
         return {
           buildId: build._id,
           buildName: build.buildName,
           location: build.location,
+          milestonesBehindSchedule,
           proposalId: proposal._id,
           status: build.status,
           updatedAt: build.updatedAt,

@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import type { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -36,8 +36,9 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { BuildCollaborationRole } from "../../../convex/build_collaboration_model";
 import {
-  ProposalApprovalStatusSurface,
   type ProposalApprovalDetail,
+  ProposalApprovalStatusSurface,
+  ProposalLenderAssignmentSurface,
 } from "./-proposal-approval-status-surface.tsx";
 import {
   BackofficeProposalLifecycleActions,
@@ -157,7 +158,7 @@ export function ProposalReviewRouteContent({
     if (!(collabToken && collabJoinState === "joining")) {
       return;
     }
-    void joinSession({ shareToken: collabToken, workosOrganizationId })
+    joinSession({ shareToken: collabToken, workosOrganizationId })
       .then(() => {
         setCollabJoinState("joined");
         toast.success("Joined live collaboration.");
@@ -322,6 +323,9 @@ export function ProposalReviewRouteContent({
   const lockProposalReviewPolicy = useMutation(
     api.production_proposals.lockProposalReviewPolicy
   );
+  const restoreProposalReviewPolicy = useMutation(
+    api.production_proposals.restoreProposalReviewPolicyFromOrganizationDefault
+  );
   const withdrawExternalLender = useMutation(
     api.production_proposals.withdrawExternalLenderAssignment
   );
@@ -407,7 +411,13 @@ export function ProposalReviewRouteContent({
   if (productionDetail && productionWorkspace) {
     const proposalId = planId as Id<"buildProposals">;
     const reviewDetail = productionDetail as ProductionProposalDetail;
-    const worksheetDetail = productionDetail as ProductionProposalWorksheetDetail;
+    const worksheetDetail =
+      productionDetail as ProductionProposalWorksheetDetail;
+    const builderAssignmentState =
+      reviewDetail.assignment?.builderAssigned ||
+      reviewDetail.assignment?.builder
+        ? "assigned"
+        : "unassigned";
     const closingPolicyReady = Boolean(
       proposalReviewControlQuery?.lockedReviewPolicyId
     );
@@ -577,6 +587,28 @@ export function ProposalReviewRouteContent({
           />
         }
         initialActiveTab={search.tab}
+        lenderAssignmentSurface={
+          <ProposalLenderAssignmentSurface
+            assignExternalLender={assignExternalLender}
+            canManageBrokerAssignment={canManageBrokerAssignment}
+            lenderOrganizationsQuery={lenderOrganizationsQuery}
+            navigate={navigate}
+            planId={planId}
+            productionDetail={productionDetail as ProposalApprovalDetail}
+            proposalId={proposalId}
+            proposalRemediationQuery={proposalRemediationQuery}
+            publishProposalRevision={publishProposalRevision}
+            repairMissingLenderConfirmation={repairMissingLenderConfirmation}
+            search={search}
+            setLenderAssignmentDialogOpen={setLenderAssignmentDialogOpen}
+            setProposalConfirmationHistoryLimit={
+              setProposalConfirmationHistoryLimit
+            }
+            visualFixtureEnabled={visualFixtureEnabled}
+            withdrawExternalLender={withdrawExternalLender}
+            workosOrganizationId={workosOrganizationId}
+          />
+        }
         lifecycleActions={
           <BackofficeProposalLifecycleActions
             activeBuildId={productionDetail.activeBuild?._id}
@@ -890,6 +922,13 @@ export function ProposalReviewRouteContent({
                   workosOrganizationId,
                 })
               }
+              onRestore={(command) =>
+                restoreProposalReviewPolicy({
+                  ...command,
+                  proposalId,
+                  workosOrganizationId,
+                })
+              }
               proposalId={proposalId}
               proposalStatus={productionDetail.proposal.status}
             />
@@ -910,6 +949,35 @@ export function ProposalReviewRouteContent({
               activeReviewTab
             ) ? (
             <BuilderStaffPermissionsPanel
+              builderAssignmentState={builderAssignmentState}
+              onOpenBuilderAssignment={() => {
+                void navigate({
+                  params: { planId },
+                  replace: true,
+                  search: { ...search, tab: "packet" },
+                  to: "/backoffice/proposals/$planId",
+                }).then(() => {
+                  requestAnimationFrame(() => {
+                    const assignmentSection = document.getElementById(
+                      "proposal-parties-assignment"
+                    );
+                    assignmentSection?.scrollIntoView({
+                      behavior: window.matchMedia(
+                        "(prefers-reduced-motion: reduce)"
+                      ).matches
+                        ? "auto"
+                        : "smooth",
+                      block: "start",
+                    });
+                    const builderSearch = document.getElementById(
+                      "production-builder-assignee"
+                    );
+                    (builderSearch ?? assignmentSection)?.focus({
+                      preventScroll: true,
+                    });
+                  });
+                });
+              }}
               proposalId={proposalId}
               scope="proposal"
               workosOrganizationId={workosOrganizationId}

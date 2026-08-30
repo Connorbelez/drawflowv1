@@ -2,15 +2,10 @@ import { v } from "convex/values";
 
 import type { Doc, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import {
-  type AuthorizedViewer,
-  authenticatedQuery,
-  backofficeQuery,
-  lenderOrganizationQuery,
-  lenderUserManagementQuery,
-} from "../authz";
 import { syncBuildCollaborationSearchAuthority } from "../build_collaboration_search_authority_projection";
+import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "../fairLendConfig";
 import { fluent } from "../fluent";
+import { finalizeLenderMemberDeactivationFromProjection } from "../lender_organizations/helpers";
 
 interface WorkosEvent {
   created_at?: string;
@@ -202,7 +197,6 @@ const lenderOrganizationAuditRow = v.object({
   warnings: v.array(v.string()),
 });
 
-
 export const processWorkosEvent = async (
   ctx: MutationCtx,
   incoming: WorkosEvent
@@ -263,7 +257,6 @@ export const ingestWorkosEvent = fluent
   .returns(v.null())
   .handler(async (ctx, args) => processWorkosEvent(ctx, args as WorkosEvent))
   .internal();
-
 
 function membershipRoleSlugs(
   membership: Pick<
@@ -552,6 +545,17 @@ async function upsertMembership(
     await acceptContractorInviteClaimFromMembership(ctx, {
       now,
       workosOrganizationId: resolvedWorkosOrganizationId,
+      workosUserId: resolvedWorkosUserId,
+    });
+  }
+  if (
+    resolvedWorkosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID &&
+    (projectedStatus === "inactive" || projectedStatus === "deleted")
+  ) {
+    await finalizeLenderMemberDeactivationFromProjection(ctx, {
+      membershipId: data.id,
+      now,
+      status: projectedStatus,
       workosUserId: resolvedWorkosUserId,
     });
   }

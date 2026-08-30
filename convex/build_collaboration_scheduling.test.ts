@@ -504,6 +504,98 @@ describe("Build collaboration scheduled publication", () => {
     ).rejects.toThrow("Only Updates and Announcements");
   });
 
+  test("publishes an immediate draft through the canonical publication transition", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const draft = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...publicationBundle("Immediate canonical publication."),
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts
+        .approveAndPublishBuildCollaborationDraft,
+      {
+        buildId: fixture.buildId,
+        draftId: draft.draftId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      audit: await ctx.db.query("auditEvents").collect(),
+      draft: await ctx.db.get(draft.draftId),
+      outbox: await ctx.db.query("eventOutbox").collect(),
+      post: await ctx.db.get(postId),
+    }));
+    expect(state.post).toMatchObject({
+      _id: postId,
+      authorWorkosUserId: "user_admin",
+      createdAt: BASE_TIME,
+      source: "human",
+    });
+    expect(state.draft).toMatchObject({ state: "published" });
+    expect(state.audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityId: postId,
+          eventType: "build.collaboration.post.published",
+        }),
+      ]),
+    );
+    expect(state.outbox).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "build.collaboration.post.published",
+          relatedEntityId: postId,
+        }),
+      ]),
+    );
+  });
+
+  test("fails closed when an immediate draft bundle hash no longer matches", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const draft = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...publicationBundle("Tamper-evident immediate publication."),
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(draft.draftId, {
+        bundleJson: `${draft.bundleJson} `,
+      });
+    });
+
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_drafts
+          .approveAndPublishBuildCollaborationDraft,
+        {
+          buildId: fixture.buildId,
+          draftId: draft.draftId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow("draft changed after review");
+
+    const state = await fixture.base.run(async (ctx) => ({
+      draft: await ctx.db.get(draft.draftId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(state.draft).toMatchObject({ state: "active" });
+    expect(state.posts).toEqual([]);
+  });
+
   test("publishes an approved exact bundle once under the approving human", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
@@ -527,8 +619,10 @@ describe("Build collaboration scheduled publication", () => {
     );
 
     const state = await fixture.base.run(async (ctx) => ({
+      audit: await ctx.db.query("auditEvents").collect(),
       approval: await ctx.db.get(approvalId),
       draft: await ctx.db.get(draftId),
+      outbox: await ctx.db.query("eventOutbox").collect(),
       posts: await ctx.db.query("buildCollaborationPosts").collect(),
     }));
     expect(state.posts).toHaveLength(1);
@@ -543,6 +637,22 @@ describe("Build collaboration scheduled publication", () => {
       state: "published",
     });
     expect(state.draft).toMatchObject({ state: "published" });
+    expect(
+      state.audit.filter(
+        (event) =>
+          event.entityId === approvalId &&
+          event.eventType ===
+            "build.collaboration.publication.schedule_executed",
+      ),
+    ).toHaveLength(1);
+    expect(
+      state.outbox.filter(
+        (event) =>
+          event.relatedEntityId === approvalId &&
+          event.eventType ===
+            "build.collaboration.publication.schedule_executed",
+      ),
+    ).toHaveLength(1);
   });
 
   test("keeps transient execution failures approved and eligible for recovery", async () => {

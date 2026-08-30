@@ -3,33 +3,44 @@ import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
-  buildActionItemQueueSortAt,
-  resetBuildActionItemDeadlineSchedule,
-} from "./build_action_item_deadline_model";
-import { actionItemRequiresAcceptance } from "./build_action_item_governance";
+  persistCanonicalBuildActionItem,
+  persistCanonicalBuildActionItemPatch,
+} from "./build_action_item_application";
+import { buildActionItemQueueSortAt } from "./build_action_item_deadline_model";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
 import { actionItemsLinkedToPost } from "./build_action_item_post_links";
-import { syncBuildActionItemReferenceQueueSortAt } from "./build_action_item_queue_projection";
+import type { BuildActionItemAuthorizationDecision } from "./build_action_item_rbac";
 import {
-  authorizeBuildActionItemOperation,
-  authorizeGeneratedMilestoneCompanionStructureOperation,
-  type BuildActionItemAuthorizationDecision,
-  type BuildActionItemOperation,
-} from "./build_action_item_rbac";
-import { canonicalBuildActionItemTags } from "./build_action_item_tags";
+  type ActionItemAuthorization,
+  actionItemAuditState,
+  applyManualDueDatePatch,
+  assertActionItemOperation,
+  assertCanonicalMilestoneActionItemMutable,
+  assertCompletionAcceptanceChange,
+  permitsStaleDescriptionOverride,
+  persistBuildActionItemActivity,
+  persistBuildActionItemAttachments,
+  persistBuildActionItemLabels,
+  persistBuildActionItemReferences,
+  recordChildActionItemMutation,
+  replaceBuildActionItemLabels,
+  requireActionItemCreationPost,
+  requiredActionItemTitle,
+  requireReadableActionItem,
+  resolveActionItemCreationReplay,
+  resolveNewActionItemAssignment,
+  resolveNewActionItemWorkKind,
+  resolveParentActionItemForCreation,
+  type VisibleActionItemRelation,
+  validateTiptapJson,
+} from "./build_action_items/helpers";
 import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
-import {
-  canReadDrawCoordination,
-  resolveCurrentDrawCoordinationReaderIds,
-} from "./build_draw_coordination";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
-import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
-import { collaborationRoleTier } from "./build_collaboration_model";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import {
   canonicalizeTiptapReferences,
@@ -50,47 +61,22 @@ import {
   buildActionItemPriorityValidator,
   buildActionItemWorkKindValidator,
 } from "./build_collaboration_validators";
-import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 import {
-  actionItemAuditState,
-  applyManualDueDatePatch,
-  assertActionItemOperation,
-  assertCanonicalMilestoneActionItemMutable,
-  assertCompletionAcceptanceChange,
-  assertExpectedRevision,
-  inferredActionItemWorkKind,
-  mandatoryCompletionAcceptanceApplies,
-  persistBuildActionItemActivity,
-  persistBuildActionItemAttachments,
-  persistBuildActionItemLabels,
-  persistBuildActionItemReferences,
-  permitsStaleDescriptionOverride,
-  recordChildActionItemMutation,
-  requireActionItemCreationPost,
-  requirePostReader,
-  requireReadableActionItem,
-  requiredActionItemTitle,
-  resolveActionItemCreationReplay,
-  resolveGeneratedMilestoneCompanionBinding,
-  resolveNewActionItemAssignment,
-  resolveNewActionItemWorkKind,
-  resolveParentActionItemForCreation,
-  replaceBuildActionItemLabels,
-  validateTiptapJson,
-  type ActionItemAuthorization,
-  type GeneratedMilestoneCompanionBinding,
-  type VisibleActionItemRelation,
-} from "./build_action_items/helpers";
+  canReadDrawCoordination,
+  resolveCurrentDrawCoordinationReaderIds,
+} from "./build_draw_coordination";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
+
+export type { GeneratedMilestoneCompanionBinding } from "./build_action_items/helpers";
+// biome-ignore lint/performance/noBarrelFile: Compatibility exports keep the existing generated Convex module surface stable.
 export {
   assertCanonicalMilestoneActionItemMutable,
   requireReadableActionItem,
   resolveGeneratedMilestoneCompanionBinding,
   validateTiptapJson,
 } from "./build_action_items/helpers";
-export type { GeneratedMilestoneCompanionBinding } from "./build_action_items/helpers";
 
 const MAX_ACTION_ITEMS_PER_BUILD = 2000;
-const MAX_CHILD_ACTION_ITEMS = 250;
 const MAX_CHECKLIST_ITEMS = 250;
 
 export const createBuildActionItem = authenticatedMutation
@@ -114,7 +100,6 @@ export const createBuildActionItem = authenticatedMutation
     workKind: v.optional(buildActionItemWorkKindValidator),
   })
   .returns(v.id("buildActionItems"))
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Creation intentionally keeps idempotency, parent structure, audience, assignment, and durable event writes atomic.
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
@@ -169,8 +154,6 @@ export const createBuildActionItem = authenticatedMutation
       references,
       { allowEmpty: true }
     );
-    const primaryReference =
-      references.find((reference) => reference.primary) ?? references[0];
     const workKind = resolveNewActionItemWorkKind(
       args.workKind,
       references,
@@ -183,75 +166,35 @@ export const createBuildActionItem = authenticatedMutation
           (args.requiresAcceptance ?? false) || workKind !== "ordinary",
       });
     const now = Date.now();
-    const deadlineSchedule = resetBuildActionItemDeadlineSchedule(
-      args.dueAt,
-      "todo"
-    );
-    const actionItemId = await ctx.db.insert("buildActionItems", {
-      assigneeWorkosUserId: assignee,
-      assignedByWorkosUserId: assignee
-        ? authorization.viewer.subject
-        : undefined,
-      assignmentRequestedAt: assignmentState === "requested" ? now : undefined,
-      assignmentState,
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      createdAt: now,
-      creatorRole: authorization.effectiveRole.role,
-      creatorWorkosUserId: authorization.viewer.subject,
-      currentRevision: 1,
-      descriptionPlainText:
-        description.plainText || args.descriptionPlainText?.trim() || "",
-      descriptionTiptapJson: description.tiptapJson,
-      dueAt: args.dueAt,
-      dueDateSource: args.dueAt === undefined ? undefined : "manual",
-      ...deadlineSchedule,
-      originatingPostId: post._id,
-      organizationId: authorization.organizationId,
-      parentActionItemId: parentActionItem?._id,
-      priority: args.priority ?? "none",
-      primaryReferenceId: primaryReference?.entityId,
-      primaryReferenceKind: primaryReference?.entityKind,
-      queueSortAt: buildActionItemQueueSortAt(args.dueAt, "todo"),
-      requiresAcceptance,
-      status: "todo",
-      title,
-      updatedAt: now,
-      workKind,
-    });
-    await ctx.db.insert("buildActionItemEvents", {
-      actionItemId,
-      actorRole: authorization.effectiveRole.role,
-      actorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      createdAt: now,
-      eventType: "created",
-      exercisedAuthority: "reader",
-      newState: JSON.stringify({
+    const { actionItemId } = await persistCanonicalBuildActionItem(ctx, {
+      actionItem: {
         assigneeWorkosUserId: assignee,
+        assignedByWorkosUserId: assignee
+          ? authorization.viewer.subject
+          : undefined,
+        assignmentRequestedAt:
+          assignmentState === "requested" ? now : undefined,
         assignmentState,
-        priority: args.priority ?? "none",
+        descriptionPlainText:
+          description.plainText || args.descriptionPlainText?.trim() || "",
+        descriptionTiptapJson: description.tiptapJson,
+        dueAt: args.dueAt,
         parentActionItemId: parentActionItem?._id,
+        priority: args.priority ?? "none",
+        references,
         requiresAcceptance,
-        status: "todo",
         title,
         workKind,
-      }),
-      organizationId: authorization.organizationId,
-      revision: 1,
-      warnings: upwardAssignment ? ["assignment_requested"] : undefined,
+      },
+      authorization,
+      event: {
+        exercisedAuthority: "reader",
+        warnings: upwardAssignment ? ["assignment_requested"] : undefined,
+      },
+      now,
+      postId: post._id,
     });
-    const createdItem = await ctx.db.get(actionItemId);
-    if (!createdItem) {
-      throw new Error("Action Item became unavailable during creation.");
-    }
     await Promise.all([
-      recordBuildActionItemRevision(ctx, {
-        authorization,
-        item: createdItem,
-        now,
-      }),
       persistBuildActionItemLabels(ctx, {
         actionItemId,
         authorization,
@@ -264,14 +207,6 @@ export const createBuildActionItem = authenticatedMutation
         authorization,
         now,
         post,
-      }),
-      persistBuildActionItemReferences(ctx, {
-        actionItemId,
-        authorization,
-        now,
-        postId: post._id,
-        queueSortAt: buildActionItemQueueSortAt(args.dueAt, "todo"),
-        references,
       }),
       persistBuildActionItemActivity(ctx, {
         actionItemId,
@@ -827,18 +762,10 @@ export const updateBuildActionItem = authenticatedMutation
         references: canonicalDescriptionReferences,
       });
     }
-    await ctx.db.patch(item._id, patch);
-    if (patch.queueSortAt !== undefined) {
-      await syncBuildActionItemReferenceQueueSortAt(
-        ctx,
-        item,
-        patch.queueSortAt
-      );
-    }
-    const updatedItem = await ctx.db.get(item._id);
-    if (!updatedItem) {
-      throw new Error("Action Item became unavailable during update.");
-    }
+    const updatedItem = await persistCanonicalBuildActionItemPatch(ctx, {
+      item,
+      patch,
+    });
     await ctx.db.insert("buildActionItemEvents", {
       actionItemId: item._id,
       actorRole: authorization.effectiveRole.role,

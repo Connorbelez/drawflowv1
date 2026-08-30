@@ -1,21 +1,6 @@
 import { v } from "convex/values";
 
-import {
-  type AuthorizedViewer,
-  type RoleSlug,
-  backofficeMutation,
-  backofficeQuery,
-  contractorMutation,
-  contractorQuery,
-  normalizeRoleSlugs,
-} from "../authz";
-import { requireContractorLinkedProfile } from "../contractorAuth";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
-
-import {
-  contractorRoleQuery,
-  contractorRoleMutation,
-} from "./access";
+import { contractorRoleMutation, contractorRoleQuery } from "./access";
 // ---------------------------------------------------------------------------
 // Notification read-back (PRD §10)
 // ---------------------------------------------------------------------------
@@ -65,52 +50,3 @@ export const markContractorNotificationRead = contractorRoleMutation
     return true;
   })
   .public();
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-function viewerSubject(ctx: unknown): string {
-  return (ctx as { viewer: AuthorizedViewer }).viewer.subject;
-}
-
-function viewerRoles(ctx: unknown): readonly RoleSlug[] {
-  return (ctx as { viewer: AuthorizedViewer }).viewer.roles;
-}
-
-interface BrokerageScope {
-  brokerage: Doc<"brokerages">;
-  roles: RoleSlug[];
-  subject: string;
-}
-
-async function resolveBrokerageScopeOrThrow(
-  ctx: QueryCtx | MutationCtx,
-  workosOrganizationId: string
-): Promise<BrokerageScope> {
-  const viewer = (ctx as unknown as { viewer: AuthorizedViewer }).viewer;
-  const subject = viewer.subject;
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (q) => q.eq("workosUserId", subject))
-    .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
-    .first();
-  const activeTokenOrganizationId = viewer.organizationId?.trim();
-  if (
-    (!membership || membership.status !== "active") &&
-    activeTokenOrganizationId !== workosOrganizationId
-  ) {
-    throw new Error("Forbidden: WorkOS membership");
-  }
-  const brokerage = await ctx.db
-    .query("brokerages")
-    .withIndex("by_workos_organization", (q) =>
-      q.eq("workosOrganizationId", workosOrganizationId)
-    )
-    .unique();
-  if (!brokerage) {
-    throw new Error("Forbidden: brokerage");
-  }
-  const roles = normalizeRoleSlugs(viewer.roles ?? membership?.roleSlugs ?? []);
-  return { brokerage, roles, subject };
-}

@@ -1,68 +1,47 @@
 import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "../activeBuildAccess";
+import { authenticatedMutation } from "../authz";
 import {
-  authenticatedMutation,
-} from "../authz";
-import { isCleanCollaborationAsset } from "../build_collaboration_asset_access";
-import { abandonUnpublishedCostDocumentDraftAsset } from "../build_collaboration_assets";
+  assertExpectedCostDocumentBatchRevision,
+  authorizeCostDocumentIntent,
+  canReadSubmittedCostDocument,
+  currentCostDocumentBatchRevision,
+  currentCostDocumentDraftRevision,
+  isCostDocumentInScope as isCostDocumentInScopeForAuthorization,
+} from "../cost_document_access";
 import { enqueueCommunicationIntent } from "../email_transport";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
+import type { Id, MutationCtx } from "../types";
+import { recordCostDocumentBatchAudit } from "./audit";
 import {
-  MAX_BATCH_ALLOCATIONS,
-  MAX_BATCH_DRAFTS,
-  MAX_BATCH_FINANCIAL_COMPONENTS,
-  MAX_BATCH_PAGES,
-  MAX_ALLOCATIONS,
-  MAX_PAGES,
-  SUPPORTING_CONTEXT_DISCLOSURE,
   activeBuildScopeFields,
   costDocumentActorCapacityFields,
   costDocumentCategoryValidator,
-  costDocumentDraftStepValidator,
-  costDocumentFinancialComponentInputValidator,
   costDocumentIntegrityKindValidator,
   costDocumentKindValidator,
-  type CostDocumentActorCapacity,
-  optionalText,
+  MAX_BATCH_ALLOCATIONS,
+  MAX_BATCH_FINANCIAL_COMPONENTS,
+  MAX_BATCH_PAGES,
   requiredAssetHash,
   requiredIdempotencyKey,
+  SUPPORTING_CONTEXT_DISCLOSURE,
 } from "./contracts";
 import {
-  assertCurrentCostDocumentAllocationScope,
-  authorizeCostDocumentIntent,
-  canReadSubmittedCostDocument,
-  isCostDocumentInScope as isCostDocumentInScopeForAuthorization,
-  requireCostDocumentBatchCreator,
-  requireCostDocumentDraftAccess,
-  requireCurrentContractorCostDocumentScope,
-  currentCostDocumentBatchRevision,
-  currentCostDocumentDraftRevision,
-  assertExpectedCostDocumentBatchRevision,
-} from "../cost_document_access";
+  inspectCostDocumentPageIntegrity,
+  linkSubmittedCostDocumentCorrection,
+  recordCostDocumentIntegrityException,
+} from "./corrections_integrity";
+import { listBatchDrafts, validateDraftForSubmission } from "./draft_state";
 import {
-  listBatchDrafts,
-  validateDraftForSubmission,
-  validateDraftCapture,
-  validateDraftBalance,
-  currentDraftPages,
-} from "./draft_state";
-import {
-  resolveCostDocumentUploaderEmail,
-  requireSubmittedCostDocumentBatchReplay,
-  assertDraftOwnershipScope,
-  assertBatchOwnership,
-  requireCostDocumentBatchOwner,
-} from "./submission_support";
-import {
-  assessCostDocumentDuplicates,
+  type assessCostDocumentDuplicates,
   validateBatchDuplicateAssessments,
 } from "./projections";
 import {
-  inspectCostDocumentPageIntegrity,
-  recordCostDocumentIntegrityException,
-  linkSubmittedCostDocumentCorrection,
-} from "./corrections_integrity";
+  assertDraftOwnershipScope,
+  requireCostDocumentBatchOwner,
+  requireSubmittedCostDocumentBatchReplay,
+  resolveCostDocumentUploaderEmail,
+} from "./submission_support";
 export const submitCostDocument = authenticatedMutation
   .input({
     ...activeBuildScopeFields,
@@ -94,7 +73,6 @@ export const submitCostDocument = authenticatedMutation
     );
   })
   .public();
-
 
 export const submitCostDocumentBatch = authenticatedMutation
   .input({
@@ -434,7 +412,6 @@ export const recordCostDocumentPageDeliveryFailure = authenticatedMutation
   })
   .internal();
 
-
 export type PreparedCostDocument = Awaited<
   ReturnType<typeof validateDraftForSubmission>
 >;
@@ -607,149 +584,4 @@ export async function insertSubmittedCostDocument(
     templateKey: "cost_document_upload_receipt_v1",
   });
   return costDocumentId;
-}
-
-export async function recordCostDocumentBatchAudit(
-  ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization,
-  input: {
-    batchId: Id<"costDocumentBatches">;
-    command: string;
-    eventType: string;
-    newState?: string;
-    now: number;
-    priorState?: string;
-  }
-) {
-  await ctx.db.insert("auditEvents", {
-    actorKind: authorization.viewer.actorKind,
-    actorRole: authorization.effectiveRole.role,
-    actorRoles: authorization.viewer.roles,
-    actorWorkosUserId: authorization.viewer.subject,
-    brokerageId: authorization.brokerage._id,
-    buildId: authorization.build._id,
-    command: input.command,
-    createdAt: input.now,
-    entityId: String(input.batchId),
-    entityType: "costDocumentBatch",
-    effectiveCapacity: authorization.effectiveRole.role,
-    eventType: input.eventType,
-    newState: input.newState,
-    organizationId: authorization.organizationId,
-    priorState: input.priorState,
-    targetRevisions: [
-      { entityId: String(input.batchId), entityType: "costDocumentBatch" },
-    ],
-    warnings: [],
-  });
-}
-
-export async function costDocumentFinancialAuditSummary(
-  ctx: QueryCtx | MutationCtx,
-  authorization: ActiveBuildAuthorization,
-  document: Doc<"costDocuments">
-) {
-  const allocations = await ctx.db
-    .query("costDocumentAllocations")
-    .withIndex("by_costDocumentId_and_order", (query) =>
-      query.eq("costDocumentId", document._id)
-    )
-    .take(MAX_ALLOCATIONS + 1);
-  if (
-    allocations.length < 1 ||
-    allocations.length > MAX_ALLOCATIONS ||
-    allocations.some(
-      (allocation) =>
-        allocation.organizationId !== authorization.organizationId ||
-        allocation.brokerageId !== authorization.brokerage._id ||
-        allocation.buildId !== authorization.build._id
-    )
-  ) {
-    throw new Error(
-      "The Cost Document financial audit summary is unavailable."
-    );
-  }
-  return {
-    allocationCount: allocations.length,
-    allocationTotalCents: allocations.reduce(
-      (total, allocation) => total + allocation.amountCents,
-      0
-    ),
-    grossTotalCents: document.grossTotalCents,
-    revision: document.revisionNumber ?? 1,
-  };
-}
-
-export async function recordCostDocumentAudit(
-  ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization,
-  costDocumentId: Id<"costDocuments">,
-  input: {
-    command: string;
-    eventType: string;
-    newState?: string;
-    now: number;
-    priorState?: string;
-  }
-) {
-  await ctx.db.insert("auditEvents", {
-    actorKind: authorization.viewer.actorKind,
-    actorRole: authorization.effectiveRole.role,
-    actorRoles: authorization.viewer.roles,
-    actorWorkosUserId: authorization.viewer.subject,
-    brokerageId: authorization.brokerage._id,
-    buildId: authorization.build._id,
-    command: input.command,
-    createdAt: input.now,
-    entityId: String(costDocumentId),
-    entityType: "costDocument",
-    effectiveCapacity: authorization.effectiveRole.role,
-    eventType: input.eventType,
-    newState: input.newState,
-    organizationId: authorization.organizationId,
-    priorState: input.priorState,
-    targetRevisions: [
-      { entityId: String(costDocumentId), entityType: "costDocument" },
-    ],
-    warnings: [],
-  });
-}
-
-export async function recordCostDocumentDraftAudit(
-  ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization,
-  draft: Doc<"costDocumentDrafts">,
-  input: {
-    command: string;
-    eventType: string;
-    newState?: string;
-    now: number;
-    priorState?: string;
-  }
-) {
-  await ctx.db.insert("auditEvents", {
-    actorKind: authorization.viewer.actorKind,
-    actorRole: authorization.effectiveRole.role,
-    actorRoles: authorization.viewer.roles,
-    actorWorkosUserId: authorization.viewer.subject,
-    brokerageId: authorization.brokerage._id,
-    buildId: authorization.build._id,
-    command: input.command,
-    createdAt: input.now,
-    entityId: String(draft._id),
-    entityType: "costDocumentDraft",
-    effectiveCapacity: authorization.effectiveRole.role,
-    eventType: input.eventType,
-    newState: input.newState,
-    organizationId: authorization.organizationId,
-    priorState: input.priorState,
-    targetRevisions: [
-      {
-        entityId: String(draft._id),
-        entityType: "costDocumentDraft",
-        revision: currentCostDocumentDraftRevision(draft),
-      },
-    ],
-    warnings: [],
-  });
 }

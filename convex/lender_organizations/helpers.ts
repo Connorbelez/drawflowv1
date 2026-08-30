@@ -1,11 +1,32 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import {
-  lenderCanMakeFinalDecision,
+  effectiveLenderDecisionPermissions,
   listActiveSharedLenderMemberships,
   normalizeLenderEmail,
   normalizeLenderRoleSlugs,
+  resolveAssignmentDecisionPermissions,
 } from "../lenderOrganizationAccess";
 import type { MutationCtx, QueryCtx } from "../types";
+import {
+  finalizeLenderMemberDeactivationFromProjection as finalizeLenderMemberDeactivationApplication,
+  primaryActorRole as primaryActorRoleApplication,
+  writeLenderAudit as writeLenderAuditApplication,
+} from "./member_deactivation";
+
+export const primaryActorRole = primaryActorRoleApplication;
+export const writeLenderAudit = writeLenderAuditApplication;
+
+export async function finalizeLenderMemberDeactivationFromProjection(
+  ctx: MutationCtx,
+  input: {
+    membershipId: string;
+    now: number;
+    status: "inactive" | "deleted";
+    workosUserId: string;
+  }
+) {
+  return await finalizeLenderMemberDeactivationApplication(ctx, input);
+}
 
 export async function projectActiveLenderMember(
   ctx: QueryCtx,
@@ -15,7 +36,7 @@ export async function projectActiveLenderMember(
   if (assignment.status !== "active" || !workosUserId) {
     return null;
   }
-  const [userRows, memberships] = await Promise.all([
+  const [userRows, memberships, organization] = await Promise.all([
     ctx.db
       .query("users")
       .withIndex("by_workos_user_id", (query) =>
@@ -23,9 +44,16 @@ export async function projectActiveLenderMember(
       )
       .take(2),
     listActiveSharedLenderMemberships(ctx, workosUserId),
+    ctx.db.get(assignment.lenderOrganizationId),
   ]);
   const user = userRows.length === 1 ? userRows[0] : null;
-  if (!user || user.status !== "active" || memberships.length === 0) {
+  if (
+    !user ||
+    user.status !== "active" ||
+    memberships.length === 0 ||
+    !organization ||
+    organization.status !== "active"
+  ) {
     return null;
   }
   const roleSlugs = normalizeLenderRoleSlugs(
@@ -33,6 +61,15 @@ export async function projectActiveLenderMember(
       membership.roleSlug,
       ...membership.roleSlugs,
     ])
+  );
+  const decisionPermissions = resolveAssignmentDecisionPermissions(
+    assignment,
+    roleSlugs,
+    organization.permissions
+  );
+  const effectiveDecisionPermissions = effectiveLenderDecisionPermissions(
+    organization.permissions,
+    decisionPermissions
   );
   return {
     assignmentId: assignment._id,
@@ -47,7 +84,23 @@ export async function projectActiveLenderMember(
     roleSlugs,
     assignmentStatus: "active" as const,
     membershipStatus: "active" as const,
-    canMakeFinalDecision: lenderCanMakeFinalDecision(roleSlugs),
+    decisionPermissions,
+    decisionPermissionsVersion: assignment.decisionPermissionsVersion ?? 0,
+    effectiveDecisionPermissions,
+    ...(assignment.deactivation
+      ? {
+          deactivation: {
+            idempotencyKey: assignment.deactivation.idempotencyKey,
+            state: assignment.deactivation.state,
+            ...(assignment.deactivation.error
+              ? { error: assignment.deactivation.error }
+              : {}),
+          },
+        }
+      : {}),
+    canMakeFinalDecision: Object.values(effectiveDecisionPermissions).some(
+      Boolean
+    ),
   };
 }
 
@@ -132,83 +185,17 @@ export function requireReason(value: string): string {
   return reason;
 }
 
-export function primaryActorRole(
-  roles: readonly string[]
-):
-  | "admin"
-  | "principle-broker"
-  | "broker"
-  | "builder"
-  | "broker-staff"
-  | "builder-staff"
-  | "homeowner"
-  | "contractor"
-  | "lender"
-  | "lender-admin"
-  | "lender-staff" {
-  const supported = [
-    "admin",
-    "principle-broker",
-    "broker",
-    "builder",
-    "broker-staff",
-    "builder-staff",
-    "homeowner",
-    "contractor",
-    "lender",
-    "lender-admin",
-    "lender-staff",
-  ] as const;
-  return supported.find((role) => roles.includes(role)) ?? "admin";
-}
-
-export async function writeLenderAudit(
-  ctx: { db: MutationCtx["db"]; viewer: { subject: string; roles: string[] } },
-  brokerage: { _id: Id<"brokerages">; workosOrganizationId: string },
-  lenderOrganizationId: Id<"lenderOrganizations">,
-  input: {
-    command: string;
-    entityId?: string;
-    entityType: string;
-    eventType: string;
-    newState: unknown;
-    priorState?: unknown;
-    reason: string;
-  }
-) {
-  const now = Date.now();
-  await ctx.db.insert("auditEvents", {
-    actorRole: primaryActorRole(ctx.viewer.roles),
-    actorRoles: ctx.viewer.roles,
-    actorWorkosUserId: ctx.viewer.subject,
-    brokerageId: brokerage._id,
-    lenderOrganizationId,
-    command: input.command,
-    entityId: input.entityId ?? String(lenderOrganizationId),
-    entityType: input.entityType,
-    eventType: input.eventType,
-    newState: JSON.stringify(input.newState),
-    organizationId: brokerage.workosOrganizationId,
-    ...(input.priorState === undefined
-      ? {}
-      : { priorState: JSON.stringify(input.priorState) }),
-    reason: input.reason,
-    reconciliationKey: `${input.command}:${String(lenderOrganizationId)}:${now}`,
-    warnings: [],
-    createdAt: now,
-  });
-}
-
 export async function reconcilePendingLenderAssignmentsHandler(
   ctx: MutationCtx,
   args: { lenderOrganizationId?: Id<"lenderOrganizations"> }
 ) {
-  const pending = args.lenderOrganizationId
+  const lenderOrganizationId = args.lenderOrganizationId;
+  const pending = lenderOrganizationId
     ? await ctx.db
         .query("lenderOrganizationAssignments")
         .withIndex("by_lender_organization_and_status", (query) =>
           query
-            .eq("lenderOrganizationId", args.lenderOrganizationId!)
+            .eq("lenderOrganizationId", lenderOrganizationId)
             .eq("status", "pending")
         )
         .take(501)
@@ -234,8 +221,9 @@ export async function reconcilePendingLenderAssignmentsHandler(
           .eq("status", "pending")
       )
       .take(2);
-    if (sameEmail.length > 1)
+    if (sameEmail.length > 1) {
       ambiguousPendingEmails.add(assignment.normalizedEmail);
+    }
   }
   const activeUsersByNormalizedEmail = new Map<string, Doc<"users">[]>();
   for (const user of await listActiveWorkosUserEmailProjectionSnapshot(ctx)) {
@@ -346,9 +334,11 @@ export async function reconcilePendingLenderAssignmentsHandler(
       if (
         otherPending.lenderOrganizationId === assignment.lenderOrganizationId &&
         otherPending.normalizedEmail === assignment.normalizedEmail
-      )
+      ) {
         bound += 1;
-      else conflicts += 1;
+      } else {
+        conflicts += 1;
+      }
       continue;
     }
     const [activeEmailAssignments, pendingEmailAssignments] = await Promise.all(
@@ -392,7 +382,26 @@ export async function reconcilePendingLenderAssignmentsHandler(
       conflicts += 1;
       continue;
     }
+    const organization = await ctx.db.get(assignment.lenderOrganizationId);
+    if (!organization || organization.status !== "active") {
+      stillPending += 1;
+      continue;
+    }
+    const inheritsOrganizationPermissions =
+      roleSlugs.includes("lender") || roleSlugs.includes("lender-admin");
     await ctx.db.patch(assignment._id, {
+      decisionPermissions: inheritsOrganizationPermissions
+        ? {
+            proposalReview: organization.permissions.proposalReview,
+            milestoneDecisions: organization.permissions.milestoneDecisions,
+            drawDecisions: organization.permissions.drawDecisions,
+          }
+        : {
+            proposalReview: false,
+            milestoneDecisions: false,
+            drawDecisions: false,
+          },
+      decisionPermissionsVersion: assignment.decisionPermissionsVersion ?? 1,
       workosUserId: user.workosUserId,
       status: "active",
       updatedAt: now,

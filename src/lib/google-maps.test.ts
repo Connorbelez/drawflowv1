@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+  CANADA_ISO_COUNTRY_CODE,
   createGoogleMapsEmbedUrl,
   createGoogleMapsOpenUrl,
   createGoogleSatelliteMapUrl,
@@ -85,27 +86,32 @@ describe("google maps helpers", () => {
 
   test("normalizes Google Places address predictions", async () => {
     vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+    const getPlacePredictions = vi.fn(
+      (
+        _request: unknown,
+        callback: (predictions: any[], status: string) => void,
+      ) => {
+        callback(
+          [
+            {
+              description: "123 King St W, Toronto, ON, Canada",
+              place_id: "place-123",
+              structured_formatting: {
+                main_text: "123 King St W",
+                secondary_text: "Toronto, ON, Canada",
+              },
+            },
+          ],
+          "OK",
+        );
+      },
+    );
     window.google = {
       maps: {
         places: {
           AutocompleteService: class {
-            getPlacePredictions(
-              _request: unknown,
-              callback: (predictions: any[], status: string) => void,
-            ) {
-              callback(
-                [
-                  {
-                    description: "123 King St W, Toronto, ON, Canada",
-                    place_id: "place-123",
-                    structured_formatting: {
-                      main_text: "123 King St W",
-                      secondary_text: "Toronto, ON, Canada",
-                    },
-                  },
-                ],
-                "OK",
-              );
+            getPlacePredictions(...args: Parameters<typeof getPlacePredictions>) {
+              getPlacePredictions(...args);
             }
           },
           PlacesServiceStatus: {
@@ -116,7 +122,11 @@ describe("google maps helpers", () => {
       },
     } as any;
 
-    await expect(fetchGoogleAddressSuggestions("123 King")).resolves.toEqual([
+    await expect(
+      fetchGoogleAddressSuggestions("123 King", {
+        countryCode: CANADA_ISO_COUNTRY_CODE,
+      }),
+    ).resolves.toEqual([
       {
         description: "123 King St W, Toronto, ON, Canada",
         mainText: "123 King St W",
@@ -124,6 +134,14 @@ describe("google maps helpers", () => {
         secondaryText: "Toronto, ON, Canada",
       },
     ]);
+    expect(getPlacePredictions).toHaveBeenCalledWith(
+      {
+        componentRestrictions: { country: "CA" },
+        input: "123 King",
+        types: ["address"],
+      },
+      expect.any(Function),
+    );
   });
 
   test("resolves Google Places detail geometry from a selected prediction", async () => {
@@ -141,6 +159,9 @@ describe("google maps helpers", () => {
             ) {
               callback(
                 {
+                  address_components: [
+                    { short_name: "CA", types: ["country"] },
+                  ],
                   formatted_address: "26 Luverne Ave, North York, ON, Canada",
                   geometry: {
                     location: {
@@ -168,8 +189,9 @@ describe("google maps helpers", () => {
         mainText: "26 Luverne Ave",
         placeId: "place-26",
         secondaryText: "North York, ON, Canada",
-      }),
+      }, { countryCode: CANADA_ISO_COUNTRY_CODE }),
     ).resolves.toEqual({
+      countryCode: "CA",
       formattedAddress: "26 Luverne Ave, North York, ON, Canada",
       latitude: 43.7591,
       longitude: -79.443,
@@ -190,6 +212,9 @@ describe("google maps helpers", () => {
             callback(
               [
                 {
+                  address_components: [
+                    { short_name: "CA", types: ["country"] },
+                  ],
                   formatted_address: "26 Luverne Ave, North York, ON, Canada",
                   geometry: {
                     location: {
@@ -234,11 +259,63 @@ describe("google maps helpers", () => {
         mainText: "26 Luverne Ave",
         placeId: "place-26",
         secondaryText: "North York, ON, Canada",
-      }),
+      }, { countryCode: CANADA_ISO_COUNTRY_CODE }),
     ).resolves.toMatchObject({
       latitude: 43.7591,
       longitude: -79.443,
       placeId: "place-26",
     });
+  });
+
+  test("rejects resolved places outside the requested country", async () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+    window.google = {
+      maps: {
+        places: {
+          AutocompleteService: class {
+            getPlacePredictions() {}
+          },
+          PlacesService: class {
+            getDetails(
+              _request: unknown,
+              callback: (place: any, status: string) => void,
+            ) {
+              callback(
+                {
+                  address_components: [
+                    { short_name: "US", types: ["country"] },
+                  ],
+                  formatted_address: "500 Market St, San Francisco, CA, USA",
+                  geometry: {
+                    location: {
+                      lat: () => 37.79,
+                      lng: () => -122.4,
+                    },
+                  },
+                  place_id: "place-us",
+                },
+                "OK",
+              );
+            }
+          },
+          PlacesServiceStatus: {
+            OK: "OK",
+            ZERO_RESULTS: "ZERO_RESULTS",
+          },
+        },
+      },
+    } as any;
+
+    await expect(
+      fetchGoogleAddressPlaceDetails(
+        {
+          description: "500 Market St, San Francisco, CA, USA",
+          mainText: "500 Market St",
+          placeId: "place-us",
+          secondaryText: "San Francisco, CA, USA",
+        },
+        { countryCode: CANADA_ISO_COUNTRY_CODE },
+      ),
+    ).resolves.toBeNull();
   });
 });

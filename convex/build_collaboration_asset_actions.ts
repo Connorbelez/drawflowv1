@@ -3,6 +3,11 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { authenticatedAction } from "./authz";
+import {
+  type CollaborationAssetStatus,
+  finalizeAndScanCollaborationAssetUpload,
+} from "./build_collaboration_asset_upload_application";
+import { buildCollaborationAssetStatusValidator } from "./build_collaboration_assets";
 import type { Id } from "./types";
 
 interface FinalizeAssetUploadArgs extends Record<string, string | undefined> {
@@ -14,19 +19,6 @@ interface FinalizeAssetUploadArgs extends Record<string, string | undefined> {
   stagingSessionId: Id<"buildCollaborationAssetStagingSessions">;
   storageId: Id<"_storage">;
   supersedesAssetId?: Id<"buildCollaborationAssets">;
-}
-
-interface AssetStatus {
-  _id: Id<"buildCollaborationAssets">;
-  contentHashSha256?: string;
-  fileName: string;
-  mimeType: string;
-  scanMessage?: string;
-  scanState?: "pending" | "clean" | "rejected" | "error";
-  sizeBytes: number;
-  sourceCapturedAt?: number;
-  state: "staged" | "quarantined" | "available" | "rejected" | "superseded";
-  version: number;
 }
 
 const finalizeAssetUploadMutation = makeFunctionReference<
@@ -42,34 +34,8 @@ const listAssetStatusesQuery = makeFunctionReference<
     buildId: Id<"activeBuilds">;
     organizationId: string;
   },
-  AssetStatus[]
+  CollaborationAssetStatus[]
 >("build_collaboration_assets:listBuildCollaborationAssetStatuses");
-
-const assetStatusValidator = v.object({
-  _id: v.id("buildCollaborationAssets"),
-  contentHashSha256: v.optional(v.string()),
-  fileName: v.string(),
-  mimeType: v.string(),
-  scanMessage: v.optional(v.string()),
-  scanState: v.optional(
-    v.union(
-      v.literal("pending"),
-      v.literal("clean"),
-      v.literal("rejected"),
-      v.literal("error")
-    )
-  ),
-  sizeBytes: v.number(),
-  sourceCapturedAt: v.optional(v.number()),
-  state: v.union(
-    v.literal("staged"),
-    v.literal("quarantined"),
-    v.literal("available"),
-    v.literal("rejected"),
-    v.literal("superseded")
-  ),
-  version: v.number(),
-});
 
 export const finalizeAndScanBuildCollaborationAssetUpload = authenticatedAction
   .input({
@@ -82,40 +48,36 @@ export const finalizeAndScanBuildCollaborationAssetUpload = authenticatedAction
     storageId: v.id("_storage"),
     supersedesAssetId: v.optional(v.id("buildCollaborationAssets")),
   })
-  .returns(assetStatusValidator)
-  .handler(async (ctx, args): Promise<AssetStatus> => {
-    let assetId: Id<"buildCollaborationAssets">;
-    try {
-      assetId = await ctx.runMutation(finalizeAssetUploadMutation, args);
-    } catch (error) {
-      await ctx.runMutation(
-        internal.build_collaboration_asset_maintenance
-          .abandonBuildCollaborationAssetUploadAfterFailure,
-        {
-          message:
-            error instanceof Error
-              ? error.message
-              : "Asset upload finalization failed.",
-          stagingSessionId: args.stagingSessionId,
-          storageId: args.storageId,
-        }
-      );
-      throw error;
-    }
-    await ctx.runAction(
-      internal.build_collaboration_asset_maintenance
-        .processBuildCollaborationAssetScan,
-      { assetId }
-    );
-    const statuses = await ctx.runQuery(listAssetStatusesQuery, {
-      assetIds: [assetId],
-      buildId: args.buildId,
-      organizationId: args.organizationId,
-    });
-    const status = statuses[0];
-    if (!status) {
-      throw new Error("The finalized collaboration asset is unavailable.");
-    }
-    return status;
-  })
+  .returns(buildCollaborationAssetStatusValidator)
+  .handler(
+    async (ctx, args): Promise<CollaborationAssetStatus> =>
+      await finalizeAndScanCollaborationAssetUpload({
+        abandon: async (message) =>
+          await ctx.runMutation(
+            internal.build_collaboration_asset_maintenance
+              .abandonBuildCollaborationAssetUploadAfterFailure,
+            {
+              message,
+              stagingSessionId: args.stagingSessionId,
+              storageId: args.storageId,
+            }
+          ),
+        finalize: async () =>
+          await ctx.runMutation(finalizeAssetUploadMutation, args),
+        readStatus: async (assetId) => {
+          const statuses = await ctx.runQuery(listAssetStatusesQuery, {
+            assetIds: [assetId],
+            buildId: args.buildId,
+            organizationId: args.organizationId,
+          });
+          return statuses[0] ?? null;
+        },
+        scan: async (assetId) =>
+          await ctx.runAction(
+            internal.build_collaboration_asset_maintenance
+              .processBuildCollaborationAssetScan,
+            { assetId }
+          ),
+      })
+  )
   .public();

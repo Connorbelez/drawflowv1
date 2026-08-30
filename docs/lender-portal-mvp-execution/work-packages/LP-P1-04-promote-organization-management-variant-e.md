@@ -30,13 +30,12 @@ variants. Preserve their current Back Office behavior.
 ## Traceability selectors
 
 - `LP-AC-ORG-01`
-- `LP-AC-ORG-03..LP-AC-ORG-05`
-- `LP-AC-ORG-07`
+- `LP-AC-ORG-03..LP-AC-ORG-10`
 - `LP-US-004..LP-US-009`
 - `LP-US-077..LP-US-078`
 - `LP-E2E-08`
 - `LP-PROT-ORG`
-- `LP-P1-W07..LP-P1-W08`
+- `LP-P1-W07..LP-P1-W12`
 - `LP-P1-T02..LP-P1-T04`
 - `LP-P1-X02`
 - `LP-QG-08`
@@ -72,18 +71,25 @@ integration states but may not redesign the locked hierarchy.
    active-organization loader. Completion criterion: search and status filters
    use permission-shaped canonical projections and direct URLs cannot cross the
    active organization boundary.
-4. Connect invite, access-change, deactivation, and protected-transfer
-   workflows. Completion criterion: validation, review, authorization, pending
-   sync, success, and failure are visible; fixture and comparison state are not
-   shipped.
-5. Preserve the four member-sheet tabs: Access, Administration, Review
-   relationship, and History. Completion criterion: the Review relationship tab
-   explains effects but cannot mutate policy, reviewer groups, quorum, evidence,
-   Site Visit, approval order, or satisfaction.
-6. Verify shared-component safety. Completion criterion: Back Office user
+4. Compose the lender route through capability props. Completion criterion:
+   active same-organization `lender-admin` users can review and save versioned
+   proposal, Milestone, and Draw member grants with a required reason; other
+   lender roles see assigned and effective grants read-only.
+5. Connect assignment-scoped member deactivation. Completion criterion: self,
+   last-active-admin, inactive, and cross-organization targets fail closed;
+   provider acceptance suspends authority immediately; failure restores access
+   and permits safe retry; webhook projection finalizes without deleting
+   history.
+6. Keep the Back Office-only organization default Review Requirements editor on
+   the selected organization detail surface by directly reusing the approved
+   Variant A fields. Completion criterion: immutable versions, expected-version
+   protection, actor/time/reason, current eligibility, loading/empty/error
+   states, and future-assignment scope are visible; lender users have no write
+   authority.
+7. Verify shared-component safety. Completion criterion: Back Office user
    management tests and visual behavior remain green, with styling differences
    expressed through supported composition or CVA variants.
-7. Verify the promoted route. Completion criterion: SSR/render, loading, empty,
+8. Verify the promoted routes. Completion criterion: SSR/render, loading, empty,
    forbidden, error, keyboard, focus, status announcement, responsive, and
    browser interaction evidence passes against Variant E.
 

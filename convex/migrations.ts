@@ -1,38 +1,41 @@
 export { migrations } from "./migrations/context";
 
 export {
-  backfillProposalBorrowerStartingCash,
   backfillActiveBuildBorrowerStartingCash,
-  backfillCapitalPlanBorrowerStartingCash,
-  runBorrowerStartingCashCutover,
   backfillBrokeragePrincipalBrokerEmail,
-  runBrokeragePrincipalBrokerEmailBackfill,
-  backfillWorkosUserNormalizedEmail,
-  runWorkosUserNormalizedEmailBackfill,
-  backfillProposalCostItemBudgetTreatment,
   backfillBuildCostItemBudgetTreatment,
+  backfillCapitalPlanBorrowerStartingCash,
+  backfillProposalBorrowerStartingCash,
+  backfillProposalCostItemBudgetTreatment,
+  backfillWorkosUserNormalizedEmail,
+  runBorrowerStartingCashCutover,
+  runBrokeragePrincipalBrokerEmailBackfill,
   runCostItemBudgetTreatmentBackfill,
+  runWorkosUserNormalizedEmailBackfill,
 } from "./migrations/legacy";
-
 export {
-  backfillLegacyProposalLenderAssignmentOrganizations,
+  backfillLenderMemberDecisionPermissions,
+  runLenderMemberDecisionPermissionsBackfill,
+} from "./migrations/lender_member_permissions";
+export {
   backfillLegacyProposalLenderApprovalOrganizations,
+  backfillLegacyProposalLenderAssignmentOrganizations,
   runLegacyLenderOrganizationCutover,
 } from "./migrations/lender_organization";
 
 export {
-  backfillProposalPhase3PolicyAndRevision,
   backfillProposalPhase3ApprovalRevision,
+  backfillProposalPhase3PolicyAndRevision,
   backfillProposalPhase3PolicyLock,
   runProposalPhase3LifecycleBackfill,
 } from "./migrations/phase3";
 
 export {
-  validateLenderPortalPhase9ApplyManifest,
-  reconcileLenderPortalPhase9PolicyAssignmentFacts,
+  rebuildLenderPortalProposalKanbanProjection,
   reconcileLenderPortalPhase9ApprovalFacts,
+  reconcileLenderPortalPhase9PolicyAssignmentFacts,
   reconcileLenderPortalPhase9PolicyLocks,
   reconcileLenderPortalProposalLifecycle,
-  rebuildLenderPortalProposalKanbanProjection,
   runLenderPortalPhase9Migration,
+  validateLenderPortalPhase9ApplyManifest,
 } from "./migrations/phase9";

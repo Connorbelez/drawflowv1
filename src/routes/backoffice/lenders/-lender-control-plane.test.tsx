@@ -21,6 +21,7 @@ const updatePermissions = vi.hoisted(() => vi.fn());
 const updateMembershipRoles = vi.hoisted(() => vi.fn());
 const deactivateMembership = vi.hoisted(() => vi.fn());
 const unassignLenderUser = vi.hoisted(() => vi.fn());
+const saveDefaultReviewPolicy = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
 
@@ -104,6 +105,28 @@ const controlPlaneResult = {
   sharedWorkosOrganizationId,
 };
 const unassignedResult = { users: [] };
+const defaultReviewPolicyResult = {
+  configuredAt: null,
+  configuredByDisplayName: null,
+  configuredByRole: null,
+  configuredByWorkosUserId: null,
+  eligibleCounts: { draw: 1, milestone: 1, proposalReview: 1 },
+  lenderOrganizationId: organizationId,
+  lenderOrganizationName: "Northstar Lending",
+  policy: {
+    drawApprovalMode: "backoffice_only" as const,
+    drawLenderQuorum: null,
+    milestoneApprovalMode: "backoffice_only" as const,
+    milestoneLenderQuorum: null,
+    milestoneReceiptInvoiceRequired: false,
+    milestoneSiteVisitRequired: false,
+  },
+  policyVersionId: null,
+  provenance: "system_baseline" as const,
+  reason: null,
+  validationIssue: null,
+  version: null,
+};
 const eligibleUnassignedUser = {
   email: "casey@northstar.test",
   membershipId: "membership_casey",
@@ -114,6 +137,8 @@ const eligibleUnassignedUser = {
   workosUserId: "workos_user_casey",
 };
 let currentMembersResult = membersResult;
+let currentDefaultReviewPolicy: typeof defaultReviewPolicyResult | undefined =
+  defaultReviewPolicyResult;
 let currentReconciliationProjection: null | {
   assignmentId: string;
   membershipId: string;
@@ -164,7 +189,9 @@ beforeEach(() => {
     sync: "waiting-for-webhook",
   });
   unassignLenderUser.mockResolvedValue(undefined);
+  saveDefaultReviewPolicy.mockResolvedValue({ version: 1 });
   currentMembersResult = membersResult;
+  currentDefaultReviewPolicy = defaultReviewPolicyResult;
   currentReconciliationProjection = null;
   currentUnassignedResult = unassignedResult;
 
@@ -234,6 +261,12 @@ beforeEach(() => {
         sharedWorkosOrganizationId,
       };
     }
+    if (
+      name ===
+      "lenderOrganizationReviewPolicies:getLenderOrganizationDefaultReviewPolicy"
+    ) {
+      return currentDefaultReviewPolicy;
+    }
     return currentUnassignedResult;
   });
 
@@ -249,6 +282,12 @@ beforeEach(() => {
       name === "lenderOrganizations:updateLenderOrganizationPermissions"
     ) {
       return updatePermissions;
+    }
+    if (
+      name ===
+      "lenderOrganizationReviewPolicies:saveLenderOrganizationDefaultReviewPolicy"
+    ) {
+      return saveDefaultReviewPolicy;
     }
     return vi.fn().mockResolvedValue(undefined);
   });
@@ -334,11 +373,71 @@ describe("Back Office lender organization production route", () => {
     );
 
     const reviewRequirementsLink = screen.getByRole("link", {
-      name: "Open proposal policies",
+      name: "Open Build policies",
     });
     expect(reviewRequirementsLink.getAttribute("href")).toBe(
       "/backoffice/proposals"
     );
+  });
+
+  test("reaches and saves the organization default editor from the authorized production route", async () => {
+    render(<LenderControlPlaneRoute />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Manage Northstar Lending" })
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 3,
+        name: "Default review requirements",
+      })
+    ).toBeTruthy();
+    expect(screen.getAllByText("System baseline").length).toBeGreaterThan(0);
+    expect(screen.getByText("Milestone review")).toBeTruthy();
+    expect(screen.getByText("Draw review")).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("radio", { name: /^Both/ })[0]);
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Site visit required" })
+    );
+    fireEvent.change(screen.getByLabelText("Change reason"), {
+      target: { value: "Require lender and site review for future assignments." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save new default version" })
+    );
+
+    await waitFor(() => expect(saveDefaultReviewPolicy).toHaveBeenCalledTimes(1));
+    expect(saveDefaultReviewPolicy).toHaveBeenCalledWith({
+      expectedVersion: null,
+      idempotencyKey: expect.stringMatching(
+        /^backoffice:lender-organization-review-default:/
+      ),
+      lenderOrganizationId: organizationId,
+      policy: {
+        drawApprovalMode: "backoffice_only",
+        drawLenderQuorum: null,
+        milestoneApprovalMode: "both",
+        milestoneLenderQuorum: 1,
+        milestoneReceiptInvoiceRequired: false,
+        milestoneSiteVisitRequired: true,
+      },
+      reason: "Require lender and site review for future assignments.",
+    });
+  });
+
+  test("shows the organization default loading state on the supported route", async () => {
+    currentDefaultReviewPolicy = undefined;
+    render(<LenderControlPlaneRoute />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Manage Northstar Lending" })
+    );
+
+    expect(
+      await screen.findByLabelText("Loading default review requirements")
+    ).toBeTruthy();
   });
 
   test("requires and forwards the operator-entered workflow policy audit reason", async () => {
@@ -391,7 +490,9 @@ describe("Back Office lender organization production route", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Assign" }));
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog", {
+      name: "Assign existing lender user",
+    });
     const review = within(dialog).getByRole("button", {
       name: /Review assignment/,
     });
@@ -431,7 +532,9 @@ describe("Back Office lender organization production route", () => {
       screen.getByRole("button", { name: "Add to organization" })
     );
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog", {
+      name: "Assign existing lender user",
+    });
     expect(
       within(dialog).getByRole("button", { name: /Review assignment/ })
         .hasAttribute("disabled")
@@ -494,7 +597,9 @@ describe("Back Office lender organization production route", () => {
     expect(
       screen.getAllByText("Waiting for WorkOS reconciliation").length
     ).toBeGreaterThan(0);
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: "Change member access" })
+    ).toBeTruthy();
     const dialogClose = screen.getByRole("button", { name: "Close status" });
     fireEvent.click(dialogClose);
     expect(
@@ -584,8 +689,8 @@ describe("Back Office lender organization production route", () => {
 
     await waitFor(() => expect(deactivateMembership).toHaveBeenCalledTimes(1));
     expect(deactivateMembership).toHaveBeenCalledWith({
-      lenderOrganizationId: organizationId,
-      membershipId: "membership_avery",
+      assignmentId: "assignment_avery",
+      idempotencyKey: "lender-member-deactivate:assignment_avery",
       reason: "Remove access after lender departure",
     });
     expect(unassignLenderUser).not.toHaveBeenCalled();
@@ -603,12 +708,8 @@ describe("Back Office lender organization production route", () => {
     };
     rerender(<LenderControlPlaneRoute />);
 
-    await waitFor(() => expect(unassignLenderUser).toHaveBeenCalledTimes(1));
-    expect(unassignLenderUser).toHaveBeenCalledWith({
-      assignmentId: "assignment_avery",
-      reason: "Remove access after lender departure",
-    });
-    expect(executionOrder).toEqual(["workos", "assignment"]);
+    expect(unassignLenderUser).not.toHaveBeenCalled();
+    expect(executionOrder).toEqual(["workos"]);
     await waitFor(() =>
       expect(screen.getAllByText("Avery Admin reconciled").length).toBeGreaterThan(0)
     );

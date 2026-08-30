@@ -1,8 +1,9 @@
 import type { ActiveBuildAuthorization } from "../activeBuildAccess";
 import {
-  buildActionItemQueueSortAt,
-  resetBuildActionItemDeadlineSchedule,
-} from "../build_action_item_deadline_model";
+  buildManualBuildActionItemDeadlinePatch,
+  persistCanonicalBuildActionItemPatch,
+  persistCanonicalBuildActionItemReferences,
+} from "../build_action_item_application";
 import { actionItemRequiresAcceptance } from "../build_action_item_governance";
 import { recordBuildActionItemRevision } from "../build_action_item_history";
 import {
@@ -16,19 +17,15 @@ import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "../build_collaboration_access";
+import { persistGovernedCollaborationAssetAttachments } from "../build_collaboration_asset_publication";
+import { collaborationRoleTier } from "../build_collaboration_model";
+import type { CanonicalBuildCollaborationReference } from "../build_collaboration_references";
+import type { authorizeActiveBuildCollaborationAccess } from "../build_collaboration_rollout";
+import { canReadMilestoneSystemActionItem } from "../build_collaboration_system_event_access";
 import {
   canReadDrawCoordination,
   resolveCurrentDrawCoordinationReaderIds,
 } from "../build_draw_coordination";
-import { authorizeActiveBuildCollaborationAccess } from "../build_collaboration_rollout";
-import { authorizeActiveBuildHumanCollaborationAccess } from "../build_collaboration_actor";
-import { persistGovernedCollaborationAssetAttachments } from "../build_collaboration_asset_publication";
-import {
-  type CanonicalBuildCollaborationReference,
-  resolveCanonicalBuildCollaborationReferences,
-} from "../build_collaboration_references";
-import { canReadMilestoneSystemActionItem } from "../build_collaboration_system_event_access";
-import { collaborationRoleTier } from "../build_collaboration_model";
 import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
 
 const MAX_CHILD_ACTION_ITEMS = 250;
@@ -79,29 +76,7 @@ export function applyManualDueDatePatch(
   dueAt: number | null | undefined,
   patch: Partial<Doc<"buildActionItems">>
 ) {
-  if (dueAt === undefined) {
-    return;
-  }
-  const normalizedDueAt = dueAt ?? undefined;
-  if (normalizedDueAt === item.dueAt) {
-    return;
-  }
-  if (item.dueDateSource === "policy") {
-    throw new Error(
-      "Policy due dates require a reasoned override through the policy deadline workflow."
-    );
-  }
-  patch.dueAt = normalizedDueAt;
-  patch.dueDateSource = dueAt === null ? undefined : "manual";
-  Object.assign(
-    patch,
-    { queueSortAt: buildActionItemQueueSortAt(normalizedDueAt, item.status) },
-    resetBuildActionItemDeadlineSchedule(
-      normalizedDueAt,
-      item.status,
-      item.deadlineScheduleGeneration
-    )
-  );
+  Object.assign(patch, buildManualBuildActionItemDeadlinePatch(item, dueAt));
 }
 
 export async function requireReadableActionItem(
@@ -188,8 +163,7 @@ export async function resolveGeneratedMilestoneCompanionBinding(
     ctx.db.get(item.originatingPostId),
   ]);
   if (
-    !(milestone && submilestone) ||
-    !post ||
+    !(milestone && submilestone && post) ||
     item.parentActionItemId !== undefined ||
     item.buildId !== authorization.build._id ||
     item.organizationId !== authorization.organizationId ||
@@ -672,23 +646,7 @@ export async function persistBuildActionItemReferences(
     references: CanonicalBuildCollaborationReference[];
   }
 ) {
-  for (const reference of input.references) {
-    await ctx.db.insert("buildCollaborationReferences", {
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      entityId: reference.entityId,
-      entityKind: reference.entityKind,
-      labelSnapshot: reference.label,
-      organizationId: input.authorization.organizationId,
-      ownerKind: "actionItem",
-      ownerRecordId: input.actionItemId,
-      postId: input.postId,
-      primary: reference.primary ?? false,
-      actionItemQueueSortAt: input.queueSortAt,
-      summarySnapshot: reference.summary,
-    });
-  }
+  return await persistCanonicalBuildActionItemReferences(ctx, input);
 }
 
 export async function persistBuildActionItemActivity(
@@ -762,9 +720,12 @@ export async function recordChildActionItemMutation(
   }
 ) {
   const revision = input.item.currentRevision + 1;
-  await ctx.db.patch(input.item._id, {
-    currentRevision: revision,
-    updatedAt: input.now,
+  const updatedItem = await persistCanonicalBuildActionItemPatch(ctx, {
+    item: input.item,
+    patch: {
+      currentRevision: revision,
+      updatedAt: input.now,
+    },
   });
   await ctx.db.insert("buildActionItemEvents", {
     actionItemId: input.item._id,
@@ -782,10 +743,6 @@ export async function recordChildActionItemMutation(
     revision,
     warnings: input.warnings,
   });
-  const updatedItem = await ctx.db.get(input.item._id);
-  if (!updatedItem) {
-    throw new Error("Action Item became unavailable during update.");
-  }
   await recordBuildActionItemRevision(ctx, {
     authorization: input.authorization,
     item: updatedItem,

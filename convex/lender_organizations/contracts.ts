@@ -14,6 +14,23 @@ export const lenderPermissionsValidator = v.object({
   siteVisitReview: v.boolean(),
 });
 
+export const lenderDecisionPermissionsValidator = v.object({
+  proposalReview: v.boolean(),
+  milestoneDecisions: v.boolean(),
+  drawDecisions: v.boolean(),
+});
+
+export const lenderMemberDeactivationValidator = v.object({
+  error: v.optional(v.string()),
+  idempotencyKey: v.string(),
+  state: v.union(
+    v.literal("requested"),
+    v.literal("accepted"),
+    v.literal("failed"),
+    v.literal("reconciled")
+  ),
+});
+
 export const lenderOrganizationValidator = v.object({
   id: v.id("lenderOrganizations"),
   brokerageId: v.id("brokerages"),
@@ -43,6 +60,13 @@ export const lenderMemberValidator = v.object({
   roleSlugs: v.array(v.string()),
   assignmentStatus: v.union(v.literal("active"), v.literal("pending")),
   membershipStatus: v.literal("active"),
+  decisionPermissions: lenderDecisionPermissionsValidator,
+  decisionPermissionsVersion: v.number(),
+  effectiveDecisionPermissions: lenderDecisionPermissionsValidator,
+  deactivation: v.optional(lenderMemberDeactivationValidator),
+  canDeactivate: v.optional(v.boolean()),
+  deactivationDisabledReason: v.optional(v.string()),
+  isSelf: v.optional(v.boolean()),
   canMakeFinalDecision: v.boolean(),
 });
 

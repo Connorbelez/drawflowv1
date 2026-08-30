@@ -28,18 +28,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
+import { Separator } from "#/components/ui/separator.tsx";
 import {
   BuildPermitViewerDrawer,
   firstPermitDocument,
 } from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import { formatCurrency } from "#/features/builder-proposal-demo/template-helpers.ts";
 import type { BudgetWorkbookProposalDraft } from "#/features/proposal-import/budget-workbook-schema.ts";
-import type { GoogleAddressPlaceDetails } from "#/lib/google-maps.ts";
+import {
+  CANADA_ISO_COUNTRY_CODE,
+  type GoogleAddressPlaceDetails,
+} from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
 import {
   type TimelineMilestoneWorksheetContractorOption,
   TimelineMilestoneWorksheetTable,
   type TimelineScheduleDisplayMode,
+  type WorksheetContractorActions,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
 import { TOTAL_REIMBURSEMENT_BPS } from "./-timeline-share-snapshot.ts";
 import "./-timeline-setup-flow.css";
@@ -232,6 +237,8 @@ export function TemplateStep({
         <BlueprintPanel>
           <GoogleAddressAutocomplete
             className="timeline-setup-address-field"
+            countryCode={CANADA_ISO_COUNTRY_CODE}
+            id="timeline-setup-project-address"
             inputRender={
               <input
                 aria-label="Project address"
@@ -243,11 +250,12 @@ export function TemplateStep({
                 Project Address <em>(optional)</em>
               </span>
             }
+            name="projectAddress"
             onChange={onProjectAddressChange}
             onPlaceSelect={(_suggestion, details) =>
               onProjectPlaceSelect(details)
             }
-            placeholder="Enter project address"
+            placeholder="Enter Canadian project address"
             value={projectAddress}
           />
         </BlueprintPanel>
@@ -373,15 +381,37 @@ export function TemplateStep({
             before you can submit this proposal for review and funding.
           </p>
         </BlueprintAsideCard>
-        <Button
-          className="timeline-setup-primary"
-          data-testid="timeline-setup-continue-budget"
-          onClick={onContinue}
-        >
-          Continue to milestone budget
-          <ChevronRight />
-        </Button>
       </aside>
+
+      <div
+        className="timeline-setup-action-footer"
+        data-testid="timeline-setup-action-footer"
+      >
+        <Separator />
+        <div className="timeline-setup-action-bar">
+          <div className="timeline-setup-action-copy">
+            <strong className="text-balance text-foreground text-sm">
+              Next: milestones and budget
+            </strong>
+            <p
+              className="text-pretty text-muted-foreground text-xs leading-relaxed"
+              id="timeline-setup-continue-description"
+            >
+              Review generated milestones and allocate the project budget.
+            </p>
+          </div>
+          <Button
+            aria-describedby="timeline-setup-continue-description"
+            className="timeline-setup-footer-primary transition-[transform,box-shadow,background-color] active:scale-[0.96] motion-reduce:transform-none"
+            data-testid="timeline-setup-continue-budget"
+            onClick={onContinue}
+            size="xl"
+          >
+            Continue to milestone budget
+            <ChevronRight aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -715,6 +745,7 @@ export function BlueprintPermitUploader({
 export function BudgetStep({
   cascadeBudgetEdits,
   cashText,
+  contractorActions,
   contractorOptions,
   error,
   onBudgetFileImport,
@@ -733,6 +764,7 @@ export function BudgetStep({
 }: {
   cascadeBudgetEdits: boolean;
   cashText: string;
+  contractorActions?: WorksheetContractorActions;
   contractorOptions: TimelineMilestoneWorksheetContractorOption[];
   error: string;
   onBudgetFileImport: (file: File) => Promise<BudgetWorkbookProposalDraft>;
@@ -789,6 +821,7 @@ export function BudgetStep({
     <TimelineMilestoneWorksheetTable
       cascadeBudgetEdits={cascadeBudgetEdits}
       cashText={cashText}
+      contractorActions={contractorActions}
       contractorOptions={contractorOptions}
       error={error}
       leadingContent={

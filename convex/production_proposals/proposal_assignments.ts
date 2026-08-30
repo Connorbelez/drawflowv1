@@ -5,18 +5,40 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { authenticatedMutation, authenticatedQuery } from "../authz";
+import {
+  enqueueProposalApprovalRequiredNotifications,
+  enqueueProposalWithdrawalNotifications,
+} from "../lender_portal_notifications";
 import { assertProposalLifecycleTransition } from "../production_proposal_lifecycle";
-import { enqueueProposalApprovalRequiredNotifications, enqueueProposalWithdrawalNotifications } from "../lender_portal_notifications";
-import { type Doc } from "../types";
+import type { Doc } from "../types";
 import { authorizeProposal } from "./authorization_core.js";
-import { getCurrentProposalLenderConfirmationCycle, createLenderAssignmentManifest } from "./confirmation_history_helpers.js";
-import { requireBackofficeProposalWrite, requireAnyRole } from "./contractor_policy_helpers.js";
-import { APPROVER_ROLES, proposalLenderOrganizationOptionValidator } from "./contracts_foundation.js";
+import {
+  createLenderAssignmentManifest,
+  getCurrentProposalLenderConfirmationCycle,
+} from "./confirmation_history_helpers.js";
+import {
+  requireAnyRole,
+  requireBackofficeProposalWrite,
+} from "./contractor_policy_helpers.js";
+import {
+  APPROVER_ROLES,
+  proposalLenderOrganizationOptionValidator,
+} from "./contracts_foundation.js";
 import { ELIGIBLE_LENDER_ORGANIZATION_LIMIT } from "./contracts_workflow.js";
-import { getCurrentProposalLenderAssignment, resolveAssignableLenderOrganization } from "./lender_assignment_auth.js";
+import {
+  getCurrentProposalLenderAssignment,
+  resolveAssignableLenderOrganization,
+  resolvePolicyLenderOrganization,
+} from "./lender_assignment_auth.js";
 import { upsertKanbanCard, writeProposalEvent } from "./proposal_copy_audit.js";
 import { requireReason } from "./proposal_lender_approval.js";
-import { requirePhase3BackofficeRole, ensureDefaultProposalReviewPolicyVersion, getCurrentProposalRevision, createImmutableProposalRevision } from "./review_lifecycle_helpers.js";
+import {
+  createImmutableProposalRevision,
+  ensureDefaultProposalReviewPolicyVersion,
+  getCurrentProposalRevision,
+  requirePhase3BackofficeRole,
+  snapshotLenderOrganizationReviewPolicy,
+} from "./review_lifecycle_helpers.js";
 
 export const listEligibleExternalLenderOrganizations = authenticatedQuery
   .input({
@@ -26,13 +48,13 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
   .returns(
     v.object({
       organizations: v.array(proposalLenderOrganizationOptionValidator),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     if (auth.proposal.status !== "approved") {
@@ -47,7 +69,7 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
     for (const organization of activeOrganizations) {
       const target = await resolveAssignableLenderOrganization(
         ctx,
-        organization._id,
+        organization._id
       );
       if (!target) {
         continue;
@@ -62,12 +84,12 @@ export const listEligibleExternalLenderOrganizations = authenticatedQuery
     }
     const sortedOrganizations = eligibleOrganizations;
     sortedOrganizations.sort((left, right) =>
-      left.lenderOrganizationName.localeCompare(right.lenderOrganizationName),
+      left.lenderOrganizationName.localeCompare(right.lenderOrganizationName)
     );
     return {
       organizations: sortedOrganizations.slice(
         0,
-        ELIGIBLE_LENDER_ORGANIZATION_LIMIT,
+        ELIGIBLE_LENDER_ORGANIZATION_LIMIT
       ),
     };
   })
@@ -83,17 +105,22 @@ export const assignExternalLenderOrganization = authenticatedMutation
   .returns(
     v.object({
       assignmentId: v.id("proposalLenderAssignments"),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
-    if (auth.proposal.lockedReviewPolicyId || auth.proposal.status === "closed") {
-      throw new Error("Lender assignment cannot change after policy lock or closing.");
+    if (
+      auth.proposal.lockedReviewPolicyId ||
+      auth.proposal.status === "closed"
+    ) {
+      throw new Error(
+        "Lender assignment cannot change after policy lock or closing."
+      );
     }
     assertProposalLifecycleTransition({
       command: "assign",
@@ -103,7 +130,7 @@ export const assignExternalLenderOrganization = authenticatedMutation
     requireReason(args.reason);
     const currentAssignment = await getCurrentProposalLenderAssignment(
       ctx,
-      args.proposalId,
+      args.proposalId
     );
     if (currentAssignment) {
       throw new Error("A current lender assignment already exists.");
@@ -111,21 +138,23 @@ export const assignExternalLenderOrganization = authenticatedMutation
     const archivingAssignments = await ctx.db
       .query("proposalLenderAssignments")
       .withIndex("by_proposal_status", (query) =>
-        query.eq("proposalId", args.proposalId).eq("status", "archiving"),
+        query.eq("proposalId", args.proposalId).eq("status", "archiving")
       )
       .take(1);
     if (archivingAssignments.length > 0) {
-      throw new Error("Wait for the prior lender assignment archive to seal before assigning another organization.");
+      throw new Error(
+        "Wait for the prior lender assignment archive to seal before assigning another organization."
+      );
     }
     const lenderOrganization = await resolveAssignableLenderOrganization(
       ctx,
-      args.lenderOrganizationId,
+      args.lenderOrganizationId
     );
     if (!lenderOrganization) {
       throw new Error("Lender organization is unavailable for assignment.");
     }
     const assignedByRole = auth.roles.find((role) =>
-      APPROVER_ROLES.includes(role as (typeof APPROVER_ROLES)[number]),
+      APPROVER_ROLES.includes(role as (typeof APPROVER_ROLES)[number])
     );
     if (!assignedByRole) {
       throw new Error("Forbidden: proposal assignment authority");
@@ -148,14 +177,23 @@ export const assignExternalLenderOrganization = authenticatedMutation
     if (!assignedProposal) {
       throw new Error("Assigned proposal is unavailable.");
     }
-    const policyVersion = await ensureDefaultProposalReviewPolicyVersion(ctx, {
-      auth: { ...auth, proposal: assignedProposal },
-      now,
-    });
     const assignment = await ctx.db.get(assignmentId);
     if (!assignment) {
       throw new Error("Created lender assignment is unavailable.");
     }
+    const policyLenderOrganization = await resolvePolicyLenderOrganization(
+      ctx,
+      assignment,
+      "policy configuration"
+    );
+    const policyVersion = await snapshotLenderOrganizationReviewPolicy(ctx, {
+      assignment,
+      auth: { ...auth, proposal: assignedProposal },
+      idempotencyKey: `system:lender-organization-policy-snapshot:${assignmentId}`,
+      lenderOrganization: policyLenderOrganization,
+      now,
+      reason: `Snapshot ${lenderOrganization.name} review requirements for this assignment.`,
+    });
     const revision = await createImmutableProposalRevision(ctx, {
       assignment,
       auth: { ...auth, proposal: assignedProposal },
@@ -168,7 +206,7 @@ export const assignExternalLenderOrganization = authenticatedMutation
       .withIndex("by_assignment_and_revision", (query) =>
         query
           .eq("assignmentId", assignment._id)
-          .eq("proposalRevisionId", revision._id),
+          .eq("proposalRevisionId", revision._id)
       )
       .unique();
     if (!confirmationCycle) {
@@ -182,6 +220,10 @@ export const assignExternalLenderOrganization = authenticatedMutation
       newState: JSON.stringify({
         assignmentId,
         lenderOrganizationId: lenderOrganization.lenderOrganizationId,
+        organizationReviewPolicyVersion:
+          policyVersion.sourceOrganizationReviewPolicyVersion ?? null,
+        reviewPolicyProvenance: policyVersion.provenance ?? "system_baseline",
+        reviewPolicyVersionId: policyVersion._id,
         status: "current",
       }),
       priorState: JSON.stringify({ externalAssignment: "unassigned" }),
@@ -210,11 +252,16 @@ export const withdrawExternalLenderAssignment = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
-    if (auth.proposal.lockedReviewPolicyId || auth.proposal.status === "closed") {
-      throw new Error("Lender assignment cannot change after policy lock or closing.");
+    if (
+      auth.proposal.lockedReviewPolicyId ||
+      auth.proposal.status === "closed"
+    ) {
+      throw new Error(
+        "Lender assignment cannot change after policy lock or closing."
+      );
     }
     assertProposalLifecycleTransition({
       command: "withdraw",
@@ -236,11 +283,7 @@ export const withdrawExternalLenderAssignment = authenticatedMutation
     }
     const [currentRevision, currentConfirmationCycle] = await Promise.all([
       getCurrentProposalRevision(ctx, auth.proposal),
-      getCurrentProposalLenderConfirmationCycle(
-        ctx,
-        auth.proposal,
-        assignment,
-      ),
+      getCurrentProposalLenderConfirmationCycle(ctx, auth.proposal, assignment),
     ]);
     const now = Date.now();
     const withdrawnByRole = requirePhase3BackofficeRole(auth);
@@ -253,7 +296,7 @@ export const withdrawExternalLenderAssignment = authenticatedMutation
       auth.proposal,
       assignment,
       now,
-      policyVersion._id,
+      policyVersion._id
     );
     await ctx.db.patch(args.assignmentId, {
       archiveManifestId: manifest._id,
@@ -288,7 +331,7 @@ export const withdrawExternalLenderAssignment = authenticatedMutation
     await ctx.scheduler.runAfter(
       0,
       internal.production_proposals.sealLenderAssignmentManifestBatch,
-      { manifestId: manifest._id },
+      { manifestId: manifest._id }
     );
     await upsertKanbanCard(ctx, args.proposalId, now);
     return null;
@@ -306,17 +349,17 @@ const proposalLenderArchiveStatusValidator = v.object({
     v.literal("documents"),
     v.literal("revisions"),
     v.literal("decisions"),
-    v.literal("complete"),
+    v.literal("complete")
   ),
   status: v.union(
     v.literal("building"),
     v.literal("failed"),
-    v.literal("sealed"),
+    v.literal("sealed")
   ),
 });
 
 function projectProposalLenderArchiveStatus(
-  manifest: Doc<"proposalLenderAssignmentManifests">,
+  manifest: Doc<"proposalLenderAssignmentManifests">
 ) {
   return {
     assignmentId: manifest.assignmentId,
@@ -341,7 +384,7 @@ export const getProposalLenderArchiveStatus = authenticatedQuery
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     const assignment = await ctx.db.get(args.assignmentId);
@@ -356,7 +399,7 @@ export const getProposalLenderArchiveStatus = authenticatedQuery
     const manifest = await ctx.db
       .query("proposalLenderAssignmentManifests")
       .withIndex("by_assignment", (query) =>
-        query.eq("assignmentId", assignment._id),
+        query.eq("assignmentId", assignment._id)
       )
       .unique();
     if (!manifest) {
@@ -378,7 +421,7 @@ export const retryProposalLenderArchive = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
@@ -395,7 +438,7 @@ export const retryProposalLenderArchive = authenticatedMutation
     const manifest = await ctx.db
       .query("proposalLenderAssignmentManifests")
       .withIndex("by_assignment", (query) =>
-        query.eq("assignmentId", assignment._id),
+        query.eq("assignmentId", assignment._id)
       )
       .unique();
     if (!manifest) {
@@ -407,8 +450,13 @@ export const retryProposalLenderArchive = authenticatedMutation
     if (assignment.status !== "archiving") {
       throw new Error("Lender assignment is not awaiting archive recovery.");
     }
-    if (auth.proposal.lockedReviewPolicyId || auth.proposal.status === "closed") {
-      throw new Error("Lender assignment archive cannot resume after lock or closing.");
+    if (
+      auth.proposal.lockedReviewPolicyId ||
+      auth.proposal.status === "closed"
+    ) {
+      throw new Error(
+        "Lender assignment archive cannot resume after lock or closing."
+      );
     }
     const now = Date.now();
     const policyVersion = await ensureDefaultProposalReviewPolicyVersion(ctx, {
@@ -429,7 +477,7 @@ export const retryProposalLenderArchive = authenticatedMutation
     await ctx.scheduler.runAfter(
       0,
       internal.production_proposals.sealLenderAssignmentManifestBatch,
-      { manifestId: manifest._id },
+      { manifestId: manifest._id }
     );
     await writeProposalEvent(ctx, {
       auth,

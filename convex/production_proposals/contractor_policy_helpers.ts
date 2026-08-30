@@ -2,8 +2,9 @@
  * Production proposals contractor policy helpers bounded-context implementation.
  * The parent facade re-exports its handlers to preserve production_proposals function references.
  */
-import { type RoleSlug } from "../authz";
-import { type Doc, type Id, type MutationCtx, type QueryCtx } from "../types";
+import type { RoleSlug } from "../authz";
+import { createCanonicalContractorProfile } from "../contractor_profile_application";
+import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
 import { hasProjectedWorkosPermission as hasPermission } from "../workos_permission_access";
 import { normalizeRequiredText } from "./proposal_cost_validation.js";
 import { collectByIndex } from "./storage_helpers.js";
@@ -15,7 +16,7 @@ export async function assertBackofficeProposalRead(
     roles: RoleSlug[];
     subject: string;
   },
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
   if (canReadBackofficeProposal(auth, proposal)) {
     return;
@@ -26,7 +27,7 @@ export async function assertBackofficeProposalRead(
       ctx,
       auth.brokerage.workosOrganizationId,
       auth.roles,
-      "proposals:read",
+      "proposals:read"
     ))
   ) {
     return;
@@ -39,7 +40,7 @@ export function canReadBackofficeProposal(
   auth: {
     roles: RoleSlug[];
   },
-  _proposal: Doc<"buildProposals">,
+  _proposal: Doc<"buildProposals">
 ) {
   if (
     auth.roles.includes("admin") ||
@@ -53,7 +54,7 @@ export function canReadBackofficeProposal(
 
 function canWriteBackofficeProposal(
   auth: { roles: RoleSlug[]; subject: string },
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
   if (auth.roles.includes("admin") || auth.roles.includes("principle-broker")) {
     return true;
@@ -66,7 +67,7 @@ function canWriteBackofficeProposal(
 
 export function requireBackofficeProposalWrite(
   auth: { roles: RoleSlug[]; subject: string },
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
   if (canWriteBackofficeProposal(auth, proposal)) {
     return;
@@ -76,7 +77,7 @@ export function requireBackofficeProposalWrite(
 
 export function requireAnyRole(
   actual: readonly RoleSlug[],
-  allowed: readonly RoleSlug[] | readonly string[],
+  allowed: readonly RoleSlug[] | readonly string[]
 ) {
   const allowedRoles: readonly string[] = allowed;
   if (!actual.some((role) => allowedRoles.includes(role))) {
@@ -90,7 +91,7 @@ export function normalizeOptionalString(value?: string) {
 }
 
 export function activeBuildCompletionReviewRecord(
-  review: unknown,
+  review: unknown
 ): Record<string, unknown> {
   return review && typeof review === "object" && !Array.isArray(review)
     ? (review as Record<string, unknown>)
@@ -117,7 +118,7 @@ export function activeBuildPendingCompletionReview(review: unknown) {
 export function activeBuildCompletionReviewWithSiteVisit(
   review: unknown,
   siteVisit: Record<string, unknown>,
-  reviewedAt: string,
+  reviewedAt: string
 ) {
   const record = activeBuildCompletionReviewRecord(review);
   const hasExplicitRevisionRequest =
@@ -209,7 +210,7 @@ export function normalizeQualityRating(value: number) {
 export async function getScopedContractorOrThrow(
   ctx: QueryCtx | MutationCtx,
   contractorId: Id<"contractorProfiles">,
-  brokerageId: Id<"brokerages">,
+  brokerageId: Id<"brokerages">
 ) {
   const contractor = await ctx.db.get(contractorId);
   if (!contractor || contractor.brokerageId !== brokerageId) {
@@ -231,13 +232,13 @@ export async function resolveDraftProposalContractorProfile(
     now: number;
     role: string;
     workosOrganizationId: string;
-  },
+  }
 ) {
   if (input.contractorId) {
     const contractor = await getScopedContractorOrThrow(
       ctx,
       input.contractorId,
-      input.auth.brokerage._id,
+      input.auth.brokerage._id
     );
     if (contractor.status !== "active") {
       throw new Error("Production contractor is inactive.");
@@ -247,34 +248,35 @@ export async function resolveDraftProposalContractorProfile(
 
   const contractorName = normalizeRequiredText(
     input.contractorName,
-    "Contractor name",
+    "Contractor name"
   );
   const existing = (
     await ctx.db
       .query("contractorProfiles")
       .withIndex("by_brokerage", (q) =>
-        q.eq("brokerageId", input.auth.brokerage._id),
+        q.eq("brokerageId", input.auth.brokerage._id)
       )
       .collect()
   ).find(
     (contractor) =>
       contractor.status === "active" &&
-      contractor.name.trim().toLowerCase() === contractorName.toLowerCase(),
+      contractor.name.trim().toLowerCase() === contractorName.toLowerCase()
   );
   if (existing) {
     return existing._id;
   }
 
-  const contractorId = await ctx.db.insert("contractorProfiles", {
+  const contractorId = await createCanonicalContractorProfile(ctx, {
     brokerageId: input.auth.brokerage._id,
-    createdAt: input.now,
-    kind: "company",
-    name: contractorName,
-    onboardingStatus: "profile_only",
+    fields: {
+      kind: "company",
+      name: contractorName,
+      onboardingStatus: "profile_only",
+      status: "active",
+      trades: input.role.trim() ? [input.role.trim()] : [],
+    },
+    now: input.now,
     organizationId: input.workosOrganizationId,
-    status: "active",
-    trades: input.role.trim() ? [input.role.trim()] : [],
-    updatedAt: input.now,
   });
   await writeContractorProfileEvent(ctx, {
     auth: input.auth,
@@ -319,26 +321,26 @@ export async function replaceContractorOperatingRows(
     }>;
     now: number;
     organizationId: string;
-  },
+  }
 ) {
   const [capabilities, equipment, windows] = await Promise.all([
     collectByIndex(
       ctx,
       "contractorCapabilities",
       "by_contractor",
-      input.contractorId,
+      input.contractorId
     ),
     collectByIndex(
       ctx,
       "contractorEquipment",
       "by_contractor",
-      input.contractorId,
+      input.contractorId
     ),
     collectByIndex(
       ctx,
       "contractorAvailabilityWindows",
       "by_contractor",
-      input.contractorId,
+      input.contractorId
     ),
   ]);
   for (const row of capabilities) {
@@ -364,7 +366,7 @@ export async function replaceContractorOperatingRows(
       createdAt: input.now,
       label,
       milestoneArchetypeKey: normalizeOptionalString(
-        capability.milestoneArchetypeKey,
+        capability.milestoneArchetypeKey
       ),
       notes: normalizeOptionalString(capability.notes),
       organizationId: input.organizationId,
@@ -404,7 +406,7 @@ export async function replaceContractorOperatingRows(
       organizationId: input.organizationId,
       startMinute: Math.max(
         0,
-        Math.min(24 * 60, Math.round(window.startMinute)),
+        Math.min(24 * 60, Math.round(window.startMinute))
       ),
       timezone: window.timezone.trim() || "UTC",
       updatedAt: input.now,
@@ -414,7 +416,7 @@ export async function replaceContractorOperatingRows(
 
 export async function hydrateContractorProfiles(
   ctx: QueryCtx | MutationCtx,
-  profiles: Doc<"contractorProfiles">[],
+  profiles: Doc<"contractorProfiles">[]
 ) {
   return await Promise.all(
     profiles.map(async (profile) => {
@@ -423,40 +425,40 @@ export async function hydrateContractorProfiles(
           ctx,
           "contractorCapabilities",
           "by_contractor",
-          profile._id,
+          profile._id
         ),
         collectByIndex(
           ctx,
           "contractorEquipment",
           "by_contractor",
-          profile._id,
+          profile._id
         ),
         collectByIndex(
           ctx,
           "contractorAvailabilityWindows",
           "by_contractor",
-          profile._id,
+          profile._id
         ),
       ]);
       return {
         ...profile,
         availabilityWindows: availabilityWindows.sort(
           (a: any, b: any) =>
-            a.dayOfWeek - b.dayOfWeek || a.startMinute - b.startMinute,
+            a.dayOfWeek - b.dayOfWeek || a.startMinute - b.startMinute
         ),
         capabilities: capabilities.sort((a: any, b: any) =>
-          a.capabilityKey.localeCompare(b.capabilityKey),
+          a.capabilityKey.localeCompare(b.capabilityKey)
         ),
         defaultPayRateUnit: profile.defaultPayRateUnit ?? "hour",
         equipment: equipment.sort((a: any, b: any) =>
-          a.equipmentKey.localeCompare(b.equipmentKey),
+          a.equipmentKey.localeCompare(b.equipmentKey)
         ),
         kind: profile.kind ?? "company",
         onboardingStatus:
           profile.onboardingStatus ??
           (profile.accountWorkosUserId ? "account_linked" : "profile_only"),
       };
-    }),
+    })
   );
 }
 
@@ -466,13 +468,13 @@ export async function addContractorRoleToExistingMembership(
     now: number;
     workosOrganizationId: string;
     workosUserId: string;
-  },
+  }
 ) {
   const membership = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user", (q) => q.eq("workosUserId", input.workosUserId))
     .filter((q) =>
-      q.eq(q.field("workosOrganizationId"), input.workosOrganizationId),
+      q.eq(q.field("workosOrganizationId"), input.workosOrganizationId)
     )
     .first();
   if (!membership) {
@@ -498,7 +500,7 @@ export async function writeContractorProfileEvent(
     priorState?: string;
     reason?: string;
     warnings?: string[];
-  },
+  }
 ) {
   const now = Date.now();
   await ctx.db.insert("auditEvents", {

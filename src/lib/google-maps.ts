@@ -6,6 +6,7 @@ export interface GoogleAddressSuggestion {
 }
 
 export interface GoogleAddressPlaceDetails {
+  countryCode?: string;
   formattedAddress: string;
   latitude: number;
   longitude: number;
@@ -24,6 +25,9 @@ interface GoogleAutocompletePrediction {
 interface GoogleAutocompleteService {
   getPlacePredictions: (
     request: {
+      componentRestrictions?: {
+        country: string;
+      };
       input: string;
       types?: string[];
     },
@@ -40,6 +44,7 @@ interface GoogleLatLng {
 }
 
 interface GooglePlaceResult {
+  address_components?: GoogleAddressComponent[];
   formatted_address?: string;
   geometry?: {
     location?: GoogleLatLng;
@@ -48,11 +53,17 @@ interface GooglePlaceResult {
 }
 
 interface GoogleGeocoderResult {
+  address_components?: GoogleAddressComponent[];
   formatted_address?: string;
   geometry?: {
     location?: GoogleLatLng;
   };
   place_id?: string;
+}
+
+interface GoogleAddressComponent {
+  short_name?: string;
+  types?: string[];
 }
 
 interface GoogleGeocoder {
@@ -99,6 +110,11 @@ declare global {
 
 const GOOGLE_MAPS_SCRIPT_ID = "drawflow-google-maps-js";
 const GOOGLE_MAPS_API_BASE = "https://maps.googleapis.com/maps/api";
+export const CANADA_ISO_COUNTRY_CODE = "CA";
+
+interface GoogleAddressRequestOptions {
+  countryCode?: string;
+}
 
 export function getGoogleMapsApiKey(): string | null {
   const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -110,7 +126,8 @@ export function isGoogleMapsConfigured(): boolean {
 }
 
 export async function fetchGoogleAddressSuggestions(
-  input: string
+  input: string,
+  { countryCode }: GoogleAddressRequestOptions = {}
 ): Promise<GoogleAddressSuggestion[]> {
   const trimmed = input.trim();
   if (trimmed.length < 3) {
@@ -130,6 +147,13 @@ export async function fetchGoogleAddressSuggestions(
   return new Promise((resolve, reject) => {
     service.getPlacePredictions(
       {
+        ...(countryCode
+          ? {
+              componentRestrictions: {
+                country: normalizeCountryCode(countryCode),
+              },
+            }
+          : {}),
         input: trimmed,
         types: ["address"],
       },
@@ -149,7 +173,8 @@ export async function fetchGoogleAddressSuggestions(
 }
 
 export async function fetchGoogleAddressPlaceDetails(
-  suggestion: GoogleAddressSuggestion
+  suggestion: GoogleAddressSuggestion,
+  { countryCode }: GoogleAddressRequestOptions = {}
 ): Promise<GoogleAddressPlaceDetails | null> {
   const places = await loadGooglePlaces();
   if (!places || typeof document === "undefined") {
@@ -167,7 +192,12 @@ export async function fetchGoogleAddressPlaceDetails(
       (resolve, reject) => {
         service.getDetails(
           {
-            fields: ["formatted_address", "geometry", "place_id"],
+            fields: [
+              "address_components",
+              "formatted_address",
+              "geometry",
+              "place_id",
+            ],
             placeId: suggestion.placeId,
           },
           (place, status) => {
@@ -180,9 +210,12 @@ export async function fetchGoogleAddressPlaceDetails(
         );
       }
     );
-    return placeDetails ?? (await geocodeGoogleAddressSuggestion(suggestion));
+    const resolved =
+      placeDetails ?? (await geocodeGoogleAddressSuggestion(suggestion));
+    return matchesCountryRestriction(resolved, countryCode) ? resolved : null;
   } catch {
-    return await geocodeGoogleAddressSuggestion(suggestion);
+    const resolved = await geocodeGoogleAddressSuggestion(suggestion);
+    return matchesCountryRestriction(resolved, countryCode) ? resolved : null;
   } finally {
     serviceNode.remove();
   }
@@ -198,11 +231,38 @@ function normalizePlaceDetails(
   }
 
   return {
+    countryCode: place.address_components
+      ?.find((component) => component.types?.includes("country"))
+      ?.short_name?.toUpperCase(),
     formattedAddress: place.formatted_address ?? suggestion.description,
     latitude: location.lat(),
     longitude: location.lng(),
     placeId: place.place_id ?? suggestion.placeId,
   };
+}
+
+export function isGoogleAddressPlaceDetailsInCountry(
+  details: GoogleAddressPlaceDetails | null,
+  countryCode: string
+): details is GoogleAddressPlaceDetails {
+  return (
+    details?.countryCode !== undefined &&
+    normalizeCountryCode(details.countryCode) ===
+      normalizeCountryCode(countryCode)
+  );
+}
+
+function matchesCountryRestriction(
+  details: GoogleAddressPlaceDetails | null,
+  countryCode?: string
+): boolean {
+  return countryCode
+    ? isGoogleAddressPlaceDetailsInCountry(details, countryCode)
+    : details !== null;
+}
+
+function normalizeCountryCode(countryCode: string): string {
+  return countryCode.trim().toUpperCase();
 }
 
 function geocodeGoogleAddressSuggestion(

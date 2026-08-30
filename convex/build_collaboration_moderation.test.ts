@@ -1018,6 +1018,9 @@ function expectedModerationAuthority(
       "contractor",
     ]),
     "builder-staff": new Set(["contractor"]),
+    lender: new Set(),
+    "lender-admin": new Set(),
+    "lender-staff": new Set(),
     homeowner: new Set(),
     contractor: new Set(),
   };

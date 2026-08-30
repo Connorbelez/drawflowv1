@@ -13,7 +13,7 @@ import { buildCollaborationRoleValidator } from "./build_collaboration_validator
 import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, MutationCtx, QueryCtx } from "./types";
 
-const lifecycleStateValidator = v.object({
+export const buildCollaborationLifecycleStateValidator = v.object({
   closedAt: v.optional(v.number()),
   closedByRole: v.optional(buildCollaborationRoleValidator),
   closedByWorkosUserId: v.optional(v.string()),
@@ -38,14 +38,14 @@ export const getBuildCollaborationLifecycleState = authenticatedQuery
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
   })
-  .returns(lifecycleStateValidator)
+  .returns(buildCollaborationLifecycleStateValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildCollaborationAccess(
       ctx,
       args
     );
     const state = await getStoredBuildCollaborationState(ctx, authorization);
-    return projectLifecycleState(state);
+    return projectBuildCollaborationLifecycleState(state);
   })
   .public();
 
@@ -154,7 +154,9 @@ export const closeBuildCollaboration = authenticatedMutation
         waivedActionItemIds: [...waivers.keys()],
       }),
       now,
-      priorState: JSON.stringify(projectLifecycleState(current)),
+      priorState: JSON.stringify(
+        projectBuildCollaborationLifecycleState(current)
+      ),
       reason,
       revision,
       stateId,
@@ -214,7 +216,9 @@ export const reopenBuildCollaboration = authenticatedMutation
       eventType: "reopened",
       newState: JSON.stringify({ revision, state: "open" }),
       now,
-      priorState: JSON.stringify(projectLifecycleState(current)),
+      priorState: JSON.stringify(
+        projectBuildCollaborationLifecycleState(current)
+      ),
       reason,
       revision,
       stateId: current._id,
@@ -223,7 +227,7 @@ export const reopenBuildCollaboration = authenticatedMutation
   })
   .public();
 
-function projectLifecycleState(
+export function projectBuildCollaborationLifecycleState(
   state: Doc<"buildCollaborationBuildStates"> | null
 ) {
   return {

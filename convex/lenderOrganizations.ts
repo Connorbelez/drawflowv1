@@ -11,24 +11,16 @@ import {
   adminMutation,
   adminQuery,
   authenticatedQuery,
+  lenderUserManagementMutation,
 } from "./authz";
 import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import { internalMutation, internalQuery } from "./fluent";
 import {
-  LENDER_ROLE_SLUGS,
-  listActiveSharedLenderMemberships,
-  normalizeLenderEmail,
-  normalizeLenderRoleSlugs,
-  requireActiveLenderWorkosUser,
-  resolveAssignedLenderOrganization,
-  resolveLenderOrganizationTarget,
-} from "./lenderOrganizationAccess";
-import { sendWorkosLenderInvitation } from "./workosManagement";
-import {
-  LENDER_MEMBER_PAGE_LIMIT,
-  LENDER_ORGANIZATION_PAGE_LIMIT,
   acceptedInvitationValidator,
   brokerageOptionValidator,
+  LENDER_MEMBER_PAGE_LIMIT,
+  LENDER_ORGANIZATION_PAGE_LIMIT,
+  lenderDecisionPermissionsValidator,
   lenderMemberDirectoryEntryValidator,
   lenderMembershipReconciliationValidator,
   lenderMemberValidator,
@@ -38,18 +30,36 @@ import {
   requireBoundedPage,
   unassignedUserValidator,
 } from "./lender_organizations/contracts";
-
 import {
-  projectActiveLenderMember,
+  findAssignmentByEmailAndStatus,
   findAssignmentByUserAndStatus,
   listActiveWorkosUserEmailProjectionSnapshot,
-  findAssignmentByEmailAndStatus,
+  primaryActorRole,
+  projectActiveLenderMember,
+  reconcilePendingLenderAssignmentsHandler,
   requireName,
   requireReason,
-  primaryActorRole,
-  reconcilePendingLenderAssignmentsHandler,
   writeLenderAudit,
 } from "./lender_organizations/helpers";
+import {
+  beginLenderMemberDeactivation as beginLenderMemberDeactivationApplication,
+  deactivateLenderMemberImmediately,
+  deactivateLenderOrganizationMembersImmediately,
+  markLenderMemberDeactivationAccepted as markLenderMemberDeactivationAcceptedApplication,
+  markLenderMemberDeactivationFailed as markLenderMemberDeactivationFailedApplication,
+} from "./lender_organizations/member_deactivation";
+import {
+  effectiveLenderDecisionPermissions,
+  listActiveLenderOrganizationMembers,
+  listActiveSharedLenderMemberships,
+  normalizeLenderEmail,
+  normalizeLenderRoleSlugs,
+  requireActiveLenderWorkosUser,
+  resolveAssignedLenderOrganization,
+  resolveLenderOrganizationTarget,
+} from "./lenderOrganizationAccess";
+import { sendWorkosLenderInvitation } from "./workosManagement";
+import { queueIdentityInvitationEmail } from "./workosManagement/invitationEmails";
 
 export const getLenderOrganizationDirectoryMetadata = adminQuery
   .input({})
@@ -359,6 +369,8 @@ export const getCurrentLenderOrganization = authenticatedQuery
         name: v.string(),
         email: v.string(),
         profilePictureUrl: v.optional(v.string()),
+        roles: v.array(v.string()),
+        canManageMembers: v.boolean(),
       }),
       organization: v.union(
         v.null(),
@@ -370,6 +382,7 @@ export const getCurrentLenderOrganization = authenticatedQuery
           displayName: v.string(),
           status: v.literal("active"),
           permissions: lenderPermissionsValidator,
+          sharedWorkosOrganizationId: v.string(),
         })
       ),
     })
@@ -381,19 +394,27 @@ export const getCurrentLenderOrganization = authenticatedQuery
     }
     const workosUserId = identity.subject.trim();
     const user = await requireActiveLenderWorkosUser(ctx, workosUserId);
+    const memberships = await listActiveSharedLenderMemberships(
+      ctx,
+      workosUserId
+    );
+    const roles = normalizeLenderRoleSlugs(
+      memberships.flatMap((membership) => [
+        membership.roleSlug,
+        ...membership.roleSlugs,
+      ])
+    );
     const currentUser = {
       userId: user._id,
       workosUserId,
       name: user.name || user.email,
       email: user.email,
+      roles,
+      canManageMembers: roles.includes("lender-admin"),
       ...(user.profilePictureUrl
         ? { profilePictureUrl: user.profilePictureUrl }
         : {}),
     };
-    const memberships = await listActiveSharedLenderMemberships(
-      ctx,
-      workosUserId
-    );
     if (memberships.length === 0) {
       return { currentUser, organization: null };
     }
@@ -419,6 +440,7 @@ export const getCurrentLenderOrganization = authenticatedQuery
         displayName: resolution.organization.displayName,
         status: "active" as const,
         permissions: resolution.organization.permissions,
+        sharedWorkosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
       },
     };
   })
@@ -453,13 +475,168 @@ export const listCurrentLenderOrganizationMembers = authenticatedQuery
         projectActiveLenderMember(ctx, assignment)
       )
     );
+    const activeEligibleMembers = await listActiveLenderOrganizationMembers(
+      ctx,
+      resolution.organization._id
+    );
+    const activeAdminCount = activeEligibleMembers.filter((member) =>
+      member.roles.includes("lender-admin")
+    ).length;
     return {
       ...assignmentsPage,
       page: members
         .filter(
           (member): member is NonNullable<typeof member> => member !== null
         )
+        .map((member) => {
+          const isSelf = member.workosUserId === resolution.workosUserId;
+          const isLastAdmin =
+            member.roleSlugs.includes("lender-admin") && activeAdminCount <= 1;
+          const canManage = resolution.roles.includes("lender-admin");
+          return {
+            ...member,
+            isSelf,
+            canDeactivate:
+              canManage &&
+              !isSelf &&
+              !isLastAdmin &&
+              member.deactivation?.state !== "accepted",
+            ...(canManage
+              ? isSelf
+                ? {
+                    deactivationDisabledReason:
+                      "You cannot deactivate your own membership.",
+                  }
+                : isLastAdmin
+                  ? {
+                      deactivationDisabledReason:
+                        "The last active Lender Admin cannot be deactivated.",
+                    }
+                  : member.deactivation?.state === "accepted"
+                    ? {
+                        deactivationDisabledReason:
+                          "WorkOS reconciliation is pending.",
+                      }
+                    : {}
+              : {
+                  deactivationDisabledReason:
+                    "Lender Admin access is required.",
+                }),
+          };
+        })
         .sort((left, right) => left.name.localeCompare(right.name)),
+    };
+  })
+  .public();
+
+export const updateLenderMemberDecisionPermissions =
+  lenderUserManagementMutation
+    .input({
+      assignmentId: v.id("lenderOrganizationAssignments"),
+      expectedVersion: v.number(),
+      permissions: lenderDecisionPermissionsValidator,
+      reason: v.string(),
+    })
+    .returns(
+      v.object({
+        decisionPermissions: lenderDecisionPermissionsValidator,
+        decisionPermissionsVersion: v.number(),
+        effectiveDecisionPermissions: lenderDecisionPermissionsValidator,
+      })
+    )
+    .handler(async (ctx, args) => {
+      const assignment = await ctx.db.get(args.assignmentId);
+      if (
+        !assignment ||
+        assignment.lenderOrganizationId !==
+          ctx.activeOrganization.lenderOrganizationId
+      ) {
+        throw new Error("Forbidden: lender member assignment scope");
+      }
+      if (assignment.status !== "active") {
+        throw new Error(
+          "Only active lender members can receive decision permissions"
+        );
+      }
+      if (assignment.deactivation?.state === "accepted") {
+        throw new Error(
+          "Member authority is suspended pending WorkOS reconciliation"
+        );
+      }
+      const currentVersion = assignment.decisionPermissionsVersion ?? 0;
+      if (args.expectedVersion !== currentVersion) {
+        throw new Error(
+          "Stale lender member permission version; refresh and try again"
+        );
+      }
+      const reason = requireReason(args.reason);
+      const now = Date.now();
+      const nextVersion = currentVersion + 1;
+      await ctx.db.patch(assignment._id, {
+        decisionPermissions: args.permissions,
+        decisionPermissionsVersion: nextVersion,
+        updatedAt: now,
+      });
+      const brokerage = await ctx.db.get(assignment.brokerageId);
+      if (!brokerage || brokerage.status !== "active") {
+        throw new Error("Forbidden: active lender brokerage required");
+      }
+      await writeLenderAudit(ctx, brokerage, assignment.lenderOrganizationId, {
+        command: "updateLenderMemberDecisionPermissions",
+        entityId: String(assignment._id),
+        entityType: "lenderOrganizationAssignment",
+        eventType: "lender.organization.member_decision_permissions.updated",
+        priorState: {
+          decisionPermissions: assignment.decisionPermissions ?? null,
+          decisionPermissionsVersion: currentVersion,
+        },
+        newState: {
+          decisionPermissions: args.permissions,
+          decisionPermissionsVersion: nextVersion,
+        },
+        reason,
+      });
+      return {
+        decisionPermissions: args.permissions,
+        decisionPermissionsVersion: nextVersion,
+        effectiveDecisionPermissions: effectiveLenderDecisionPermissions(
+          ctx.activeOrganization.permissions,
+          args.permissions
+        ),
+      };
+    })
+    .public();
+
+export const getLenderMemberDecisionPermissionMigrationCoverage = adminQuery
+  .input({})
+  .returns(
+    v.object({
+      complete: v.boolean(),
+      covered: v.number(),
+      remaining: v.number(),
+      total: v.number(),
+    })
+  )
+  .handler(async (ctx) => {
+    const assignments = await ctx.db
+      .query("lenderOrganizationAssignments")
+      .take(5001);
+    if (assignments.length > 5000) {
+      throw new Error(
+        "Lender member permission coverage exceeds the safe verification limit"
+      );
+    }
+    const covered = assignments.filter(
+      (assignment) =>
+        assignment.decisionPermissions !== undefined &&
+        assignment.decisionPermissionsVersion !== undefined
+    ).length;
+    const remaining = assignments.length - covered;
+    return {
+      complete: remaining === 0,
+      covered,
+      remaining,
+      total: assignments.length,
     };
   })
   .public();
@@ -562,31 +739,20 @@ export const setLenderOrganizationStatus = adminMutation
       args.lenderOrganizationId
     );
     const reason = requireReason(args.reason);
+    const now = Date.now();
     await ctx.db.patch(organization._id, {
       status: args.status,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     if (args.status === "inactive") {
-      const assignments = await ctx.db
-        .query("lenderOrganizationAssignments")
-        .withIndex("by_lender_organization_and_status", (query) =>
-          query
-            .eq("lenderOrganizationId", organization._id)
-            .eq("status", "active")
-        )
-        .take(501);
-      if (assignments.length > 500) {
-        throw new Error("Lender organization membership limit exceeded");
-      }
-      const now = Date.now();
-      for (const assignment of assignments) {
-        await ctx.db.patch(assignment._id, {
-          status: "inactive",
-          updatedAt: now,
-          unassignedAt: now,
-          unassignedByWorkosUserId: ctx.viewer.subject,
-        });
-      }
+      await deactivateLenderOrganizationMembersImmediately(ctx, {
+        actorRoles: ctx.viewer.roles,
+        actorWorkosUserId: ctx.viewer.subject,
+        brokerage,
+        lenderOrganizationId: organization._id,
+        now,
+        reason,
+      });
     }
     await writeLenderAudit(ctx, brokerage, organization._id, {
       command: "setLenderOrganizationStatus",
@@ -698,6 +864,19 @@ export const assignLenderUser = adminMutation
       }
       const now = Date.now();
       await ctx.db.patch(pendingAssignment._id, {
+        decisionPermissions:
+          roleSlugs.includes("lender") || roleSlugs.includes("lender-admin")
+            ? {
+                proposalReview: organization.permissions.proposalReview,
+                milestoneDecisions: organization.permissions.milestoneDecisions,
+                drawDecisions: organization.permissions.drawDecisions,
+              }
+            : {
+                proposalReview: false,
+                milestoneDecisions: false,
+                drawDecisions: false,
+              },
+        decisionPermissionsVersion: 1,
         normalizedEmail,
         status: "active",
         updatedAt: now,
@@ -727,6 +906,19 @@ export const assignLenderUser = adminMutation
       assignedByWorkosUserId: ctx.viewer.subject,
       assignedByRole: primaryActorRole(ctx.viewer.roles),
       reason,
+      decisionPermissions:
+        roleSlugs.includes("lender") || roleSlugs.includes("lender-admin")
+          ? {
+              proposalReview: organization.permissions.proposalReview,
+              milestoneDecisions: organization.permissions.milestoneDecisions,
+              drawDecisions: organization.permissions.drawDecisions,
+            }
+          : {
+              proposalReview: false,
+              milestoneDecisions: false,
+              drawDecisions: false,
+            },
+      decisionPermissionsVersion: 1,
       assignedAt: now,
       updatedAt: now,
     });
@@ -759,19 +951,18 @@ export const unassignLenderUser = adminMutation
     );
     const reason = requireReason(args.reason);
     const now = Date.now();
-    await ctx.db.patch(assignment._id, {
-      status: "inactive",
-      updatedAt: now,
-      unassignedAt: now,
-      unassignedByWorkosUserId: ctx.viewer.subject,
-    });
-    await writeLenderAudit(ctx, brokerage, organization._id, {
+    await deactivateLenderMemberImmediately(ctx, {
+      actorRoles: ctx.viewer.roles,
+      actorWorkosUserId: ctx.viewer.subject,
+      assignment,
+      brokerage,
       command: "unassignLenderUser",
       entityId: assignment.workosUserId ?? assignment.normalizedEmail,
-      entityType: "lenderOrganizationAssignment",
       eventType: "lender.organization.user.unassigned",
-      priorState: { status: assignment.status },
+      lenderOrganizationId: organization._id,
       newState: { status: "inactive" },
+      now,
+      priorState: { status: assignment.status },
       reason,
     });
     return null;
@@ -829,6 +1020,8 @@ export const inviteLenderUser = adminAction
             assignedByWorkosUserId: ctx.viewer.subject,
             assignedByRole: primaryActorRole(ctx.viewer.roles),
             reason,
+            roleSlug: args.roleSlug,
+            workosInvitationId: result.workosId,
           }
         );
       return {
@@ -886,6 +1079,8 @@ export const stageInvitedLenderAssignment = internalMutation
     assignedByWorkosUserId: v.string(),
     assignedByRole: v.string(),
     reason: v.string(),
+    roleSlug: v.optional(lenderRoleValidator),
+    workosInvitationId: v.optional(v.string()),
   })
   .returns(v.id("lenderOrganizationAssignments"))
   .handler(async (ctx, args) => {
@@ -920,6 +1115,17 @@ export const stageInvitedLenderAssignment = internalMutation
           "Email already has a pending lender organization assignment"
         );
       }
+      if (args.roleSlug && args.workosInvitationId) {
+        await queueIdentityInvitationEmail(ctx, {
+          brokerageId: brokerage._id,
+          email: args.normalizedEmail,
+          organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+          relatedEntityId: String(existing._id),
+          relatedEntityType: "lenderOrganizationAssignment",
+          roleSlug: args.roleSlug,
+          workosInvitationId: args.workosInvitationId,
+        });
+      }
       return existing._id;
     }
     const now = Date.now();
@@ -931,11 +1137,71 @@ export const stageInvitedLenderAssignment = internalMutation
       assignedByWorkosUserId: args.assignedByWorkosUserId,
       assignedByRole: args.assignedByRole,
       reason: args.reason,
+      decisionPermissions: {
+        proposalReview: false,
+        milestoneDecisions: false,
+        drawDecisions: false,
+      },
+      decisionPermissionsVersion: 1,
       assignedAt: now,
       updatedAt: now,
     });
+    if (args.roleSlug && args.workosInvitationId) {
+      await queueIdentityInvitationEmail(ctx, {
+        brokerageId: brokerage._id,
+        email: args.normalizedEmail,
+        organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        relatedEntityId: String(assignmentId),
+        relatedEntityType: "lenderOrganizationAssignment",
+        roleSlug: args.roleSlug,
+        workosInvitationId: args.workosInvitationId,
+      });
+    }
     return assignmentId;
   })
   .internal();
 
-export { LENDER_ROLE_SLUGS };
+const lenderMemberDeactivationPreparationValidator = v.object({
+  assignmentId: v.id("lenderOrganizationAssignments"),
+  membershipId: v.string(),
+  state: v.union(
+    v.literal("ready"),
+    v.literal("accepted"),
+    v.literal("reconciled")
+  ),
+  adapter: v.optional(v.union(v.literal("fake"), v.literal("workos"))),
+  workosId: v.optional(v.string()),
+});
+
+export const beginLenderMemberDeactivation = internalMutation
+  .input({
+    actorRoles: v.array(v.string()),
+    actorWorkosUserId: v.string(),
+    assignmentId: v.id("lenderOrganizationAssignments"),
+    idempotencyKey: v.string(),
+    reason: v.string(),
+  })
+  .returns(lenderMemberDeactivationPreparationValidator)
+  .handler(beginLenderMemberDeactivationApplication)
+  .internal();
+
+export const markLenderMemberDeactivationAccepted = internalMutation
+  .input({
+    adapter: v.union(v.literal("fake"), v.literal("workos")),
+    assignmentId: v.id("lenderOrganizationAssignments"),
+    idempotencyKey: v.string(),
+    workosId: v.optional(v.string()),
+  })
+  .returns(v.null())
+  .handler(markLenderMemberDeactivationAcceptedApplication)
+  .internal();
+
+export const markLenderMemberDeactivationFailed = internalMutation
+  .input({
+    assignmentId: v.id("lenderOrganizationAssignments"),
+    error: v.string(),
+    idempotencyKey: v.string(),
+  })
+  .returns(v.null())
+  .handler(markLenderMemberDeactivationFailedApplication)
+  .internal();

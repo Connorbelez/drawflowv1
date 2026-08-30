@@ -19,6 +19,17 @@ export type LenderWorkflowPermissions = {
   siteVisitReview: boolean;
 };
 
+export type LenderDecisionPermissions = Pick<
+  LenderWorkflowPermissions,
+  "proposalReview" | "milestoneDecisions" | "drawDecisions"
+>;
+
+export const NO_LENDER_DECISION_PERMISSIONS: LenderDecisionPermissions = {
+  proposalReview: false,
+  milestoneDecisions: false,
+  drawDecisions: false,
+};
+
 export type LenderApprovalCapability =
   | "proposal_review"
   | "draw_decisions"
@@ -42,6 +53,50 @@ export type LenderOrganizationResolution = {
   user: Doc<"users">;
   workosUserId: string;
 };
+
+export function assignmentAuthorityIsSuspended(
+  assignment: Doc<"lenderOrganizationAssignments">
+): boolean {
+  return assignment.deactivation?.state === "accepted";
+}
+
+export function resolveAssignmentDecisionPermissions(
+  assignment: Doc<"lenderOrganizationAssignments">,
+  roles: readonly LenderRoleSlug[],
+  organizationPermissions: LenderWorkflowPermissions
+): LenderDecisionPermissions {
+  if (assignment.decisionPermissions) {
+    return assignment.decisionPermissions;
+  }
+  if (
+    assignment.status === "active" &&
+    !assignmentAuthorityIsSuspended(assignment) &&
+    (roles.includes("lender") || roles.includes("lender-admin"))
+  ) {
+    return {
+      proposalReview: organizationPermissions.proposalReview,
+      milestoneDecisions: organizationPermissions.milestoneDecisions,
+      drawDecisions: organizationPermissions.drawDecisions,
+    };
+  }
+  return NO_LENDER_DECISION_PERMISSIONS;
+}
+
+export function effectiveLenderDecisionPermissions(
+  organizationPermissions: LenderWorkflowPermissions,
+  memberPermissions: LenderDecisionPermissions
+): LenderDecisionPermissions {
+  return {
+    proposalReview:
+      organizationPermissions.proposalReview &&
+      memberPermissions.proposalReview,
+    milestoneDecisions:
+      organizationPermissions.milestoneDecisions &&
+      memberPermissions.milestoneDecisions,
+    drawDecisions:
+      organizationPermissions.drawDecisions && memberPermissions.drawDecisions,
+  };
+}
 
 type ReadCtx = Pick<QueryCtx | MutationCtx, "db">;
 
@@ -139,6 +194,9 @@ export async function listActiveLenderOrganizationMembers(
     Doc<"lenderOrganizationAssignments">
   >();
   for (const assignment of assignments) {
+    if (assignmentAuthorityIsSuspended(assignment)) {
+      continue;
+    }
     const workosUserId = assignment.workosUserId;
     if (!workosUserId || assignmentsByUser.has(workosUserId)) {
       continue;
@@ -172,6 +230,7 @@ export async function listActiveLenderOrganizationMembers(
       const eligibilityEpoch = JSON.stringify({
         assignmentId: String(assignment._id),
         assignmentUpdatedAt: assignment.updatedAt,
+        decisionPermissionsVersion: assignment.decisionPermissionsVersion ?? 0,
         memberships: memberships
           .map((membership) => ({
             membershipId: membership.workosMembershipId,
@@ -186,8 +245,14 @@ export async function listActiveLenderOrganizationMembers(
         userSourceEventId: user.sourceEventId ?? null,
         userUpdatedAt: user.updatedAt ?? null,
       });
+      const decisionPermissions = resolveAssignmentDecisionPermissions(
+        assignment,
+        roles,
+        organization.permissions
+      );
       return {
         assignmentId: assignment._id,
+        decisionPermissions,
         eligibilityEpoch,
         email: normalizeLenderEmail(user.email),
         name: user.name.trim(),
@@ -264,6 +329,11 @@ export async function resolveAssignedLenderOrganization(
   if (!assignment) {
     throw new Error("Forbidden: lender organization assignment missing");
   }
+  if (assignmentAuthorityIsSuspended(assignment)) {
+    throw new Error(
+      "Forbidden: lender authority is suspended pending WorkOS reconciliation"
+    );
+  }
   const organization = await ctx.db.get(assignment.lenderOrganizationId);
   if (!organization || organization.status !== "active") {
     throw new Error("Forbidden: inactive lender organization");
@@ -320,6 +390,13 @@ export function lenderCanMakeFinalDecision(
   return roles.includes("lender") || roles.includes("lender-admin");
 }
 
+export function lenderHasDecisionPermission(
+  member: { decisionPermissions: LenderDecisionPermissions },
+  capability: LenderApprovalCapability
+): boolean {
+  return member.decisionPermissions[capabilityPermission[capability]];
+}
+
 /**
  * Canonical denominator for lender approval quorums and later decision
  * counting. A person is eligible only while the app assignment, WorkOS user,
@@ -340,7 +417,7 @@ export async function listActiveApprovalEligibleLenderOrganizationMembers(
   }
   return (
     await listActiveLenderOrganizationMembers(ctx, lenderOrganizationId)
-  ).filter((member) => lenderCanMakeFinalDecision(member.roles));
+  ).filter((member) => lenderHasDecisionPermission(member, capability));
 }
 
 export async function getLenderOrganizationApprovalEligibility(

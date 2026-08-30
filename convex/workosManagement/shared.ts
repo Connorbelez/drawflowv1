@@ -29,6 +29,7 @@ export const acceptedReturn = v.object({
   status: v.literal("accepted"),
   sync: v.literal("waiting-for-webhook"),
   workosId: v.optional(v.string()),
+  workosUserId: v.optional(v.string()),
 });
 
 export const transferRequiredReturn = v.object({
@@ -119,6 +120,7 @@ export interface AcceptedResult {
   status: "accepted";
   sync: "waiting-for-webhook";
   workosId?: string;
+  workosUserId?: string;
 }
 
 export interface MembershipRoleUpdateResult {
@@ -245,7 +247,7 @@ export interface WorkosProvisionClient {
     sendInvitation(args: {
       email: string;
       organizationId: string;
-      roleSlug: "builder-staff";
+      roleSlug: string;
     }): Promise<WorkosProvisionInvitation>;
     updateOrganizationMembership(
       membershipId: string,
@@ -686,7 +688,8 @@ export function safeWorkosError(error: unknown) {
 export function accepted(
   adapter: "fake" | "workos",
   operation: string,
-  workosId: string
+  workosId: string,
+  workosUserId?: string
 ): AcceptedResult {
   return {
     adapter,
@@ -694,6 +697,7 @@ export function accepted(
     status: "accepted",
     sync: "waiting-for-webhook",
     workosId,
+    ...(workosUserId ? { workosUserId } : {}),
   };
 }
 
@@ -855,4 +859,21 @@ export function workosErrorMessage(error: unknown) {
     return (error as { message: string }).message;
   }
   return String(error);
+}
+
+export function workosInvitationUserMessage(
+  error: unknown,
+  invitationCreated = false,
+) {
+  const message = workosErrorMessage(error);
+  if (EMAIL_ALREADY_INVITED_PATTERN.test(message)) {
+    return "An invitation is already pending for this email. Retry the invitation after confirming the address.";
+  }
+  if (USER_ALREADY_MEMBER_PATTERN.test(message)) {
+    return "This email already belongs to an organization member. Link the existing WorkOS user instead.";
+  }
+  if (invitationCreated) {
+    return "The WorkOS invitation was created, but the custom email could not be queued. Try again or contact support.";
+  }
+  return "The invitation could not be sent. Check the email and try again, or contact support.";
 }

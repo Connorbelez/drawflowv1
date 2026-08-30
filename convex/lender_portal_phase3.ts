@@ -234,7 +234,20 @@ export const proposalPhase3ReviewControlValidator = v.object({
       configuredByWorkosUserId: v.optional(v.string()),
       policy: proposalReviewPolicySnapshotValidator,
       policyVersionId: v.id("proposalReviewPolicyVersions"),
+      provenance: v.optional(
+        v.union(
+          v.literal("build_override"),
+          v.literal("organization_default"),
+          v.literal("system_baseline")
+        )
+      ),
       reason: v.optional(v.string()),
+      sourceLenderOrganizationId: v.optional(v.id("lenderOrganizations")),
+      sourceLenderOrganizationName: v.optional(v.string()),
+      sourceOrganizationReviewPolicyVersion: v.optional(v.number()),
+      sourceOrganizationReviewPolicyVersionId: v.optional(
+        v.id("lenderOrganizationReviewPolicyVersions")
+      ),
       version: v.number(),
     })
   ),

@@ -1,14 +1,12 @@
 import { v } from "convex/values";
 
+import { backofficeMutation, backofficeQuery } from "./authz";
+import { resolveBrokerageScopeOrThrow } from "./contractor_identity_scope";
 import {
-  type AuthorizedViewer,
-  type RoleSlug,
-  backofficeMutation,
-  backofficeQuery,
-  normalizeRoleSlugs,
-} from "./authz";
-import { normalizeContractorEmail } from "./contractorWorkspace";
-import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
+  patchCanonicalContractorProfile,
+  writeContractorIdentityEvent,
+} from "./contractor_profile_application";
+import type { Doc, Id, MutationCtx } from "./types";
 
 /**
  * Backoffice contractor identity-resolution operations (PRD §6.3, §9, §11.3).
@@ -24,81 +22,6 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
  *  - migrate contractor evidence, ratings, schedule links, and work history,
  *  - write audit events with actor, prior/new state, reason, affected records.
  */
-
-interface BrokerageScope {
-  brokerage: Doc<"brokerages">;
-  roles: RoleSlug[];
-  subject: string;
-}
-
-async function resolveBrokerageScopeOrThrow(
-  ctx: QueryCtx | MutationCtx,
-  workosOrganizationId: string
-): Promise<BrokerageScope> {
-  const viewer = (ctx as unknown as { viewer: AuthorizedViewer }).viewer;
-  const subject = viewer.subject;
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (q) => q.eq("workosUserId", subject))
-    .filter((q) =>
-      q.eq(q.field("workosOrganizationId"), workosOrganizationId)
-    )
-    .first();
-  const activeTokenOrganizationId = viewer.organizationId?.trim();
-  if (
-    (!membership || membership.status !== "active") &&
-    activeTokenOrganizationId !== workosOrganizationId
-  ) {
-    throw new Error("Forbidden: WorkOS membership");
-  }
-  const brokerage = await ctx.db
-    .query("brokerages")
-    .withIndex("by_workos_organization", (q) =>
-      q.eq("workosOrganizationId", workosOrganizationId)
-    )
-    .unique();
-  if (!brokerage) {
-    throw new Error("Forbidden: brokerage");
-  }
-  const roles = normalizeRoleSlugs(
-    viewer.roles ?? membership?.roleSlugs ?? []
-  );
-  return { brokerage, roles, subject };
-}
-
-async function writeContractorEvent(
-  ctx: MutationCtx,
-  input: {
-    brokerageId: Id<"brokerages">;
-    organizationId: string;
-    actorSubject: string;
-    actorRoles: readonly RoleSlug[];
-    command: string;
-    contractorId: Id<"contractorProfiles">;
-    entityType?: string;
-    eventType: string;
-    newState?: string;
-    priorState?: string;
-    reason?: string;
-    warnings?: string[];
-  }
-) {
-  await ctx.db.insert("auditEvents", {
-    actorRoles: input.actorRoles as RoleSlug[],
-    actorWorkosUserId: input.actorSubject,
-    brokerageId: input.brokerageId,
-    command: input.command,
-    createdAt: Date.now(),
-    entityId: String(input.contractorId),
-    entityType: input.entityType ?? "contractorProfile",
-    eventType: input.eventType,
-    newState: input.newState,
-    organizationId: input.organizationId,
-    priorState: input.priorState,
-    reason: input.reason,
-    warnings: input.warnings ?? [],
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Duplicate hints (PRD §6.2, §9, user story 60)
@@ -294,14 +217,19 @@ export const mergeContractorProfiles = backofficeMutation
       );
 
       // Mark loser inactive (preserved, not deleted — PRD §6.3, §3.19).
-      await ctx.db.patch(loser._id, {
-        accountWorkosUserId: undefined,
-        status: "inactive",
-        updatedAt: now,
+      await patchCanonicalContractorProfile(ctx, {
+        brokerageId: scope.brokerage._id,
+        contractorId: loser._id,
+        now,
+        organizationId: args.workosOrganizationId,
+        patch: {
+          accountWorkosUserId: undefined,
+          status: "inactive",
+        },
       });
     }
 
-    await writeContractorEvent(ctx, {
+    await writeContractorIdentityEvent(ctx, {
       actorRoles: scope.roles,
       actorSubject: scope.subject,
       brokerageId: scope.brokerage._id,
@@ -342,7 +270,10 @@ async function migrateContractorChildRows(
     .withIndex("by_contractor", (q) => q.eq("contractorId", fromContractorId))
     .collect();
   for (const row of evidence) {
-    await ctx.db.patch(row._id, { contractorId: toContractorId, updatedAt: now });
+    await ctx.db.patch(row._id, {
+      contractorId: toContractorId,
+      updatedAt: now,
+    });
     count += 1;
   }
   const ratings = await ctx.db
@@ -358,7 +289,10 @@ async function migrateContractorChildRows(
     .withIndex("by_contractor", (q) => q.eq("contractorId", fromContractorId))
     .collect();
   for (const row of acks) {
-    await ctx.db.patch(row._id, { contractorId: toContractorId, updatedAt: now });
+    await ctx.db.patch(row._id, {
+      contractorId: toContractorId,
+      updatedAt: now,
+    });
     count += 1;
   }
   const issues = await ctx.db
@@ -366,7 +300,10 @@ async function migrateContractorChildRows(
     .withIndex("by_contractor", (q) => q.eq("contractorId", fromContractorId))
     .collect();
   for (const row of issues) {
-    await ctx.db.patch(row._id, { contractorId: toContractorId, updatedAt: now });
+    await ctx.db.patch(row._id, {
+      contractorId: toContractorId,
+      updatedAt: now,
+    });
     count += 1;
   }
   const notifications = await ctx.db
@@ -407,11 +344,14 @@ export const deactivateContractorProfile = backofficeMutation
     }
     const now = Date.now();
     const priorStatus = contractor.status;
-    await ctx.db.patch(args.contractorId, {
-      status: "inactive",
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: scope.brokerage._id,
+      contractorId: args.contractorId,
+      now,
+      organizationId: args.workosOrganizationId,
+      patch: { status: "inactive" },
     });
-    await writeContractorEvent(ctx, {
+    await writeContractorIdentityEvent(ctx, {
       actorRoles: scope.roles,
       actorSubject: scope.subject,
       brokerageId: scope.brokerage._id,
@@ -453,12 +393,17 @@ export const unlinkContractorAccount = backofficeMutation
     }
     const now = Date.now();
     const priorAccount = contractor.accountWorkosUserId;
-    await ctx.db.patch(args.contractorId, {
-      accountWorkosUserId: undefined,
-      onboardingStatus: "profile_only",
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: scope.brokerage._id,
+      contractorId: args.contractorId,
+      now,
+      organizationId: args.workosOrganizationId,
+      patch: {
+        accountWorkosUserId: undefined,
+        onboardingStatus: "profile_only",
+      },
     });
-    await writeContractorEvent(ctx, {
+    await writeContractorIdentityEvent(ctx, {
       actorRoles: scope.roles,
       actorSubject: scope.subject,
       brokerageId: scope.brokerage._id,
@@ -474,4 +419,4 @@ export const unlinkContractorAccount = backofficeMutation
   })
   .public();
 
-export { normalizeContractorEmail };
+export { normalizeContractorEmail } from "./contractorWorkspace";

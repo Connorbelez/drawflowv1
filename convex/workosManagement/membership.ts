@@ -1,16 +1,15 @@
-import { internal } from "../_generated/api";
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import {
   adminAction,
-  backofficeRoleSlugs,
-  normalizeRoleSlug,
+  authenticatedAction,
   userManagementWriteAction,
 } from "../authz";
-import { publicAction } from "../fluent";
 import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "../fairLendConfig";
+import { publicAction } from "../fluent";
 import {
-  LENDER_ROLE_SLUGS,
   type LenderRoleSlug as AppLenderRoleSlug,
+  LENDER_ROLE_SLUGS,
 } from "../lenderOrganizationAccess";
 import { resolveUserManagementTargetScope } from "./context";
 import { getWorkosManagementAdapter } from "./directory";
@@ -18,21 +17,9 @@ import * as shared from "./shared";
 
 const {
   acceptedReturn,
-  transferRequiredReturn,
   membershipCommandReturn,
   sharedLenderRoleValidator,
-  sharedLenderMembershipTargetReturn,
-  principalBrokerTransferReturn,
   builderStaffProvisionReturn,
-  syncReturn,
-  USER_ALREADY_MEMBER_PATTERN,
-  EMAIL_ALREADY_INVITED_PATTERN,
-  commandContextReturn,
-  toWorkosEntity,
-  membershipRoleUpdateResult,
-  projectedMembershipRoleSlugs,
-  listBoundedOrganizationMemberships,
-  assertDifferentTransferMemberships,
   assertManagementRoleSlugs,
   canAssignInitialPrincipalBroker,
   roleChangeRequiresProtectedTransfer,
@@ -42,47 +29,14 @@ const {
   orderedManagementRoleSlugs,
   normalizedReason,
   requireReason,
-  requireNonEmptyValue,
   auditWorkosCommand,
-  projectedMembershipState,
   auditMembershipCommandAccepted,
   auditWorkosCommandFailure,
   auditMembershipCommandFailure,
-  markPrincipalBrokerTransferFailure,
-  auditPrincipalBrokerTransfer,
   safeWorkosError,
-  accepted,
-  requireNonEmptyRoleSlug,
-  normalizeWorkosEmail,
-  normalizeWorkosRoleSlug,
-  normalizeWorkosRoleSlugs,
-  workosMembershipRoleSlugs,
-  buildWorkosMembershipRolesPayload,
-  requireSelectedPrimaryRole,
-  entityIdentifier,
-  eventForSync,
-  stringOrNow,
-  workosIdSlug,
-  workosTimestamp,
-  isWorkosConflict,
-  workosErrorMessage,
+  workosInvitationUserMessage,
 } = shared;
 type AcceptedResult = shared.AcceptedResult;
-type MembershipRoleUpdateResult = shared.MembershipRoleUpdateResult;
-type WorkosManagementCommandContext = shared.WorkosManagementCommandContext;
-type BeginPrincipalBrokerTransferResult = shared.BeginPrincipalBrokerTransferResult;
-type PrincipalBrokerTransferResult = shared.PrincipalBrokerTransferResult;
-type BuilderStaffProvisionResult = shared.BuilderStaffProvisionResult;
-type WorkosProvisionUser = shared.WorkosProvisionUser;
-type WorkosProvisionInvitation = shared.WorkosProvisionInvitation;
-type WorkosProvisionMembershipStatus = shared.WorkosProvisionMembershipStatus;
-type WorkosProvisionMembership = shared.WorkosProvisionMembership;
-type WorkosProvisionClient = shared.WorkosProvisionClient;
-type WorkosEntity = shared.WorkosEntity;
-type SyncSnapshot = shared.SyncSnapshot;
-type SyncResult = shared.SyncResult;
-type ScopedUserManagementActionCtx = shared.ScopedUserManagementActionCtx;
-
 
 export const inviteUser = userManagementWriteAction
   .input({
@@ -108,6 +62,20 @@ export const inviteUser = userManagementWriteAction
     const adapter = getWorkosManagementAdapter();
     try {
       const result = await adapter.inviteUser({ ...args, roleSlug });
+      if (result.adapter === "workos" && result.workosId) {
+        await ctx.runMutation(
+          internal.workosManagement.enqueueIdentityInvitationEmail,
+          {
+            brokerageId: context.brokerageId,
+            email: args.email,
+            organizationId: args.organizationId,
+            relatedEntityId: result.workosId,
+            relatedEntityType: "workosInvitation",
+            roleSlug,
+            workosInvitationId: result.workosId,
+          }
+        );
+      }
       await auditWorkosCommand(ctx, context, {
         command: "inviteUser",
         entityId: result.workosId ?? args.email.trim().toLowerCase(),
@@ -149,17 +117,36 @@ export async function sendWorkosLenderInvitation(args: {
 
 export const inviteBuilderStaffUser = publicAction
   .input({
+    brokerageId: v.optional(v.id("brokerages")),
     email: v.string(),
     organizationId: v.string(),
+    recipientName: v.optional(v.string()),
+    relatedEntityId: v.optional(v.string()),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) =>
-    getWorkosManagementAdapter().inviteUser({
+  .handler(async (ctx, args) => {
+    const result = await getWorkosManagementAdapter().inviteUser({
       email: args.email,
       organizationId: args.organizationId,
       roleSlug: "builder-staff",
-    })
-  )
+    });
+    if (result.adapter === "workos" && result.workosId && args.brokerageId) {
+      await ctx.runMutation(
+        internal.workosManagement.enqueueIdentityInvitationEmail,
+        {
+          brokerageId: args.brokerageId,
+          email: args.email,
+          organizationId: args.organizationId,
+          recipientName: args.recipientName,
+          relatedEntityId: args.relatedEntityId ?? result.workosId,
+          relatedEntityType: "workosInvitation",
+          roleSlug: "builder-staff",
+          workosInvitationId: result.workosId,
+        }
+      );
+    }
+    return result;
+  })
   .internal();
 
 /**
@@ -169,17 +156,36 @@ export const inviteBuilderStaffUser = publicAction
  */
 export const inviteBuilderUser = publicAction
   .input({
+    brokerageId: v.optional(v.id("brokerages")),
     email: v.string(),
     organizationId: v.string(),
+    recipientName: v.optional(v.string()),
+    relatedEntityId: v.optional(v.string()),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) =>
-    getWorkosManagementAdapter().inviteUser({
+  .handler(async (ctx, args) => {
+    const result = await getWorkosManagementAdapter().inviteUser({
       email: args.email,
       organizationId: args.organizationId,
       roleSlug: "builder",
-    })
-  )
+    });
+    if (result.adapter === "workos" && result.workosId && args.brokerageId) {
+      await ctx.runMutation(
+        internal.workosManagement.enqueueIdentityInvitationEmail,
+        {
+          brokerageId: args.brokerageId,
+          email: args.email,
+          organizationId: args.organizationId,
+          recipientName: args.recipientName,
+          relatedEntityId: args.relatedEntityId ?? result.workosId,
+          relatedEntityType: "workosInvitation",
+          roleSlug: "builder",
+          workosInvitationId: result.workosId,
+        }
+      );
+    }
+    return result;
+  })
   .internal();
 
 /**
@@ -190,28 +196,106 @@ export const inviteBuilderUser = publicAction
  */
 export const inviteContractorUser = publicAction
   .input({
+    brokerageId: v.optional(v.id("brokerages")),
+    claimId: v.optional(v.id("contractorInviteClaims")),
+    deliveryAttemptId: v.optional(v.string()),
     email: v.string(),
     organizationId: v.string(),
+    recipientName: v.optional(v.string()),
+    relatedEntityId: v.optional(v.string()),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) =>
-    getWorkosManagementAdapter().inviteUser({
-      email: args.email,
-      organizationId: args.organizationId,
-      roleSlug: "contractor",
-    })
-  )
+  .handler(async (ctx, args) => {
+    let result: AcceptedResult | undefined;
+    try {
+      result = await getWorkosManagementAdapter().inviteUser({
+        email: args.email,
+        organizationId: args.organizationId,
+        roleSlug: "contractor",
+      });
+      if (result.adapter === "workos" && result.workosId && args.brokerageId) {
+        await ctx.runMutation(
+          internal.workosManagement.enqueueIdentityInvitationEmail,
+          {
+            brokerageId: args.brokerageId,
+            email: args.email,
+            organizationId: args.organizationId,
+            recipientName: args.recipientName,
+            relatedEntityId: args.relatedEntityId ?? result.workosId,
+            relatedEntityType: "contractorInviteClaim",
+            roleSlug: "contractor",
+            workosInvitationId: result.workosId,
+          }
+        );
+      }
+      if (args.claimId) {
+        await ctx.runMutation(
+          internal.contractorOnboarding.updateContractorInvitationDelivery,
+          {
+            claimId: args.claimId,
+            deliveryAttemptId: args.deliveryAttemptId,
+            status: "sent",
+            ...(result.workosId ? { workosInvitationId: result.workosId } : {}),
+          }
+        );
+      }
+      return result;
+    } catch (error) {
+      if (args.claimId) {
+        await ctx.runMutation(
+          internal.contractorOnboarding.updateContractorInvitationDelivery,
+          {
+            claimId: args.claimId,
+            deliveryAttemptId: args.deliveryAttemptId,
+            error: workosInvitationUserMessage(
+              error,
+              Boolean(result?.workosId)
+            ),
+            status: "failed",
+            ...(result?.workosId
+              ? { workosInvitationId: result.workosId }
+              : {}),
+          }
+        );
+      }
+      throw error;
+    }
+  })
   .internal();
 
 export const provisionBuilderStaffUser = publicAction
   .input({
+    brokerageId: v.optional(v.id("brokerages")),
     email: v.string(),
     organizationId: v.string(),
+    recipientName: v.optional(v.string()),
+    relatedEntityId: v.optional(v.string()),
   })
   .returns(builderStaffProvisionReturn)
-  .handler((_ctx, args) =>
-    getWorkosManagementAdapter().provisionBuilderStaffUser(args)
-  )
+  .handler(async (ctx, args) => {
+    const result =
+      await getWorkosManagementAdapter().provisionBuilderStaffUser(args);
+    if (
+      result.adapter === "workos" &&
+      result.invitationId &&
+      args.brokerageId
+    ) {
+      await ctx.runMutation(
+        internal.workosManagement.enqueueIdentityInvitationEmail,
+        {
+          brokerageId: args.brokerageId,
+          email: args.email,
+          organizationId: args.organizationId,
+          recipientName: args.recipientName,
+          relatedEntityId: args.relatedEntityId ?? result.invitationId,
+          relatedEntityType: "builderStaffProvision",
+          roleSlug: "builder-staff",
+          workosInvitationId: result.invitationId,
+        }
+      );
+    }
+    return result;
+  })
   .internal();
 
 export const updateMembershipRole = userManagementWriteAction
@@ -331,81 +415,102 @@ export const updateSharedLenderMembershipRoles = adminAction
     );
     const reason = requireReason(args.reason, "Lender membership role change");
     const adapter = getWorkosManagementAdapter();
-    try {
-      const update = await adapter.updateMembershipRoles({
-        membershipId: args.membershipId,
-        primaryRoleSlug: args.roleSlug,
-        roleSlugs: [args.roleSlug],
-      });
-      await ctx.runMutation(
-        internal.workosManagement.recordSharedLenderMembershipAudit,
-        {
-          actorRole: "admin",
-          actorRoles: ctx.viewer.roles,
-          actorWorkosUserId: ctx.viewer.subject,
-          brokerageId: target.brokerageId,
-          command: "updateSharedLenderMembershipRoles",
-          entityId: args.membershipId,
-          entityType: "workosOrganizationMembership",
-          eventType: "workos.lender_membership.role_update.accepted",
-          lenderOrganizationId: target.lenderOrganizationId,
-          newState: JSON.stringify({ roleSlugs: [args.roleSlug], status: "active" }),
-          priorState: JSON.stringify({ roleSlugs: target.roleSlugs, status: "active" }),
-          reason,
-          reconciliationKey: `workos-lender-role:${args.membershipId}:${crypto.randomUUID()}`,
-          warnings: ["pending_workos_projection_reconciliation"],
-        }
-      );
-      return update.accepted;
-    } catch (error) {
-      throw error;
-    }
+    const update = await adapter.updateMembershipRoles({
+      membershipId: args.membershipId,
+      primaryRoleSlug: args.roleSlug,
+      roleSlugs: [args.roleSlug],
+    });
+    await ctx.runMutation(
+      internal.workosManagement.recordSharedLenderMembershipAudit,
+      {
+        actorRole: "admin",
+        actorRoles: ctx.viewer.roles,
+        actorWorkosUserId: ctx.viewer.subject,
+        brokerageId: target.brokerageId,
+        command: "updateSharedLenderMembershipRoles",
+        entityId: args.membershipId,
+        entityType: "workosOrganizationMembership",
+        eventType: "workos.lender_membership.role_update.accepted",
+        lenderOrganizationId: target.lenderOrganizationId,
+        newState: JSON.stringify({
+          roleSlugs: [args.roleSlug],
+          status: "active",
+        }),
+        priorState: JSON.stringify({
+          roleSlugs: target.roleSlugs,
+          status: "active",
+        }),
+        reason,
+        reconciliationKey: `workos-lender-role:${args.membershipId}:${crypto.randomUUID()}`,
+        warnings: ["pending_workos_projection_reconciliation"],
+      }
+    );
+    return update.accepted;
   })
   .public();
 
 /** WorkOS-first deactivation command for an app-owned lender assignment. */
-export const deactivateSharedLenderMembership = adminAction
+export const deactivateSharedLenderMembership = authenticatedAction
   .input({
-    lenderOrganizationId: v.id("lenderOrganizations"),
-    membershipId: v.string(),
+    assignmentId: v.id("lenderOrganizationAssignments"),
+    idempotencyKey: v.string(),
     reason: v.string(),
   })
   .returns(acceptedReturn)
-  .handler(async (ctx, args) => {
-    const target = await ctx.runQuery(
-      internal.workosManagement.resolveSharedLenderMembershipTarget,
+  .handler(async (ctx, args): Promise<AcceptedResult> => {
+    const target: {
+      adapter?: "fake" | "workos";
+      assignmentId: import("../_generated/dataModel").Id<"lenderOrganizationAssignments">;
+      membershipId: string;
+      state: "ready" | "accepted" | "reconciled";
+      workosId?: string;
+    } = await ctx.runMutation(
+      internal.lenderOrganizations.beginLenderMemberDeactivation,
       {
-        lenderOrganizationId: args.lenderOrganizationId,
-        membershipId: args.membershipId,
+        actorRoles: ctx.viewer.roles,
+        actorWorkosUserId: ctx.viewer.subject,
+        assignmentId: args.assignmentId,
+        idempotencyKey: args.idempotencyKey,
+        reason: args.reason,
       }
     );
-    const reason = requireReason(args.reason, "Lender membership deactivation");
+    requireReason(args.reason, "Lender membership deactivation");
+    if (target.state === "accepted" || target.state === "reconciled") {
+      return {
+        adapter: target.adapter ?? "fake",
+        operation: "deactivateSharedLenderMembership",
+        status: "accepted" as const,
+        sync: "waiting-for-webhook" as const,
+        ...(target.workosId ? { workosId: target.workosId } : {}),
+      };
+    }
     const adapter = getWorkosManagementAdapter();
     try {
       const result = await adapter.deactivateMembership({
-        membershipId: args.membershipId,
+        membershipId: target.membershipId,
       });
       await ctx.runMutation(
-        internal.workosManagement.recordSharedLenderMembershipAudit,
+        internal.lenderOrganizations.markLenderMemberDeactivationAccepted,
         {
-          actorRole: "admin",
-          actorRoles: ctx.viewer.roles,
-          actorWorkosUserId: ctx.viewer.subject,
-          brokerageId: target.brokerageId,
-          command: "deactivateSharedLenderMembership",
-          entityId: args.membershipId,
-          entityType: "workosOrganizationMembership",
-          eventType: "workos.lender_membership.deactivation.accepted",
-          lenderOrganizationId: target.lenderOrganizationId,
-          newState: JSON.stringify({ status: "inactive" }),
-          priorState: JSON.stringify({ roleSlugs: target.roleSlugs, status: "active" }),
-          reason,
-          reconciliationKey: `workos-lender-deactivate:${args.membershipId}:${crypto.randomUUID()}`,
-          warnings: ["pending_workos_projection_reconciliation"],
+          adapter: result.adapter,
+          assignmentId: target.assignmentId,
+          idempotencyKey: args.idempotencyKey,
+          ...(result.workosId ? { workosId: result.workosId } : {}),
         }
       );
-      return result;
+      return {
+        ...result,
+        operation: "deactivateSharedLenderMembership",
+      };
     } catch (error) {
+      await ctx.runMutation(
+        internal.lenderOrganizations.markLenderMemberDeactivationFailed,
+        {
+          assignmentId: target.assignmentId,
+          error: safeWorkosError(error),
+          idempotencyKey: args.idempotencyKey,
+        }
+      );
       throw error;
     }
   })

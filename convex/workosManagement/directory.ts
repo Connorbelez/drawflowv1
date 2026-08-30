@@ -411,12 +411,31 @@ function liveAdapter(workos: WorkOS) {
     }): Promise<AcceptedResult> {
       const roleSlug = normalizeWorkosRoleSlug(args.roleSlug);
       requireNonEmptyRoleSlug(roleSlug);
-      const result = await workos.userManagement.sendInvitation({
-        email: args.email,
-        organizationId: args.organizationId,
-        roleSlug,
-      });
-      return accepted("workos", "inviteUser", result.id);
+      let invitationId: string;
+      try {
+        const result = await workos.userManagement.sendInvitation({
+          email: args.email,
+          organizationId: args.organizationId,
+          roleSlug,
+        });
+        invitationId = result.id;
+      } catch (error) {
+        if (!EMAIL_ALREADY_INVITED_PATTERN.test(workosErrorMessage(error))) {
+          throw error;
+        }
+        const pendingInvitationId = await resendLatestPendingInvitation(workos, {
+          email: normalizeWorkosEmail(args.email),
+          organizationId: args.organizationId,
+        });
+        if (!pendingInvitationId) {
+          throw new Error(
+            "Email already invited to organization; no pending invitation found to resend.",
+          );
+        }
+        invitationId = pendingInvitationId;
+      }
+      const workosUserId = await findWorkosUserIdByEmail(workos, args.email);
+      return accepted("workos", "inviteUser", invitationId, workosUserId);
     },
     async updateMembershipRole(args: {
       membershipId: string;
@@ -721,13 +740,13 @@ async function sendOrResendBuilderStaffInvitation(
     return invitation.id;
   } catch (error) {
     if (isWorkosConflict(error)) {
-      return await resendLatestPendingBuilderStaffInvitation(workos, args);
+      return await resendLatestPendingInvitation(workos, args);
     }
     throw error;
   }
 }
 
-async function resendLatestPendingBuilderStaffInvitation(
+async function resendLatestPendingInvitation(
   workos: WorkosProvisionClient,
   args: {
     email: string;
@@ -753,4 +772,18 @@ async function resendLatestPendingBuilderStaffInvitation(
   }
   const invitation = await workos.userManagement.resendInvitation(latest.id);
   return invitation.id || latest.id;
+}
+
+async function findWorkosUserIdByEmail(
+  workos: WorkosProvisionClient,
+  email: string
+) {
+  const normalizedEmail = normalizeWorkosEmail(email);
+  const users = await (
+    await workos.userManagement.listUsers({ email: normalizedEmail })
+  ).autoPagination();
+  const user = users.find(
+    (candidate) => candidate.email.trim().toLowerCase() === normalizedEmail
+  );
+  return user?.id;
 }

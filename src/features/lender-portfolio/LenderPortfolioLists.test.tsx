@@ -39,6 +39,7 @@ const build = {
   buildId: "build_1",
   buildName: "Harbourline Residences",
   location: "Toronto, ON",
+  milestonesBehindSchedule: 1,
   proposalId: "proposal_1",
   status: "active" as const,
   updatedAt: Date.parse("2026-08-15T00:00:00.000Z"),
@@ -85,6 +86,7 @@ describe("shared lender portfolio lists", () => {
         .getAttribute("href")
     ).toBe("/backoffice/builds/$buildId");
     expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.getByText("1 Milestone behind schedule")).toBeTruthy();
   });
 
   test("preserves Proposal assignment wording, withdrawal state, empty state, and route links", () => {

@@ -187,6 +187,10 @@ export const getBackofficeBuildRosterSummary = authenticatedQuery
           .listBackofficeBuildRosterSummaryMilestones,
         {
           brokerageId: auth.brokerage._id,
+          buildSchedules: buildStates.map(({ buildId, startDate }) => ({
+            buildId,
+            startDate,
+          })),
           buildIds,
           organizationId: args.workosOrganizationId,
         },
@@ -230,6 +234,8 @@ export const getBackofficeBuildRosterSummary = authenticatedQuery
       const expiredSiteVisits = siteVisitsByBuild.get(buildId) ?? 0;
       const loanStatus = loanByBuild.get(buildId);
       const milestonesComplete = milestones?.milestonesComplete ?? 0;
+      const milestonesBehindSchedule =
+        milestones?.behindMilestoneKeys.length ?? 0;
       const milestonesInReview = milestones?.milestonesInReview ?? 0;
       const milestonesTotal = milestones?.milestonesTotal ?? 0;
       let phase: "scheduled" | "active" | "attention" | "completed";
@@ -243,6 +249,7 @@ export const getBackofficeBuildRosterSummary = authenticatedQuery
       } else if (
         expiredSiteVisits > 0 ||
         drawRequestsPending > 0 ||
+        milestonesBehindSchedule > 0 ||
         milestonesInReview > 0
       ) {
         phase = "attention";
@@ -413,13 +420,25 @@ export const listBackofficeBuildRoster = authenticatedQuery
         continue;
       }
 
-      const [builder, milestones, plannedDraws, drawRequests, loan, evidence] =
+      const [
+        builder,
+        milestones,
+        submilestones,
+        plannedDraws,
+        drawRequests,
+        loan,
+        evidence,
+      ] =
         await Promise.all([
           ctx.db.get(build.builderProfileId),
           ctx.db
             .query("buildMilestones")
-            .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-            .take(100),
+              .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+              .take(100),
+          ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .take(500),
           ctx.db
             .query("plannedDrawScheduleRows")
             .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
@@ -455,6 +474,10 @@ export const listBackofficeBuildRoster = authenticatedQuery
         productionMilestoneIsBehindSchedule(
           milestone,
           productionDaysActive(build.startDate),
+          submilestones.filter(
+            (submilestone) =>
+              submilestone.milestoneKey === milestone.key,
+          ),
         ),
       ).length;
       const firstImage = evidence.find(
@@ -473,6 +496,7 @@ export const listBackofficeBuildRoster = authenticatedQuery
         expiredSiteVisits: visitCounts.expired,
         loan,
         milestones,
+        milestonesBehindSchedule,
         milestonesInReview,
       });
 

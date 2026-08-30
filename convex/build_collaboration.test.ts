@@ -8,6 +8,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { authorizeActiveBuildAccessForViewer } from "./activeBuildAccess";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
+import { materializeBuildCollaborationSearchReaderRecords } from "./build_collaboration_search_index";
 import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import schema from "./schema";
 
@@ -691,12 +692,19 @@ describe("Build collaboration publication and feed", () => {
           query.eq("originatingPostId", postId),
         )
         .collect();
+      const actionItemRevisions = await ctx.db
+        .query("buildActionItemRevisions")
+        .withIndex("by_actionItemId_and_revision", (query) =>
+          query.eq("actionItemId", actionItems[0]?._id as never),
+        )
+        .collect();
       const references = await ctx.db
         .query("buildCollaborationReferences")
         .withIndex("by_postId", (query) => query.eq("postId", postId))
         .collect();
       return {
         actionItems,
+        actionItemRevisions,
         approvals,
         deliveries,
         externalDeliveries,
@@ -734,11 +742,17 @@ describe("Build collaboration publication and feed", () => {
       expect.objectContaining({
         assigneeWorkosUserId: "user_broker",
         assignmentState: "assigned",
+        deadlineProcessingState: "complete",
+        deadlineScheduleGeneration: 1,
         descriptionPlainText: "Upload the sealed report.",
         priority: "none",
         requiresAcceptance: false,
+        queueSortAt: Number.MAX_SAFE_INTEGER - 1,
         title: "Upload engineer seal",
       }),
+    ]);
+    expect(persisted.actionItemRevisions).toEqual([
+      expect.objectContaining({ revision: 1 }),
     ]);
     const assignedFeed = await admin.query(
       (api as any).build_collaboration.listBuildCollaborationFeed,
@@ -6173,6 +6187,116 @@ describe("Build collaboration canonical reference authorization", () => {
 });
 
 describe("Build collaboration authorized search", () => {
+  test("uses one paginated query while authorizing asset search candidates", async () => {
+    const fixture = await seedActiveBuild();
+    const assetId = await createPublishedAssetFixture(fixture);
+
+    await fixture.admin.run(async (ctx) => {
+      const asset = await ctx.db.get(assetId);
+      const post = asset?.originatingPostId
+        ? await ctx.db.get(asset.originatingPostId)
+        : null;
+      const build = await ctx.db.get(fixture.buildId);
+      if (!(asset && post && build)) {
+        throw new Error("Search asset pagination fixture is unavailable.");
+      }
+      const authorization = await authorizeActiveBuildAccessForViewer(
+        ctx,
+        {
+          capability: "authenticated",
+          organizationId: ORGANIZATION_ID,
+          roles: ["admin", "principle-broker"],
+          subject: "user_admin",
+          tokenIdentifier: "build-collaboration-search:user_admin",
+        },
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+      );
+      const now = Date.now();
+      const jobId = await ctx.db.insert("buildCollaborationSearchJobs", {
+        attemptVersion: 1,
+        brokerageId: build.brokerageId,
+        buildId: fixture.buildId,
+        candidateCursor: null,
+        candidatePhase: "assets",
+        createdAt: now,
+        failureCount: 0,
+        generation: 1,
+        organizationId: ORGANIZATION_ID,
+        ownerId: post._id,
+        ownerKind: "post",
+        phase: "readers",
+        postId: post._id,
+        readerOffset: 0,
+        scope: "owner",
+        status: "running",
+        updatedAt: now,
+      });
+
+      let paginatedQueryCount = 0;
+      const wrapQuery = (query: object): object =>
+        new Proxy(query, {
+          get(target, property) {
+            const value = Reflect.get(target, property, target);
+            if (property === "paginate" && typeof value === "function") {
+              return async (...args: unknown[]) => {
+                paginatedQueryCount += 1;
+                if (paginatedQueryCount > 1) {
+                  throw new Error(
+                    "This query or mutation function ran multiple paginated queries. Convex only supports a single paginated query in each function.",
+                  );
+                }
+                return await Reflect.apply(value, target, args);
+              };
+            }
+            if (typeof value !== "function") {
+              return value;
+            }
+            return (...args: unknown[]) => {
+              const result = Reflect.apply(value, target, args);
+              return result &&
+                typeof result === "object" &&
+                "paginate" in result
+                ? wrapQuery(result)
+                : result;
+            };
+          },
+        });
+      const db = new Proxy(ctx.db, {
+        get(target, property) {
+          if (property === "query") {
+            return (tableName: Parameters<typeof target.query>[0]) =>
+              wrapQuery(target.query(tableName));
+          }
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const limitedCtx = new Proxy(ctx, {
+        get(target, property) {
+          if (property === "db") {
+            return db;
+          }
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      await materializeBuildCollaborationSearchReaderRecords(
+        limitedCtx as never,
+        {
+          authorization,
+          candidateCursor: null,
+          candidatePhase: "assets",
+          jobId,
+          owner: { id: post._id, kind: "post" },
+          postId: post._id,
+          readerOffset: 0,
+        },
+      );
+      expect(paginatedQueryCount).toBe(1);
+    });
+  });
+
   test("searches every readable record kind and applies all server-side filters", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {

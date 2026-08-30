@@ -29,10 +29,10 @@ import {
 } from "#/features/broker-assignments/BrokerAssignmentDialog.tsx";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import type {
-  ProductionProposal,
-  ProductionProposalIdentity,
-  ProductionProposalAssignment,
   ProductionBuilderOption,
+  ProductionProposal,
+  ProductionProposalAssignment,
+  ProductionProposalIdentity,
 } from "./production-proposal-surface-contracts";
 import {
   productionProposalActionErrorMessage,
@@ -44,6 +44,7 @@ export function BuilderAssignmentSection({
   assignableBrokerages,
   brokerOptionsPending,
   builders,
+  lenderAssignmentSurface,
   onAssignBroker,
   onAssignBuilder,
   onCreateClaimLink,
@@ -55,6 +56,7 @@ export function BuilderAssignmentSection({
   assignableBrokerages: BrokerAssignmentBrokerage[];
   brokerOptionsPending: boolean;
   builders: ProductionBuilderOption[];
+  lenderAssignmentSurface?: ReactNode;
   onAssignBroker?: (
     assignedBrokerWorkosUserId: string,
     reason: string
@@ -166,258 +168,284 @@ export function BuilderAssignmentSection({
   }
 
   const builderAccounts = proposalBuilderAccounts(assignment?.builder);
+  const hasBuilderAccountDetails = Boolean(
+    assignment?.builder &&
+      (assignment.builder.accounts !== undefined ||
+        Boolean(assignment.builder.ownerEmail))
+  );
+  const hasBrokerageAssignmentDetails = Boolean(
+    assignment?.broker || assignment?.brokerage
+  );
 
   return (
-    <Section
-      action={
-        builderAssigned && assignment?.builder?.status ? (
-          <Badge variant="success">
-            {assignment.builder.status === "active"
-              ? "Active builder"
-              : assignment.builder.status}
-          </Badge>
-        ) : undefined
-      }
-      title="Parties & assignment"
-    >
-      <div className="grid gap-5">
-        {assignment?.builder ? (
-          <>
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <Avatar className="size-10 border">
-                  <AvatarFallback className="bg-muted text-foreground">
-                    <Building2 aria-hidden className="size-4" />
+    <div id="proposal-parties-assignment" tabIndex={-1}>
+      <Section
+        action={
+          builderAssigned && assignment?.builder?.status ? (
+            <Badge variant="success">
+              {assignment.builder.status === "active"
+                ? "Active builder"
+                : assignment.builder.status}
+            </Badge>
+          ) : undefined
+        }
+        title="Parties & assignment"
+      >
+        <div className="grid gap-5">
+          {assignment?.builder ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar className="size-10 border">
+                    <AvatarFallback className="bg-muted text-foreground">
+                      <Building2 aria-hidden className="size-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-base">
+                      {assignment.builder.displayName}
+                    </p>
+                    <p className="truncate text-muted-foreground text-sm">
+                      {assignment.builder.legalName ??
+                        assignment.builder.ownerEmail ??
+                        "Builder organization"}
+                    </p>
+                  </div>
+                </div>
+                {hasBuilderAccountDetails ? (
+                  <Badge variant="outline">
+                    <UsersRound aria-hidden />
+                    {builderAccounts.length}{" "}
+                    {builderAccounts.length === 1 ? "member" : "members"}
+                  </Badge>
+                ) : null}
+              </div>
+
+              {hasBuilderAccountDetails ? (
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-medium text-sm">Owner and staff</h3>
+                    <span className="text-muted-foreground text-xs">
+                      Active builder accounts
+                    </span>
+                  </div>
+                  {builderAccounts.length > 0 ? (
+                    <ul className="grid gap-2">
+                      {builderAccounts.map((account) => (
+                        <BuilderTeamMember
+                          key={account.workosUserId}
+                          member={account}
+                        />
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="border-border border-y py-4 text-muted-foreground text-sm">
+                      No active owner or staff accounts are linked to this
+                      builder.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="grid gap-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <Avatar className="size-10 border border-dashed">
+                  <AvatarFallback>
+                    <UsersRound
+                      aria-hidden
+                      className="size-4 text-muted-foreground"
+                    />
                   </AvatarFallback>
                 </Avatar>
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-base">
-                    {assignment.builder.displayName}
-                  </p>
-                  <p className="truncate text-muted-foreground text-sm">
-                    {assignment.builder.legalName ??
-                      assignment.builder.ownerEmail ??
-                      "Builder organization"}
+                <div className="grid gap-1">
+                  <p className="font-semibold">No builder attached</p>
+                  <p className="max-w-[62ch] text-muted-foreground text-sm">
+                    Link an onboarded builder, or create a new builder account
+                    and attach it to this Build Proposal automatically.
                   </p>
                 </div>
               </div>
-              <Badge variant="outline">
-                <UsersRound aria-hidden />
-                {builderAccounts.length}{" "}
-                {builderAccounts.length === 1 ? "member" : "members"}
-              </Badge>
-            </div>
 
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="font-medium text-sm">Owner and staff</h3>
-                <span className="text-muted-foreground text-xs">
-                  Active builder accounts
-                </span>
-              </div>
-              {builderAccounts.length > 0 ? (
-                <ul className="grid gap-2">
-                  {builderAccounts.map((account) => (
-                    <BuilderTeamMember
-                      key={account.workosUserId}
-                      member={account}
-                    />
-                  ))}
-                </ul>
-              ) : (
-                <div className="border-border border-y py-4 text-muted-foreground text-sm">
-                  No active owner or staff accounts are linked to this builder.
+              {canManageAssignment ? (
+                <div className="grid gap-3">
+                  {onAssignBuilder ? (
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                      <div className="grid gap-1">
+                        <Label htmlFor="production-builder-assignee">
+                          Existing builder
+                        </Label>
+                        <BuilderProfileAutocomplete
+                          disabled={assigning}
+                          id="production-builder-assignee"
+                          onValueChange={setSelectedBuilderId}
+                          options={builders}
+                          value={selectedBuilderId}
+                        />
+                      </div>
+                      <Button
+                        disabled={!selectedBuilderId}
+                        loading={assigning}
+                        onClick={handleAssignBuilder}
+                        size="sm"
+                      >
+                        <Link2 aria-hidden />
+                        Link builder
+                      </Button>
+                    </div>
+                  ) : null}
+                  {onOnboardBuilder ? (
+                    <Button
+                      onClick={onOnboardBuilder}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <UserPlus aria-hidden />
+                      Onboard new builder
+                    </Button>
+                  ) : null}
                 </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  Builder assignment is locked at this proposal stage.
+                </p>
               )}
             </div>
-          </>
-        ) : (
-          <div className="grid gap-4">
-            <div className="flex min-w-0 items-start gap-3">
-              <Avatar className="size-10 border border-dashed">
-                <AvatarFallback>
-                  <UsersRound
-                    aria-hidden
-                    className="size-4 text-muted-foreground"
-                  />
-                </AvatarFallback>
-              </Avatar>
-              <div className="grid gap-1">
-                <p className="font-semibold">No builder attached</p>
-                <p className="max-w-[62ch] text-muted-foreground text-sm">
-                  Link an onboarded builder, or create a new builder account and
-                  attach it to this Build Proposal automatically.
-                </p>
-              </div>
-            </div>
+          )}
 
-            {canManageAssignment ? (
-              <div className="grid gap-3">
-                {onAssignBuilder ? (
-                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                    <div className="grid gap-1">
-                      <Label htmlFor="production-builder-assignee">
-                        Existing builder
-                      </Label>
-                      <BuilderProfileAutocomplete
-                        disabled={assigning}
-                        id="production-builder-assignee"
-                        onValueChange={setSelectedBuilderId}
-                        options={builders}
-                        value={selectedBuilderId}
-                      />
-                    </div>
-                    <Button
-                      disabled={!selectedBuilderId}
-                      loading={assigning}
-                      onClick={handleAssignBuilder}
-                      size="sm"
-                    >
-                      <Link2 aria-hidden />
-                      Link builder
-                    </Button>
+          {canUnassignBuilder ? (
+            <div className="border-t pt-4">
+              <Button
+                loading={unassigning}
+                onClick={handleUnassignBuilder}
+                size="sm"
+                variant="destructive-outline"
+              >
+                <UserRoundX aria-hidden />
+                Unassign builder
+              </Button>
+            </div>
+          ) : null}
+
+          {canCreateClaimLink ? (
+            <div className="grid gap-3 border-t pt-4">
+              {onCreateClaimLink ? (
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label>Builder self-claim link</Label>
+                    {assignment?.claimLinkActive && !claimLink ? (
+                      <Badge variant="outline">Active link exists</Badge>
+                    ) : null}
                   </div>
-                ) : null}
-                {onOnboardBuilder ? (
                   <Button
-                    onClick={onOnboardBuilder}
+                    disabled={!onCreateClaimLink}
+                    loading={creatingLink}
+                    onClick={handleCreateClaimLink}
                     size="sm"
                     variant="outline"
                   >
-                    <UserPlus aria-hidden />
-                    Onboard new builder
+                    <Link2 aria-hidden />
+                    {assignment?.claimLinkActive || claimLink
+                      ? "Regenerate self-claim link"
+                      : "Create self-claim link"}
                   </Button>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                Builder assignment is locked at this proposal stage.
-              </p>
-            )}
-          </div>
-        )}
-
-        {canUnassignBuilder ? (
-          <div className="border-t pt-4">
-            <Button
-              loading={unassigning}
-              onClick={handleUnassignBuilder}
-              size="sm"
-              variant="destructive-outline"
-            >
-              <UserRoundX aria-hidden />
-              Unassign builder
-            </Button>
-          </div>
-        ) : null}
-
-        {canCreateClaimLink ? (
-          <div className="grid gap-3 border-t pt-4">
-            {onCreateClaimLink ? (
-              <div className="grid gap-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Label>Builder self-claim link</Label>
-                  {assignment?.claimLinkActive && !claimLink ? (
-                    <Badge variant="outline">Active link exists</Badge>
+                  {claimLink ? (
+                    <div className="grid gap-2">
+                      <div className="flex gap-2">
+                        <Input readOnly value={claimLink} />
+                        <Button
+                          aria-label="Copy builder claim link"
+                          onClick={() => copyToClipboard(claimLink)}
+                          size="icon"
+                          variant="outline"
+                        >
+                          <Copy aria-hidden />
+                        </Button>
+                      </div>
+                      <p className="text-muted-foreground text-xs">
+                        {isCopied ? "Copied. " : ""}
+                        {claimExpiresAt
+                          ? `Expires ${formatDateTime(claimExpiresAt)}.`
+                          : "No expiration recorded."}
+                      </p>
+                    </div>
                   ) : null}
                 </div>
-                <Button
-                  disabled={!onCreateClaimLink}
-                  loading={creatingLink}
-                  onClick={handleCreateClaimLink}
-                  size="sm"
-                  variant="outline"
-                >
-                  <Link2 aria-hidden />
-                  {assignment?.claimLinkActive || claimLink
-                    ? "Regenerate self-claim link"
-                    : "Create self-claim link"}
-                </Button>
-                {claimLink ? (
-                  <div className="grid gap-2">
-                    <div className="flex gap-2">
-                      <Input readOnly value={claimLink} />
-                      <Button
-                        aria-label="Copy builder claim link"
-                        onClick={() => copyToClipboard(claimLink)}
-                        size="icon"
-                        variant="outline"
-                      >
-                        <Copy aria-hidden />
-                      </Button>
-                    </div>
-                    <p className="text-muted-foreground text-xs">
-                      {isCopied ? "Copied. " : ""}
-                      {claimExpiresAt
-                        ? `Expires ${formatDateTime(claimExpiresAt)}.`
-                        : "No expiration recorded."}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+              ) : null}
+            </div>
+          ) : null}
 
-        <dl className="grid gap-3 border-t pt-4 text-sm">
-          <AssignmentIdentityRow
-            action={
-              canAssignBroker ? (
-                <Button
-                  aria-label={`${assignment?.broker ? "Change" : "Assign"} broker for ${brokerAssignmentTarget.displayName}`}
-                  onClick={() => setBrokerDialogOpen(true)}
-                  size="sm"
-                  variant="outline"
-                >
-                  <UserRoundCog aria-hidden />
-                  {assignment?.broker ? "Change broker" : "Assign broker"}
-                </Button>
-              ) : undefined
-            }
-            label="Broker"
-            secondary={assignment?.broker?.email}
-            value={formatProposalIdentity(assignment?.broker)}
-          />
-          <AssignmentIdentityRow
-            label="Brokerage"
-            secondary={assignment?.brokerage?.workosOrganizationId}
-            value={
-              assignment?.brokerage?.displayName ??
-              assignment?.brokerage?.legalName ??
-              "Unknown brokerage"
-            }
-          />
-        </dl>
+          {hasBrokerageAssignmentDetails ? (
+            <dl className="grid gap-3 border-t pt-4 text-sm">
+              <AssignmentIdentityRow
+                action={
+                  canAssignBroker ? (
+                    <Button
+                      aria-label={`${assignment?.broker ? "Change" : "Assign"} broker for ${brokerAssignmentTarget.displayName}`}
+                      onClick={() => setBrokerDialogOpen(true)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <UserRoundCog aria-hidden />
+                      {assignment?.broker ? "Change broker" : "Assign broker"}
+                    </Button>
+                  ) : undefined
+                }
+                label="Broker"
+                secondary={assignment?.broker?.email}
+                value={formatProposalIdentity(assignment?.broker)}
+              />
+              <AssignmentIdentityRow
+                label="Brokerage"
+                secondary={assignment?.brokerage?.workosOrganizationId}
+                value={
+                  assignment?.brokerage?.displayName ??
+                  assignment?.brokerage?.legalName ??
+                  "Unknown brokerage"
+                }
+              />
+            </dl>
+          ) : null}
 
-        <BrokerAssignmentDialog
-          brokerages={assignableBrokerages}
-          brokerOptionsPending={brokerOptionsPending}
-          description={
-            assignment?.builder
-              ? "Choose the broker accountable for this Build Proposal and its attached Builder relationship. Existing active assignments are transferred, not deleted."
-              : "Choose the broker accountable for this Build Proposal and record the assignment reason."
-          }
-          onAssign={async ({ assignedBrokerWorkosUserId, reason }) => {
-            if (!onAssignBroker) {
-              return;
+          {lenderAssignmentSurface ? (
+            <div
+              className="border-t pt-4"
+              data-testid="proposal-parties-lender-assignment"
+            >
+              {lenderAssignmentSurface}
+            </div>
+          ) : null}
+
+          <BrokerAssignmentDialog
+            brokerages={assignableBrokerages}
+            brokerOptionsPending={brokerOptionsPending}
+            description={
+              assignment?.builder
+                ? "Choose the broker accountable for this Build Proposal and its attached Builder relationship. Existing active assignments are transferred, not deleted."
+                : "Choose the broker accountable for this Build Proposal and record the assignment reason."
             }
-            await onAssignBroker(assignedBrokerWorkosUserId, reason);
-          }}
-          onAssigned={() => {
-            setBrokerDialogOpen(false);
-            toast.success(
-              assignment?.broker ? "Broker reassigned." : "Broker assigned."
-            );
-          }}
-          onOpenChange={setBrokerDialogOpen}
-          open={brokerDialogOpen}
-          reasonHelpText="Required. This reason is written to the proposal audit trail and, when attached, the Builder assignment history."
-          reasonPlaceholder="Explain why this broker should own this Build Proposal."
-          targetLabel={assignment?.builder ? "Builder" : "Build Proposal"}
-          targets={[brokerAssignmentTarget]}
-        />
-      </div>
-    </Section>
+            onAssign={async ({ assignedBrokerWorkosUserId, reason }) => {
+              if (!onAssignBroker) {
+                return;
+              }
+              await onAssignBroker(assignedBrokerWorkosUserId, reason);
+            }}
+            onAssigned={() => {
+              setBrokerDialogOpen(false);
+              toast.success(
+                assignment?.broker ? "Broker reassigned." : "Broker assigned."
+              );
+            }}
+            onOpenChange={setBrokerDialogOpen}
+            open={brokerDialogOpen}
+            reasonHelpText="Required. This reason is written to the proposal audit trail and, when attached, the Builder assignment history."
+            reasonPlaceholder="Explain why this broker should own this Build Proposal."
+            targetLabel={assignment?.builder ? "Builder" : "Build Proposal"}
+            targets={[brokerAssignmentTarget]}
+          />
+        </div>
+      </Section>
+    </div>
   );
 }
 

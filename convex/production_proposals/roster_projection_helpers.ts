@@ -56,6 +56,7 @@ export async function projectBackofficeBuildRosterRow(
   const [
     builder,
     milestones,
+    submilestones,
     plannedDraws,
     drawRequests,
     loan,
@@ -67,6 +68,10 @@ export async function projectBackofficeBuildRosterRow(
         .query("buildMilestones")
         .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
         .take(100),
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(500),
       ctx.db
         .query("plannedDrawScheduleRows")
         .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
@@ -106,6 +111,9 @@ export async function projectBackofficeBuildRosterRow(
     productionMilestoneIsBehindSchedule(
       milestone,
       productionDaysActive(build.startDate),
+      submilestones.filter(
+        (submilestone) => submilestone.milestoneKey === milestone.key,
+      ),
     ),
   ).length;
   const firstImage = evidence.find(
@@ -120,6 +128,7 @@ export async function projectBackofficeBuildRosterRow(
     expiredSiteVisits: resolvedVisitCounts.expired,
     loan,
     milestones,
+    milestonesBehindSchedule,
     milestonesInReview,
   });
 
@@ -614,6 +623,7 @@ export function productionBuildRosterPhase({
   expiredSiteVisits,
   loan,
   milestones,
+  milestonesBehindSchedule = 0,
   milestonesInReview,
 }: {
   build: Doc<"activeBuilds">;
@@ -621,6 +631,7 @@ export function productionBuildRosterPhase({
   expiredSiteVisits: number;
   loan: Doc<"loanFacilities"> | null;
   milestones: Doc<"buildMilestones">[];
+  milestonesBehindSchedule?: number;
   milestonesInReview: number;
 }): "scheduled" | "active" | "attention" | "completed" {
   if (build.status === "future_start") {
@@ -635,6 +646,7 @@ export function productionBuildRosterPhase({
   if (
     expiredSiteVisits > 0 ||
     drawRequestsPending > 0 ||
+    milestonesBehindSchedule > 0 ||
     milestonesInReview > 0
   ) {
     return "attention";
@@ -672,6 +684,7 @@ export function productionMilestoneNeedsBackofficeReview(
 export function productionMilestoneColumn(
   milestone: Doc<"buildMilestones">,
   currentDay: number,
+  submilestones: readonly Doc<"buildSubmilestones">[] = [],
 ) {
   const siteVisitStatus = milestone.completionReview?.siteVisit?.status;
   if (siteVisitStatus === "requested") {
@@ -683,7 +696,13 @@ export function productionMilestoneColumn(
   if (siteVisitStatus) {
     return "inProgress";
   }
-  if (productionMilestoneIsBehindSchedule(milestone, currentDay)) {
+  if (
+    productionMilestoneIsBehindSchedule(
+      milestone,
+      currentDay,
+      submilestones,
+    )
+  ) {
     return "behindSchedule";
   }
   return "backlog";
@@ -692,6 +711,7 @@ export function productionMilestoneColumn(
 export function productionMilestoneIsBehindSchedule(
   milestone: Doc<"buildMilestones">,
   currentDay: number,
+  submilestones: readonly Doc<"buildSubmilestones">[] = [],
 ) {
   if (
     milestone.status === "complete" ||
@@ -700,14 +720,88 @@ export function productionMilestoneIsBehindSchedule(
   ) {
     return false;
   }
-  return currentDay > milestone.dayEnd;
+  return (
+    currentDay > milestone.dayEnd ||
+    submilestones.some((submilestone) =>
+      productionSubmilestoneIsBehindSchedule(
+        submilestone,
+        milestone,
+        currentDay,
+      ),
+    )
+  );
+}
+
+export function productionSubmilestoneIsBehindSchedule(
+  submilestone: Doc<"buildSubmilestones">,
+  milestone: Doc<"buildMilestones">,
+  currentDay: number,
+) {
+  if (submilestone.status === "complete") {
+    return false;
+  }
+  const startDay =
+    submilestone.startDay ??
+    milestone.dayStart + Math.max(0, submilestone.order - 1);
+  const durationDays = Math.max(1, submilestone.durationDays ?? 1);
+  const endDay = startDay + durationDays - 1;
+  if (currentDay > endDay) {
+    return true;
+  }
+  const started =
+    submilestone.status === "in_progress" ||
+    (typeof submilestone.actualStartedAt === "number" &&
+      Number.isFinite(submilestone.actualStartedAt));
+  return !started && currentDay > startDay;
+}
+
+export function productionMilestoneScheduleOverdueDays(
+  milestone: Doc<"buildMilestones">,
+  currentDay: number,
+  submilestones: readonly Doc<"buildSubmilestones">[] = [],
+) {
+  if (
+    milestone.status === "complete" ||
+    milestone.completionClaim ||
+    milestone.completionReview?.status === "approved"
+  ) {
+    return 0;
+  }
+  const overdueDays = [Math.max(0, currentDay - milestone.dayEnd)];
+  for (const submilestone of submilestones) {
+    if (
+      !productionSubmilestoneIsBehindSchedule(
+        submilestone,
+        milestone,
+        currentDay,
+      )
+    ) {
+      continue;
+    }
+    const startDay =
+      submilestone.startDay ??
+      milestone.dayStart + Math.max(0, submilestone.order - 1);
+    const durationDays = Math.max(1, submilestone.durationDays ?? 1);
+    const endDay = startDay + durationDays - 1;
+    const started =
+      submilestone.status === "in_progress" ||
+      (typeof submilestone.actualStartedAt === "number" &&
+        Number.isFinite(submilestone.actualStartedAt));
+    overdueDays.push(currentDay - (started ? endDay : startDay));
+  }
+  return Math.max(0, ...overdueDays);
 }
 
 export function productionMilestoneDueLabel(
   milestone: Doc<"buildMilestones">,
   currentDay: number,
+  submilestones: readonly Doc<"buildSubmilestones">[] = [],
 ) {
-  const overdueDays = currentDay - milestone.dayEnd;
+  const overdueDays = productionMilestoneScheduleOverdueDays(
+    milestone,
+    currentDay,
+    submilestones,
+  );
   return overdueDays > 0
     ? `${overdueDays}d overdue`
     : `Day ${milestone.dayEnd}`;
@@ -716,10 +810,15 @@ export function productionMilestoneDueLabel(
 export function productionMilestonePriority(
   milestone: Doc<"buildMilestones">,
   currentDay: number,
+  submilestones: readonly Doc<"buildSubmilestones">[] = [],
 ) {
   if (
     milestone.status === "in_progress" ||
-    productionMilestoneIsBehindSchedule(milestone, currentDay)
+    productionMilestoneIsBehindSchedule(
+      milestone,
+      currentDay,
+      submilestones,
+    )
   ) {
     return "high";
   }

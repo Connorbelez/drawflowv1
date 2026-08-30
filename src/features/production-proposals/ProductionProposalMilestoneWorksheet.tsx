@@ -145,6 +145,7 @@ export function ProductionProposalMilestoneWorksheet({
       scopeRoute={scopeRoute}
       scopeWorkosOrganizationId={scopeWorkosOrganizationId}
       showHeading={showHeading}
+      targetBudgetCents={detail.proposal.totalBudgetCents}
       templateTitle={templateTitle}
       viewerCapacity={viewerCapacity}
     />

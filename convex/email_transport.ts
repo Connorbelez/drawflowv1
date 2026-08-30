@@ -8,6 +8,7 @@ import type { Doc, Id, MutationCtx } from "./types";
 const MAX_SAFE_DETAIL_LENGTH = 500;
 
 export type CommunicationIntentKind =
+  | "identity_invitation"
   | "cost_document_integrity_action_required"
   | "cost_document_receipt"
   | "quote_invitation_initial"

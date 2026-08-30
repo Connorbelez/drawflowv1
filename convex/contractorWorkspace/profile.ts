@@ -1,24 +1,9 @@
 import { v } from "convex/values";
 
-import {
-  type AuthorizedViewer,
-  contractorMutation,
-  contractorQuery,
-} from "../authz";
-import {
-  getContractorProfileByAccount,
-  requireContractorLinkedProfile,
-} from "../contractorAuth";
-import {
-  type MilestoneStartSource,
-  recordMilestoneStart,
-} from "../milestone_start";
-import { resolveCanonicalMilestoneExecutionOwnership } from "../build_collaboration_system_event_access";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
-import {
-  contractorRoleQuery,
-  contractorRoleMutation,
-} from "./access";
+import type { AuthorizedViewer } from "../authz";
+import { patchCanonicalContractorProfile } from "../contractor_profile_application";
+import type { Doc, Id, MutationCtx } from "../types";
+import { contractorRoleMutation, contractorRoleQuery } from "./access";
 export const getContractorProfile = contractorRoleQuery
   .returns(v.any())
   .handler(async (ctx) => {
@@ -148,22 +133,27 @@ export const updateContractorOperationalProfile = contractorRoleMutation
       complianceNotes: contractor.complianceNotes,
     };
 
-    await ctx.db.patch(contractor._id, {
-      trades: args.trades.map((t) => t.trim()).filter(Boolean),
-      website: normalizeOptionalString(args.website),
-      description: normalizeOptionalString(args.description),
-      phone: normalizeOptionalString(args.phone),
-      serviceAreaPrimaryCity: normalizeOptionalString(
-        args.serviceAreaPrimaryCity
-      ),
-      serviceAreaRadiusKm:
-        args.serviceAreaRadiusKm === undefined
-          ? undefined
-          : Math.max(0, Math.round(args.serviceAreaRadiusKm)),
-      serviceAreaPostalPrefixes: args.serviceAreaPostalPrefixes ?? undefined,
-      serviceAreaNotes: normalizeOptionalString(args.serviceAreaNotes),
-      complianceNotes: normalizeOptionalString(args.complianceNotes),
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: contractor.brokerageId,
+      contractorId: contractor._id,
+      now,
+      organizationId: contractor.organizationId,
+      patch: {
+        complianceNotes: normalizeOptionalString(args.complianceNotes),
+        description: normalizeOptionalString(args.description),
+        phone: normalizeOptionalString(args.phone),
+        serviceAreaNotes: normalizeOptionalString(args.serviceAreaNotes),
+        serviceAreaPostalPrefixes: args.serviceAreaPostalPrefixes ?? undefined,
+        serviceAreaPrimaryCity: normalizeOptionalString(
+          args.serviceAreaPrimaryCity
+        ),
+        serviceAreaRadiusKm:
+          args.serviceAreaRadiusKm === undefined
+            ? undefined
+            : Math.max(0, Math.round(args.serviceAreaRadiusKm)),
+        trades: args.trades.map((t) => t.trim()).filter(Boolean),
+        website: normalizeOptionalString(args.website),
+      },
     });
 
     await replaceContractorOperatingRows(ctx, {
@@ -271,7 +261,9 @@ export const requestContractorProfileReview = contractorRoleMutation
  * Contractor-facing profile summary. Never includes account/membership
  * internals or any risk/audit fields beyond what the contractor owns.
  */
-export function redactContractorProfileSummary(contractor: Doc<"contractorProfiles">) {
+export function redactContractorProfileSummary(
+  contractor: Doc<"contractorProfiles">
+) {
   return {
     _id: contractor._id,
     name: contractor.name,

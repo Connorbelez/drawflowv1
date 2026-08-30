@@ -1324,15 +1324,24 @@ promote its shared User Management table and detail-sheet composition according
 to `docs/lender-portal-prototype-promotion.md`. This is a selected implementation
 contract, not a request to redesign the surface from these requirements.
 
-Organization administration and review-policy administration are separate:
+Organization administration and review-policy authority remain distinct:
 
 - organization administration manages WorkOS-owned identity, membership, and
   role access through the canonical WorkOS-first management boundary;
 - membership changes surface their effects on lender review assignment, quorum
   re-evaluation, recipient routing, work queues, and audit history;
-- Back Office owns pre-closing review-requirements setup and the policy handed
-  to the active Build; the organization-management surface may explain that
-  relationship but cannot edit or own the approval policy.
+- Back Office owns immutable, versioned default Review Requirements for each
+  application-owned Lender Organization. Lender users and organization
+  administrators cannot configure these defaults.
+- assigning or reassigning a Proposal snapshots the selected organization's
+  current default, or the explicit system / Back Office baseline, into the
+  canonical assignment and Proposal review-policy revision;
+- later default changes apply to future assignments only. They never mutate an
+  assigned Proposal or active Build silently;
+- before the existing policy lock, Back Office may create an audited per-Build
+  policy revision or explicitly restore the selected organization's current
+  default. Both operations preserve lender-confirmation revision and cycle
+  semantics. The active Build continues to use the locked snapshot.
 
 ### 12.3.2 Lender Draw Queue
 

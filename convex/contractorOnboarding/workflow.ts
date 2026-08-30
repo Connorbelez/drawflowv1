@@ -1,27 +1,24 @@
 import { v } from "convex/values";
-
+import { internal } from "../_generated/api";
 import {
-  type AuthorizedViewer,
-  type RoleSlug,
   authenticatedMutation,
   authenticatedQuery,
   backofficeMutation,
   backofficeQuery,
-  normalizeRoleSlugs,
 } from "../authz";
+import {
+  createCanonicalContractorProfile,
+  patchCanonicalContractorProfile,
+} from "../contractor_profile_application";
 import { normalizeContractorEmail } from "../contractorWorkspace";
-import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "../fairLendConfig";
-import { internal } from "../_generated/api";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
+import type { Doc, Id, QueryCtx } from "../types";
 
 import {
-  BACKOFFICE_ROLES,
-  BUILDER_ROLES,
-  ONBOARDING_SUBMITTABLE_STATES,
-  resolveBrokerageScopeOrThrow,
-  requireBackofficeRole,
-  writeContractorIdentityEvent,
   assertOnboardingTransition,
+  ONBOARDING_SUBMITTABLE_STATES,
+  requireBackofficeRole,
+  resolveBrokerageScopeOrThrow,
+  writeContractorIdentityEvent,
 } from "./access";
 export const getContractorOnboardingBridge = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
@@ -131,25 +128,26 @@ export const saveContractorOnboardingDraft = authenticatedMutation
     if (!contractorId) {
       // No exact match → create a pending self_service profile (PRD §7.1.6).
       const draftKind = (args.draftFields as { kind?: string })?.kind;
-      contractorId = await ctx.db.insert("contractorProfiles", {
-        accountWorkosUserId: undefined,
+      contractorId = await createCanonicalContractorProfile(ctx, {
         brokerageId: scope.brokerage._id,
-        email: applicantEmail?.trim() || undefined,
-        kind:
-          draftKind === "individual" || draftKind === "crew"
-            ? draftKind
-            : "company",
-        name:
-          (args.draftFields as { name?: string })?.name ??
-          "Self-service applicant",
-        normalizedEmail: normalizedEmail || undefined,
-        onboardingStatus: "profile_only",
+        fields: {
+          accountWorkosUserId: undefined,
+          email: applicantEmail?.trim() || undefined,
+          kind:
+            draftKind === "individual" || draftKind === "crew"
+              ? draftKind
+              : "company",
+          name:
+            (args.draftFields as { name?: string })?.name ??
+            "Self-service applicant",
+          normalizedEmail: normalizedEmail || undefined,
+          onboardingStatus: "profile_only",
+          source: "self_service",
+          status: "active",
+          trades: (args.draftFields as { trades?: string[] })?.trades ?? [],
+        },
+        now,
         organizationId: args.workosOrganizationId,
-        source: "self_service",
-        status: "active",
-        trades: (args.draftFields as { trades?: string[] })?.trades ?? [],
-        createdAt: now,
-        updatedAt: now,
       });
     }
 
@@ -606,10 +604,15 @@ export const finalizeContractorOnboardingRoleSync = backofficeMutation
       return false;
     }
     const now = Date.now();
-    await ctx.db.patch(review.contractorId, {
-      accountWorkosUserId: args.applicantWorkosUserId,
-      onboardingStatus: "account_linked",
-      updatedAt: now,
+    await patchCanonicalContractorProfile(ctx, {
+      brokerageId: scope.brokerage._id,
+      contractorId: review.contractorId,
+      now,
+      organizationId: args.workosOrganizationId,
+      patch: {
+        accountWorkosUserId: args.applicantWorkosUserId,
+        onboardingStatus: "account_linked",
+      },
     });
     await ctx.db.patch(review._id, {
       status: "active",

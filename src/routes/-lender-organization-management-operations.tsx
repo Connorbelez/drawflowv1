@@ -1,7 +1,5 @@
 import { ArrowRight, LockKeyhole } from "lucide-react";
 import { useState } from "react";
-
-import type { DirectoryUser } from "./backoffice/-user-management-types";
 import { Avatar, AvatarFallback } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -38,6 +36,7 @@ import {
   BoundaryLine,
   CheckLine,
 } from "./-lender-organization-management-shared";
+import type { DirectoryUser } from "./backoffice/-user-management-types";
 
 const operationCopy: Record<
   PrototypeOperation,
@@ -355,7 +354,11 @@ function OperationDraftFields({
   );
 }
 
-function OperationMemberHeader({ member }: { member: DirectoryUser | undefined }) {
+function OperationMemberHeader({
+  member,
+}: {
+  member: DirectoryUser | undefined;
+}) {
   return (
     <div className="flex items-center gap-3 border-b pb-4">
       <Avatar>
@@ -502,7 +505,7 @@ function OperationImpactPreview({
         {protectedOperation ? (
           <BoundaryLine text="Principal Broker control must transfer before this operation can execute" />
         ) : null}
-        <BoundaryLine text="Do not change Back Office pre-closing review requirements from this surface" />
+        <BoundaryLine text="Only Back Office can configure organization default Review Requirements; membership commands never author policy" />
       </CardContent>
     </Card>
   );

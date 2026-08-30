@@ -1,46 +1,38 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import type { ScheduleBuildCollaborationPublication } from "./build_collaboration_publication_lifecycle";
 import {
-  prepareBuildCollaborationPublication,
-  publishBuildCollaborationBundle,
-} from "./build_collaboration";
-import { requireHumanCollaborationActor } from "./build_collaboration_human";
-import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
-import {
-  type BuildCollaborationPublicationBundle,
-  canonicalPublicationBundleJson,
-  publicationBundleHash,
-} from "./build_collaboration_publication_bundle";
-import { authorizeBuildCollaborationRecipient } from "./build_collaboration_recipient_access";
+  approveAndScheduleBuildCollaborationDraft as approveAndScheduleBuildCollaborationDraftApplication,
+  pauseScheduledBuildCollaborationDraft as pauseScheduledBuildCollaborationDraftApplication,
+  publishScheduledBuildCollaborationDraft as publishScheduledBuildCollaborationDraftApplication,
+  recordRetryableScheduledBuildCollaborationFailure as recordRetryableScheduledBuildCollaborationFailureApplication,
+} from "./build_collaboration_publication_lifecycle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
-  classifyScheduledPublicationFailure,
-  scheduledPublicationMaterialConflict,
-  scheduledPublicationOperationalFailure,
-} from "./build_collaboration_scheduling_errors";
+  reconcileDueDrawSystemPostForBuildHandler,
+  reconcileDueMilestoneSystemPostForBuildHandler,
+  scheduleCurrentDrawSystemPostActivations,
+  scheduleCurrentMilestoneSystemPostActivations,
+} from "./build_collaboration_scheduling/helpers";
+import { classifyScheduledPublicationFailure } from "./build_collaboration_scheduling_errors";
 import {
   addBuildLocalDays,
-  buildLocalDateAt,
   buildLocalMidnightUtc,
   ensureDrawSystemPost,
   ensureMilestoneSystemPost,
 } from "./build_collaboration_system_posts";
-import {
-  buildCollaborationValidationError,
-  isBuildCollaborationValidationError,
-} from "./build_collaboration_validation";
 import { internalAction, internalMutation } from "./fluent";
-import type { Doc, Id, MutationCtx } from "./types";
+import type { Id, MutationCtx } from "./types";
 
-import { scheduleCurrentMilestoneSystemPostActivations, scheduleCurrentDrawSystemPostActivations, reconcileDueMilestoneSystemPostForBuildHandler, reconcileDueDrawSystemPostForBuildHandler, requireSchedulableDraft, requireApprovedScheduledDraft, revalidateScheduledPublication, revalidateMaterialBoundary, assertApprovalIntegrity, revalidateExactDraftBundle, invalidateCurrentApprovals, scheduledApprovalHash, assertCoordinatingRole, assertSchedulablePostType, assertApprovalHierarchyUnchanged, assertScheduledFor, normalizedConflictReason } from "./build_collaboration_scheduling/helpers";
-export { scheduleCurrentMilestoneSystemPostActivations, scheduleCurrentDrawSystemPostActivations, revalidateMaterialBoundary };
+// biome-ignore lint/performance/noBarrelFile: Compatibility exports preserve existing scheduling function references.
+export { revalidateMaterialBoundary } from "./build_collaboration_publication_lifecycle";
+export {
+  scheduleCurrentDrawSystemPostActivations,
+  scheduleCurrentMilestoneSystemPostActivations,
+} from "./build_collaboration_scheduling/helpers";
 
-const MAX_CONFLICT_REASON_LENGTH = 500;
-const MAX_SCHEDULE_HORIZON_MS = 2 * 365 * 24 * 60 * 60 * 1000;
-const MIN_SCHEDULE_DELAY_MS = 60_000;
 const SCHEDULE_BATCH_SIZE = 25;
 const MILESTONE_RECONCILIATION_BATCH_SIZE = 25;
 // Convex rejects runAt timestamps more than five years in either direction.
@@ -60,7 +52,10 @@ function decodeReconciliationCursor(cursor: string | null | undefined): {
   phase: ReconciliationPhase;
 } {
   if (!cursor) {
-    return { cursor: null as string | null, phase: "active" as ReconciliationPhase };
+    return {
+      cursor: null as string | null,
+      phase: "active" as ReconciliationPhase,
+    };
   }
   try {
     const parsed = JSON.parse(cursor) as {
@@ -85,14 +80,14 @@ function decodeReconciliationCursor(cursor: string | null | undefined): {
 
 function encodeReconciliationCursor(
   phase: ReconciliationPhase,
-  cursor: string | null,
+  cursor: string | null
 ) {
   return JSON.stringify({ cursor, phase });
 }
 
 async function cancelScheduledActivation(
   ctx: MutationCtx,
-  jobId: string | undefined,
+  jobId: string | undefined
 ) {
   if (!jobId) {
     return;
@@ -100,7 +95,7 @@ async function cancelScheduledActivation(
   try {
     const scheduledJob = await ctx.db.system.get(
       "_scheduled_functions",
-      jobId as Id<"_scheduled_functions">,
+      jobId as Id<"_scheduled_functions">
     );
     // A callback that is already in progress owns its scheduler row and will
     // mark it successful/failed when it completes. Cancelling that row races
@@ -113,36 +108,6 @@ async function cancelScheduledActivation(
   } catch {
     // A completed/missing scheduler row is already safe to replace.
   }
-}
-
-async function clearMilestoneScheduledActivation(
-  ctx: MutationCtx,
-  milestone: Doc<"buildMilestones">,
-  now: number,
-) {
-  if (!milestone.scheduledActivationJobId) {
-    return;
-  }
-  await cancelScheduledActivation(ctx, milestone.scheduledActivationJobId);
-  await ctx.db.patch(milestone._id, {
-    scheduledActivationJobId: undefined,
-    updatedAt: now,
-  });
-}
-
-async function clearDrawScheduledActivation(
-  ctx: MutationCtx,
-  plannedDraw: Doc<"plannedDrawScheduleRows">,
-  now: number,
-) {
-  if (!plannedDraw.scheduledActivationJobId) {
-    return;
-  }
-  await cancelScheduledActivation(ctx, plannedDraw.scheduledActivationJobId);
-  await ctx.db.patch(plannedDraw._id, {
-    scheduledActivationJobId: undefined,
-    updatedAt: now,
-  });
 }
 
 export const getBuildCollaborationSchedulingCapabilities = authenticatedQuery
@@ -179,117 +144,35 @@ export const approveAndScheduleBuildCollaborationDraft = authenticatedMutation
     scheduledFor: v.number(),
   })
   .returns(v.id("buildCollaborationPublicationApprovals"))
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+  .handler(
+    async (
       ctx,
       args
-    );
-    await requireHumanCollaborationActor(ctx, authorization);
-    assertCoordinatingRole(authorization.effectiveRole.tier);
-    const now = Date.now();
-    assertScheduledFor(args.scheduledFor, now);
-    const draft = await requireSchedulableDraft(ctx, {
-      approvalOwnerWorkosUserId: authorization.viewer.subject,
-      buildId: authorization.build._id,
-      draftId: args.draftId,
-      expectedRevision: args.expectedRevision,
-    });
-    const { bundle, bundleJson } = await revalidateExactDraftBundle(ctx, {
-      authorization,
-      draft,
-    });
-    assertSchedulablePostType(bundle.postType);
-    await invalidateCurrentApprovals(ctx, draft._id, now);
-    const approvalHash = await scheduledApprovalHash({
-      approvingWorkosUserId: authorization.viewer.subject,
-      bundleHash: draft.bundleHash,
-      draftId: draft._id,
-      draftRevision: draft.revision,
-      scheduledFor: args.scheduledFor,
-    });
-    const approvalId = await ctx.db.insert(
-      "buildCollaborationPublicationApprovals",
-      {
-        approvalHash,
-        approvedAt: now,
-        approvingActorKind: "human",
-        approvingRole: authorization.effectiveRole.role,
-        approvingRoles: authorization.roles,
-        approvingWorkosUserId: authorization.viewer.subject,
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        bundleHash: draft.bundleHash,
-        bundleJsonSnapshot: bundleJson,
-        draftId: draft._id,
-        draftRevision: draft.revision,
-        executionAttemptCount: 0,
-        mutationSummaryJson: JSON.stringify({
-          actionItemCount: bundle.actionItems.length,
-          attachmentAssetCount: bundle.attachmentAssetIds.length,
-          notificationEffectCount: bundle.effectiveNotificationEffects.length,
-          referenceCount: bundle.references.length,
-          sharedMutationCount: bundle.sharedMutations.length,
-        }),
-        organizationId: authorization.organizationId,
-        readerSummaryJson: JSON.stringify({
-          audienceMode: bundle.audienceMode,
-          effectiveReaderIds: bundle.effectiveReaderIds,
-          excludedReaderIds: bundle.excludedReaderIds,
-          mandatoryReaderIds: bundle.mandatoryReaderIds,
-          requestedReaderIds: bundle.requestedReaderIds,
-        }),
+    ): Promise<Id<"buildCollaborationPublicationApprovals">> => {
+      const authorization = await authorizeActiveBuildCollaborationAccess(
+        ctx,
+        args
+      );
+      const schedulePublication: ScheduleBuildCollaborationPublication = (
+        scheduledFor,
+        approvalId
+      ) =>
+        ctx.scheduler.runAt(
+          scheduledFor,
+          internal.build_collaboration_scheduling
+            .executeScheduledBuildCollaborationPublication,
+          { approvalId }
+        );
+      return await approveAndScheduleBuildCollaborationDraftApplication(ctx, {
+        authorization,
+        draftId: args.draftId,
+        expectedRevision: args.expectedRevision,
+        now: Date.now(),
         scheduledFor: args.scheduledFor,
-        state: "approved",
-      }
-    );
-    await ctx.db.patch(draft._id, {
-      scheduleConflictReason: undefined,
-      schedulePausedAt: undefined,
-      scheduledFor: args.scheduledFor,
-      state: "scheduled",
-      updatedAt: now,
-    });
-    await ctx.db.insert("auditEvents", {
-      actorRoles: authorization.roles,
-      actorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      command: "approveAndScheduleBuildCollaborationDraft",
-      createdAt: now,
-      entityId: approvalId,
-      entityType: "buildCollaborationPublicationApproval",
-      eventType: "build.collaboration.publication.scheduled",
-      newState: JSON.stringify({
-        bundleHash: draft.bundleHash,
-        draftId: draft._id,
-        draftRevision: draft.revision,
-        scheduledFor: args.scheduledFor,
-      }),
-      organizationId: authorization.organizationId,
-      warnings: [],
-    });
-    await ctx.db.insert("eventOutbox", {
-      brokerageId: authorization.brokerage._id,
-      createdAt: now,
-      eventType: "build.collaboration.publication.scheduled",
-      organizationId: authorization.organizationId,
-      payloadPreview: JSON.stringify({
-        approvalId,
-        draftId: draft._id,
-        draftRevision: draft.revision,
-        scheduledFor: args.scheduledFor,
-      }),
-      relatedEntityId: approvalId,
-      relatedEntityType: "buildCollaborationPublicationApproval",
-      status: "pending",
-    });
-    await ctx.scheduler.runAt(
-      args.scheduledFor,
-      internal.build_collaboration_scheduling
-        .executeScheduledBuildCollaborationPublication,
-      { approvalId }
-    );
-    return approvalId;
-  })
+        schedulePublication,
+      });
+    }
+  )
   .public();
 
 export const executeScheduledBuildCollaborationPublication = internalAction
@@ -337,54 +220,13 @@ export const recordRetryableScheduledBuildCollaborationFailure =
       failureReason: v.string(),
     })
     .returns(v.null())
-    .handler(async (ctx, args) => {
-      const approval = await ctx.db.get(args.approvalId);
-      if (!approval || approval.state !== "approved") {
-        return null;
-      }
-      const now = Date.now();
-      const failureReason = normalizedConflictReason(args.failureReason);
-      await ctx.db.patch(approval._id, {
-        executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
-        lastExecutionAt: now,
-        lastExecutionError: failureReason,
-      });
-      await ctx.db.insert("auditEvents", {
-        actorRoles: ["system"],
-        actorWorkosUserId: "system:build-collaboration-scheduler",
-        brokerageId: approval.brokerageId,
-        command: "recordRetryableScheduledBuildCollaborationFailure",
-        createdAt: now,
-        entityId: approval._id,
-        entityType: "buildCollaborationPublicationApproval",
-        eventType: "build.collaboration.publication.schedule_retryable_failure",
-        newState: JSON.stringify({
-          executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
-          lastExecutionAt: now,
-          state: "approved",
-        }),
-        organizationId: approval.organizationId,
-        priorState: JSON.stringify({ state: approval.state }),
-        reason: failureReason,
-        warnings: [failureReason],
-      });
-      await ctx.db.insert("eventOutbox", {
-        brokerageId: approval.brokerageId,
-        createdAt: now,
-        eventType: "build.collaboration.publication.schedule_retryable_failure",
-        organizationId: approval.organizationId,
-        payloadPreview: JSON.stringify({
-          approvalId: approval._id,
-          executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
-          failureReason,
-          lastExecutionAt: now,
-        }),
-        relatedEntityId: approval._id,
-        relatedEntityType: "buildCollaborationPublicationApproval",
-        status: "pending",
-      });
-      return null;
-    })
+    .handler((ctx, args) =>
+      recordRetryableScheduledBuildCollaborationFailureApplication(ctx, {
+        approvalId: args.approvalId,
+        failureReason: args.failureReason,
+        now: Date.now(),
+      })
+    )
     .internal();
 
 export const processDueBuildCollaborationScheduledPublications =
@@ -430,7 +272,6 @@ export const processDueBuildCollaborationScheduledPublications =
  * midnight instant. This is the normal activation path; the bounded cron
  * below remains a retry/recovery reconciliation for missed scheduler work.
  */
-
 
 export const scheduleCurrentDrawSystemPostActivationsInternal = internalMutation
   .input({
@@ -491,11 +332,14 @@ export const executeScheduledMilestoneSystemPostActivation = internalMutation
       ctx.db.get(args.buildId),
       ctx.db.get(args.milestoneId),
     ]);
-    if (!build || !milestone) {
+    if (!build) {
+      return null;
+    }
+    if (!milestone) {
       return null;
     }
     if (
-      !(build.status === "active" || build.status === "future_start") ||
+      (build.status !== "active" && build.status !== "future_start") ||
       milestone.buildId !== build._id ||
       milestone.organizationId !== build.organizationId ||
       milestone.brokerageId !== build.brokerageId ||
@@ -508,14 +352,20 @@ export const executeScheduledMilestoneSystemPostActivation = internalMutation
     const now = Date.now();
     let currentDueAt: number;
     try {
-      const plannedDate = addBuildLocalDays(build.startDate, milestone.dayStart);
+      const plannedDate = addBuildLocalDays(
+        build.startDate,
+        milestone.dayStart
+      );
       currentDueAt = buildLocalMidnightUtc(plannedDate, build.timezone);
     } catch {
       return null;
     }
     if (currentDueAt > now) {
       if (currentDueAt <= now + MAX_MILESTONE_SCHEDULE_HORIZON_MS) {
-        await cancelScheduledActivation(ctx, milestone.scheduledActivationJobId);
+        await cancelScheduledActivation(
+          ctx,
+          milestone.scheduledActivationJobId
+        );
         const scheduledJobId = await ctx.scheduler.runAt(
           currentDueAt,
           internal.build_collaboration_scheduling
@@ -524,7 +374,7 @@ export const executeScheduledMilestoneSystemPostActivation = internalMutation
             buildId: build._id,
             milestoneId: milestone._id,
             scheduledFor: currentDueAt,
-          },
+          }
         );
         await ctx.db.patch(milestone._id, {
           scheduledActivationJobId: String(scheduledJobId),
@@ -561,11 +411,14 @@ export const executeScheduledDrawSystemPostActivation = internalMutation
       ctx.db.get(args.buildId),
       ctx.db.get(args.plannedDrawId),
     ]);
-    if (!build || !plannedDraw) {
+    if (!build) {
+      return null;
+    }
+    if (!plannedDraw) {
       return null;
     }
     if (
-      !(build.status === "active" || build.status === "future_start") ||
+      (build.status !== "active" && build.status !== "future_start") ||
       plannedDraw.buildId !== build._id ||
       plannedDraw.organizationId !== build.organizationId ||
       plannedDraw.brokerageId !== build.brokerageId ||
@@ -579,7 +432,7 @@ export const executeScheduledDrawSystemPostActivation = internalMutation
     try {
       const plannedDate = addBuildLocalDays(
         build.startDate,
-        plannedDraw.timingDay,
+        plannedDraw.timingDay
       );
       currentDueAt = buildLocalMidnightUtc(plannedDate, build.timezone);
     } catch {
@@ -587,7 +440,10 @@ export const executeScheduledDrawSystemPostActivation = internalMutation
     }
     if (currentDueAt > now) {
       if (currentDueAt <= now + MAX_MILESTONE_SCHEDULE_HORIZON_MS) {
-        await cancelScheduledActivation(ctx, plannedDraw.scheduledActivationJobId);
+        await cancelScheduledActivation(
+          ctx,
+          plannedDraw.scheduledActivationJobId
+        );
         const scheduledJobId = await ctx.scheduler.runAt(
           currentDueAt,
           internal.build_collaboration_scheduling
@@ -596,7 +452,7 @@ export const executeScheduledDrawSystemPostActivation = internalMutation
             buildId: build._id,
             plannedDrawId: plannedDraw._id,
             scheduledFor: currentDueAt,
-          },
+          }
         );
         await ctx.db.patch(plannedDraw._id, {
           scheduledActivationJobId: String(scheduledJobId),
@@ -652,7 +508,7 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
         0,
         internal.build_collaboration_scheduling
           .reconcileDueMilestoneSystemPostsForBuild,
-        { asOf, buildId: build._id },
+        { asOf, buildId: build._id }
       );
     }
 
@@ -705,7 +561,7 @@ export const reconcileDueDrawSystemPosts = internalMutation
       });
     for (const build of page.page) {
       if (
-        !(build.status === "active" || build.status === "future_start") ||
+        (build.status !== "active" && build.status !== "future_start") ||
         !build.timezone
       ) {
         continue;
@@ -714,7 +570,7 @@ export const reconcileDueDrawSystemPosts = internalMutation
         0,
         internal.build_collaboration_scheduling
           .reconcileDueDrawSystemPostsForBuild,
-        { asOf, buildId: build._id },
+        { asOf, buildId: build._id }
       );
     }
     const continuation = page.isDone
@@ -726,7 +582,7 @@ export const reconcileDueDrawSystemPosts = internalMutation
       await ctx.scheduler.runAfter(
         0,
         internal.build_collaboration_scheduling.reconcileDueDrawSystemPosts,
-        { asOf, cursor: continuation },
+        { asOf, cursor: continuation }
       );
     }
     return null;
@@ -750,88 +606,12 @@ export const publishScheduledBuildCollaborationDraft = internalMutation
     approvalId: v.id("buildCollaborationPublicationApprovals"),
   })
   .returns(v.union(v.id("buildCollaborationPosts"), v.null()))
-  .handler(async (ctx, args) => {
-    const approval = await ctx.db.get(args.approvalId);
-    if (!approval) {
-      return null;
-    }
-    if (approval.state === "published") {
-      return approval.postId ?? null;
-    }
-    if (approval.state !== "approved") {
-      return null;
-    }
-    const now = Date.now();
-    if (
-      !(approval.scheduledFor && Number.isFinite(approval.scheduledFor)) ||
-      approval.scheduledFor <= 0
-    ) {
-      throw scheduledPublicationMaterialConflict(
-        new Error("The approved publication target is missing or invalid.")
-      );
-    }
-    if (approval.scheduledFor > now) {
-      throw scheduledPublicationOperationalFailure(
-        "The approved publication is not due yet."
-      );
-    }
-    const { audience, authorization, bundle, draft } =
-      await revalidateScheduledPublication(ctx, approval);
-    const postId = await revalidateMaterialBoundary(() =>
-      publishBuildCollaborationBundle(ctx, {
-        agentDrafted: draft.preparedByAgent ?? false,
-        audience,
-        authorization,
-        bundle,
-      })
-    );
-    await ctx.db.patch(approval._id, {
-      executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
-      lastExecutionAt: now,
-      lastExecutionError: undefined,
-      postId,
-      publishedAt: now,
-      state: "published",
-    });
-    await ctx.db.patch(draft._id, {
-      scheduleConflictReason: undefined,
-      schedulePausedAt: undefined,
-      state: "published",
-      updatedAt: now,
-    });
-    await ctx.db.insert("auditEvents", {
-      actorRoles: authorization.roles,
-      actorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      command: "publishScheduledBuildCollaborationDraft",
-      createdAt: now,
-      entityId: approval._id,
-      entityType: "buildCollaborationPublicationApproval",
-      eventType: "build.collaboration.publication.schedule_executed",
-      newState: JSON.stringify({ postId, publishedAt: now }),
-      organizationId: authorization.organizationId,
-      priorState: JSON.stringify({
-        scheduledFor: approval.scheduledFor,
-        state: approval.state,
-      }),
-      warnings: [],
-    });
-    await ctx.db.insert("eventOutbox", {
-      brokerageId: authorization.brokerage._id,
-      createdAt: now,
-      eventType: "build.collaboration.publication.schedule_executed",
-      organizationId: authorization.organizationId,
-      payloadPreview: JSON.stringify({
-        approvalId: approval._id,
-        postId,
-        publishedAt: now,
-      }),
-      relatedEntityId: approval._id,
-      relatedEntityType: "buildCollaborationPublicationApproval",
-      status: "pending",
-    });
-    return postId;
-  })
+  .handler((ctx, args) =>
+    publishScheduledBuildCollaborationDraftApplication(ctx, {
+      approvalId: args.approvalId,
+      now: Date.now(),
+    })
+  )
   .internal();
 
 export const pauseScheduledBuildCollaborationDraft = internalMutation
@@ -840,58 +620,11 @@ export const pauseScheduledBuildCollaborationDraft = internalMutation
     conflictReason: v.string(),
   })
   .returns(v.null())
-  .handler(async (ctx, args) => {
-    const approval = await ctx.db.get(args.approvalId);
-    if (!approval || approval.state !== "approved") {
-      return null;
-    }
-    const now = Date.now();
-    const conflictReason = normalizedConflictReason(args.conflictReason);
-    await ctx.db.patch(approval._id, {
-      conflictReason,
-      executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
-      lastExecutionAt: now,
-      pausedAt: now,
-      state: "paused",
-    });
-    const draft = await ctx.db.get(approval.draftId);
-    if (draft && draft.state === "scheduled") {
-      await ctx.db.patch(draft._id, {
-        scheduleConflictReason: conflictReason,
-        schedulePausedAt: now,
-        state: "active",
-        updatedAt: now,
-      });
-    }
-    await ctx.db.insert("auditEvents", {
-      actorRoles: approval.approvingRoles ?? [],
-      actorWorkosUserId: approval.approvingWorkosUserId,
-      brokerageId: approval.brokerageId,
-      command: "pauseScheduledBuildCollaborationDraft",
-      createdAt: now,
-      entityId: approval._id,
-      entityType: "buildCollaborationPublicationApproval",
-      eventType: "build.collaboration.publication.schedule_paused",
-      newState: JSON.stringify({ conflictReason, state: "paused" }),
-      organizationId: approval.organizationId,
-      priorState: JSON.stringify({ state: approval.state }),
-      reason: conflictReason,
-      warnings: [conflictReason],
-    });
-    await ctx.db.insert("eventOutbox", {
-      brokerageId: approval.brokerageId,
-      createdAt: now,
-      eventType: "build.collaboration.publication.schedule_paused",
-      organizationId: approval.organizationId,
-      payloadPreview: JSON.stringify({
-        approvalId: approval._id,
-        conflictReason,
-        draftId: approval.draftId,
-      }),
-      relatedEntityId: approval._id,
-      relatedEntityType: "buildCollaborationPublicationApproval",
-      status: "pending",
-    });
-    return null;
-  })
+  .handler((ctx, args) =>
+    pauseScheduledBuildCollaborationDraftApplication(ctx, {
+      approvalId: args.approvalId,
+      conflictReason: args.conflictReason,
+      now: Date.now(),
+    })
+  )
   .internal();

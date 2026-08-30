@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
+import workpoolTest from "@convex-dev/workpool/test";
 import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
@@ -9,6 +10,18 @@ import { projectProposalLifecycle } from "./production_proposal_lifecycle";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+
+function textDocument(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
 
 function asLender(t: ReturnType<typeof convexTest>, subject = "user_lender") {
   return t.withIdentity({
@@ -34,6 +47,22 @@ function asLenderStaff(
     roles: ["lender-staff"],
     subject,
     tokenIdentifier: `https://api.workos.com/|${subject}`,
+  } as any);
+}
+
+function asLenderRole(
+  t: ReturnType<typeof convexTest>,
+  subject: string,
+  role: "lender" | "lender-admin" | "lender-staff",
+) {
+  return t.withIdentity({
+    email: subject + "@example.com",
+    name: role === "lender-staff" ? "Lender Staff" : "Lender",
+    organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+    role,
+    roles: [role],
+    subject,
+    tokenIdentifier: "https://api.workos.com/|" + subject,
   } as any);
 }
 
@@ -356,14 +385,86 @@ async function seedBackofficePortfolio(t: ReturnType<typeof convexTest>) {
 
     return {
       lenderOrganizationId,
+      otherLenderOrganizationId,
       unavailableLenderOrganizationId,
       currentAssignmentId,
       currentProposalId: current.proposalId,
       historyProposalId: history.proposalId,
       withdrawnProposalId: withdrawn.proposalId,
+      withdrawnBuildId,
       buildId,
     };
   });
+}
+
+async function seedLenderCollaboration(t: ReturnType<typeof convexTest>) {
+  workpoolTest.register(t, "buildCollaborationSearchWorkpool");
+  const seed = await seedBackofficePortfolio(t);
+  await t.run(async (ctx) => {
+    const now = Date.now();
+    const build = await ctx.db.get(seed.buildId);
+    if (!build) {
+      throw new Error("Missing lender collaboration Build fixture.");
+    }
+    await ctx.db.insert("buildCollaborationTenantSettings", {
+      activatedAt: now,
+      activatedByWorkosUserId: "user_admin",
+      brokerageId: build.brokerageId,
+      createdAt: now,
+      generousRateLimitMultiplier: 1,
+      migrationCompletedAt: now,
+      organizationId: build.organizationId,
+      status: "active",
+      updatedAt: now,
+    });
+    for (const member of [
+      { role: "lender" as const, subject: "user_lender_member" },
+      { role: "lender-staff" as const, subject: "user_lender_staff" },
+    ]) {
+      await ctx.db.insert("users", {
+        authId: member.subject,
+        createdAt: now,
+        email: member.subject + "@example.com",
+        emailVerified: true,
+        name: member.role === "lender" ? "Lender Member" : "Lender Staff",
+        sourceEventId: member.subject + "_created",
+        sourceEventType: "test.lender_collaboration",
+        status: "active",
+        updatedAt: now,
+        workosUserId: member.subject,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        roleSlug: member.role,
+        roleSlugs: [member.role],
+        sourceEventId: member.subject + "_membership",
+        sourceEventType: "test.lender_collaboration",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_" + member.subject,
+        workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+        workosUserId: member.subject,
+      });
+      await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: now,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: build.brokerageId,
+        lenderOrganizationId: seed.lenderOrganizationId,
+        normalizedEmail: member.subject + "@example.com",
+        reason: "Lender collaboration fixture",
+        status: "active",
+        updatedAt: now,
+        workosUserId: member.subject,
+      });
+    }
+  });
+  return {
+    ...seed,
+    admin: asLenderRole(t, "user_member", "lender-admin"),
+    lender: asLenderRole(t, "user_lender_member", "lender"),
+    staff: asLenderRole(t, "user_lender_staff", "lender-staff"),
+  };
 }
 
 describe("lender portal dashboard projection", () => {
@@ -1361,12 +1462,7 @@ describe("lender portal dashboard projection", () => {
       reservedCents: 10_000_000,
       unlockedCents: 20_000_000,
     });
-    expect(buildDetail.collaboration).toEqual([
-      expect.objectContaining({
-        body: "Concrete placement completed and documented.",
-        sourceLabel: "Builder team",
-      }),
-    ]);
+    expect(buildDetail.reviewPolicy).toEqual({ state: "unavailable" });
     const serializedBuildDetail = JSON.stringify(buildDetail);
     expect(serializedBuildDetail).not.toContain(
       "PRIVATE_REVIEWER_RATIONALE_MUST_NOT_LEAK",
@@ -1518,6 +1614,103 @@ describe("lender portal dashboard projection", () => {
         buildId: seed.buildId,
       }),
     ).rejects.toThrow();
+  });
+
+  test("shows a Build as behind schedule when one assigned Sub-milestone missed its start", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedBackofficePortfolio(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const build = await ctx.db.get(seed.buildId);
+      if (!build) {
+        throw new Error("Missing assigned Build fixture.");
+      }
+      const startDate = new Date(now - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      await ctx.db.patch(build._id, { startDate });
+      const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
+        brokerageId: build.brokerageId,
+        budgetCents: 30_000_000,
+        createdAt: now,
+        dayEnd: 10,
+        dayStart: 0,
+        dependencyKeys: [],
+        drawAvailabilityCents: 20_000_000,
+        durationDays: 11,
+        key: "foundation",
+        name: "Foundation",
+        order: 1,
+        organizationId: build.organizationId,
+        proposalId: seed.currentProposalId,
+        updatedAt: now,
+      });
+      const buildMilestoneId = await ctx.db.insert("buildMilestones", {
+        brokerageId: build.brokerageId,
+        budgetCents: 30_000_000,
+        buildId: build._id,
+        createdAt: now,
+        dayEnd: 10,
+        dayStart: 0,
+        dependencyKeys: [],
+        drawAvailabilityCents: 20_000_000,
+        durationDays: 11,
+        key: "foundation",
+        name: "Foundation",
+        order: 1,
+        organizationId: build.organizationId,
+        proposalMilestoneId,
+        status: "planned",
+        updatedAt: now,
+      });
+      const proposalSubmilestoneId = await ctx.db.insert(
+        "proposalSubmilestones",
+        {
+          brokerageId: build.brokerageId,
+          createdAt: now,
+          durationDays: 4,
+          key: "demo-ex",
+          milestoneKey: "foundation",
+          name: "DEMO EX",
+          order: 1,
+          organizationId: build.organizationId,
+          proposalId: seed.currentProposalId,
+          proposalMilestoneId,
+          startDay: 0,
+          updatedAt: now,
+        },
+      );
+      await ctx.db.insert("buildSubmilestones", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildMilestoneId,
+        createdAt: now,
+        durationDays: 4,
+        key: "demo-ex",
+        milestoneKey: "foundation",
+        name: "DEMO EX",
+        order: 1,
+        organizationId: build.organizationId,
+        proposalSubmilestoneId,
+        startDay: 0,
+        status: "planned",
+        updatedAt: now,
+      });
+    });
+
+    const lender = asLender(t, "user_member");
+    const [builds, dashboard] = await Promise.all([
+      lender.query(api.lender_portal.listLenderActiveBuilds, {}),
+      lender.query(api.lender_portal.getLenderDashboard, {}),
+    ]);
+    expect(
+      builds.find((build) => build.buildId === seed.buildId),
+    ).toMatchObject({ milestonesBehindSchedule: 1 });
+    expect(
+      dashboard.builds.find((build) => build.buildId === seed.buildId),
+    ).toMatchObject({
+      milestonesBehindSchedule: 1,
+    });
   });
 
   test("fails closed when a Dashboard assignment crosses tenant or Brokerage scope", async () => {
@@ -2444,5 +2637,333 @@ describe("lender portal dashboard projection", () => {
         }),
       },
     ]);
+  });
+});
+
+describe("lender Build collaboration and review policy", () => {
+  test("assigned lender roles publish, attach, reply, and reuse governed side effects", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedLenderCollaboration(t);
+    const staged = await fixture.admin.mutation(
+      (api as any).lender_portal.beginLenderBuildCollaborationAssetUpload,
+      {
+        buildId: fixture.buildId,
+        contextKind: "composer",
+        fileName: "lender-evidence.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 24,
+      },
+    );
+    const storageId = await t.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["governed lender evidence"], {
+            type: "application/pdf",
+          }),
+        ),
+    );
+    const hash = "a".repeat(64);
+    const assetId = await fixture.admin.mutation(
+      (api as any).lender_portal
+        .finalizeLenderBuildCollaborationAssetUploadForAction,
+      {
+        buildId: fixture.buildId,
+        contentHashSha256: hash,
+        fileName: "lender-evidence.pdf",
+        mimeType: "application/pdf",
+        stagingSessionId: staged.stagingSessionId,
+        storageId,
+      },
+    );
+    await t.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId,
+        computedHashSha256: hash,
+        outcome: "clean",
+        provider: "test-scanner",
+      },
+    );
+
+    const postId = await fixture.admin.mutation(
+      (api as any).lender_portal.publishLenderBuildCollaborationPost,
+      {
+        attachmentAssetIds: [assetId],
+        buildId: fixture.buildId,
+        plainText: "Lender admin update",
+        tiptapJson: textDocument("Lender admin update"),
+      },
+    );
+    await fixture.lender.mutation(
+      (api as any).lender_portal.publishLenderBuildCollaborationPost,
+      {
+        buildId: fixture.buildId,
+        plainText: "Lender member update",
+        tiptapJson: textDocument("Lender member update"),
+      },
+    );
+    const commentId = await fixture.staff.mutation(
+      (api as any).lender_portal.addLenderBuildCollaborationResponse,
+      {
+        buildId: fixture.buildId,
+        plainText: "Lender staff response",
+        postId,
+        tiptapJson: textDocument("Lender staff response"),
+      },
+    );
+
+    const posts = await fixture.staff.query(
+      (api as any).lender_portal.listLenderBuildCollaborationPosts,
+      {
+        buildId: fixture.buildId,
+        paginationOpts: { cursor: null, numItems: 10 },
+      },
+    );
+    expect(
+      posts.page
+        .filter((entry: any) => entry.kind === "post")
+        .map((entry: any) => entry.post.authorRole),
+    ).toEqual(expect.arrayContaining(["lender-admin", "lender"]));
+    expect(
+      posts.page.find(
+        (entry: any) => entry.kind === "post" && entry.post._id === postId,
+      )?.attachments,
+    ).toEqual([
+      expect.objectContaining({
+        assetId,
+        fileName: "lender-evidence.pdf",
+        state: "available",
+      }),
+    ]);
+
+    const responses = await fixture.admin.query(
+      (api as any).lender_portal.listLenderBuildCollaborationResponses,
+      {
+        buildId: fixture.buildId,
+        paginationOpts: { cursor: null, numItems: 10 },
+        postId,
+      },
+    );
+    expect(responses.page).toEqual([
+      expect.objectContaining({
+        comment: expect.objectContaining({
+          _id: commentId,
+          authorRole: "lender-staff",
+        }),
+        revision: expect.objectContaining({
+          plainText: "Lender staff response",
+        }),
+      }),
+    ]);
+
+    const sideEffects = await t.run(async (ctx) => ({
+      audits: await ctx.db.query("auditEvents").collect(),
+      searchJobs: await ctx.db.query("buildCollaborationSearchJobs").collect(),
+      webhookEvents: await ctx.db
+        .query("buildCollaborationWebhookEvents")
+        .collect(),
+    }));
+    expect(
+      sideEffects.audits.map((event) => event.eventType),
+    ).toEqual(
+      expect.arrayContaining([
+        "build.collaboration.post.published",
+        "build.collaboration.comment.published",
+      ]),
+    );
+    expect(
+      sideEffects.searchJobs.some(
+        (job) => job.ownerId === postId || job.ownerId === commentId,
+      ),
+    ).toBe(true);
+    expect(
+      sideEffects.webhookEvents.map((event) => event.eventType),
+    ).toEqual(
+      expect.arrayContaining([
+        "build.collaboration.post.published",
+        "build.collaboration.comment.published",
+      ]),
+    );
+  });
+
+  test("paginates complete authorized posts and response threads while excluding private content", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedLenderCollaboration(t);
+    const postIds: string[] = [];
+    for (let index = 0; index < 13; index += 1) {
+      postIds.push(
+        await fixture.lender.mutation(
+          (api as any).lender_portal.publishLenderBuildCollaborationPost,
+          {
+            buildId: fixture.buildId,
+            plainText: "Authorized update " + index,
+            tiptapJson: textDocument("Authorized update " + index),
+          },
+        ),
+      );
+    }
+    await t.run(async (ctx) => {
+      await ctx.db.patch(postIds[1] as any, { audienceMode: "custom" });
+      await ctx.db.patch(postIds[2] as any, {
+        source: "system",
+        systemPostKind: "milestone",
+      });
+      await ctx.db.patch(postIds[3] as any, { contentState: "moderated" });
+    });
+    for (let index = 0; index < 23; index += 1) {
+      await fixture.staff.mutation(
+        (api as any).lender_portal.addLenderBuildCollaborationResponse,
+        {
+          buildId: fixture.buildId,
+          plainText: "Response " + index,
+          postId: postIds[0],
+          tiptapJson: textDocument("Response " + index),
+        },
+      );
+    }
+
+    const visiblePostIds: string[] = [];
+    let postCursor: string | null = null;
+    let postsDone = false;
+    while (!postsDone) {
+      const page: any = await fixture.admin.query(
+        (api as any).lender_portal.listLenderBuildCollaborationPosts,
+        {
+          buildId: fixture.buildId,
+          paginationOpts: { cursor: postCursor, numItems: 4 },
+        },
+      );
+      visiblePostIds.push(
+        ...page.page
+          .filter((entry: any) => entry.kind === "post")
+          .map((entry: any) => String(entry.post._id)),
+      );
+      postCursor = page.continueCursor;
+      postsDone = page.isDone;
+    }
+    expect(visiblePostIds).toHaveLength(10);
+    expect(visiblePostIds).not.toEqual(
+      expect.arrayContaining([postIds[1], postIds[2], postIds[3]]),
+    );
+
+    const responseIds: string[] = [];
+    let responseCursor: string | null = null;
+    let responsesDone = false;
+    while (!responsesDone) {
+      const page: any = await fixture.lender.query(
+        (api as any).lender_portal.listLenderBuildCollaborationResponses,
+        {
+          buildId: fixture.buildId,
+          paginationOpts: { cursor: responseCursor, numItems: 6 },
+          postId: postIds[0],
+        },
+      );
+      responseIds.push(
+        ...page.page.map((entry: any) => String(entry.comment._id)),
+      );
+      responseCursor = page.continueCursor;
+      responsesDone = page.isDone;
+    }
+    expect(responseIds).toHaveLength(23);
+    expect(new Set(responseIds).size).toBe(23);
+  });
+
+  test("fails closed outside the current assignment and projects only locked policy snapshots", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedLenderCollaboration(t);
+    await expect(
+      fixture.admin.query(
+        (api as any).lender_portal.listLenderBuildCollaborationPosts,
+        {
+          buildId: fixture.withdrawnBuildId,
+          paginationOpts: { cursor: null, numItems: 10 },
+        },
+      ),
+    ).rejects.toThrow("Forbidden");
+
+    await t.run(async (ctx) => {
+      const staffAssignment = (
+        await ctx.db.query("lenderOrganizationAssignments").collect()
+      ).find(
+        (assignment) =>
+          assignment.workosUserId === "user_lender_staff" &&
+          assignment.status === "active",
+      );
+      if (!staffAssignment) {
+        throw new Error("Missing staff assignment fixture.");
+      }
+      await ctx.db.patch(staffAssignment._id, { status: "inactive" });
+    });
+    await expect(
+      fixture.staff.mutation(
+        (api as any).lender_portal.publishLenderBuildCollaborationPost,
+        {
+          buildId: fixture.buildId,
+          plainText: "Must fail",
+          tiptapJson: textDocument("Must fail"),
+        },
+      ),
+    ).rejects.toThrow("Forbidden");
+
+    const unavailable = await fixture.admin.query(
+      api.lender_portal.getLenderBuildDetail,
+      { buildId: fixture.buildId },
+    );
+    expect(unavailable.reviewPolicy).toEqual({ state: "unavailable" });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(fixture.buildId, {
+        reviewPolicySnapshot: {
+          drawApprovalMode: "both",
+          drawLenderQuorum: 2,
+          milestoneApprovalMode: "lender_quorum",
+          milestoneLenderQuorum: 1,
+          milestoneReceiptInvoiceRequired: true,
+          milestoneSiteVisitRequired: false,
+        },
+      });
+    });
+    const locked = await fixture.admin.query(
+      api.lender_portal.getLenderBuildDetail,
+      { buildId: fixture.buildId },
+    );
+    expect(locked.reviewPolicy).toEqual({
+      draw: { approvalMode: "both", lenderQuorum: 2 },
+      milestone: {
+        approvalMode: "lender_quorum",
+        lenderQuorum: 1,
+        receiptInvoiceRequired: true,
+        siteVisitRequired: false,
+      },
+      state: "locked",
+    });
+
+    await t.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Missing closed collaboration Build fixture.");
+      }
+      const now = Date.now();
+      await ctx.db.insert("buildCollaborationBuildStates", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        organizationId: build.organizationId,
+        revision: 1,
+        state: "closed",
+        updatedAt: now,
+      });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).lender_portal.publishLenderBuildCollaborationPost,
+        {
+          buildId: fixture.buildId,
+          plainText: "Closed archive write",
+          tiptapJson: textDocument("Closed archive write"),
+        },
+      ),
+    ).rejects.toThrow("read-only");
   });
 });

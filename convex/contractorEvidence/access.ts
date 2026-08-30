@@ -1,16 +1,11 @@
-import { v } from "convex/values";
-
 import {
   type AuthorizedViewer,
-  type RoleSlug,
-  backofficeMutation,
-  backofficeQuery,
   contractorMutation,
   contractorQuery,
-  normalizeRoleSlugs,
+  type RoleSlug,
 } from "../authz";
 import { requireContractorLinkedProfile } from "../contractorAuth";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
+import type { Id, MutationCtx, QueryCtx } from "../types";
 
 /**
  * Contractor supporting evidence, acknowledgements, and scope-issue module.
@@ -39,7 +34,9 @@ export const ALLOWED_EVIDENCE_MIME_TYPES = new Set([
   "application/pdf",
 ]);
 
-export const contractorRoleQuery = contractorQuery.use(requireContractorLinkedProfile);
+export const contractorRoleQuery = contractorQuery.use(
+  requireContractorLinkedProfile
+);
 export const contractorRoleMutation = contractorMutation.use(
   requireContractorLinkedProfile
 );
@@ -50,11 +47,11 @@ export const contractorRoleMutation = contractorMutation.use(
 
 export interface ContractorAssignmentRef {
   assignmentType: "proposal" | "build";
-  proposalAssignmentId?: Id<"proposalMilestoneContractorAssignments">;
   buildAssignmentId?: Id<"milestoneContractorAssignments">;
-  proposalId?: Id<"buildProposals">;
   buildId?: Id<"activeBuilds">;
   milestoneKey: string;
+  proposalAssignmentId?: Id<"proposalMilestoneContractorAssignments">;
+  proposalId?: Id<"buildProposals">;
   submilestoneKey?: string;
 }
 
@@ -153,39 +150,4 @@ export function viewerRoles(ctx: unknown): readonly RoleSlug[] {
   return (ctx as { viewer: AuthorizedViewer }).viewer.roles;
 }
 
-export interface BrokerageScope {
-  brokerage: Doc<"brokerages">;
-  roles: RoleSlug[];
-  subject: string;
-}
-
-export async function resolveBrokerageScopeOrThrow(
-  ctx: QueryCtx | MutationCtx,
-  workosOrganizationId: string
-): Promise<BrokerageScope> {
-  const viewer = (ctx as unknown as { viewer: AuthorizedViewer }).viewer;
-  const subject = viewer.subject;
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (q) => q.eq("workosUserId", subject))
-    .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
-    .first();
-  const activeTokenOrganizationId = viewer.organizationId?.trim();
-  if (
-    (!membership || membership.status !== "active") &&
-    activeTokenOrganizationId !== workosOrganizationId
-  ) {
-    throw new Error("Forbidden: WorkOS membership");
-  }
-  const brokerage = await ctx.db
-    .query("brokerages")
-    .withIndex("by_workos_organization", (q) =>
-      q.eq("workosOrganizationId", workosOrganizationId)
-    )
-    .unique();
-  if (!brokerage) {
-    throw new Error("Forbidden: brokerage");
-  }
-  const roles = normalizeRoleSlugs(viewer.roles ?? membership?.roleSlugs ?? []);
-  return { brokerage, roles, subject };
-}
+export { resolveBrokerageScopeOrThrow } from "../contractor_identity_scope";

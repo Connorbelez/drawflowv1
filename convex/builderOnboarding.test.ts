@@ -1171,6 +1171,206 @@ describe("new builder onboarding", () => {
     );
   });
 
+  test("invite and attach onboarding modes produce the same active domain state", async () => {
+    const { broker } = await bootstrappedBroker();
+    const invited = await broker.action(
+      (api as any).brokerageProvisioning.provisionNewBuilder,
+      {
+        displayName: "Invited Mode Builders",
+        ownerEmail: "invited-mode@example.com",
+      },
+    );
+    const attached = await broker.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        displayName: "Attached Mode Builders",
+        ownerWorkosUserId: "user_attached_mode_owner",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+
+    const state = await broker.run(async (ctx: any) => {
+      const read = async (builderProfileId: string) => ({
+        assignment: await ctx.db
+          .query("builderBrokerAssignments")
+          .withIndex(
+            "by_builderProfileId_and_status_and_effectiveAt",
+            (q: any) =>
+              q.eq("builderProfileId", builderProfileId).eq("status", "active"),
+          )
+          .unique(),
+        link: await ctx.db
+          .query("builderAccountLinks")
+          .withIndex("by_user", (q: any) =>
+            q.eq(
+              "workosUserId",
+              builderProfileId === invited.builderProfileId
+                ? invited.ownerWorkosUserId
+                : "user_attached_mode_owner",
+            ),
+          )
+          .unique(),
+        profile: await ctx.db.get(builderProfileId),
+      });
+      return {
+        attached: await read(attached.builderProfileId),
+        invited: await read(invited.builderProfileId),
+      };
+    });
+
+    expect(state.invited.profile).toMatchObject({ status: "active" });
+    expect(state.attached.profile).toMatchObject({ status: "active" });
+    expect(state.invited.link).toMatchObject({ role: "owner", status: "active" });
+    expect(state.attached.link).toMatchObject({ role: "owner", status: "active" });
+    expect(state.invited.assignment).toMatchObject({
+      assignedBrokerWorkosUserId: PRINCIPAL_BROKER,
+      status: "active",
+    });
+    expect(state.attached.assignment).toMatchObject({
+      assignedBrokerWorkosUserId: PRINCIPAL_BROKER,
+      status: "active",
+    });
+
+    const onboardingAudits = await broker.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_organizationId_and_createdAt", (q: any) =>
+          q.eq("organizationId", FAIRLEND_ORG),
+        )
+        .filter((q: any) => q.eq(q.field("eventType"), "builder.onboarding.completed"))
+        .collect(),
+    );
+    expect(onboardingAudits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: "completeBuilderOnboarding",
+          entityType: "builderProfile",
+        }),
+      ]),
+    );
+    expect(
+      onboardingAudits.some((audit: any) =>
+        audit.newState.includes('"mode":"invite_new_owner"'),
+      ),
+    ).toBe(true);
+    expect(
+      onboardingAudits.some((audit: any) =>
+        audit.newState.includes('"mode":"attach_existing_owner"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("principal resolution reports the failed WorkOS projection predicate", async () => {
+    const cases = [
+      { reason: "membership_inactive", status: "inactive" },
+      { reason: "membership_pending", status: "pending" },
+      { reason: "membership_deleted", status: "deleted" },
+    ] as const;
+
+    for (const [index, testCase] of cases.entries()) {
+      const { base, broker } = await bootstrappedBroker();
+      const admin = asRole(base, ["admin"], "user_admin");
+      await broker.run(async (ctx: any) => {
+        const membership = await ctx.db
+          .query("workosOrganizationMemberships")
+          .withIndex("by_user", (q: any) => q.eq("workosUserId", PRINCIPAL_BROKER))
+          .unique();
+        await ctx.db.patch(membership._id, { status: testCase.status });
+      });
+      await expect(
+        admin.mutation(
+          (api as any).brokerageProvisioning.provisionBuilderProfile,
+          {
+            displayName: `Inactive Principal ${index}`,
+            ownerWorkosUserId: `user_inactive_principal_owner_${index}`,
+            workosOrganizationId: FAIRLEND_ORG,
+          },
+        ),
+      ).rejects.toThrow(new RegExp(testCase.reason));
+    }
+
+    const identityCases = [
+      { reason: "role_ineligible", patch: { roleSlug: "member", roleSlugs: ["member"] } },
+      { reason: "user_inactive", patch: { status: "deleted" } },
+      { reason: "email_mismatch", patch: { email: "different@example.com" } },
+      { reason: "email_unverified", patch: { emailVerified: false } },
+    ] as const;
+    for (const [index, testCase] of identityCases.entries()) {
+      const { base, broker } = await bootstrappedBroker();
+      const admin = asRole(base, ["admin"], "user_admin");
+      await broker.run(async (ctx: any) => {
+        if (testCase.reason === "role_ineligible") {
+          const membership = await ctx.db
+            .query("workosOrganizationMemberships")
+            .withIndex("by_user", (q: any) => q.eq("workosUserId", PRINCIPAL_BROKER))
+            .unique();
+          await ctx.db.patch(membership._id, testCase.patch);
+          return;
+        }
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_workos_user_id", (q: any) => q.eq("workosUserId", PRINCIPAL_BROKER))
+          .unique();
+        await ctx.db.patch(user._id, testCase.patch);
+      });
+      await expect(
+        admin.mutation(
+          (api as any).brokerageProvisioning.provisionBuilderProfile,
+          {
+            displayName: `Invalid Principal ${index}`,
+            ownerWorkosUserId: `user_invalid_principal_owner_${index}`,
+            workosOrganizationId: FAIRLEND_ORG,
+          },
+        ),
+      ).rejects.toThrow(new RegExp(testCase.reason));
+    }
+
+    const { base: missingUserBase, broker: missingUserBroker } =
+      await bootstrappedBroker();
+    const missingUserAdmin = asRole(missingUserBase, ["admin"], "user_admin");
+    await missingUserBroker.run(async (ctx: any) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (q: any) =>
+          q.eq("workosUserId", PRINCIPAL_BROKER),
+        )
+        .unique();
+      await ctx.db.delete(user._id);
+    });
+    await expect(
+      missingUserAdmin.mutation(
+        (api as any).brokerageProvisioning.provisionBuilderProfile,
+        {
+          displayName: "Missing Principal User Builders",
+          ownerWorkosUserId: "user_missing_principal_owner",
+          workosOrganizationId: FAIRLEND_ORG,
+        },
+      ),
+    ).rejects.toThrow(/user_missing/);
+
+    const { base: aliasBase, broker: aliasBroker } = await bootstrappedBroker();
+    const aliasAdmin = asRole(aliasBase, ["admin"], "user_admin");
+    await aliasBroker.run(async (ctx: any) => {
+      const membership = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user", (q: any) => q.eq("workosUserId", PRINCIPAL_BROKER))
+        .unique();
+      await ctx.db.patch(membership._id, {
+        roleSlug: "principal-broker",
+        roleSlugs: ["principal-broker"],
+      });
+    });
+    const aliasResult = await aliasAdmin.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        displayName: "Principal Role Alias Builders",
+        ownerWorkosUserId: "user_principal_role_alias_owner",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+    expect(aliasResult.builderProfileId).toBeTruthy();
+  });
+
   test("principal resolution fails closed when duplicate active broker accounts share the configured email", async () => {
     const base = convexTest(schema, modules);
     const admin = asRole(base, ["admin"], "user_admin");

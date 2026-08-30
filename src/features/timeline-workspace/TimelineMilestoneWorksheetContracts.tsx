@@ -373,7 +373,9 @@ export function withDerivedSubMilestoneRollups(
 
   return {
     ...row,
-    ...(includeBudget ? { budgetText: formatCurrency(totalBudgetCents) } : {}),
+    ...(includeBudget
+      ? { budgetText: formatWorksheetCurrency(totalBudgetCents) }
+      : {}),
     ...(scheduleRange
       ? {
           durationDays: scheduleRange.durationDays,
@@ -606,67 +608,379 @@ export function cascadeBudgetEdit({
   rowKey: string;
   rows: TimelineMilestoneWorksheetRow[];
   targetBudgetCents: number;
-}) {
-  const editedIndex = rows.findIndex((row) => row.key === rowKey);
-  const roundedTargetBudgetCents = Math.round(targetBudgetCents);
-  if (editedIndex < 0 || roundedTargetBudgetCents <= 0) {
-    return rows;
+}): CascadeBudgetEditResult {
+  const positions = rows.flatMap((row, rowIndex) =>
+    row.excluded
+      ? []
+      : [
+          {
+            budgetCents: rowBudgetCents(row),
+            key: row.key,
+            rowIndex,
+          },
+        ]
+  );
+  const allocation = applyFixedTotalBudgetEdit({
+    editedKey: rowKey,
+    nextBudgetCents,
+    positions,
+    targetBudgetCents,
+  });
+  if (allocation.status === "rejected") {
+    return allocation;
   }
 
-  const precedingBudgetCents = rows
-    .slice(0, editedIndex)
-    .filter((row) => !row.excluded)
-    .reduce((sum, row) => {
-      const budget = rowBudgetCents(row);
-      return sum + (Number.isFinite(budget) ? budget : 0);
-    }, 0);
-  const maxEditedBudgetCents = Math.max(
-    0,
-    roundedTargetBudgetCents - precedingBudgetCents
+  const budgetByRowKey = new Map(
+    allocation.positions.map((position) => [position.key, position.budgetCents])
   );
-  const editedBudgetCents = Math.min(
-    Math.max(0, Math.round(nextBudgetCents)),
-    maxEditedBudgetCents
+  const changedRows = rows.map((row) => {
+    const nextBudget = budgetByRowKey.get(row.key);
+    if (nextBudget === undefined || nextBudget === rowBudgetCents(row)) {
+      return row;
+    }
+    if (row.subMilestoneDetails.length === 0) {
+      return { ...row, budgetText: formatWorksheetCurrency(nextBudget) };
+    }
+
+    const childBudgets = row.subMilestoneDetails.map((subMilestone) => {
+      const parsed = parseCurrencyToCents(subMilestone.budgetText);
+      return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+    });
+    const childAllocations = allocateWeightedCents({
+      fallbackWeights: childBudgets,
+      preferredWeights: childBudgets,
+      totalCents: nextBudget,
+    });
+    return withDerivedSubMilestoneRollups(
+      withSubMilestoneDetails(
+        row,
+        row.subMilestoneDetails.map((subMilestone, index) => ({
+          ...subMilestone,
+          budgetText: formatWorksheetCurrency(childAllocations[index] ?? 0),
+        }))
+      ),
+      { includeBudget: true }
+    );
+  });
+
+  return {
+    rows: withExactWorksheetBudgetPercentages(changedRows),
+    status: "applied",
+  };
+}
+
+export type CascadeBudgetEditRejection =
+  | "baselineTotalMismatch"
+  | "insufficientDownstreamCapacity"
+  | "invalidBudget"
+  | "invalidTargetBudget"
+  | "noDownstreamAllocation";
+
+export type CascadeBudgetEditResult =
+  | { rows: TimelineMilestoneWorksheetRow[]; status: "applied" }
+  | {
+      message: string;
+      reason: CascadeBudgetEditRejection;
+      status: "rejected";
+    };
+
+interface FixedTotalBudgetPosition {
+  budgetCents: number;
+  key: string;
+  rowIndex: number;
+  subMilestoneIndex?: number;
+}
+
+type FixedTotalBudgetEditResult =
+  | { positions: FixedTotalBudgetPosition[]; status: "applied" }
+  | Extract<CascadeBudgetEditResult, { status: "rejected" }>;
+
+function applyFixedTotalBudgetEdit({
+  editedKey,
+  nextBudgetCents,
+  positions,
+  targetBudgetCents,
+}: {
+  editedKey: string;
+  nextBudgetCents: number;
+  positions: FixedTotalBudgetPosition[];
+  targetBudgetCents: number;
+}): FixedTotalBudgetEditResult {
+  const roundedTargetBudgetCents = Math.round(targetBudgetCents);
+  if (!(Number.isFinite(targetBudgetCents) && roundedTargetBudgetCents > 0)) {
+    return {
+      message: "Cascade needs a positive configured total budget.",
+      reason: "invalidTargetBudget",
+      status: "rejected",
+    };
+  }
+  if (!(Number.isFinite(nextBudgetCents) && nextBudgetCents >= 0)) {
+    return {
+      message: "Enter a valid non-negative budget.",
+      reason: "invalidBudget",
+      status: "rejected",
+    };
+  }
+  if (
+    positions.some(
+      (position) =>
+        !Number.isFinite(position.budgetCents) || position.budgetCents < 0
+    )
+  ) {
+    return {
+      message: "Cascade cannot run while the worksheet contains an invalid budget.",
+      reason: "invalidBudget",
+      status: "rejected",
+    };
+  }
+
+  const baselineTotalBudgetCents = positions.reduce(
+    (sum, position) => sum + Math.round(position.budgetCents),
+    0
   );
-  const downstreamTargetBudgetCents = Math.max(
-    0,
-    roundedTargetBudgetCents - precedingBudgetCents - editedBudgetCents
+  if (baselineTotalBudgetCents !== roundedTargetBudgetCents) {
+    return {
+      message: `Cascade needs the worksheet total to match ${formatWorksheetCurrency(
+        roundedTargetBudgetCents
+      )} before editing.`,
+      reason: "baselineTotalMismatch",
+      status: "rejected",
+    };
+  }
+
+  const editedIndex = positions.findIndex(
+    (position) => position.key === editedKey
   );
-  const downstreamIndexes = rows
-    .map((row, index) => ({ index, row }))
-    .filter(({ index, row }) => index > editedIndex && !row.excluded)
-    .map(({ index }) => index);
-  const downstreamAllocations = allocateWeightedCents({
-    fallbackWeights: downstreamIndexes.map((index) => {
-      const row = rows[index];
-      const budget = row ? rowBudgetCents(row) : Number.NaN;
-      return Number.isFinite(budget) ? budget : 0;
+  const editedPosition = positions[editedIndex];
+  if (!editedPosition) {
+    return {
+      message: "The selected budget is not available for Cascade.",
+      reason: "invalidBudget",
+      status: "rejected",
+    };
+  }
+
+  const roundedNextBudgetCents = Math.round(nextBudgetCents);
+  const budgetDeltaCents =
+    roundedNextBudgetCents - Math.round(editedPosition.budgetCents);
+  if (budgetDeltaCents === 0) {
+    return { positions, status: "applied" };
+  }
+
+  const downstreamPositions = positions.slice(editedIndex + 1);
+  if (downstreamPositions.length === 0) {
+    return {
+      message:
+        "Cascade cannot change the final budget because no downstream allocation can absorb the difference.",
+      reason: "noDownstreamAllocation",
+      status: "rejected",
+    };
+  }
+  const downstreamCapacity = downstreamPositions.reduce(
+    (sum, position) => sum + Math.round(position.budgetCents),
+    0
+  );
+  if (budgetDeltaCents > downstreamCapacity) {
+    return {
+      message: `Cascade cannot increase this budget by ${formatWorksheetCurrency(
+        budgetDeltaCents
+      )}; downstream allocations have only ${formatWorksheetCurrency(
+        downstreamCapacity
+      )} available.`,
+      reason: "insufficientDownstreamCapacity",
+      status: "rejected",
+    };
+  }
+
+  const downstreamWeights = downstreamPositions.map((position) =>
+    Math.round(position.budgetCents)
+  );
+  const inverseDeltaAllocations = allocateWeightedCents({
+    fallbackWeights: downstreamWeights,
+    preferredWeights: downstreamWeights,
+    totalCents: Math.abs(budgetDeltaCents),
+  });
+  const nextDownstreamBudgets = downstreamPositions.map((position, index) =>
+    budgetDeltaCents > 0
+      ? Math.round(position.budgetCents) -
+        (inverseDeltaAllocations[index] ?? 0)
+      : Math.round(position.budgetCents) +
+        (inverseDeltaAllocations[index] ?? 0)
+  );
+  if (nextDownstreamBudgets.some((budget) => budget < 0)) {
+    return {
+      message:
+        "Cascade cannot apply this increase without making a downstream budget negative.",
+      reason: "insufficientDownstreamCapacity",
+      status: "rejected",
+    };
+  }
+
+  return {
+    positions: positions.map((position, index) => {
+      if (index === editedIndex) {
+        return { ...position, budgetCents: roundedNextBudgetCents };
+      }
+      if (index > editedIndex) {
+        return {
+          ...position,
+          budgetCents: nextDownstreamBudgets[index - editedIndex - 1] ?? 0,
+        };
+      }
+      return position;
     }),
-    preferredWeights: downstreamIndexes.map(
-      (index) => rows[index]?.percentageBps ?? 0
-    ),
-    totalCents: downstreamTargetBudgetCents,
+    status: "applied",
+  };
+}
+
+export function cascadeSubMilestoneBudgetEdit({
+  nextBudgetCents,
+  rowKey,
+  rows,
+  subMilestoneId,
+  targetBudgetCents,
+}: {
+  nextBudgetCents: number;
+  rowKey: string;
+  rows: TimelineMilestoneWorksheetRow[];
+  subMilestoneId: string;
+  targetBudgetCents: number;
+}): CascadeBudgetEditResult {
+  const positions = rows.flatMap((row, rowIndex) => {
+    if (row.excluded) {
+      return [];
+    }
+    if (row.subMilestoneDetails.length === 0) {
+      return [
+        {
+          budgetCents: rowBudgetCents(row),
+          key: `milestone:${row.key}`,
+          rowIndex,
+        },
+      ];
+    }
+    return row.subMilestoneDetails.map((subMilestone, subMilestoneIndex) => ({
+      budgetCents: parseCurrencyToCents(subMilestone.budgetText),
+      key: `subMilestone:${row.key}:${subMilestone.id}`,
+      rowIndex,
+      subMilestoneIndex,
+    }));
   });
-  const nextRows = rows.map((row, index) => {
-    if (index === editedIndex) {
+  const allocation = applyFixedTotalBudgetEdit({
+    editedKey: `subMilestone:${rowKey}:${subMilestoneId}`,
+    nextBudgetCents,
+    positions,
+    targetBudgetCents,
+  });
+  if (allocation.status === "rejected") {
+    return allocation;
+  }
+
+  const budgetByPositionKey = new Map(
+    allocation.positions.map((position) => [position.key, position.budgetCents])
+  );
+  const nextRows = rows.map((row) => {
+    const milestoneBudget = budgetByPositionKey.get(`milestone:${row.key}`);
+    if (milestoneBudget !== undefined) {
+      return milestoneBudget === rowBudgetCents(row)
+        ? row
+        : { ...row, budgetText: formatWorksheetCurrency(milestoneBudget) };
+    }
+    if (row.subMilestoneDetails.length === 0) {
+      return row;
+    }
+
+    let changed = false;
+    const subMilestoneDetails = row.subMilestoneDetails.map((subMilestone) => {
+      const nextBudget = budgetByPositionKey.get(
+        `subMilestone:${row.key}:${subMilestone.id}`
+      );
+      if (
+        nextBudget === undefined ||
+        nextBudget === parseCurrencyToCents(subMilestone.budgetText)
+      ) {
+        return subMilestone;
+      }
+      changed = true;
+      return {
+        ...subMilestone,
+        budgetText: formatWorksheetCurrency(nextBudget),
+      };
+    });
+    return changed
+      ? withDerivedSubMilestoneRollups(
+          withSubMilestoneDetails(row, subMilestoneDetails),
+          { includeBudget: true }
+        )
+      : row;
+  });
+
+  return {
+    rows: withExactWorksheetBudgetPercentages(nextRows),
+    status: "applied",
+  };
+}
+
+function withExactWorksheetBudgetPercentages(
+  rows: TimelineMilestoneWorksheetRow[]
+) {
+  const includedRows = rows.filter((row) => !row.excluded);
+  const rowBudgets = includedRows.map((row) => rowBudgetCents(row));
+  const rowPercentages = allocateWeightedUnits({
+    fallbackWeights: rowBudgets,
+    preferredWeights: rowBudgets,
+    totalUnits: TOTAL_COMPLETION_BPS,
+  });
+  let includedIndex = 0;
+
+  return rows.map((row) => {
+    if (row.excluded) {
+      return row;
+    }
+    const percentageBps = rowPercentages[includedIndex] ?? 0;
+    includedIndex += 1;
+    if (row.subMilestoneDetails.length === 0) {
       return {
         ...row,
-        budgetText: formatCurrency(editedBudgetCents),
+        percentageBps,
+        percentageText: formatBps(percentageBps),
       };
     }
 
-    const downstreamIndex = downstreamIndexes.indexOf(index);
-    if (downstreamIndex >= 0) {
-      return {
-        ...row,
-        budgetText: formatCurrency(downstreamAllocations[downstreamIndex] ?? 0),
-      };
-    }
-
-    return row;
+    const childBudgets = row.subMilestoneDetails.map((subMilestone) =>
+      parseCurrencyToCents(subMilestone.budgetText)
+    );
+    const childPercentages = allocateWeightedUnits({
+      fallbackWeights: childBudgets,
+      preferredWeights: childBudgets,
+      totalUnits: percentageBps,
+    });
+    return {
+      ...row,
+      percentageBps,
+      percentageText: formatBps(percentageBps),
+      subMilestoneDetails: row.subMilestoneDetails.map(
+        (subMilestone, index) => ({
+          ...subMilestone,
+          percentageBps: childPercentages[index] ?? 0,
+          percentageText: formatBps(childPercentages[index] ?? 0),
+        })
+      ),
+    };
   });
+}
 
-  return withBudgetPercentages(nextRows, roundedTargetBudgetCents);
+export function formatWorksheetCurrency(cents: number) {
+  const roundedCents = Math.round(cents);
+  if (roundedCents % 100 === 0) {
+    return formatCurrency(roundedCents);
+  }
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(roundedCents / 100);
 }
 
 export function allocateWeightedCents({

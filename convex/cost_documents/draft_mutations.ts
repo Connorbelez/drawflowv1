@@ -1,91 +1,62 @@
 import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "../activeBuildAccess";
+import { authenticatedMutation } from "../authz";
 import {
-  authenticatedMutation,
-  authenticatedQuery,
-} from "../authz";
-import { isCleanCollaborationAsset } from "../build_collaboration_asset_access";
-import {
-  abandonUnpublishedCostDocumentDraftAsset,
-} from "../build_collaboration_assets";
-import { normalizeCostDocumentWorkingStateJson } from "../cost_document_working_state";
-import { assertOrganizationRetentionWritable } from "../data_retention";
-import type { Doc, Id, MutationCtx, QueryCtx } from "../types";
-import {
-  MAX_ALLOCATIONS,
-  MAX_BATCH_DRAFTS,
-  MAX_FINANCIAL_COMPONENTS,
-  MAX_PAGES,
-  activeBuildScopeFields,
-  costDocumentActorCapacityFields,
-  costDocumentBatchProjectionValidator,
-  costDocumentCategoryValidator,
-  costDocumentDraftPageProjectionValidator,
-  costDocumentDraftStepValidator,
-  costDocumentFinancialComponentInputValidator,
-  costDocumentKindValidator,
-  type CostDocumentActorCapacity,
-  requiredIdempotencyKey,
-  optionalIdempotencyKey,
-  optionalDraftText,
-  optionalText,
-  nonNegativeCents,
-  requiredDocumentDate,
-  positiveCents,
-} from "./contracts";
-import {
+  assertCurrentCostDocumentAllocationScope,
   assertExpectedCostDocumentBatchRevision,
   assertExpectedCostDocumentDraftRevision,
   authorizeCostDocumentIntent,
+  currentCostDocumentBatchCreatorCapacity,
   currentCostDocumentBatchRevision,
   currentCostDocumentDraftRevision,
-  currentCostDocumentBatchCreatorCapacity,
-  requireCostDocumentBatchCreator,
   requireCostDocumentDraftAccess,
-  requireCostDocumentDraftCreator,
   requireCurrentContractorCostDocumentScope,
-  assertCurrentCostDocumentAllocationScope,
 } from "../cost_document_access";
-import {
-  authorizeCostDocumentBuilder,
-  requireActiveCostDocumentVendorProfile,
-} from "./vendor";
-import {
-  listBatchDrafts,
-  projectCostDocumentBatch,
-  projectCostDocumentDraft,
-  requiredDraftFacts,
-  currentDraftPages,
-  currentDraftAllocations,
-  currentDraftFinancialComponents,
-  replaceDraftAllocations,
-  replaceDraftFinancialComponents,
-  validateDraftAllocations,
-  validateFinancialComponents,
-  validateDraftCapture,
-  validateDraftBalance,
-  validateCompleteDraft,
-  replaceDraftPages,
-  requireAvailableDraftSourcePages,
-  hasCostDocumentDraftSourceAuthority,
-  consumeDraftPageSessions,
-  retireReplacedDraftAssets,
-} from "./draft_state";
-import { validateCostDocumentDraftStepTransition } from "./submission_support";
-import { costDocumentDraftLifecycleState } from "./projections";
+import { normalizeCostDocumentWorkingStateJson } from "../cost_document_working_state";
+import type { Doc, Id, MutationCtx } from "../types";
 import {
   recordCostDocumentBatchAudit,
   recordCostDocumentDraftAudit,
-} from "./submission";
+} from "./audit";
 import {
-  requireCostDocumentBatchOwner,
-  findLegacyActiveCostDocumentBatch,
+  activeBuildScopeFields,
+  costDocumentActorCapacityFields,
+  costDocumentCategoryValidator,
+  costDocumentDraftStepValidator,
+  costDocumentFinancialComponentInputValidator,
+  costDocumentKindValidator,
+  MAX_BATCH_DRAFTS,
+  MAX_PAGES,
+  nonNegativeCents,
+  optionalDraftText,
+  optionalIdempotencyKey,
+  optionalText,
+  requiredDocumentDate,
+} from "./contracts";
+import {
+  consumeDraftPageSessions,
+  currentDraftPages,
+  listBatchDrafts,
+  replaceDraftAllocations,
+  replaceDraftFinancialComponents,
+  replaceDraftPages,
+  requireAvailableDraftSourcePages,
+  retireReplacedDraftAssets,
+  validateDraftAllocations,
+  validateFinancialComponents,
+} from "./draft_state";
+import { costDocumentDraftLifecycleState } from "./projections";
+import {
   assertBatchOwnership,
   assertDraftOwnershipScope,
-  assertDraftPageScope,
   assertDraftPageMutationAllowed,
+  assertDraftPageScope,
+  findLegacyActiveCostDocumentBatch,
+  requireCostDocumentBatchOwner,
+  validateCostDocumentDraftStepTransition,
 } from "./submission_support";
+import { requireActiveCostDocumentVendorProfile } from "./vendor";
 export const createCostDocumentBatch = authenticatedMutation
   .input({
     ...activeBuildScopeFields,
@@ -93,7 +64,10 @@ export const createCostDocumentBatch = authenticatedMutation
   })
   .returns(v.id("costDocumentBatches"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "create",
+    });
     const contractorProfileId =
       authorization.effectiveRole.role === "contractor"
         ? (
