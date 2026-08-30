@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { getFunctionName } from "convex/server";
 import type * as React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -16,7 +15,6 @@ const requestFacilityChange = vi.fn();
 const requestBudgetRevision = vi.fn();
 const sendContractorInvite = vi.fn();
 const submitMilestoneCompletion = vi.fn();
-const submitCostDocument = vi.fn();
 const uploadCostDocumentAssets = vi.fn();
 const getAccessToken = vi.fn();
 
@@ -697,6 +695,7 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
     useQuery.mockReset();
     useQuery
       .mockReturnValueOnce(null)
+      .mockReturnValueOnce({})
       .mockReturnValueOnce({})
       .mockReturnValueOnce({})
       .mockReturnValueOnce({

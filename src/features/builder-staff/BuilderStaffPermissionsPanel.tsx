@@ -1,7 +1,15 @@
 "use client";
 
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Loader2, Mail, Save, Trash2, UserPlus } from "lucide-react";
+import {
+  Link2,
+  Loader2,
+  Mail,
+  Save,
+  Trash2,
+  UserPlus,
+  UsersRound,
+} from "lucide-react";
 import type * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -80,8 +88,19 @@ export type StaffDirectory = {
   staff: StaffMember[];
 };
 
-type BuilderStaffPermissionsPanelProps = (
+type BuilderStaffPermissionsPanelProps = {
+  fixtureDirectory?: StaffDirectory;
+  initialSelectedWorkosUserId?: string;
+} & (
   | {
+      builderAssignmentState: "assigned";
+      proposalId: Id<"buildProposals">;
+      scope: "proposal";
+      workosOrganizationId: string;
+    }
+  | {
+      builderAssignmentState: "unassigned";
+      onOpenBuilderAssignment: () => void;
       proposalId: Id<"buildProposals">;
       scope: "proposal";
       workosOrganizationId: string;
@@ -91,10 +110,7 @@ type BuilderStaffPermissionsPanelProps = (
       scope: "activeBuild";
       workosOrganizationId: string;
     }
-) & {
-  fixtureDirectory?: StaffDirectory;
-  initialSelectedWorkosUserId?: string;
-};
+);
 
 const ACTIONS: Array<{
   field: PermissionField;
@@ -134,7 +150,9 @@ export function BuilderStaffPermissionsPanel(
     props.scope === "proposal"
       ? api.production_proposals.listProposalBuilderStaffPermissions
       : api.production_proposals.listActiveBuildBuilderStaffPermissions,
-    props.fixtureDirectory
+    props.fixtureDirectory ||
+      (props.scope === "proposal" &&
+        props.builderAssignmentState === "unassigned")
       ? "skip"
       : props.scope === "proposal"
         ? {
@@ -213,6 +231,40 @@ export function BuilderStaffPermissionsPanel(
       ? draftPermissions[selectedMember.workosUserId]
       : [];
   const resources = directory?.resources ?? Object.keys(RESOURCE_LABELS);
+
+  if (
+    props.scope === "proposal" &&
+    props.builderAssignmentState === "unassigned"
+  ) {
+    return (
+      <Frame className="w-full min-w-0">
+        <FramePanel className="grid min-h-64 place-items-center p-6 sm:p-8">
+          <div className="grid max-w-xl justify-items-center gap-4 text-center">
+            <div className="grid size-12 place-items-center rounded-full bg-muted text-muted-foreground">
+              <UsersRound aria-hidden className="size-5" />
+            </div>
+            <div className="grid gap-1.5">
+              <h2 className="text-balance font-semibold text-lg tracking-tight">
+                Link a Builder to manage staff
+              </h2>
+              <p className="text-pretty text-muted-foreground text-sm leading-relaxed">
+                Staff permissions become available after this proposal is linked
+                to a Builder. Link an existing Builder or onboard a new one in
+                Parties &amp; assignment.
+              </p>
+            </div>
+            <Button
+              className="h-11 px-4"
+              onClick={props.onOpenBuilderAssignment}
+            >
+              <Link2 aria-hidden />
+              Assign or link Builder
+            </Button>
+          </div>
+        </FramePanel>
+      </Frame>
+    );
+  }
 
   if (!directory) {
     return (

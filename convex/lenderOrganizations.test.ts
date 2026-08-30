@@ -764,7 +764,7 @@ describe("app-owned lender organization control plane", () => {
         internal.authzTest.requireLenderOrganizationQuery,
         { permission: "draw_decisions" },
       ),
-    ).rejects.toThrow(/final lender decision authority/);
+    ).rejects.toThrow(/member decision permission/);
     await asAdmin(t).mutation(api.lenderOrganizations.updateLenderOrganizationPermissions, {
       lenderOrganizationId: seed.lenderOrganizationId,
       permissions: {
@@ -974,10 +974,18 @@ describe("app-owned lender organization control plane", () => {
   test("manages shared WorkOS lender membership without optimistic projection writes", async () => {
     const t = convexTest(schema, modules);
     const seed = await seedControlPlane(t);
-    await asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+    const assignmentId = await asAdmin(t).mutation(
+      api.lenderOrganizations.assignLenderUser,
+      {
       lenderOrganizationId: seed.lenderOrganizationId,
       reason: "Attach the member for WorkOS command tests.",
       workosUserId: "user_lender",
+      },
+    );
+    await asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+      lenderOrganizationId: seed.lenderOrganizationId,
+      reason: "Keep a second active Lender Admin during deactivation.",
+      workosUserId: "user_admin",
     });
 
     const membershipBefore = await t.run(async (ctx) =>
@@ -1000,17 +1008,26 @@ describe("app-owned lender organization control plane", () => {
       status: "accepted",
       sync: "waiting-for-webhook",
     });
-    await expect(
-      asAdmin(t).action(api.workosManagement.deactivateSharedLenderMembership, {
-        lenderOrganizationId: seed.lenderOrganizationId,
-        membershipId: "om_user_lender",
+    const deactivationResult = await asAdmin(t).action(
+      api.workosManagement.deactivateSharedLenderMembership,
+      {
+        assignmentId,
+        idempotencyKey: "deactivate-user-lender-test",
         reason: "Remove the lender from the shared directory.",
-      }),
-    ).resolves.toMatchObject({
-      operation: "deactivateMembership",
+      },
+    );
+    expect(deactivationResult).toMatchObject({
+      operation: "deactivateSharedLenderMembership",
       status: "accepted",
       sync: "waiting-for-webhook",
     });
+    await expect(
+      asAdmin(t).action(api.workosManagement.deactivateSharedLenderMembership, {
+        assignmentId,
+        idempotencyKey: "deactivate-user-lender-test",
+        reason: "Remove the lender from the shared directory.",
+      }),
+    ).resolves.toEqual(deactivationResult);
 
     const membershipAfter = await t.run(async (ctx) =>
       ctx.db
@@ -1024,8 +1041,7 @@ describe("app-owned lender organization control plane", () => {
       roleSlugs: membershipBefore?.roleSlugs,
       status: membershipBefore?.status,
     });
-    expect(
-      await t.run(async (ctx) =>
+    const membershipAudit = await t.run(async (ctx) =>
         ctx.db
           .query("auditEvents")
           .withIndex("by_entity", (query) =>
@@ -1034,8 +1050,8 @@ describe("app-owned lender organization control plane", () => {
               .eq("entityId", "om_user_lender"),
           )
           .collect(),
-      ),
-    ).toEqual(
+      );
+    expect(membershipAudit).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           lenderOrganizationId: seed.lenderOrganizationId,
@@ -1047,6 +1063,35 @@ describe("app-owned lender organization control plane", () => {
         }),
       ]),
     );
+    expect(
+      membershipAudit.filter(
+        (event) =>
+          event.eventType === "workos.lender_membership.deactivation.accepted",
+      ),
+    ).toHaveLength(1);
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      id: "membership_deleted_after_lender_deactivation",
+      event: "organization_membership.deleted",
+      created_at: "2026-08-25T22:00:00.000Z",
+      data: { id: "om_user_lender" },
+    });
+    expect(await t.run((ctx) => ctx.db.get(assignmentId))).toMatchObject({
+      status: "inactive",
+      deactivation: {
+        idempotencyKey: "deactivate-user-lender-test",
+        state: "reconciled",
+      },
+      unassignedByWorkosUserId: "user_admin",
+    });
+    expect(
+      await t.run((ctx) =>
+        listActiveLenderOrganizationMembers(ctx, seed.lenderOrganizationId),
+      ),
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ workosUserId: "user_lender" }),
+      ]),
+    );
     await expect(
       asAdmin(t).action(api.workosManagement.updateSharedLenderMembershipRoles, {
         lenderOrganizationId: seed.foreignLenderOrganizationId,
@@ -1054,7 +1099,7 @@ describe("app-owned lender organization control plane", () => {
         reason: "Cross-organization target should be rejected.",
         roleSlug: "lender",
       }),
-    ).rejects.toThrow(/assignment scope/);
+    ).rejects.toThrow(/membership scope|assignment scope/);
   });
 
   test("projects exact scoped WorkOS membership reconciliation state", async () => {
@@ -1124,5 +1169,529 @@ describe("app-owned lender organization control plane", () => {
         },
       ),
     ).rejects.toThrow(/assignment scope/);
+  });
+
+  test("backfills every legacy member grant once with role and status defaults", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const assignmentIds = await t.run(async (ctx) => {
+      const now = Date.now();
+      const activeLender = await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: now,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: seed.brokerageId,
+        lenderOrganizationId: seed.lenderOrganizationId,
+        normalizedEmail: "user_lender@example.com",
+        reason: "Legacy active Lender assignment.",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_lender",
+      });
+      const activeStaff = await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: now,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: seed.brokerageId,
+        lenderOrganizationId: seed.lenderOrganizationId,
+        normalizedEmail: "user_staff@example.com",
+        reason: "Legacy active Lender Staff assignment.",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_staff",
+      });
+      const pending = await ctx.db.insert("lenderOrganizationAssignments", {
+        assignedAt: now,
+        assignedByRole: "admin",
+        assignedByWorkosUserId: "user_admin",
+        brokerageId: seed.brokerageId,
+        lenderOrganizationId: seed.lenderOrganizationId,
+        normalizedEmail: "pending@example.com",
+        reason: "Legacy pending assignment.",
+        status: "pending",
+        updatedAt: now,
+      });
+      return { activeLender, activeStaff, pending };
+    });
+
+    await expect(
+      asAdmin(t).query(
+        api.lenderOrganizations.getLenderMemberDecisionPermissionMigrationCoverage,
+        {},
+      ),
+    ).resolves.toEqual({ complete: false, covered: 0, remaining: 3, total: 3 });
+
+    for (let pass = 0; pass < 2; pass += 1) {
+      let cursor: string | null = null;
+      let isDone = false;
+      while (!isDone) {
+        const result: { continueCursor: string; isDone: boolean } =
+          await t.mutation(
+            internal.migrations.backfillLenderMemberDecisionPermissions,
+            {
+              batchSize: 2,
+              cursor,
+              dryRun: false,
+              oneBatchOnly: true,
+            },
+          );
+        cursor = result.continueCursor;
+        isDone = result.isDone;
+      }
+    }
+
+    await expect(
+      asAdmin(t).query(
+        api.lenderOrganizations.getLenderMemberDecisionPermissionMigrationCoverage,
+        {},
+      ),
+    ).resolves.toEqual({ complete: true, covered: 3, remaining: 0, total: 3 });
+    const assignments = await t.run(async (ctx) => ({
+      activeLender: await ctx.db.get(assignmentIds.activeLender),
+      activeStaff: await ctx.db.get(assignmentIds.activeStaff),
+      pending: await ctx.db.get(assignmentIds.pending),
+    }));
+    expect(assignments.activeLender).toMatchObject({
+      decisionPermissions: {
+        drawDecisions: true,
+        milestoneDecisions: true,
+        proposalReview: true,
+      },
+      decisionPermissionsVersion: 1,
+    });
+    for (const assignment of [assignments.activeStaff, assignments.pending]) {
+      expect(assignment).toMatchObject({
+        decisionPermissions: {
+          drawDecisions: false,
+          milestoneDecisions: false,
+          proposalReview: false,
+        },
+        decisionPermissionsVersion: 1,
+      });
+    }
+  });
+
+  test("rejects lender-admin self-deactivation and the last active administrator", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const assignmentId = await asAdmin(t).mutation(
+      api.lenderOrganizations.assignLenderUser,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Attach the only active Lender Admin.",
+        workosUserId: "user_lender",
+      },
+    );
+
+    await expect(
+      asLender(t).action(api.workosManagement.deactivateSharedLenderMembership, {
+        assignmentId,
+        idempotencyKey: "self-deactivate-lender-admin",
+        reason: "This self-deactivation must be rejected.",
+      }),
+    ).rejects.toThrow(/cannot deactivate your own/i);
+    await expect(
+      asAdmin(t).action(api.workosManagement.deactivateSharedLenderMembership, {
+        assignmentId,
+        idempotencyKey: "last-lender-admin-target",
+        reason: "This last-administrator operation must be rejected.",
+      }),
+    ).rejects.toThrow(/last active Lender Admin/i);
+  });
+
+  test("restores authority after a provider failure and retries the same lifecycle safely", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const assignmentId = await asAdmin(t).mutation(
+      api.lenderOrganizations.assignLenderUser,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Attach the member used by provider retry coverage.",
+        workosUserId: "user_lender",
+      },
+    );
+    await asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+      lenderOrganizationId: seed.lenderOrganizationId,
+      reason: "Keep another active Lender Admin during provider retry coverage.",
+      workosUserId: "user_admin",
+    });
+    const command = {
+      actorRoles: ["admin"],
+      actorWorkosUserId: "user_admin",
+      assignmentId,
+      idempotencyKey: "provider-failure-retry-key",
+      reason: "Exercise provider failure recovery without losing authority.",
+    };
+
+    await expect(
+      t.mutation(internal.lenderOrganizations.beginLenderMemberDeactivation, command),
+    ).resolves.toMatchObject({ state: "ready" });
+    await t.mutation(
+      internal.lenderOrganizations.markLenderMemberDeactivationFailed,
+      {
+        assignmentId,
+        error: "Provider unavailable",
+        idempotencyKey: command.idempotencyKey,
+      },
+    );
+    await expect(
+      t.run(async (ctx) =>
+        (await listActiveLenderOrganizationMembers(ctx, seed.lenderOrganizationId))
+          .map((member) => member.workosUserId),
+      ),
+    ).resolves.toContain("user_lender");
+
+    await expect(
+      t.mutation(internal.lenderOrganizations.beginLenderMemberDeactivation, command),
+    ).resolves.toMatchObject({ state: "ready" });
+    await t.mutation(
+      internal.lenderOrganizations.markLenderMemberDeactivationAccepted,
+      {
+        adapter: "fake",
+        assignmentId,
+        idempotencyKey: command.idempotencyKey,
+        workosId: "om_user_lender",
+      },
+    );
+    await expect(
+      t.run(async (ctx) =>
+        (await listActiveLenderOrganizationMembers(ctx, seed.lenderOrganizationId))
+          .map((member) => member.workosUserId),
+      ),
+    ).resolves.not.toContain("user_lender");
+  });
+
+  test("lets a same-organization Lender Admin version member grants while the organization cap stays authoritative", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await asAdmin(t).mutation(api.lenderOrganizations.assignLenderUser, {
+      lenderOrganizationId: seed.lenderOrganizationId,
+      reason: "Attach the Lender Admin operator.",
+      workosUserId: "user_lender",
+    });
+    const staffAssignmentId = await asAdmin(t).mutation(
+      api.lenderOrganizations.assignLenderUser,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        reason: "Attach Lender Staff for grant management.",
+        workosUserId: "user_staff",
+      },
+    );
+
+    for (const permission of [
+      "proposal_review",
+      "milestone_decisions",
+      "draw_decisions",
+    ] as const) {
+      await expect(
+        asLender(t, "user_staff", "lender-staff").query(
+          internal.authzTest.requireLenderOrganizationQuery,
+          { permission },
+        ),
+      ).rejects.toThrow(new RegExp(`permission ${permission}`));
+    }
+
+    const granted = await asLender(t).mutation(
+      api.lenderOrganizations.updateLenderMemberDecisionPermissions,
+      {
+        assignmentId: staffAssignmentId,
+        expectedVersion: 1,
+        permissions: {
+          drawDecisions: true,
+          milestoneDecisions: true,
+          proposalReview: true,
+        },
+        reason: "Grant this reviewer all lender decision queues.",
+      },
+    );
+    expect(granted).toEqual({
+      decisionPermissions: {
+        drawDecisions: true,
+        milestoneDecisions: true,
+        proposalReview: true,
+      },
+      decisionPermissionsVersion: 2,
+      effectiveDecisionPermissions: {
+        drawDecisions: true,
+        milestoneDecisions: true,
+        proposalReview: true,
+      },
+    });
+    for (const permission of [
+      "proposal_review",
+      "milestone_decisions",
+      "draw_decisions",
+    ] as const) {
+      await expect(
+        asLender(t, "user_staff", "lender-staff").query(
+          internal.authzTest.requireLenderOrganizationQuery,
+          { permission },
+        ),
+      ).resolves.toMatchObject({ lenderOrganizationId: seed.lenderOrganizationId });
+    }
+    await expect(
+      asLender(t).mutation(
+        api.lenderOrganizations.updateLenderMemberDecisionPermissions,
+        {
+          assignmentId: staffAssignmentId,
+          expectedVersion: 1,
+          permissions: granted.decisionPermissions,
+          reason: "This stale update must not overwrite the current version.",
+        },
+      ),
+    ).rejects.toThrow(/Stale lender member permission version/);
+    const revoked = await asLender(t).mutation(
+      api.lenderOrganizations.updateLenderMemberDecisionPermissions,
+      {
+        assignmentId: staffAssignmentId,
+        expectedVersion: 2,
+        permissions: {
+          drawDecisions: false,
+          milestoneDecisions: false,
+          proposalReview: false,
+        },
+        reason: "Revoke all decision queues for a temporary coverage change.",
+      },
+    );
+    expect(revoked.decisionPermissionsVersion).toBe(3);
+    for (const permission of [
+      "proposal_review",
+      "milestone_decisions",
+      "draw_decisions",
+    ] as const) {
+      await expect(
+        asLender(t, "user_staff", "lender-staff").query(
+          internal.authzTest.requireLenderOrganizationQuery,
+          { permission },
+        ),
+      ).rejects.toThrow(new RegExp(`permission ${permission}`));
+    }
+    const restored = await asLender(t).mutation(
+      api.lenderOrganizations.updateLenderMemberDecisionPermissions,
+      {
+        assignmentId: staffAssignmentId,
+        expectedVersion: 3,
+        permissions: granted.decisionPermissions,
+        reason: "Restore all decision queues after coverage resumes.",
+      },
+    );
+    expect(restored.decisionPermissionsVersion).toBe(4);
+    for (const permission of [
+      "proposal_review",
+      "milestone_decisions",
+      "draw_decisions",
+    ] as const) {
+      await expect(
+        asLender(t, "user_staff", "lender-staff").query(
+          internal.authzTest.requireLenderOrganizationQuery,
+          { permission },
+        ),
+      ).resolves.toMatchObject({ lenderOrganizationId: seed.lenderOrganizationId });
+    }
+    await asAdmin(t).mutation(
+      api.lenderOrganizations.updateLenderOrganizationPermissions,
+      {
+        lenderOrganizationId: seed.lenderOrganizationId,
+        permissions: {
+          drawDecisions: false,
+          milestoneDecisions: true,
+          proposalReview: true,
+          siteVisitReview: true,
+        },
+        reason: "Disable Draw decisions at the organization cap.",
+      },
+    );
+    await expect(
+      asLender(t, "user_staff", "lender-staff").query(
+        internal.authzTest.requireLenderOrganizationQuery,
+        { permission: "draw_decisions" },
+      ),
+    ).rejects.toThrow(/permission draw_decisions/);
+
+    const audit = await t.run((ctx) =>
+      ctx.db
+        .query("auditEvents")
+        .collect()
+        .then((events) =>
+          events.find(
+            (event) =>
+              event.eventType ===
+              "lender.organization.member_decision_permissions.updated",
+          ),
+        ),
+    );
+    expect(audit).toMatchObject({
+      actorRole: "lender-admin",
+      actorWorkosUserId: "user_lender",
+      entityId: staffAssignmentId,
+      reason: "Grant this reviewer all lender decision queues.",
+    });
+    expect(audit?.priorState).toContain('"decisionPermissionsVersion":1');
+    expect(audit?.newState).toContain('"decisionPermissionsVersion":2');
+  });
+
+  test("versions Back Office organization review defaults with optimistic concurrency and exact organization scope", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    const admin = asAdmin(t);
+    const baseline = await admin.query(
+      api.lenderOrganizationReviewPolicies
+        .getLenderOrganizationDefaultReviewPolicy,
+      { lenderOrganizationId: seed.lenderOrganizationId }
+    );
+    expect(baseline).toMatchObject({
+      lenderOrganizationId: seed.lenderOrganizationId,
+      provenance: "system_baseline",
+      validationIssue: null,
+      version: null,
+    });
+    await admin.mutation(api.lenderOrganizations.assignLenderUser, {
+      lenderOrganizationId: seed.lenderOrganizationId,
+      reason: "Make one lender approval-eligible for default validation.",
+      workosUserId: "user_lender",
+    });
+    const version1 = await admin.mutation(
+      api.lenderOrganizationReviewPolicies
+        .saveLenderOrganizationDefaultReviewPolicy,
+      {
+        expectedVersion: null,
+        idempotencyKey: "organization-default-v1",
+        lenderOrganizationId: seed.lenderOrganizationId,
+        policy: {
+          drawApprovalMode: "both",
+          drawLenderQuorum: 1,
+          milestoneApprovalMode: "both",
+          milestoneLenderQuorum: 1,
+          milestoneReceiptInvoiceRequired: true,
+          milestoneSiteVisitRequired: true,
+        },
+        reason: "Require Back Office and lender review for future assignments.",
+      }
+    );
+    expect(version1).toMatchObject({
+      configuredByWorkosUserId: "user_admin",
+      provenance: "organization_default",
+      validationIssue: null,
+      version: 1,
+    });
+    const version2 = await admin.mutation(
+      api.lenderOrganizationReviewPolicies
+        .saveLenderOrganizationDefaultReviewPolicy,
+      {
+        expectedVersion: 1,
+        idempotencyKey: "organization-default-v2",
+        lenderOrganizationId: seed.lenderOrganizationId,
+        policy: {
+          ...version1.policy,
+          milestoneReceiptInvoiceRequired: false,
+        },
+        reason: "Remove the receipt requirement for future assignments.",
+      }
+    );
+    expect(version2.version).toBe(2);
+    await expect(
+      admin.mutation(
+        api.lenderOrganizationReviewPolicies
+          .saveLenderOrganizationDefaultReviewPolicy,
+        {
+          expectedVersion: 1,
+          idempotencyKey: "organization-default-stale",
+          lenderOrganizationId: seed.lenderOrganizationId,
+          policy: {
+            ...version2.policy,
+            milestoneSiteVisitRequired: false,
+          },
+          reason: "This stale write must not commit.",
+        }
+      )
+    ).rejects.toThrow("Stale organization review default");
+    const foreign = await admin.query(
+      api.lenderOrganizationReviewPolicies
+        .getLenderOrganizationDefaultReviewPolicy,
+      { lenderOrganizationId: seed.foreignLenderOrganizationId }
+    );
+    expect(foreign).toMatchObject({
+      provenance: "system_baseline",
+      version: null,
+    });
+    const rows = await t.run((ctx) =>
+      ctx.db.query("lenderOrganizationReviewPolicyVersions").collect()
+    );
+    expect(rows).toHaveLength(2);
+    expect(
+      rows.every(
+        (row) =>
+          row.brokerageId === seed.brokerageId &&
+          row.lenderOrganizationId === seed.lenderOrganizationId
+      )
+    ).toBe(true);
+    await expect(
+      asLender(t).mutation(
+        api.lenderOrganizationReviewPolicies
+          .saveLenderOrganizationDefaultReviewPolicy,
+        {
+          expectedVersion: 2,
+          idempotencyKey: "organization-default-lender-denied",
+          lenderOrganizationId: seed.lenderOrganizationId,
+          policy: version2.policy,
+          reason: "A lender must not own this policy.",
+        }
+      )
+    ).rejects.toThrow();
+    const builder = t.withIdentity({
+      organizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
+      role: "builder",
+      roles: ["builder"],
+      subject: "user_builder",
+      tokenIdentifier: "test|user_builder",
+    } as any);
+    await expect(
+      builder.query(
+        api.lenderOrganizationReviewPolicies
+          .getLenderOrganizationDefaultReviewPolicy,
+        { lenderOrganizationId: seed.lenderOrganizationId }
+      )
+    ).rejects.toThrow();
+  });
+
+  test("rejects an unsatisfiable organization quorum default without partial writes", async () => {
+    const t = convexTest(schema, modules);
+    const seed = await seedControlPlane(t);
+    await expect(
+      asAdmin(t).mutation(
+        api.lenderOrganizationReviewPolicies
+          .saveLenderOrganizationDefaultReviewPolicy,
+        {
+          expectedVersion: null,
+          idempotencyKey: "organization-default-unsatisfiable",
+          lenderOrganizationId: seed.lenderOrganizationId,
+          policy: {
+            drawApprovalMode: "lender_quorum",
+            drawLenderQuorum: 1,
+            milestoneApprovalMode: "backoffice_only",
+            milestoneLenderQuorum: null,
+            milestoneReceiptInvoiceRequired: false,
+            milestoneSiteVisitRequired: false,
+          },
+          reason: "Reject this unsatisfiable default.",
+        }
+      )
+    ).rejects.toThrow(/no active approval-eligible lender member/);
+    expect(
+      await t.run((ctx) =>
+        ctx.db.query("lenderOrganizationReviewPolicyVersions").collect()
+      )
+    ).toEqual([]);
+    expect(
+      await t.run((ctx) =>
+        ctx.db.query("auditEvents").collect().then((events) =>
+          events.filter(
+            (event) =>
+              event.eventType ===
+              "lender.organization.review_policy_default.saved"
+          )
+        )
+      )
+    ).toEqual([]);
   });
 });

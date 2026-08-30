@@ -9,6 +9,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   dispatchAssistantClientAction,
@@ -106,6 +107,46 @@ const brokerOptions = [
 ];
 
 describe("TimelineSetupFlow assigned broker", () => {
+  test("places the primary continuation after setup content and advances to the budget step", () => {
+    render(<TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />);
+
+    const permitAction = screen.getByTestId("timeline-setup-skip-permits");
+    const footer = screen.getByTestId("timeline-setup-action-footer");
+    const continueButton = screen.getByRole("button", {
+      name: "Continue to milestone budget",
+    });
+
+    expect(
+      permitAction.compareDocumentPosition(footer) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(continueButton.closest("aside")).toBeNull();
+    expect(footer.contains(continueButton)).toBe(true);
+    expect(continueButton.className).toContain("active:scale-[0.96]");
+    expect(continueButton.className).toContain(
+      "timeline-setup-footer-primary",
+    );
+
+    fireEvent.click(continueButton);
+
+    expect(screen.getByText("Step 2 of 4 - Milestones & Budget")).toBeTruthy();
+  });
+
+  test("keeps the primary action and setup inputs usable at the narrow breakpoint", () => {
+    const css = readFileSync(
+      "src/features/timeline-workspace/-timeline-setup-flow.css",
+      "utf8",
+    );
+    const narrowStyles = css.slice(css.indexOf("@media (max-width: 540px)"));
+
+    expect(narrowStyles).toMatch(
+      /\.timeline-setup-footer-primary,\s*\.timeline-setup-primary\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s,
+    );
+    expect(narrowStyles).toMatch(
+      /\.timeline-setup-money-input input,\s*\.timeline-setup-address-field input\s*\{[^}]*font-size:\s*1rem;/s,
+    );
+  });
+
   test("shows the selector on the first screen and emits the principal broker default", () => {
     const onComplete = vi.fn();
     render(

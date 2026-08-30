@@ -1132,7 +1132,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Role changes require audit.
   - Webhook-owned WorkOS projection tables are not directly mutated.
   - Active Principal Broker removal or deactivation uses protected transfer-of-control and cannot execute as a normal member operation.
-  - Back Office owns pre-closing Review Requirements Setup. Organization Management cannot edit required reviewer groups, quorum count, evidence/Site Visit requirements, approval order, or policy satisfaction.
+  - Back Office owns pre-closing Review Requirements. The Organization Management detail surface may edit immutable, versioned defaults for future assignments only; lender users and organization administrators cannot. Assignment snapshots the current default or explicit system baseline, and later default changes never mutate an assigned Proposal or active Build silently.
   - Active membership and role labels are inputs to downstream review evaluation, not proof of quorum eligibility or satisfaction.
 14. **Exceptions, rejection paths, and recovery flows:**
   - Expired/revoked/mismatched invite.

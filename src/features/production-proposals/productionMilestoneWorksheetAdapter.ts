@@ -5,6 +5,7 @@ import type {
   TimelineMilestoneWorksheetContractorOption,
   TimelineMilestoneWorksheetRow,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import { formatWorksheetCurrency } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import type { TimelineSubmilestoneFieldGuidance } from "#/features/timeline-workspace/-timeline-milestone-submilestones.ts";
 import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
@@ -75,11 +76,7 @@ function allocateEvenlyCents(totalCents: number, count: number) {
 }
 
 function formatCents(cents: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "USD",
-    maximumFractionDigits: 0,
-    style: "currency",
-  }).format(cents / 100);
+  return formatWorksheetCurrency(cents);
 }
 
 function formatBps(bps: number) {

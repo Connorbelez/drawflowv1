@@ -53,23 +53,32 @@ must not be promoted as competing production layouts.
   lender users`. Production may reuse the Builder roster pattern for the
   organization table and unassigned-user queue while preserving the Variant E
   member-directory information hierarchy.
-- The toolbar contains organization search/status filters, member counts, and
-  organization-level provisioning and invitation operations.
+- The toolbar contains search/status filters and member counts. Back Office may
+  add organization provisioning and invitation operations. The lender route
+  omits those controls.
 - Selecting a Lender Organization opens the detail drawer. It retains parent
   Brokerage, application status, assigned/pending members, exact lender roles,
   shared workflow permissions, and reconciliation context.
-- Administration exposes provisioning, assignment, invitation staging, shared
-  role change, app unassignment, policy editing, and soft deactivation. Each
-  workflow validates a local draft, shows current/proposed state, and records a
+- Back Office Administration exposes provisioning, assignment, invitation
+  staging, shared role change, policy editing, and soft deactivation. The lender
+  route instead exposes versioned member decision grants and eligible-member
+  deactivation only to active same-organization `lender-admin` users. Each
+  workflow validates a draft, shows current/proposed state, and records a
   reason before execution.
 - Principal Broker transfer and brokerage membership controls are not part of
   the lender organization surface.
 - Membership changes show their relationship to lender-quorum re-evaluation,
   recipient routing, work queues, and audit history. They do not determine
   quorum eligibility or claim that a review requirement is satisfied.
-- Back Office continues to own pre-closing review-requirements setup and the
-  policy handed to the active Build. Organization administrators cannot edit
-  that policy from this surface.
+- Back Office owns immutable, versioned default Review Requirements for each
+  application-owned Lender Organization. The selected organization detail
+  surface reuses the approved Variant A fields to configure defaults for future
+  assignment snapshots. Lender users and organization administrators cannot
+  edit them.
+- Existing assigned Proposals and active Builds remain unchanged when an
+  organization default changes. Before lock, the canonical Build policy shows
+  inherited/customized provenance and supports an explicit audited restore of
+  the organization's current default.
 
 **Role and ownership contract:**
 
@@ -82,8 +91,9 @@ must not be promoted as competing production layouts.
   provisions a Lender Organization.
 - The exact lender role slugs are `lender`, `lender-admin`, and `lender-staff`.
   Platform Admin can bypass a policy cap only for an explicit app target after
-  parent and target-scope validation. `lender-staff` cannot make final lender
-  decisions.
+  parent and target-scope validation. Effective final-decision authority is the
+  intersection of active WorkOS state, active app assignment, organization cap,
+  and the corresponding versioned member grant.
 - No `manager` alias, Principal Broker lender-surface control, or duplicate
   identity/membership system exists.
 
@@ -118,6 +128,14 @@ recorded in `../../../docs/lender_portal_mvp_feature_brief.md` §Confirmed MVP
 scope, `../../../docs/lender_portal_mvp_spec.md` §Domain ownership and identity
 and §Participant projections and UI, and
 `../../../docs/lender_portal_mvp_implementation_plan.md` Phase 1.
+
+**Approved amendment, 2026-08-25:** `/lender/organization` is an application-
+level operator surface for active same-organization `lender-admin` users. It
+reuses the production-owned Variant E directory and `UserDetailSheet`; other
+lender roles receive the same member facts and effective permissions read-only.
+The organization-wide workflow policy remains read-only. Invitation,
+role-change, organization-policy, Brokerage, and Back Office proposal controls
+remain outside the lender-facing composition.
 
 ## Proposal Review
 
@@ -211,9 +229,12 @@ assets.
 production proposal detail. This is not a replacement proposal screen.
 
 **Selection status:** Variant A was explicitly approved and locked on
-2026-08-14. The selected interaction is a compact **Lender assignment** row in the
-existing proposal header that opens one focused assignment modal. Variants B
-and C were comparison hypotheses and are not part of the locked surface.
+2026-08-14. A product placement decision on 2026-08-19 moved the compact
+**Lender assignment** row from the proposal header into the shared **Approval
+status** card. It still opens one focused assignment modal. Builder, Back
+Office, and Lender proposal-review consumers use the same card placement with
+permission-shaped content. Variants B and C were comparison hypotheses and are
+not part of the locked surface.
 
 Selection records the future promotion contract only. It does not authorize
 production integration, loaders, persistence, authorization, or domain work in
@@ -222,8 +243,8 @@ this prototype task.
 **Interaction and data constraints:**
 
 - Variant A renders the real `ProductionProposalReviewSurface` with its approved
-  visual-parity fixture. The trigger and modal are prototype-only additions
-  injected without changing the production component.
+  visual-parity fixture. Production injects the permission-shaped assignment or
+  confirmation region through the shared Approval status card slot.
 - A successful assignment changes local in-memory state only. Refresh or
   direct navigation restores the unassigned fixture. No proposal, assignment,
   policy, confirmation, withdrawal, closing, activation, or audit record is
@@ -254,10 +275,11 @@ system.
 the Back Office Admin. The primary job is to assign exactly one eligible
 Lender Organization to an approved proposal regardless of capital source while
 keeping the current revision, current review policy, next actor, and closing
-effect visible. Keyboard focus returns to the header trigger after dismissal,
-selection changes clear acknowledgement, completion is announced, long names
-wrap, and modal content remains scrollable on narrow viewports. Builder-facing
-lender identity and private lender rationale remain excluded.
+effect visible. Keyboard focus returns to the Approval status card trigger
+after dismissal, selection changes clear acknowledgement, completion is
+announced, long names wrap, and modal content remains scrollable on narrow
+viewports. Builder-facing lender identity and private lender rationale remain
+excluded.
 
 **Prototype:**
 `../../routes/backoffice/proposals/lender-assignment-prototype.tsx` at
@@ -310,21 +332,26 @@ requirements-equivalent surface.
   `Not recorded` because the representative Build fixture supplies no canonical
   cost-document input. The prototype does not infer coverage from Draw evidence
   or reimbursement amounts.
-- At the user's explicit direction, locked Variant C adds a read-only
-  Collaboration section after Review evidence. It projects only the fixture's
-  participant-visible public Build update; the internal note is excluded and
-  there is no composer, generic comment model, or persistent mutation. This is
-  part of the locked contract confirmed in the controlling feature brief,
-  consolidated specification, implementation plan, and promotion contract.
+- A 2026-08-25 production amendment extends locked Variant C with the immutable
+  Milestone and Draw review policy below Build identity and with writable
+  participant-visible Collaboration after Review evidence. Every active member
+  of the currently assigned Lender Organization may publish fixed Build-wide
+  updates, attach governed files, paginate the complete authorized response
+  thread, and reply. Production reuses canonical Build Collaboration
+  persistence, lifecycle, audit, notification, moderation, search, webhook,
+  and attachment ownership. The prototype fixture remains local and does not
+  define a parallel comment model.
 - Draw funding does not infer a Milestone or Draw Group allocation. The overview
   adds no receipt gate or Draw-specific Site Visit gate.
 - The only outbound actions navigate to the existing focused Milestone and Draw
   review prototypes. They do not record a decision or release funds.
-- The prototype has no lender editing, Builder/Budget/schedule changes, policy
-  controls, evidence upload, review decision, Draw release, persistent mutation,
-  deadline, SLA, generic comments, private reviewer rationale, internal reviewer
-  identity, contractors, timeline/Gantt, Draw Group visualization, internal
-  notes, broad document library, or detached documents.
+- The prototype has no Builder/Budget/schedule changes, policy controls,
+  evidence upload, review decision, Draw release, deadline, SLA, private
+  audiences, scheduling, acknowledgements, Action Items, private reviewer
+  rationale, internal reviewer identity, contractors, timeline/Gantt, Draw
+  Group visualization, internal notes, broad document library, or detached
+  documents. Production collaboration mutations are limited to public
+  Build-wide posts, responses, and governed attachments.
 - Back Office Admin remains the internal owner. Builder and Builder Staff appear
   only as the source of submitted work or evidence. Withdrawal is not a normal
   live-Build detail state because it removes live Build access.

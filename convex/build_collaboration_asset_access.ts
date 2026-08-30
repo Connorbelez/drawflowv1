@@ -3,16 +3,15 @@ import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
-import { canReadDrawCoordination } from "./build_draw_coordination";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import {
   canReadSubmittedCostDocument,
   resolveCostDocumentDraftAccessForAuthorization,
 } from "./cost_document_access";
 import type { Doc, QueryCtx } from "./types";
 
-const ASSET_ATTACHMENT_PAGE_SIZE = 100;
-const MAX_ASSET_ATTACHMENT_ROWS = 1_000;
+const MAX_ASSET_ATTACHMENT_ROWS = 1000;
 
 export async function canUseCollaborationAssetForPost(
   ctx: QueryCtx,
@@ -280,31 +279,16 @@ async function listAssetAttachments(
   buildId: Doc<"activeBuilds">["_id"],
   assetId: Doc<"buildCollaborationAssets">["_id"]
 ) {
-  const queryFactory = () =>
-    ctx.db
-      .query("buildCollaborationAttachments")
-      .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (builder) =>
-        builder
-          .eq("buildId", buildId)
-          .eq("attachmentKind", "collaborationAsset")
-          .eq("attachmentId", assetId)
-      );
-  const attachments: Doc<"buildCollaborationAttachments">[] = [];
-  let cursor: string | null = null;
-  for (;;) {
-    const page = await queryFactory().paginate({
-      cursor,
-      numItems: ASSET_ATTACHMENT_PAGE_SIZE,
-    });
-    attachments.push(...page.page);
-    if (attachments.length > MAX_ASSET_ATTACHMENT_ROWS) {
-      return null;
-    }
-    if (page.isDone) {
-      return attachments;
-    }
-    cursor = page.continueCursor;
-  }
+  const attachments = await ctx.db
+    .query("buildCollaborationAttachments")
+    .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (builder) =>
+      builder
+        .eq("buildId", buildId)
+        .eq("attachmentKind", "collaborationAsset")
+        .eq("attachmentId", assetId)
+    )
+    .take(MAX_ASSET_ATTACHMENT_ROWS + 1);
+  return attachments.length > MAX_ASSET_ATTACHMENT_ROWS ? null : attachments;
 }
 
 async function costDocumentAssetReadDecision(

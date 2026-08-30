@@ -8,17 +8,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Link } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
 import { useAuth } from "@workos/authkit-tanstack-react-start/client";
-import { Bell, ChevronDown } from "lucide-react";
+import { useQuery } from "convex/react";
 import type { ReactNode } from "react";
 
-import ThemeToggle from "#/components/ThemeToggle.tsx";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "#/components/ui/avatar.tsx";
+import { AppHeaderActions } from "#/components/app-header.tsx";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -27,7 +21,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "#/components/ui/breadcrumb.tsx";
-import { Button } from "#/components/ui/button.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import {
   Sidebar,
@@ -48,8 +41,6 @@ import {
   normalizeRoleSlugs,
 } from "#/lib/auth/rbac.ts";
 import { api } from "../../convex/_generated/api";
-
-const WHITESPACE_PATTERN = /\s+/;
 
 export type LenderNavigationTitle =
   | "Dashboard"
@@ -95,7 +86,7 @@ export function LenderShell({
   children: ReactNode;
   pageTitle?: string;
 }) {
-  const { role, roles, user } = useAuth();
+  const { organizationId, role, roles, user } = useAuth();
   const currentOrganization = useQuery(
     api.lenderOrganizations.getCurrentLenderOrganization,
     {}
@@ -105,8 +96,6 @@ export function LenderShell({
     ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
     : "Signed-in user";
   const identity = {
-    avatarFallback: initials(userName),
-    avatarUrl: user?.profilePictureUrl ?? undefined,
     organizationName:
       currentOrganization?.organization?.displayName ?? "Lender organization",
     roleLabel: formatLenderRoles(lenderRoles),
@@ -115,15 +104,12 @@ export function LenderShell({
 
   return (
     <SidebarProvider>
-      <LenderSidebar
-        activeNavigation={activeNavigation}
-        identity={identity}
-      />
+      <LenderSidebar activeNavigation={activeNavigation} identity={identity} />
       <SidebarInset>
         <LenderAppHeader
           activeNavigation={activeNavigation}
-          identity={identity}
           pageTitle={pageTitle}
+          workosOrganizationId={organizationId}
         />
         <div className="flex min-h-0 w-full flex-1 flex-col p-0">
           {children}
@@ -168,24 +154,21 @@ function LenderSidebar({
         <SidebarGroup>
           <SidebarGroupLabel>Lender</SidebarGroupLabel>
           <SidebarMenu>
-            {lenderNavigation
-              .map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    aria-current={
-                      item.title === activeNavigation ? "page" : undefined
-                    }
-                    isActive={item.title === activeNavigation}
-                    render={
-                      <Link preload="intent" to={item.to} viewTransition />
-                    }
-                    tooltip={item.title}
-                  >
-                    <HugeiconsIcon icon={item.icon} strokeWidth={2} />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+            {lenderNavigation.map((item) => (
+              <SidebarMenuItem key={item.title}>
+                <SidebarMenuButton
+                  aria-current={
+                    item.title === activeNavigation ? "page" : undefined
+                  }
+                  isActive={item.title === activeNavigation}
+                  render={<Link preload="intent" to={item.to} viewTransition />}
+                  tooltip={item.title}
+                >
+                  <HugeiconsIcon icon={item.icon} strokeWidth={2} />
+                  <span>{item.title}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
@@ -210,16 +193,12 @@ function LenderSidebar({
 
 function LenderAppHeader({
   activeNavigation,
-  identity,
   pageTitle,
+  workosOrganizationId,
 }: {
   activeNavigation: LenderNavigationTitle;
-  identity: {
-    avatarFallback: string;
-    avatarUrl?: string;
-    userName: string;
-  };
   pageTitle: string;
+  workosOrganizationId?: string | null;
 }) {
   const navigationTarget =
     lenderNavigation.find((item) => item.title === activeNavigation)?.to ??
@@ -271,36 +250,7 @@ function LenderAppHeader({
           </BreadcrumbList>
         </Breadcrumb>
       </div>
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <ThemeToggle />
-        <Button
-          aria-label="Notifications"
-          className="relative"
-          disabled
-          size="icon"
-          variant="ghost"
-        >
-          <Bell />
-          <span className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
-        </Button>
-        <Separator
-          className="h-4 data-[orientation=vertical]:self-center"
-          orientation="vertical"
-        />
-        <Button
-          aria-label={`${identity.userName} account menu`}
-          className="h-8 gap-2 px-1.5"
-          disabled
-          variant="ghost"
-        >
-          <Avatar className="size-7 sm:size-8">
-            <AvatarImage alt={identity.userName} src={identity.avatarUrl} />
-            <AvatarFallback>{identity.avatarFallback}</AvatarFallback>
-          </Avatar>
-          <span className="hidden text-xs sm:inline">{identity.userName}</span>
-          <ChevronDown className="hidden size-3 text-muted-foreground sm:block" />
-        </Button>
-      </div>
+      <AppHeaderActions workosOrganizationId={workosOrganizationId} />
     </header>
   );
 }
@@ -331,15 +281,4 @@ function formatLenderRoles(roles: readonly string[]) {
       )
       .join(", ") || "Lender access"
   );
-}
-
-function initials(value: string) {
-  const parts = value.trim().split(WHITESPACE_PATTERN).filter(Boolean);
-  if (parts.length === 0) {
-    return "?";
-  }
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-  return `${parts[0][0] ?? ""}${parts.at(-1)?.[0] ?? ""}`.toUpperCase();
 }

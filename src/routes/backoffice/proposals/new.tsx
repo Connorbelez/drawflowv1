@@ -44,6 +44,9 @@ function NewBackofficeProductionProposalRoute() {
   const saveDraft = useMutation(
     api.production_proposals.saveDraftProposalPackage
   );
+  const createContractorProfile = useMutation(
+    api.production_proposals.createContractorProfile
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const setupTemplates = useMemo(
@@ -125,6 +128,22 @@ function NewBackofficeProductionProposalRoute() {
         <TimelineSetupFlow
           baseItems={PRODUCTION_SETUP_BASE_ITEMS}
           brokerOptions={createContext?.brokers ?? []}
+          contractorActions={
+            createContext?.brokerage?._id && !visualFixtureEnabled
+              ? {
+                  availableContractors:
+                    createContext.availableContractors ?? [],
+                  onCreate: async ({ contractor }) => {
+                    const contractorId = await createContractorProfile({
+                      ...contractor,
+                      brokerageId: createContext.brokerage._id,
+                      workosOrganizationId,
+                    });
+                    return { contractorId: String(contractorId) };
+                  },
+                }
+              : undefined
+          }
           contractorOptions={createContext?.availableContractors ?? []}
           defaultAssignedBrokerWorkosUserId={
             createContext?.defaultAssignedBrokerWorkosUserId

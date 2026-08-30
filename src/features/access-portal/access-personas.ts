@@ -5,7 +5,7 @@ export type AccessPersonaId = "builder" | "lender" | "contractor";
 
 export interface AccessPersona {
   description: string;
-  destination: "/backoffice" | "/builder" | "/contractor";
+  destination: "/backoffice" | "/builder" | "/contractor" | "/lender";
   detail: string;
   icon: LucideIcon;
   id: AccessPersonaId;
@@ -26,13 +26,13 @@ export const ACCESS_PERSONAS: readonly AccessPersona[] = [
   },
   {
     description: "Operations and approvals",
-    destination: "/backoffice",
+    destination: "/lender",
     detail:
       "Review evidence, coordinate site visits, and route final milestone and draw-release decisions to lender admins.",
     icon: BriefcaseBusiness,
     id: "lender",
     label: "Lender team",
-    routeLabel: "Lender backoffice",
+    routeLabel: "Lender workspace",
   },
   {
     description: "Assigned work and evidence",

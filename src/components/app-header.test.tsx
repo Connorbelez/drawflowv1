@@ -9,6 +9,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+const notificationInboxProps = vi.hoisted(() => vi.fn());
+
 vi.mock("@workos/authkit-tanstack-react-start/client", () => ({
   useAuth: () => ({
     loading: false,
@@ -34,9 +36,13 @@ vi.mock("#/components/nav-user.tsx", () => ({
 }));
 
 vi.mock("#/components/notification-inbox.tsx", () => ({
-  NotificationInbox: () => (
-    <button aria-label="Notifications" type="button" />
-  ),
+  NotificationInbox: (props: {
+    authReady?: boolean;
+    workosOrganizationId?: string | null;
+  }) => {
+    notificationInboxProps(props);
+    return <button aria-label="Notifications" type="button" />;
+  },
 }));
 
 vi.mock("#/components/route-breadcrumbs.tsx", () => ({
@@ -47,6 +53,7 @@ import { AppHeader } from "./app-header.tsx";
 
 describe("AppHeader", () => {
   beforeEach(() => {
+    notificationInboxProps.mockReset();
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -83,7 +90,7 @@ describe("AppHeader", () => {
   });
 
   test("renders touch-safe mobile header actions", async () => {
-    render(<AppHeader />);
+    render(<AppHeader workosOrganizationId="org_active" />);
 
     const themeSwitch = await screen.findByRole("button", {
       name: /theme mode: auto/i,
@@ -92,6 +99,10 @@ describe("AppHeader", () => {
     expect(themeSwitch.className).toContain("size-11");
     expect(themeSwitch.className).toContain("md:size-8");
     expect(screen.getByRole("button", { name: "Notifications" })).toBeTruthy();
+    expect(notificationInboxProps).toHaveBeenCalledWith({
+      authReady: true,
+      workosOrganizationId: "org_active",
+    });
 
     const header = screen.getByRole("banner");
     const [navigationGroup, accountGroup] = Array.from(header.children);

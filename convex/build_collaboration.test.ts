@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
@@ -7,6 +8,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { authorizeActiveBuildAccessForViewer } from "./activeBuildAccess";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
+import { materializeBuildCollaborationSearchReaderRecords } from "./build_collaboration_search_index";
 import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import schema from "./schema";
 
@@ -52,6 +54,7 @@ function withIdentity(
 
 async function seedActiveBuild() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, {
     roles: ["admin", "principle-broker"],
     subject: "user_admin",
@@ -689,12 +692,19 @@ describe("Build collaboration publication and feed", () => {
           query.eq("originatingPostId", postId),
         )
         .collect();
+      const actionItemRevisions = await ctx.db
+        .query("buildActionItemRevisions")
+        .withIndex("by_actionItemId_and_revision", (query) =>
+          query.eq("actionItemId", actionItems[0]?._id as never),
+        )
+        .collect();
       const references = await ctx.db
         .query("buildCollaborationReferences")
         .withIndex("by_postId", (query) => query.eq("postId", postId))
         .collect();
       return {
         actionItems,
+        actionItemRevisions,
         approvals,
         deliveries,
         externalDeliveries,
@@ -732,11 +742,17 @@ describe("Build collaboration publication and feed", () => {
       expect.objectContaining({
         assigneeWorkosUserId: "user_broker",
         assignmentState: "assigned",
+        deadlineProcessingState: "complete",
+        deadlineScheduleGeneration: 1,
         descriptionPlainText: "Upload the sealed report.",
         priority: "none",
         requiresAcceptance: false,
+        queueSortAt: Number.MAX_SAFE_INTEGER - 1,
         title: "Upload engineer seal",
       }),
+    ]);
+    expect(persisted.actionItemRevisions).toEqual([
+      expect.objectContaining({ revision: 1 }),
     ]);
     const assignedFeed = await admin.query(
       (api as any).build_collaboration.listBuildCollaborationFeed,
@@ -6171,6 +6187,116 @@ describe("Build collaboration canonical reference authorization", () => {
 });
 
 describe("Build collaboration authorized search", () => {
+  test("uses one paginated query while authorizing asset search candidates", async () => {
+    const fixture = await seedActiveBuild();
+    const assetId = await createPublishedAssetFixture(fixture);
+
+    await fixture.admin.run(async (ctx) => {
+      const asset = await ctx.db.get(assetId);
+      const post = asset?.originatingPostId
+        ? await ctx.db.get(asset.originatingPostId)
+        : null;
+      const build = await ctx.db.get(fixture.buildId);
+      if (!(asset && post && build)) {
+        throw new Error("Search asset pagination fixture is unavailable.");
+      }
+      const authorization = await authorizeActiveBuildAccessForViewer(
+        ctx,
+        {
+          capability: "authenticated",
+          organizationId: ORGANIZATION_ID,
+          roles: ["admin", "principle-broker"],
+          subject: "user_admin",
+          tokenIdentifier: "build-collaboration-search:user_admin",
+        },
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+      );
+      const now = Date.now();
+      const jobId = await ctx.db.insert("buildCollaborationSearchJobs", {
+        attemptVersion: 1,
+        brokerageId: build.brokerageId,
+        buildId: fixture.buildId,
+        candidateCursor: null,
+        candidatePhase: "assets",
+        createdAt: now,
+        failureCount: 0,
+        generation: 1,
+        organizationId: ORGANIZATION_ID,
+        ownerId: post._id,
+        ownerKind: "post",
+        phase: "readers",
+        postId: post._id,
+        readerOffset: 0,
+        scope: "owner",
+        status: "running",
+        updatedAt: now,
+      });
+
+      let paginatedQueryCount = 0;
+      const wrapQuery = (query: object): object =>
+        new Proxy(query, {
+          get(target, property) {
+            const value = Reflect.get(target, property, target);
+            if (property === "paginate" && typeof value === "function") {
+              return async (...args: unknown[]) => {
+                paginatedQueryCount += 1;
+                if (paginatedQueryCount > 1) {
+                  throw new Error(
+                    "This query or mutation function ran multiple paginated queries. Convex only supports a single paginated query in each function.",
+                  );
+                }
+                return await Reflect.apply(value, target, args);
+              };
+            }
+            if (typeof value !== "function") {
+              return value;
+            }
+            return (...args: unknown[]) => {
+              const result = Reflect.apply(value, target, args);
+              return result &&
+                typeof result === "object" &&
+                "paginate" in result
+                ? wrapQuery(result)
+                : result;
+            };
+          },
+        });
+      const db = new Proxy(ctx.db, {
+        get(target, property) {
+          if (property === "query") {
+            return (tableName: Parameters<typeof target.query>[0]) =>
+              wrapQuery(target.query(tableName));
+          }
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const limitedCtx = new Proxy(ctx, {
+        get(target, property) {
+          if (property === "db") {
+            return db;
+          }
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      await materializeBuildCollaborationSearchReaderRecords(
+        limitedCtx as never,
+        {
+          authorization,
+          candidateCursor: null,
+          candidatePhase: "assets",
+          jobId,
+          owner: { id: post._id, kind: "post" },
+          postId: post._id,
+          readerOffset: 0,
+        },
+      );
+      expect(paginatedQueryCount).toBe(1);
+    });
+  });
+
   test("searches every readable record kind and applies all server-side filters", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {
@@ -6965,6 +7091,325 @@ describe("Build collaboration authorized search", () => {
     expect(readiness.ready).toBe(true);
   });
 
+  test("uses one generation for an activation-scale Build rebuild", async () => {
+    const fixture = await seedActiveBuild();
+    for (let index = 0; index < 20; index += 1) {
+      const postId = await fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        collaborationPublicationFixture({
+          buildId: fixture.buildId,
+          plainText: `Activation search post ${index + 1}.`,
+        }),
+      );
+      await fixture.admin.mutation(
+        (api as any).build_collaboration_threads
+          .addBuildCollaborationComment,
+        {
+          attachmentAssetIds: [],
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: `Activation search comment ${index + 1}.`,
+          postId,
+          references: [],
+          tiptapJson: collaborationDocument(
+            `Activation search comment ${index + 1}.`,
+          ),
+        },
+      );
+    }
+    await finishSearchMaintenance(fixture.base);
+    const generationBefore = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationSearchStates")
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique(),
+    );
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await finishSearchMaintenance(fixture.base);
+
+    const result = await fixture.base.run(async (ctx) => {
+      const state = await ctx.db
+        .query("buildCollaborationSearchStates")
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique();
+      const jobs = (await ctx.db.query("buildCollaborationSearchJobs").collect())
+        .filter((job) => job.generation === state?.generation);
+      const activeRecords = (
+        await ctx.db
+          .query("buildCollaborationSearchRecords")
+          .withIndex("by_buildId_and_reader", (query) =>
+            query.eq("buildId", fixture.buildId),
+          )
+          .collect()
+      ).filter((record) => record.contentState === "active");
+      return { activeRecords, jobs, state };
+    });
+    expect(result.state).toMatchObject({
+      drainScheduled: false,
+      generation: (generationBefore?.generation ?? 0) + 1,
+      status: "ready",
+    });
+    expect(result.jobs).toHaveLength(61);
+    expect(result.jobs.every((job) => job.status === "complete")).toBe(true);
+    expect(result.jobs.every((job) => (job.failureCount ?? 0) === 0)).toBe(
+      true,
+    );
+    const activeRecordKeys = result.activeRecords.map(
+      (record) => `${record.readerPartitionKey}:${record.candidateKey}`,
+    );
+    expect(new Set(activeRecordKeys).size).toBe(activeRecordKeys.length);
+    await expect(
+      fixture.base.query(
+        (internal as any).build_collaboration_search_maintenance
+          .inspectBuildCollaborationSearchProjection,
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+      ),
+    ).resolves.toMatchObject({
+      activeRecordCount: result.activeRecords.length,
+      duplicateActiveRecordCount: 0,
+      generation: result.state?.generation,
+      generationJobCount: 61,
+      generationJobFailureCount: 0,
+      generationJobsComplete: true,
+      jobScanComplete: true,
+      recordScanComplete: true,
+    });
+  });
+
+  test("rejects stale drain and reused-job execution tokens", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = await seedActiveBuild();
+      const postId = await fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        collaborationPublicationFixture({
+          buildId: fixture.buildId,
+          plainText: "Search drain fencing beacon.",
+        }),
+      );
+      const initial = await currentSearchDrain(fixture.base, fixture.buildId);
+      await fixture.admin.mutation(
+        (api as any).build_collaboration_editing.editBuildCollaborationPost,
+        {
+          buildId: fixture.buildId,
+          editReason: "Replace the queued search source.",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          postId,
+          references: [],
+          tiptapJson: collaborationDocument(
+            "Reused search drain fencing beacon.",
+          ),
+        },
+      );
+      const reused = await currentSearchDrain(fixture.base, fixture.buildId);
+      expect(reused).toMatchObject({ jobId: initial.jobId });
+      expect(reused.jobAttemptVersion).toBeGreaterThan(
+        initial.jobAttemptVersion,
+      );
+      await fixture.base.mutation(
+        (internal as any).build_collaboration_search_maintenance
+          .processBuildCollaborationSearchDrain,
+        initial,
+      );
+      const rescheduled = await currentSearchDrain(
+        fixture.base,
+        fixture.buildId,
+      );
+      expect(rescheduled).toMatchObject({
+        jobAttemptVersion: reused.jobAttemptVersion,
+        jobId: reused.jobId,
+      });
+      expect(rescheduled.drainToken).toBeGreaterThan(reused.drainToken);
+
+      await fixture.base.mutation(
+        (internal as any).build_collaboration_search_maintenance
+          .processBuildCollaborationSearchDrain,
+        {
+          ...rescheduled,
+          drainToken: rescheduled.drainToken - 1,
+        },
+      );
+      expect(await currentSearchDrain(fixture.base, fixture.buildId)).toEqual(
+        rescheduled,
+      );
+      await finishSearchMaintenance(fixture.base);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("backs off a failed Workpool drain and then recovers", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = await seedActiveBuild();
+      await fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        collaborationPublicationFixture({
+          buildId: fixture.buildId,
+          plainText: "Workpool retry beacon.",
+        }),
+      );
+      const drain = await currentSearchDrain(fixture.base, fixture.buildId);
+      await fixture.base.run(async (ctx: any) => {
+        const jobs = await ctx.db
+          .query("buildCollaborationSearchJobs")
+          .collect();
+        for (const job of jobs) {
+          if (job.buildId === fixture.buildId && job._id !== drain.jobId) {
+            await ctx.db.patch(job._id, {
+              phase: "complete",
+              status: "complete",
+            });
+          }
+        }
+      });
+      const failedAt = Date.now();
+      await fixture.base.mutation(
+        (internal as any).build_collaboration_search_maintenance
+          .completeBuildCollaborationSearchDrain,
+        {
+          context: drain,
+          result: { error: "Injected Workpool failure.", kind: "failed" },
+          workId: "test-search-work",
+        },
+      );
+      const failed = await fixture.base.run(async (ctx: any) =>
+        ctx.db.get(drain.jobId),
+      );
+      expect(failed).toMatchObject({
+        failureCount: 1,
+        lastError: "Injected Workpool failure.",
+        status: "failed",
+      });
+      expect(failed?.retryAt).toBeGreaterThanOrEqual(failedAt + 1000);
+
+      vi.setSystemTime(failed?.retryAt ?? failedAt + 1000);
+      const retryDrain = await currentSearchDrain(
+        fixture.base,
+        fixture.buildId,
+      );
+      await fixture.base.mutation(
+        (internal as any).build_collaboration_search_maintenance
+          .completeBuildCollaborationSearchDrain,
+        {
+          context: retryDrain,
+          result: { kind: "canceled" },
+          workId: "test-canceled-search-work",
+        },
+      );
+      const canceled = await fixture.base.run(async (ctx: any) =>
+        ctx.db.get(drain.jobId),
+      );
+      expect(canceled).toMatchObject({
+        failureCount: 2,
+        lastError: "Search maintenance Workpool execution was canceled.",
+        status: "failed",
+      });
+      expect(canceled?.retryAt).toBeGreaterThanOrEqual(
+        (failed?.retryAt ?? failedAt + 1000) + 2000,
+      );
+
+      vi.setSystemTime(canceled?.retryAt ?? failedAt + 3000);
+      await finishSearchMaintenance(fixture.base);
+      await expect(
+        fixture.admin.query(
+          (api as any).build_collaboration_search
+            .getBuildCollaborationSearchReadiness,
+          { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+        ),
+      ).resolves.toMatchObject({ ready: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("drains legacy queued, running, and failed jobs after the cutover", async () => {
+    const fixture = await seedActiveBuild();
+    for (let index = 0; index < 2; index += 1) {
+      await fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        collaborationPublicationFixture({
+          buildId: fixture.buildId,
+          plainText: `Legacy search job ${index + 1}.`,
+        }),
+      );
+    }
+    const legacyJobId = await fixture.base.run(async (ctx: any) => {
+      const jobs = (
+        await ctx.db.query("buildCollaborationSearchJobs").collect()
+      ).filter((job: any) => job.buildId === fixture.buildId);
+      if (jobs.length < 3) {
+        throw new Error("Legacy search job fixtures are unavailable.");
+      }
+      const state = await ctx.db
+        .query("buildCollaborationSearchStates")
+        .withIndex("by_buildId", (query: any) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique();
+      if (!state) {
+        throw new Error("Legacy search state fixture is unavailable.");
+      }
+      await ctx.db.patch(state._id, {
+        drainScheduled: undefined,
+        drainToken: undefined,
+      });
+      for (const [index, status] of [
+        "queued",
+        "running",
+        "failed",
+      ].entries()) {
+        await ctx.db.patch(jobs[index]._id, {
+          attemptVersion: undefined,
+          leaseExpiresAt: undefined,
+          retryAt: undefined,
+          status,
+        });
+      }
+      return jobs[0]._id;
+    });
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .processBuildCollaborationSearchJob,
+      { jobId: legacyJobId },
+    );
+    await finishSearchMaintenance(fixture.base);
+
+    const result = await fixture.base.run(async (ctx: any) => ({
+      jobs: (
+        await ctx.db.query("buildCollaborationSearchJobs").collect()
+      ).filter((job: any) => job.buildId === fixture.buildId),
+      state: await ctx.db
+        .query("buildCollaborationSearchStates")
+        .withIndex("by_buildId", (query: any) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique(),
+    }));
+    expect(result.jobs.every((job: any) => job.status === "complete")).toBe(
+      true,
+    );
+    expect(result.state).toMatchObject({
+      drainScheduled: false,
+      status: "ready",
+    });
+  });
+
   test("searches every currently readable canonical reference kind with focused deep links", async () => {
     const fixture = await seedActiveBuild();
     const entities = await seedCollaborationReferenceEntities(fixture);
@@ -7286,23 +7731,69 @@ async function prepareLegacyNoteParity(
 
 async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
   for (let iteration = 0; iteration < 5000; iteration += 1) {
-    const pendingJobIds = await t.run(async (ctx) =>
-      (await ctx.db.query("buildCollaborationSearchJobs").collect())
-        .filter((job) => job.status !== "complete")
-        .map((job) => job._id),
-    );
-    if (pendingJobIds.length === 0) {
+    const next = await t.run(async (ctx: any) => {
+      const jobs = await ctx.db.query("buildCollaborationSearchJobs").collect();
+      const job =
+        jobs.find((candidate: any) => candidate.status === "queued") ??
+        jobs.find((candidate: any) => candidate.status === "running") ??
+        jobs.find((candidate: any) => candidate.status === "failed");
+      const state = job
+        ? await ctx.db
+            .query("buildCollaborationSearchStates")
+            .withIndex("by_buildId", (query: any) =>
+              query.eq("buildId", job.buildId),
+            )
+            .unique()
+        : null;
+      return state && job
+        ? {
+            buildId: job.buildId,
+            drainToken: state.drainToken ?? 0,
+            jobAttemptVersion: job.attemptVersion ?? 0,
+            jobId: job._id,
+          }
+        : null;
+    });
+    if (!next) {
       return;
     }
-    for (const jobId of pendingJobIds) {
-      await t.mutation(
-        (internal as any).build_collaboration_search_maintenance
-          .processBuildCollaborationSearchJob,
-        { jobId },
-      );
-    }
+    await t.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .processBuildCollaborationSearchDrain,
+      next,
+    );
   }
   throw new Error("Search maintenance did not drain within the test bound.");
+}
+
+async function currentSearchDrain(
+  t: ReturnType<typeof convexTest>,
+  buildId: Id<"activeBuilds">,
+) {
+  const drain = await t.run(async (ctx) => {
+    const state = (
+      await ctx.db.query("buildCollaborationSearchStates").collect()
+    ).find((candidate: any) => candidate.buildId === buildId);
+    const jobs = (
+      await ctx.db.query("buildCollaborationSearchJobs").collect()
+    ).filter((candidate: any) => candidate.buildId === buildId);
+    const job =
+      jobs.find((candidate: any) => candidate.status === "queued") ??
+      jobs.find((candidate: any) => candidate.status === "running") ??
+      jobs.find((candidate: any) => candidate.status === "failed");
+    return state && job
+      ? {
+          buildId,
+          drainToken: state.drainToken ?? 0,
+          jobAttemptVersion: job.attemptVersion ?? 0,
+          jobId: job._id,
+        }
+      : null;
+  });
+  if (!drain) {
+    throw new Error("Search drain fixture is unavailable.");
+  }
+  return drain;
 }
 
 async function prepareSearchCutover(

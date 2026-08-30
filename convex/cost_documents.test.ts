@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import resendTest from "@convex-dev/resend/test";
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -5530,6 +5531,7 @@ function withIdentity(
 
 async function seedFixture() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   resendTest.register(base);
   const admin = withIdentity(base, {
     roles: ["admin", "principle-broker"],

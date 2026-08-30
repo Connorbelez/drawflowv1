@@ -31,10 +31,10 @@ describe("PersonaAccessSelector", () => {
     expect(screen.getByText("Operations and approvals")).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Continue to secure sign in" }).getAttribute("href"),
-    ).toBe("/api/auth/sign-in?returnPathname=%2Fbackoffice");
+    ).toBe("/api/auth/sign-in?returnPathname=%2Flender");
     expect(
       screen.getByRole("link", { name: "Activate your account" }).getAttribute("href"),
-    ).toBe("/api/auth/sign-up?returnPathname=%2Fbackoffice");
+    ).toBe("/api/auth/sign-up?returnPathname=%2Flender");
   });
 
   test("selects a persona when the visible option card is clicked", () => {

@@ -16,12 +16,14 @@ import {
   fetchGoogleAddressSuggestions,
   type GoogleAddressPlaceDetails,
   type GoogleAddressSuggestion,
+  isGoogleAddressPlaceDetailsInCountry,
   isGoogleMapsConfigured,
 } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
 
 interface GoogleAddressAutocompleteProps {
   className?: string;
+  countryCode?: string;
   disabled?: boolean;
   id?: string;
   inputClassName?: string;
@@ -42,8 +44,36 @@ interface GoogleAddressAutocompleteProps {
   value: string;
 }
 
+function getFallbackText({
+  configured,
+  countryCode,
+  failed,
+  loading,
+  query,
+}: {
+  configured: boolean;
+  countryCode?: string;
+  failed: boolean;
+  loading: boolean;
+  query: string;
+}): string {
+  if (!configured) {
+    return "Google Maps API key is not configured.";
+  }
+  if (failed) {
+    return "Address autocomplete is unavailable.";
+  }
+  if (query.trim().length < 3 || loading) {
+    return "Keep typing to search addresses.";
+  }
+  return countryCode
+    ? "No matching Canadian addresses."
+    : "No matching addresses.";
+}
+
 export function GoogleAddressAutocomplete({
   className,
+  countryCode,
   disabled = false,
   id,
   inputClassName,
@@ -67,9 +97,11 @@ export function GoogleAddressAutocomplete({
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [detailsFailed, setDetailsFailed] = useState(false);
+  const [selectionRejected, setSelectionRejected] = useState(false);
   const pendingSelectionDescriptionRef = useRef<string | null>(null);
   const selectedQueryRef = useRef<string | null>(null);
   const configured = useMemo(() => isGoogleMapsConfigured(), []);
+  const selectionFeedbackId = id ? `${id}-country-error` : undefined;
 
   useEffect(() => {
     setQuery(value);
@@ -93,7 +125,7 @@ export function GoogleAddressAutocomplete({
     let cancelled = false;
     setLoading(true);
     const timeoutId = window.setTimeout(() => {
-      fetchGoogleAddressSuggestions(trimmed)
+      fetchGoogleAddressSuggestions(trimmed, { countryCode })
         .then((nextSuggestions) => {
           if (cancelled) {
             return;
@@ -120,7 +152,7 @@ export function GoogleAddressAutocomplete({
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [configured, disabled, query]);
+  }, [configured, countryCode, disabled, query]);
 
   function handleValueChange(nextValue: string) {
     const source =
@@ -131,9 +163,12 @@ export function GoogleAddressAutocomplete({
       pendingSelectionDescriptionRef.current = null;
       selectedQueryRef.current = null;
       setDetailsFailed(false);
+      setSelectionRejected(false);
     }
     setQuery(nextValue);
-    onChange(nextValue, { source });
+    if (!countryCode || nextValue.trim().length === 0) {
+      onChange(nextValue, { source });
+    }
     if (!disabled) {
       setOpen(nextValue.trim().length >= 3 && suggestions.length > 0);
     }
@@ -143,29 +178,52 @@ export function GoogleAddressAutocomplete({
     pendingSelectionDescriptionRef.current = suggestion.description;
     selectedQueryRef.current = suggestion.description;
     setQuery(suggestion.description);
-    onChange(suggestion.description, { source: "selection" });
     setSuggestions([]);
     setOpen(false);
-    if (!onPlaceSelect) {
+    if (!(countryCode || onPlaceSelect)) {
+      onChange(suggestion.description, { source: "selection" });
+      pendingSelectionDescriptionRef.current = null;
       return;
     }
 
     setDetailsFailed(false);
+    setSelectionRejected(false);
     setDetailsLoading(true);
     onResolvingChange?.(true);
     try {
-      const details = await fetchGoogleAddressPlaceDetails(suggestion);
-      selectedQueryRef.current =
+      const details = await fetchGoogleAddressPlaceDetails(suggestion, {
+        countryCode,
+      });
+      if (
+        countryCode &&
+        !isGoogleAddressPlaceDetailsInCountry(details, countryCode)
+      ) {
+        selectedQueryRef.current = value;
+        setQuery(value);
+        setSelectionRejected(true);
+        return;
+      }
+      const acceptedAddress =
         details?.formattedAddress ?? suggestion.description;
+      selectedQueryRef.current = acceptedAddress;
+      setQuery(acceptedAddress);
+      onChange(acceptedAddress, { source: "selection" });
       setSuggestions([]);
       setOpen(false);
-      onPlaceSelect(suggestion, details);
+      onPlaceSelect?.(suggestion, details);
     } catch {
       setDetailsFailed(true);
-      selectedQueryRef.current = suggestion.description;
+      selectedQueryRef.current = countryCode ? value : suggestion.description;
+      if (countryCode) {
+        setQuery(value);
+      } else {
+        onChange(suggestion.description, { source: "selection" });
+      }
       setSuggestions([]);
       setOpen(false);
-      onPlaceSelect(suggestion, null);
+      if (!countryCode) {
+        onPlaceSelect?.(suggestion, null);
+      }
     } finally {
       setDetailsLoading(false);
       onResolvingChange?.(false);
@@ -173,13 +231,13 @@ export function GoogleAddressAutocomplete({
     }
   }
 
-  const fallbackText = configured
-    ? failed
-      ? "Address autocomplete is unavailable."
-      : query.trim().length >= 3 && !loading
-        ? "No matching addresses."
-        : "Keep typing to search addresses."
-    : "Google Maps API key is not configured.";
+  const fallbackText = getFallbackText({
+    configured,
+    countryCode,
+    failed,
+    loading,
+    query,
+  });
 
   return (
     <div className={cn("grid gap-2", className)}>
@@ -202,6 +260,8 @@ export function GoogleAddressAutocomplete({
         value={query}
       >
         <AutocompleteInput
+          aria-describedby={selectionRejected ? selectionFeedbackId : undefined}
+          aria-invalid={selectionRejected || undefined}
           aria-label={typeof label === "string" ? label : "Project address"}
           className={inputClassName}
           data-testid={testId}
@@ -225,10 +285,7 @@ export function GoogleAddressAutocomplete({
               <AutocompleteItem
                 className="grid min-h-12 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3 px-2.5 py-2"
                 key={suggestion.placeId}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  void selectSuggestion(suggestion);
-                }}
+                onClick={() => selectSuggestion(suggestion)}
                 value={suggestion}
               >
                 <MapPin aria-hidden className="size-4 text-muted-foreground" />
@@ -250,7 +307,7 @@ export function GoogleAddressAutocomplete({
       {loading ? (
         <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
           <Loader2 aria-hidden className="size-3 animate-spin" />
-          Searching addresses
+          {countryCode ? "Searching Canadian addresses" : "Searching addresses"}
         </span>
       ) : null}
       {detailsLoading ? (
@@ -261,7 +318,18 @@ export function GoogleAddressAutocomplete({
       ) : null}
       {detailsFailed ? (
         <span className="text-muted-foreground text-xs">
-          Coordinate lookup failed. The address text was kept.
+          {countryCode
+            ? "Address verification failed. Your previous value was kept."
+            : "Coordinate lookup failed. The address text was kept."}
+        </span>
+      ) : null}
+      {selectionRejected ? (
+        <span
+          className="text-destructive-text text-xs"
+          id={selectionFeedbackId}
+          role="alert"
+        >
+          Choose a Canadian address from the suggestions.
         </span>
       ) : null}
     </div>

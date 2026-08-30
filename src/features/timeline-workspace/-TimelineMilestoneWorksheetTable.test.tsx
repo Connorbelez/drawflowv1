@@ -1863,42 +1863,110 @@ describe("TimelineMilestoneWorksheetTable", () => {
     ).toEqual([2000, 1333, 6667]);
   });
 
-  test("blocks the final child and final included milestone destructive actions", () => {
+  test("uses canonical Milestone deletion when removing a final Sub-milestone", () => {
     const onRowsChange = vi.fn();
-    render(
+    const { container } = render(
       <ControlledWorksheet
-        initialRows={[worksheetRows[0]!]}
+        initialRows={worksheetRows}
+        initialWorksheetView="table"
         mode="settings"
         onRowsChange={onRowsChange}
       />
     );
 
-    const includeSwitch = screen.getByRole("switch", {
-      name: "Include Site prep & foundation",
-    });
-    expect(includeSwitch.getAttribute("title")).toBe(
-      "At least one milestone must remain included."
-    );
-    fireEvent.click(includeSwitch);
-    expect(onRowsChange).not.toHaveBeenCalled();
     fireEvent.click(
-      screen.getByTestId("timeline-setup-row-expand-site-prep-foundation")
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
     );
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-submilestone-detail-remove-site-prep-foundation-sub-1"
+      )
+    );
+
+    const finalChildDialog = screen.getByRole("alertdialog");
+    expect(
+      within(finalChildDialog).getByText(
+        /Removing the final Sub-milestone also removes the Site prep & foundation Milestone from this proposal plan/i
+      )
+    ).toBeTruthy();
+    fireEvent.click(
+      within(finalChildDialog).getByRole("button", {
+        name: "Remove Sub-milestone and Milestone",
+      })
+    );
+
+    expect(onRowsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        dependencyKeys: [],
+        key: "framing",
+        order: 0,
+        percentageBps: 10_000,
+        percentageText: "100.00%",
+        subMilestoneDetails: [
+          expect.objectContaining({
+            percentageBps: 10_000,
+            percentageText: "100.00%",
+          }),
+        ],
+      }),
+    ]);
+    expect(
+      screen.queryByTestId(
+        "timeline-setup-table-row-details-site-prep-foundation"
+      )
+    ).toBeNull();
+    expect(
+      screen.queryByTestId(
+        "timeline-setup-details-sheet-site-prep-foundation-sub-1"
+      )
+    ).toBeNull();
+    expect(
+      container.querySelector(".timeline-blueprint-footer")?.textContent
+    ).toContain("10 days");
+
     expect(
       (
         screen.getByTestId(
-          "timeline-setup-submilestone-remove-site-prep-foundation-sub-1"
+          "timeline-settings-table-delete-framing"
         ) as HTMLButtonElement
       ).disabled
     ).toBe(true);
-    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+  });
+
+  test("does not remove the final Sub-milestone from the only included Milestone", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={[worksheetRows[0]!]}
+        initialWorksheetView="table"
+        mode="settings"
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
+    );
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-submilestone-detail-remove-site-prep-foundation-sub-1"
+      )
+    );
+
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText(/final included Milestone/i)).toBeTruthy();
     expect(
       (
-        screen.getByTestId(
-          "timeline-settings-table-delete-site-prep-foundation"
-        ) as HTMLButtonElement
+        within(dialog).getByRole("button", {
+        name: "Remove Sub-milestone and Milestone",
+        }) as HTMLButtonElement
       ).disabled
     ).toBe(true);
+    expect(onRowsChange).not.toHaveBeenCalled();
   });
 
   test("confirms milestone deletion, cleans dependencies, and rebalances survivors", () => {
@@ -2597,7 +2665,8 @@ describe("TimelineMilestoneWorksheetTable", () => {
     ).toBe("Framing");
   });
 
-  test("opens the create-contractor drawer from milestone crew planning", async () => {
+  test("creates and immediately assigns a new canonical contractor", async () => {
+    const onRowsChange = vi.fn();
     const onCreate = vi.fn(async () => ({
       contractorId: "contractor-new",
     }));
@@ -2607,7 +2676,14 @@ describe("TimelineMilestoneWorksheetTable", () => {
           availableContractors: [],
           onCreate,
         }}
-        contractorOptions={[]}
+        contractorOptions={[
+          {
+            contractorId: "contractor-stale-same-name",
+            name: "Northstar Masonry",
+            trades: ["legacy"],
+          },
+        ]}
+        onRowsChange={onRowsChange}
       />
     );
     openExpandedMilestoneTab("Contractors");
@@ -2622,6 +2698,109 @@ describe("TimelineMilestoneWorksheetTable", () => {
     expect(
       screen.getByRole("button", { name: "Create and add" })
     ).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("Northstar Masonry"), {
+      target: { value: "Northstar Masonry" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText("masonry, brick, envelope"),
+      { target: { value: "masonry" } }
+    );
+    fireEvent.change(screen.getByPlaceholderText("Foundation lead"), {
+      target: { value: "Masonry lead" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create and add" }));
+
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith({
+        contractor: expect.objectContaining({
+          name: "Northstar Masonry",
+          trades: ["masonry"],
+        }),
+        role: "Masonry lead",
+      })
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Add contractor to proposal" })
+      ).toBeNull()
+    );
+
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-contractor-name-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("Northstar Masonry");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-contractor-role-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("Masonry lead");
+
+    fireEvent.click(screen.getAllByLabelText("Foundation scope")[0]);
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-add-contractor-site-prep-foundation")
+    );
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contractorAssignments: [
+            expect.objectContaining({
+              contractorId: "contractor-new",
+              contractorName: "Northstar Masonry",
+              role: "Masonry lead",
+            }),
+          ],
+          key: "site-prep-foundation",
+        }),
+      ])
+    );
+  });
+
+  test("keeps contractor creation recoverable when the canonical command fails", async () => {
+    const onCreate = vi.fn(async () => {
+      throw new Error("Forbidden: brokerage scope / internal request=req-secret");
+    });
+    render(
+      <ControlledWorksheet
+        contractorActions={{
+          availableContractors: [],
+          onCreate,
+        }}
+        contractorOptions={[]}
+      />
+    );
+    openExpandedMilestoneTab("Contractors");
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-create-contractor-site-prep-foundation")
+    );
+    fireEvent.change(screen.getByPlaceholderText("Northstar Masonry"), {
+      target: { value: "Northstar Masonry" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText("masonry, brick, envelope"),
+      { target: { value: "masonry" } }
+    );
+    fireEvent.change(screen.getByPlaceholderText("Foundation lead"), {
+      target: { value: "Masonry lead" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create and add" }));
+
+    expect(
+      await screen.findByText(
+        "Unable to create this contractor. Review the profile details and try again."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText(/Forbidden|request=req-secret|internal/i)).toBeNull();
+    expect(
+      (
+        screen.getByPlaceholderText("Northstar Masonry") as HTMLInputElement
+      ).value
+    ).toBe("Northstar Masonry");
   });
 
   test("adds optional contractor and material planning to an expanded setup row", () => {
@@ -2865,7 +3044,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
           row.key === "milestone-3" ? { ...row, excluded: true } : row
         )}
         onRowsChange={onRowsChange}
-        targetBudgetCents={500_000_00}
+        targetBudgetCents={300_000_00}
       />
     );
 
@@ -2873,16 +3052,16 @@ describe("TimelineMilestoneWorksheetTable", () => {
       "timeline-setup-row-budget-milestone-1"
     );
 
-    fireEvent.change(budgetInput, { target: { value: "$200,000" } });
+    fireEvent.change(budgetInput, { target: { value: "$150,000" } });
     fireEvent.blur(budgetInput);
 
     expect(onRowsChange).toHaveBeenLastCalledWith([
       expect.objectContaining({
-        budgetText: "$200,000",
+        budgetText: "$150,000",
         key: "milestone-1",
       }),
       expect.objectContaining({
-        budgetText: "$300,000",
+        budgetText: "$150,000",
         key: "milestone-2",
       }),
       expect.objectContaining({
@@ -2893,7 +3072,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
     ]);
   });
 
-  test("clamps cascade edits before downstream budgets go negative", () => {
+  test("rejects and rolls back cascade edits that exceed downstream capacity", () => {
     const onRowsChange = vi.fn();
     render(
       <ControlledWorksheet
@@ -2913,21 +3092,24 @@ describe("TimelineMilestoneWorksheetTable", () => {
 
     expect(onRowsChange).toHaveBeenLastCalledWith([
       expect.objectContaining({
-        budgetText: "$500,000",
+        budgetText: "$100,000",
         key: "milestone-1",
       }),
       expect.objectContaining({
-        budgetText: "$0",
+        budgetText: "$200,000",
         key: "milestone-2",
       }),
       expect.objectContaining({
-        budgetText: "$0",
+        budgetText: "$200,000",
         key: "milestone-3",
       }),
     ]);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "downstream allocations have only"
+    );
   });
 
-  test("does not cascade invalid transient currency input", () => {
+  test("rejects and rolls back invalid Cascade currency input", () => {
     const onRowsChange = vi.fn();
     render(
       <ControlledWorksheet
@@ -2947,7 +3129,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
 
     expect(onRowsChange).toHaveBeenLastCalledWith([
       expect.objectContaining({
-        budgetText: "abc",
+        budgetText: "$100,000",
         key: "milestone-1",
       }),
       expect.objectContaining({
@@ -2959,6 +3141,32 @@ describe("TimelineMilestoneWorksheetTable", () => {
         key: "milestone-3",
       }),
     ]);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "valid non-negative budget"
+    );
+  });
+
+  test("rejects and rolls back a changed final Milestone in Cascade mode", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        cascadeBudgetEdits
+        initialRows={cascadeRows}
+        onRowsChange={onRowsChange}
+        targetBudgetCents={500_000_00}
+      />
+    );
+
+    const budgetInput = screen.getByTestId(
+      "timeline-setup-row-budget-milestone-3"
+    );
+    fireEvent.change(budgetInput, { target: { value: "$150,000" } });
+    fireEvent.blur(budgetInput);
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(cascadeRows);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "no downstream allocation"
+    );
   });
 });
 

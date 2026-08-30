@@ -90,17 +90,54 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function phase3CutoverSchemaFixture() {
-  const source = readFileSync(join(process.cwd(), "convex/schema.ts"), "utf8");
-  const approvalIndex = /(\.index\("by_proposal_assignment_revision_status", \{[\s\S]*?)staged: true/;
-  const normalizedEmailIndex = /(\.index\("by_normalized_email", \{[\s\S]*?)staged: true/;
-  const cutover = source
-    .replace(approvalIndex, "$1staged: false")
-    .replace(normalizedEmailIndex, "$1staged: false");
+const PHASE3_SCHEMA_MODULES = [
+  {
+    indexName: "by_proposal_assignment_revision_status",
+    path: "convex/schema/proposal_lifecycle_01.ts",
+  },
+  {
+    indexName: "by_normalized_email",
+    path: "convex/schema/core_01.ts",
+  },
+] as const;
+
+function phase3CutoverModuleSource(source: string, indexName: string) {
+  const pattern = new RegExp(
+    `(\\.index\\("${indexName}", \\{[\\s\\S]*?)staged: true`
+  );
+  const cutover = source.replace(pattern, "$1staged: false");
   if (cutover === source) {
-    throw new Error("Phase 3 staged-index fixture did not find its source declarations");
+    throw new Error(`Phase 3 staged-index fixture did not find ${indexName}`);
   }
-  return Buffer.from(cutover);
+  return cutover;
+}
+
+function phase3SchemaSourceGraphFixture(staged = true) {
+  const root = readFileSync(join(process.cwd(), "convex/schema.ts"), "utf8");
+  const modules = PHASE3_SCHEMA_MODULES.map(({ indexName, path }) => {
+    const source = readFileSync(join(process.cwd(), path), "utf8");
+    return staged ? source : phase3CutoverModuleSource(source, indexName);
+  });
+  return [root, ...modules].join("\n");
+}
+
+function phase3CutoverSchemaFixture() {
+  return Buffer.from(phase3SchemaSourceGraphFixture(false));
+}
+
+function phase3CutoverSchemaEvidenceFixture() {
+  const modules = new Map<string, Buffer>();
+  for (const { indexName, path } of PHASE3_SCHEMA_MODULES) {
+    const source = readFileSync(join(process.cwd(), path), "utf8");
+    modules.set(
+      path,
+      Buffer.from(phase3CutoverModuleSource(source, indexName))
+    );
+  }
+  return {
+    modules,
+    root: readFileSync(join(process.cwd(), "convex/schema.ts")),
+  };
 }
 
 function createEvidenceFixture() {
@@ -108,7 +145,7 @@ function createEvidenceFixture() {
     repositoryRoot: process.cwd(),
   });
   const contract = clone(contractResult.contract);
-  const cutoverSchema = phase3CutoverSchemaFixture();
+  const cutoverSchema = phase3CutoverSchemaEvidenceFixture();
   const releaseKeys = generateKeyPairSync("ed25519");
   const reviewerKeys = generateKeyPairSync("ed25519");
   const releasePublicKey = publicPem(releaseKeys.publicKey);
@@ -1060,7 +1097,7 @@ function createEvidenceFixture() {
           reportSha256: sha256("phase3-rollback-rehearsal-report"),
           result: "passed" as const,
         },
-        schemaSourceSha256: sha256(cutoverSchema),
+        schemaSourceSha256: sha256(cutoverSchema.root),
       },
     },
     {
@@ -1213,7 +1250,9 @@ function createEvidenceFixture() {
       };
     },
     readRepositoryFile: (path: string) => {
-      if (path === "convex/schema.ts") return cutoverSchema;
+      if (path === "convex/schema.ts") return cutoverSchema.root;
+      const moduleOverride = cutoverSchema.modules.get(path);
+      if (moduleOverride) return moduleOverride;
       return readFileSync(join(process.cwd(), path));
     },
     readGitState: () => gitStates.shift() ?? cleanGitState,
@@ -1436,10 +1475,7 @@ function createEvidenceFixture() {
 
 describe("Lender Portal production acceptance contract", () => {
   test("fails closed unless Phase 3 staged state is absent or directly false", () => {
-    const currentSchema = readFileSync(
-      join(process.cwd(), "convex/schema.ts"),
-      "utf8"
-    );
+    const currentSchema = phase3SchemaSourceGraphFixture();
     const cutoverSchema = phase3CutoverSchemaFixture().toString("utf8");
     const assertedTrue = cutoverSchema.replace(
       /(\.index\("by_proposal_assignment_revision_status", \{[\s\S]*?)staged: false/,
@@ -1573,7 +1609,9 @@ describe("Lender Portal production acceptance contract", () => {
               : readFileSync(join(process.cwd(), path)),
         },
       })
-    ).toThrow(/does not match the candidate schema source|still staged/);
+    ).toThrow(
+      /does not match the candidate schema source|still staged|is staged or has an unknown staged expression/
+    );
   });
 
   test("rejects locally self-attested runner reports without trusted CI verification", () => {

@@ -1,10 +1,14 @@
 import { Link } from "@tanstack/react-router";
-
-import { Badge } from "#/components/ui/badge.tsx";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
-import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { api } from "../../../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
+import { Badge } from "#/components/ui/badge.tsx";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "#/components/ui/empty.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import type { api } from "../../../convex/_generated/api";
 
 type BuildRows = FunctionReturnType<
   typeof api.lender_portal.listLenderActiveBuilds
@@ -59,6 +63,15 @@ export function LenderActiveBuildList({
                       <Badge variant="outline">
                         {formatStatus(build.status)}
                       </Badge>
+                      {build.milestonesBehindSchedule > 0 ? (
+                        <Badge className="tabular-nums" variant="warning">
+                          {build.milestonesBehindSchedule}{" "}
+                          {build.milestonesBehindSchedule === 1
+                            ? "Milestone"
+                            : "Milestones"}{" "}
+                          behind schedule
+                        </Badge>
+                      ) : null}
                     </span>
                     <span className="mt-1 block truncate text-muted-foreground text-xs">
                       {build.location} · Updated {formatDate(build.updatedAt)}

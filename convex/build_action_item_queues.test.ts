@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
@@ -38,6 +39,7 @@ function withIdentity(
 
 async function seedQueueBuilds() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, { role: "admin", subject: "user_admin" });
   const builder = withIdentity(base, {
     role: "builder",

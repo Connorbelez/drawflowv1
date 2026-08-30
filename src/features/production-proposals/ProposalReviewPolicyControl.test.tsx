@@ -78,6 +78,58 @@ function reviewControl(
 }
 
 describe("ProposalReviewPolicyControl", () => {
+  test("shows inherited provenance and restores the current organization default as a new revision", async () => {
+    const onRestore = vi.fn().mockResolvedValue({ revisionNumber: 3 });
+
+    render(
+      <ProposalReviewPolicyControl
+        control={reviewControl({
+          policyVersions: [
+            {
+              policy: backofficePolicy,
+              policyVersionId: "policy_1",
+              provenance: "organization_default",
+              sourceLenderOrganizationId: "lender_1",
+              sourceLenderOrganizationName: "Northstar Lending",
+              sourceOrganizationReviewPolicyVersion: 4,
+              version: 1,
+            },
+          ],
+        } as unknown as Partial<ProposalReviewControlProjection>)}
+        onConfigure={vi.fn()}
+        onLock={vi.fn()}
+        onPublish={vi.fn()}
+        onRestore={onRestore}
+        proposalId="proposal_1"
+        proposalStatus="approved"
+      />,
+    );
+
+    expect(
+      screen.getByText("Inherited from Northstar Lending default v4"),
+    ).toBeTruthy();
+    expect(screen.getByText("Inherited")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Audit reason"), {
+      target: { value: "Restore the current organization policy." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Restore current organization default",
+      }),
+    );
+
+    await waitFor(() => expect(onRestore).toHaveBeenCalledTimes(1));
+    expect(onRestore).toHaveBeenCalledWith({
+      expectedAssignmentId: "assignment_1",
+      expectedProposalRevisionNumber: 2,
+      idempotencyKey: expect.stringMatching(
+        /^backoffice:review-policy:restore:/,
+      ),
+      reason: "Restore the current organization policy.",
+    });
+  });
+
   test("promotes Variant A groups and saves a policy against the exact live base", async () => {
     const onConfigure = vi.fn().mockResolvedValue({ revisionNumber: 3 });
 
@@ -237,6 +289,11 @@ describe("ProposalReviewPolicyControl", () => {
     expect(screen.queryByLabelText("Audit reason")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save policy" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Lock policy" })).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Restore current organization default",
+      }),
+    ).toBeNull();
     expect(
       screen.getAllByRole("radiogroup").every(
         (group) =>

@@ -41,7 +41,12 @@ Office proposal editor, policy loader, command, and shared component owners.
 3. Bind typed draft, validation, and lock commands. Completion criterion:
    current proposal revision and assignment are visible, server errors are
    actionable, and stale locks cannot appear successful.
-4. Verify accessibility and state coverage. Completion criterion: keyboard,
+4. Show canonical policy provenance and bind the Back Office-only restore
+   command. Completion criterion: inherited organization default version,
+   explicit system baseline, or customized Build provenance is visible;
+   restore snapshots the organization's current default into a new audited
+   Proposal policy revision and remains blocked after lock.
+5. Verify accessibility and state coverage. Completion criterion: keyboard,
    focus, validation summary, loading, forbidden, stale, locked, and concurrent
    states pass without internal implementation notes in user-facing UI.
 

@@ -121,26 +121,44 @@ describe("LenderProposalConfirmationSheet", () => {
     );
 
     const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        /Review each checkpoint. Acknowledgements are recorded on the current revision./
+      )
+    ).toBeTruthy();
     expect(within(dialog).getByText("4 of 5 acknowledged")).toBeTruthy();
-    expect(within(dialog).getByText("Cycle 1 · Revision 2")).toBeTruthy();
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "Load older cycles" })
-    );
-    expect(onLoadMoreHistory).toHaveBeenCalledTimes(1);
-    fireEvent.click(
+    expect(
       within(dialog).getByRole("button", {
-        name: /Access and review policy/i,
+        name: "Expand Milestone count checkpoint",
       })
-    );
+    ).toBeTruthy();
     fireEvent.click(
       within(dialog).getByRole("checkbox", {
         name: /I acknowledge the current access and review policy facts/i,
       })
     );
-
     await waitFor(() =>
       expect(onAcknowledge).toHaveBeenCalledWith("accessReviewPolicy")
     );
+    onAcknowledge.mockClear();
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Expand Milestone count checkpoint",
+      })
+    );
+    expect(
+      within(dialog).getByRole("button", {
+        name: "Collapse Milestone count checkpoint",
+      })
+    ).toBeTruthy();
+    expect(within(dialog).getByText("Prior reviewed revision")).toBeTruthy();
+    expect(within(dialog).getAllByText("8")).toHaveLength(1);
+    expect(within(dialog).getByText("7")).toBeTruthy();
+    expect(within(dialog).getByText("Cycle 1 · Revision 2")).toBeTruthy();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Load older cycles" })
+    );
+    expect(onLoadMoreHistory).toHaveBeenCalledTimes(1);
   });
 
   test("enforces the reason gate and sends the final decision through the sheet", async () => {
@@ -242,5 +260,39 @@ describe("LenderProposalConfirmationSheet", () => {
     expect(
       within(dialog).queryByLabelText("Private revision request reason")
     ).toBeNull();
+  });
+
+  test("presents Confirm as a pressed decision-type toggle, not the approval action", () => {
+    const onApprove = vi.fn();
+    render(
+      <LenderProposalConfirmationSheet
+        buildName="Juniper Row Homes"
+        confirmation={confirmation()}
+        onAcknowledge={vi.fn()}
+        onApprove={onApprove}
+        onDecline={vi.fn()}
+        onOpenChange={vi.fn()}
+        open
+        pending={false}
+        viewerWorkosUserId="user_1"
+      />
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Decision type")).toBeTruthy();
+    const confirmToggle = within(dialog).getByRole("button", {
+      name: "Confirm",
+    });
+    expect(confirmToggle.getAttribute("data-pressed")).toBe("");
+    fireEvent.click(confirmToggle);
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(
+      (
+        within(dialog).getByRole("button", {
+          name: "Approve Revision 3",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
+    expect(within(dialog).getByText("Acknowledgements incomplete")).toBeTruthy();
   });
 });

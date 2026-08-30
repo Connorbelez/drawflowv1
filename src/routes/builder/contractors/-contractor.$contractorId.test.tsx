@@ -181,6 +181,49 @@ describe("BuilderContractorWorkspaceRoute", () => {
     ).toBe("/builder");
   });
 
+  test("surfaces persisted WorkOS delivery failures and offers a retry", () => {
+    useQuery.mockReturnValue({
+      availability: {
+        category: "available",
+        reference: "CTR-DETAIL-AVAILABLE",
+      },
+      detail: {
+        profile: {
+          email: "pending@example.com",
+          name: "Pending Contractor",
+        },
+        relationship: {
+          invitation: {
+            deliveryError:
+              "An invitation is already pending for this email. Retry the invitation after confirming the address.",
+            deliveryStatus: "failed",
+            email: "pending@example.com",
+            state: "invited",
+          },
+          lifecycleState: "failed",
+          nextAction: "retry_invite",
+        },
+        workHistory: [],
+      },
+    });
+
+    render(
+      <BuilderContractorWorkspaceRoute
+        contractorId="contractor-01"
+        search={{}}
+        workosOrganizationId="org_production_foundation"
+      />
+    );
+
+    expect(screen.getByText("Invite failed")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "An invitation is already pending for this email. Retry the invitation after confirming the address."
+      )
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry invite" })).toBeTruthy();
+  });
+
   test("redacts invite mutation failures and preserves the current relationship state", async () => {
     useQuery.mockReturnValue({
       availability: {

@@ -43,6 +43,23 @@ describe("ProposalLenderAssignmentSection", () => {
     ).toBe(false);
   });
 
+  test("keeps an unauthorized approved proposal read-only with a reason", () => {
+    render(
+      <ProposalLenderAssignmentSection
+        lenderOrganizations={lenderOrganizations}
+        proposal={proposal}
+      />,
+    );
+
+    const assignButton = screen.getByRole("button", { name: "Assign lender" });
+    expect((assignButton as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText(
+        "Unassigned · only an authorized Back Office Admin can assign a lender",
+      ),
+    ).toBeTruthy();
+  });
+
   test("keeps the assignment boundary visible before approval", () => {
     render(
       <ProposalLenderAssignmentSection

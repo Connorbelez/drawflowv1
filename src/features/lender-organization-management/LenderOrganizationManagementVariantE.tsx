@@ -1,7 +1,6 @@
 import {
   ArrowRight,
   Building2,
-  Check,
   FileLock2,
   History,
   LockKeyhole,
@@ -12,16 +11,11 @@ import {
   UserRoundCheck,
   UserRoundCog,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "#/components/ui/card.tsx";
+import { Card, CardContent } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
@@ -41,6 +35,7 @@ export type LenderOrganizationOperation =
 export interface LenderOrganizationManagementVariantEProps {
   activeMemberCount: number;
   administrationContext: string;
+  description?: string;
   directoryUsers: DirectoryUser[];
   headingLevel?: 1 | 2;
   mode: "production" | "prototype";
@@ -60,6 +55,7 @@ export interface LenderOrganizationManagementVariantEProps {
   }>;
   pendingMoreMembers?: boolean;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
+  showInviteAction?: boolean;
 }
 
 /** The approved Variant E composition, shared by prototype and production. */
@@ -67,6 +63,7 @@ export function LenderOrganizationManagementVariantE({
   activeMemberCount,
   administrationContext,
   directoryUsers,
+  description,
   headingLevel = 1,
   mode,
   moreMembersAvailable = false,
@@ -80,6 +77,7 @@ export function LenderOrganizationManagementVariantE({
   pendingMembers = [],
   pendingMoreMembers = false,
   provisioningByOrg,
+  showInviteAction = true,
 }: LenderOrganizationManagementVariantEProps) {
   const [memberQuery, setMemberQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<
@@ -151,9 +149,10 @@ export function LenderOrganizationManagementVariantE({
     <div className="space-y-5">
       <PageHeading
         description={
-          production
+          description ??
+          (production
             ? "Manage the application lender organization, its assigned members, and WorkOS-first access changes."
-            : "The production User Management table and membership sheet, composed into the lender workspace with operational workflows staged safely in memory."
+            : "The production User Management table and membership sheet, composed into the lender workspace with operational workflows staged safely in memory.")
         }
         eyebrow={
           production
@@ -233,14 +232,16 @@ export function LenderOrganizationManagementVariantE({
                   ))}
                 </fieldset>
               </div>
-              <Button
-                onClick={() => onOpenOperation("invite")}
-                size="sm"
-                variant="outline"
-              >
-                <UserPlus />
-                Invite member
-              </Button>
+              {showInviteAction ? (
+                <Button
+                  onClick={() => onOpenOperation("invite")}
+                  size="sm"
+                  variant="outline"
+                >
+                  <UserPlus />
+                  Invite member
+                </Button>
+              ) : null}
             </div>
           </div>
           <UserManagementDirectoryTable
@@ -315,36 +316,24 @@ export function LenderOrganizationManagementVariantE({
           ) : null}
         </FramePanel>
       </Frame>
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Membership context</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <CheckLine text="Select a member to inspect their WorkOS organization membership" />
-            <CheckLine text="Stage access and deactivation operations from the membership sheet" />
-            <CheckLine text="Review the complete draft and downstream impact before execution" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Policy boundary</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <BoundaryLine
-              text={
-                production
-                  ? "Membership commands wait for canonical WorkOS projection reconciliation"
-                  : "No invitation delivery, WorkOS mutation, role assignment, or policy change"
-              }
-            />
-            <BoundaryLine text="No quorum eligibility or satisfaction claim" />
-            <BoundaryLine text="Pre-closing review requirements remain Back Office-owned" />
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
+}
+
+interface LenderMemberAdministrationDetailsProps {
+  accessSupplement?: ReactElement;
+  activeMembershipCount: number;
+  administrationSupplement?: ReactElement;
+  historyCount?: number;
+  member: DirectoryUser;
+  mode: "production" | "prototype";
+  onOpenOperation: (operation: LenderOrganizationOperation) => void;
+  organizationName: string;
+  reviewRequirementsAction?: ReactElement;
+  showAdministrationActions?: boolean;
+  showAdministrationTab?: boolean;
+  showReviewRelationship?: boolean;
+  showTransfer?: boolean;
 }
 
 export function LenderMemberAdministrationDetails({
@@ -354,16 +343,14 @@ export function LenderMemberAdministrationDetails({
   mode,
   onOpenOperation,
   organizationName,
+  reviewRequirementsAction,
+  accessSupplement,
+  administrationSupplement,
+  showAdministrationActions = true,
+  showAdministrationTab = true,
+  showReviewRelationship = true,
   showTransfer = true,
-}: {
-  activeMembershipCount: number;
-  historyCount?: number;
-  member: DirectoryUser;
-  mode: "production" | "prototype";
-  onOpenOperation: (operation: LenderOrganizationOperation) => void;
-  organizationName: string;
-  showTransfer?: boolean;
-}) {
+}: LenderMemberAdministrationDetailsProps) {
   const membership = member.memberships[0];
   const roleSlugs = membership?.roleSlugs ?? [];
   const principalProtected = roleSlugs.includes("principle-broker");
@@ -394,8 +381,12 @@ export function LenderMemberAdministrationDetails({
           variant="underline"
         >
           <TabsTab value="access">Access</TabsTab>
-          <TabsTab value="administration">Administration</TabsTab>
-          <TabsTab value="review">Review relationship</TabsTab>
+          {showAdministrationTab ? (
+            <TabsTab value="administration">Administration</TabsTab>
+          ) : null}
+          {showReviewRelationship ? (
+            <TabsTab value="review">Review relationship</TabsTab>
+          ) : null}
           <TabsTab value="history">History</TabsTab>
         </TabsList>
         <TabsPanel className="pt-3" value="access">
@@ -413,19 +404,101 @@ export function LenderMemberAdministrationDetails({
               label="Access scope"
               value={roleSlugs.join(" · ") || "No active role"}
             />
-            {showTransfer ? (
-              <SheetFact
-                label="Principal Broker protection"
-                value={
-                  principalProtected
-                    ? "Transfer-of-control required before replacement"
-                    : "Not the protected Principal Broker"
-                }
-              />
-            ) : null}
+            <PrincipalBrokerProtectionFact
+              principalProtected={principalProtected}
+              showTransfer={showTransfer}
+            />
+          </div>
+          {accessSupplement}
+        </TabsPanel>
+        <AdministrationTab
+          administrationSupplement={administrationSupplement}
+          onOpenOperation={onOpenOperation}
+          principalProtected={principalProtected}
+          reviewRequirementsAction={reviewRequirementsAction}
+          showAdministrationActions={showAdministrationActions}
+          showAdministrationTab={showAdministrationTab}
+          showTransfer={showTransfer}
+        />
+        <ReviewRelationshipTab
+          activeMembershipCount={activeMembershipCount}
+          show={showReviewRelationship}
+        />
+        <TabsPanel className="space-y-3 pt-3" value="history">
+          <div className="flex flex-col divide-y">
+            <SheetFact label="Identity source" value="WorkOS projection" />
+            <SheetFact
+              label="Membership record"
+              value={membership?.workosMembershipId ?? "Not available"}
+            />
+            <SheetFact
+              label="Organization audit entries"
+              value={organizationAuditValue({ historyCount, production })}
+            />
+            <SheetFact
+              label="Decision history"
+              value="Preserved in canonical review workflows"
+            />
+          </div>
+          <div className="flex gap-3 border-t pt-3 text-muted-foreground text-xs leading-5">
+            <History className="mt-0.5 size-4 shrink-0" />
+            <p>
+              Material production commands retain actor, role, prior and new
+              state, time, warnings, and reason.
+            </p>
           </div>
         </TabsPanel>
-        <TabsPanel className="space-y-3 pt-3" value="administration">
+      </Tabs>
+    </section>
+  );
+}
+
+function PrincipalBrokerProtectionFact({
+  principalProtected,
+  showTransfer,
+}: {
+  principalProtected: boolean;
+  showTransfer: boolean;
+}) {
+  if (!showTransfer) {
+    return null;
+  }
+  return (
+    <SheetFact
+      label="Principal Broker protection"
+      value={
+        principalProtected
+          ? "Transfer-of-control required before replacement"
+          : "Not the protected Principal Broker"
+      }
+    />
+  );
+}
+
+function AdministrationTab({
+  administrationSupplement,
+  onOpenOperation,
+  principalProtected,
+  reviewRequirementsAction,
+  showAdministrationActions,
+  showAdministrationTab,
+  showTransfer,
+}: {
+  administrationSupplement?: ReactElement;
+  onOpenOperation: (operation: LenderOrganizationOperation) => void;
+  principalProtected: boolean;
+  reviewRequirementsAction?: ReactElement;
+  showAdministrationActions: boolean;
+  showAdministrationTab: boolean;
+  showTransfer: boolean;
+}) {
+  if (!showAdministrationTab) {
+    return null;
+  }
+  return (
+    <TabsPanel className="space-y-3 pt-3" value="administration">
+      {showAdministrationActions ? (
+        <>
           <WorkflowPreview
             action="Organization-level control"
             buttonLabel="Start invite"
@@ -468,72 +541,67 @@ export function LenderMemberAdministrationDetails({
               title="Transfer Principal Broker control"
             />
           ) : null}
-          <WorkflowPreview
-            action="Back Office boundary"
-            buttonLabel="Back Office only"
-            description="Review requirements and approval policy are owned by Back Office. Organization management does not introduce another manager role."
-            disabled
-            icon={LockKeyhole}
-            title="Review-requirements administration"
+          <ReviewRequirementsAdministrationWorkflow
+            action={reviewRequirementsAction}
           />
-        </TabsPanel>
-        <TabsPanel className="space-y-3 pt-3" value="review">
-          <div className="flex flex-col divide-y">
-            <SheetFact
-              label="Verified active memberships shown"
-              value={String(activeMembershipCount)}
-            />
-            <SheetFact
-              label="Eligibility or satisfaction"
-              value="Not derived on this surface"
-            />
-            <SheetFact
-              label="Policy owner"
-              value="Back Office pre-closing review requirements"
-            />
-          </div>
-          <div className="flex gap-3 border-t pt-3 text-muted-foreground text-xs leading-5">
-            <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-            <p>
-              Membership changes affect eligibility inputs, recipient routing,
-              work queues, and audit. This sheet explains that relationship; it
-              cannot change approval policy.
-            </p>
-          </div>
-        </TabsPanel>
-        <TabsPanel className="space-y-3 pt-3" value="history">
-          <div className="flex flex-col divide-y">
-            <SheetFact label="Identity source" value="WorkOS projection" />
-            <SheetFact
-              label="Membership record"
-              value={membership?.workosMembershipId ?? "Not available"}
-            />
-            <SheetFact
-              label="Organization audit entries"
-              value={
-                production
-                  ? historyCount === undefined
-                    ? "Recorded in canonical audit history"
-                    : String(historyCount)
-                  : "None · prototype drafts are discarded"
-              }
-            />
-            <SheetFact
-              label="Decision history"
-              value="Preserved in canonical review workflows"
-            />
-          </div>
-          <div className="flex gap-3 border-t pt-3 text-muted-foreground text-xs leading-5">
-            <History className="mt-0.5 size-4 shrink-0" />
-            <p>
-              Material production commands retain actor, role, prior and new
-              state, time, warnings, and reason.
-            </p>
-          </div>
-        </TabsPanel>
-      </Tabs>
-    </section>
+        </>
+      ) : null}
+      {administrationSupplement}
+    </TabsPanel>
   );
+}
+
+function ReviewRelationshipTab({
+  activeMembershipCount,
+  show,
+}: {
+  activeMembershipCount: number;
+  show: boolean;
+}) {
+  if (!show) {
+    return null;
+  }
+  return (
+    <TabsPanel className="space-y-3 pt-3" value="review">
+      <div className="flex flex-col divide-y">
+        <SheetFact
+          label="Verified active memberships shown"
+          value={String(activeMembershipCount)}
+        />
+        <SheetFact
+          label="Eligibility or satisfaction"
+          value="Not derived on this surface"
+        />
+        <SheetFact
+          label="Policy owner"
+          value="Back Office pre-closing review requirements"
+        />
+      </div>
+      <div className="flex gap-3 border-t pt-3 text-muted-foreground text-xs leading-5">
+        <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+        <p>
+          Membership changes affect eligibility inputs, recipient routing, work
+          queues, and audit. This sheet explains that relationship; it cannot
+          change approval policy.
+        </p>
+      </div>
+    </TabsPanel>
+  );
+}
+
+function organizationAuditValue({
+  historyCount,
+  production,
+}: {
+  historyCount?: number;
+  production: boolean;
+}) {
+  if (!production) {
+    return "None · prototype drafts are discarded";
+  }
+  return historyCount === undefined
+    ? "Recorded in canonical audit history"
+    : String(historyCount);
 }
 
 function PageHeading({
@@ -643,9 +711,32 @@ function SheetFact({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ReviewRequirementsAdministrationWorkflow({
+  action,
+}: {
+  action?: ReactElement;
+}) {
+  return (
+    <WorkflowPreview
+      action={action ? "Back Office workflow" : "Back Office boundary"}
+      buttonLabel={action ? "Open Build policies" : "Back Office only"}
+      buttonRender={action}
+      description={
+        action
+          ? "Organization defaults are managed on the parent Lender Organization. Open a Proposal policy to customize one Build before lock."
+          : "Back Office owns organization defaults and audited per-Build overrides. Organization management does not introduce another manager role."
+      }
+      disabled={!action}
+      icon={action ? FileLock2 : LockKeyhole}
+      title="Review requirements administration"
+    />
+  );
+}
+
 function WorkflowPreview({
   action,
   buttonLabel,
+  buttonRender,
   description,
   disabled = false,
   icon: Icon,
@@ -654,6 +745,7 @@ function WorkflowPreview({
 }: {
   action: string;
   buttonLabel: string;
+  buttonRender?: ReactElement;
   description: string;
   disabled?: boolean;
   icon: typeof UserPlus;
@@ -678,6 +770,7 @@ function WorkflowPreview({
             className="mt-3"
             disabled={disabled}
             onClick={onSelect}
+            render={buttonRender}
             size="sm"
             variant="outline"
           >
@@ -687,42 +780,5 @@ function WorkflowPreview({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function CheckLine({ text }: { text: string }) {
-  return (
-    <Line icon={<Check className="size-3.5" />} text={text} tone="primary" />
-  );
-}
-
-function BoundaryLine({ text }: { text: string }) {
-  return (
-    <Line icon={<FileLock2 className="size-3.5" />} text={text} tone="muted" />
-  );
-}
-
-function Line({
-  icon,
-  text,
-  tone,
-}: {
-  icon: ReactNode;
-  text: string;
-  tone: "muted" | "primary";
-}) {
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <span
-        className={
-          tone === "primary"
-            ? "flex size-6 items-center justify-center rounded-full bg-primary/15 text-primary"
-            : "flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        }
-      >
-        {icon}
-      </span>
-      <span>{text}</span>
-    </div>
   );
 }

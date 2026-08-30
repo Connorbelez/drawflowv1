@@ -1105,6 +1105,44 @@ describe("ScheduleRail", () => {
     );
   });
 
+  test("omits prepare escalation when the signed-in admin is already the authority", () => {
+    render(
+      <ScheduleRail
+        canMakeFinalDecision
+        collapsed={false}
+        date={new Date("2026-06-15T12:00:00.000Z")}
+        events={[]}
+        onAcknowledgeHandoff={vi.fn()}
+        onCollapsedChange={vi.fn()}
+        onEscalate={vi.fn()}
+        onReturnDecision={vi.fn()}
+        quickActions={[
+          {
+            actionLabel: "Review proposal",
+            address: "12 King St",
+            ageLabel: "3 days old",
+            authorityLabel: "Lender Admin decision",
+            blocker: "Awaiting underwriting decision",
+            buildId: "build-1",
+            dueLabel: "Today",
+            entityLabel: "King Street Build",
+            href: "/backoffice/proposals/proposal-1",
+            id: "proposal-review:proposal-1",
+            ownerLabel: "Operations",
+            recommendationLabel: "Review submission and record a decision",
+            title: "Approved proposal",
+            type: "proposal",
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Prepare escalation" })
+    ).toBeNull();
+    expect(screen.getByRole("link", { name: "Review proposal" })).toBeTruthy();
+  });
+
   test("omits authority controls for staff and exposes the returned acknowledgement", () => {
     const onAcknowledgeHandoff = vi.fn().mockResolvedValue(null);
     render(

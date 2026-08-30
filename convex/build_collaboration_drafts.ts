@@ -5,25 +5,24 @@ import {
   authenticatedQuery,
   normalizeRoleSlugs,
 } from "./authz";
-import {
-  prepareBuildCollaborationPublication,
-  publishBuildCollaborationBundle,
-} from "./build_collaboration";
+import { prepareBuildCollaborationPublication } from "./build_collaboration";
 import { reconcileDraftAssetStagingSessions } from "./build_collaboration_assets";
 import { collaborationDraftSummaryValidator } from "./build_collaboration_contracts";
-import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
   normalizeBuildCollaborationRole,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
 import {
-  type BuildCollaborationPublicationBundle,
   canonicalPublicationBundleJson,
   publicationBundleFields,
   publicationBundleHash,
 } from "./build_collaboration_publication_bundle";
+import {
+  invalidateBuildCollaborationPublicationApprovals,
+  publishBuildCollaborationDraft,
+} from "./build_collaboration_publication_lifecycle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import type { Id, MutationCtx } from "./types";
+import type { MutationCtx } from "./types";
 
 export const saveMyBuildCollaborationDraft = authenticatedMutation
   .input({
@@ -95,7 +94,11 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
           `Draft revision conflict: expected revision ${args.expectedRevision} but found ${draft.revision}. Your draft was preserved; compare it with the latest saved draft before retrying.`
         );
       }
-      await invalidateDraftApprovals(ctx, draft._id, now);
+      await invalidateBuildCollaborationPublicationApprovals(
+        ctx,
+        draft._id,
+        now
+      );
       await reconcileDraftAssetStagingSessions(ctx, {
         authorization,
         draftId: draft._id,
@@ -244,7 +247,7 @@ export const discardMyBuildCollaborationDraft = authenticatedMutation
       throw new Error("Published drafts cannot be discarded.");
     }
     const now = Date.now();
-    await invalidateDraftApprovals(ctx, draft._id, now);
+    await invalidateBuildCollaborationPublicationApprovals(ctx, draft._id, now);
     await reconcileDraftAssetStagingSessions(ctx, {
       authorization,
       draftId: draft._id,
@@ -268,121 +271,13 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
       ctx,
       args
     );
-    await requireHumanCollaborationActor(ctx, authorization);
-    const draft = await ctx.db.get(args.draftId);
-    if (
-      !draft ||
-      draft.buildId !== authorization.build._id ||
-      (draft.approvalOwnerWorkosUserId ?? draft.ownerWorkosUserId) !==
-        authorization.viewer.subject
-    ) {
-      throw new Error("Draft not found.");
-    }
-    if (draft.state === "published" || draft.state === "discarded") {
-      throw new Error("This draft is no longer publishable.");
-    }
-    if (draft.state === "scheduled" || draft.scheduledFor !== undefined) {
-      throw new Error(
-        "Scheduled drafts must execute through their approved schedule or be edited to invalidate that approval."
-      );
-    }
-    if ((await publicationBundleHash(draft.bundleJson)) !== draft.bundleHash) {
-      throw new Error(
-        "The draft changed after review. Review the latest revision before publishing."
-      );
-    }
-
-    const storedBundle = JSON.parse(
-      draft.bundleJson
-    ) as BuildCollaborationPublicationBundle;
-    const { audience, bundle } = await prepareBuildCollaborationPublication(
-      ctx,
-      {
-        authorization,
-        bundle: storedBundle,
-      }
-    );
-    const effectiveBundleJson = canonicalPublicationBundleJson(bundle);
-    if (
-      effectiveBundleJson !== draft.bundleJson ||
-      (await publicationBundleHash(effectiveBundleJson)) !== draft.bundleHash
-    ) {
-      throw new Error(
-        "The draft changed after review. Review the latest revision before publishing."
-      );
-    }
-    const now = Date.now();
-    const approvalId = draft.preparedByAgent
-      ? await ctx.db.insert("buildCollaborationPublicationApprovals", {
-          approvedAt: now,
-          approvingActorKind: authorization.viewer.actorKind,
-          approvingRole: authorization.effectiveRole.role,
-          approvingRoles: authorization.roles,
-          approvingWorkosUserId: authorization.viewer.subject,
-          brokerageId: authorization.brokerage._id,
-          buildId: authorization.build._id,
-          bundleHash: draft.bundleHash,
-          bundleJsonSnapshot: draft.bundleJson,
-          draftId: draft._id,
-          draftRevision: draft.revision,
-          mutationSummaryJson: JSON.stringify({
-            actionItemCount: bundle.actionItems.length,
-            attachmentAssetCount: bundle.attachmentAssetIds.length,
-            notificationEffectCount: bundle.effectiveNotificationEffects.length,
-            referenceCount: bundle.references.length,
-            sharedMutationCount: bundle.sharedMutations.length,
-          }),
-          organizationId: authorization.organizationId,
-          readerSummaryJson: JSON.stringify({
-            audienceMode: bundle.audienceMode,
-            effectiveReaderIds: bundle.effectiveReaderIds,
-            excludedReaderIds: bundle.excludedReaderIds,
-            mandatoryReaderIds: bundle.mandatoryReaderIds,
-            requestedReaderIds: bundle.requestedReaderIds,
-          }),
-          scheduledFor: draft.scheduledFor,
-          state: "approved",
-        })
-      : null;
-    const postId = await publishBuildCollaborationBundle(ctx, {
-      agentDrafted: draft.preparedByAgent ?? false,
-      audience,
+    return await publishBuildCollaborationDraft(ctx, {
       authorization,
-      bundle,
+      draftId: args.draftId,
+      now: Date.now(),
     });
-    if (approvalId) {
-      await ctx.db.patch(approvalId, {
-        postId,
-        publishedAt: now,
-        state: "published",
-      });
-    }
-    await ctx.db.patch(draft._id, {
-      state: "published",
-      updatedAt: now,
-    });
-    return postId;
   })
   .public();
-
-async function invalidateDraftApprovals(
-  ctx: MutationCtx,
-  draftId: Id<"buildCollaborationDrafts">,
-  now: number
-) {
-  const approvals = await ctx.db
-    .query("buildCollaborationPublicationApprovals")
-    .withIndex("by_draftId_and_state", (query) => query.eq("draftId", draftId))
-    .take(100);
-  for (const approval of approvals) {
-    if (approval.state === "approved" || approval.state === "paused") {
-      await ctx.db.patch(approval._id, {
-        invalidatedAt: now,
-        state: "invalidated",
-      });
-    }
-  }
-}
 
 function validateOfflineCaptureTimestamp(
   value: number | undefined,

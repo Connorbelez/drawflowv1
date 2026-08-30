@@ -94,6 +94,117 @@ Do not import or call `query`, `mutation`, `action`, `internalQuery`, `internalM
 
 Direct imports from `convex/server` are still appropriate for schema, HTTP routing, app configuration, generated files, and non-function utilities such as validators like `paginationOptsValidator`.
 
+## Convex Architecture and Ownership
+
+Use a Convex-native Ports and Adapters architecture:
+
+```text
+Convex function / HTTP / webhook / cron
+        -> auth + validation adapter
+        -> application use case
+        -> pure domain decision
+        -> Convex persistence / external adapters
+```
+
+- **Domain core:** pure state transitions, policies, invariants, value objects,
+  and domain errors. Do not import `ctx`, generated Convex types, WorkOS, UI,
+  storage, wall-clock time, or randomness. Pass time and identifiers as input.
+- **Application module:** owns one use case or lifecycle transition. It loads
+  state, calls the domain decision, persists the result, and orders required
+  audit, outbox, idempotency, and scheduling effects. It does not register a
+  Convex function or decide public versus internal visibility.
+- **Inbound adapters:** fluent queries, mutations, actions, HTTP handlers,
+  webhooks, crons, and UI callers. They authenticate, validate, translate
+  arguments, call one application interface, and translate the result.
+- **Outbound adapters:** narrow Convex database readers/writers, WorkOS
+  management and projection adapters, storage, fetch, schedulers, and
+  components. Create a port only for a real substitution seam; do not create a
+  generic repository for every table.
+
+Keep the original `QueryCtx` or `MutationCtx` flowing through the adapter and
+application module. Extracting a database read into a plain helper does not
+break Convex reactivity when the helper still uses that context. Do not replace
+Convex reads with a second cache or a stale projection. A database read in
+query middleware is part of that query's dependency set, so broad context
+loaders can cause broad invalidation.
+
+Fluent middleware is for cross-cutting adapter policy: identity, actor and
+tenant context, named capabilities, validation, timing, tracing, and error
+normalization. It must not silently own domain transitions, audit ordering, or
+required writes. Do not hide transactional invariants in `onSuccess`-style
+callbacks. Use fluent callable chains or plain helpers for reuse inside one
+execution; use `ctx.runQuery` and `ctx.runMutation` only for a real transaction,
+component, or workflow boundary.
+
+Queries must remain deterministic, indexed, bounded, and projection-oriented.
+Do not use `Date.now()` as an implicit query input, unbounded `.collect()`, or a
+database `.filter()` where an index is required. Mutations should commit one
+canonical state change and required audit/outbox state together. Actions are for
+external I/O or runtime boundaries: record intent in a mutation, schedule the
+action, make external effects idempotent, and finish with one focused internal
+mutation. React custom hooks may compose Convex subscriptions but are not
+business-logic owners or a second cache.
+
+## Architecture Linting Policy
+
+Architecture can be partly enforced by linting. Lint should enforce dependency
+direction and unsafe mechanics; it cannot prove canonical ownership, correct
+domain language, aggregate boundaries, authorization intent, realtime behavior,
+or idempotency. Those require ownership review and focused Convex tests.
+
+### Enforce mechanically
+
+- Scope `style/noRestrictedImports` overrides to future `convex/domain/**` and
+  pure application modules. Ban generated server decorators, `ctx`-owning
+  modules, WorkOS SDKs, UI modules, storage, and other infrastructure imports.
+- Use `style/noRestrictedGlobals` in the domain core to ban `Date`, `crypto`,
+  and other nondeterministic globals where appropriate. Do not ban `Date` across
+  all Convex code; mutations and migrations need server timestamps.
+- Use `nursery/noFloatingPromises` for Convex code so database writes and
+  scheduler calls cannot silently escape their execution boundary.
+- Use `suspicious/noImportCycles` for new domain/application directories, then
+  reduce the existing baseline before making it a repository-wide blocking
+  rule. A full Convex scan on 2026-08-25 reported 187 existing cycle warnings;
+  enabling it as an error today would obscure new violations.
+- Keep `nursery/noExcessiveLinesPerFile` and cognitive-complexity rules as
+  warning signals for shallow handlers, not as proof that a module violates
+  ownership. A long projection may be intentional; a short handler may still
+  duplicate a lifecycle rule.
+- Keep the existing fluent-only rule and direct generated-server import
+  prohibition. Allow explicit exceptions only for HTTP registration, types,
+  generated infrastructure, schema, and other documented adapters.
+
+### Use a dedicated architecture check for semantic mechanics
+
+When the layer directories and naming convention are stable, add a focused Bun
+or TypeScript AST check rather than extending the React-only ESLint config. It
+should report, with explicit allowlists:
+
+- registered query/mutation/action handlers that contain direct external I/O;
+- query handlers or their reachable helpers that use `Date.now()`;
+- sequential or looped `ctx.runMutation`/`ctx.runQuery` calls;
+- database `.filter()` and unbounded `.collect()` patterns;
+- new public handlers without argument validators or an authorization wrapper;
+- writes to tables owned by another bounded context;
+- multiple modules writing the same lifecycle table or transition symbol;
+- actions and webhooks whose effect lacks an idempotency key or reconciliation
+  path.
+
+This check should produce a machine-readable report and support a reviewed
+baseline. It must not infer that every repeated database operation is a bug;
+exceptions must name the component, migration, projection, or bounded
+workflow. Add fixture tests for the checker before making it blocking.
+
+### Do not pretend lint can prove
+
+Lint cannot reliably decide whether two implementations represent the same
+business rule, whether a projection is canonical, whether a wrapper broadens
+reactive invalidation, whether a mutation preserves transaction semantics, or
+whether the intended route can reach an authorized function. Those remain
+architecture-review and `convex-test` concerns. Use the deletion test and
+record the owner, adapters, authoritative records, and observable consumer in
+the architecture report.
+
 ## Implementation Bias
 
 - Lender Portal promotion: before planning or implementing a lender-facing
@@ -149,7 +260,7 @@ NEVER create a component from scratch if theres something existing that can be a
 
 - Prefer `src/components/ui/separator.tsx` to delineate sections instead of redundant wrapping cards or surfaces; keep enough padding for breathing room after wrappers are removed.
 - When a polished prototype exists (especially the iterated dark-mode variant), treat it as the visual source of truth and bring production UI to parity rather than shipping a divergent implementation.
-- Collaboration and operate actions must be route- and role-aware: on Builder routes, favor Builder-facing actions even when the user also has Admin; use roles for permission caps and the active route for which actions are exposed.
+- Collaboration and operate actions must be route- and role-aware: on Builder routes, favor Builder-facing actions even when the user also has Admin; on Back Office routes, do not offer prepare-escalation or escalate-to-admin actions when the signed-in user is already an admin. Use roles for permission caps and the active route for which actions are exposed.
 - React Compiler is planned; do not spend effort on memoization campaigns the compiler will subsume—scope those fixes out of performance work.
 
 ## Learned Workspace Facts

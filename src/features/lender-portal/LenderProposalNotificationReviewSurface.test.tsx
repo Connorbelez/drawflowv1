@@ -14,11 +14,9 @@ vi.mock("convex/react", () => ({
 }));
 
 vi.mock("../production-proposals/ProductionProposalSurfaces", () => ({
-  ProductionProposalReviewSurface: ({
-    lenderAssignmentSurface,
-  }: {
-    lenderAssignmentSurface?: ReactNode;
-  }) => <main>{lenderAssignmentSurface}</main>,
+  ProductionProposalReviewSurface: ({ approvalStatusSurface }: {
+    approvalStatusSurface?: ReactNode;
+  }) => <main>{approvalStatusSurface}</main>,
 }));
 
 type Confirmation = FunctionReturnType<
@@ -72,6 +70,23 @@ const confirmation = {
 } as unknown as Confirmation;
 
 describe("LenderProposalNotificationReviewSurface", () => {
+  test("forwards current lender controls to the shared Approval status card", () => {
+    render(
+      <LenderProposalNotificationReviewSurface
+        assignmentStatus="current"
+        confirmation={confirmation}
+        detail={detail}
+        viewerWorkosUserId="user_1"
+        workosOrganizationId="workos_lender"
+      />
+    );
+
+    expect(screen.getByText("Lender confirmation")).toBeTruthy();
+    expect(screen.getByText("Revision 1 · cycle 1")).toBeTruthy();
+    expect(screen.getByText("Action required")).toBeTruthy();
+    expect(screen.getByText("Open lender confirmation")).toBeTruthy();
+  });
+
   test("opens the canonical confirmation sheet from a current notification route", () => {
     render(
       <LenderProposalNotificationReviewSurface

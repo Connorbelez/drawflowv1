@@ -13,11 +13,13 @@ import { dispatchAssistantClientAction } from "#/features/assistant/assistantCli
 
 vi.mock("#/components/address/GoogleAddressAutocomplete.tsx", () => ({
   GoogleAddressAutocomplete: ({
+    countryCode,
     inputRender,
     onChange,
     onPlaceSelect,
     value,
   }: {
+    countryCode?: string;
     inputRender: ReactElement<ComponentProps<"input">>;
     onChange: (value: string) => void;
     onPlaceSelect: (
@@ -32,6 +34,7 @@ vi.mock("#/components/address/GoogleAddressAutocomplete.tsx", () => ({
     value: string;
   }) => (
     <div>
+      <span data-testid="address-country-restriction">{countryCode}</span>
       {cloneElement(inputRender, {
         onChange: (event) => onChange(event.currentTarget.value),
         value,
@@ -123,6 +126,9 @@ describe("TimelineSetupFlow assistant address updates", () => {
     );
 
     fireEvent.click(screen.getByTestId("select-address-place"));
+    expect(screen.getByTestId("address-country-restriction").textContent).toBe(
+      "CA",
+    );
     expect(
       (screen.getByTestId("timeline-setup-address-input") as HTMLInputElement)
         .value,

@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import {
   LenderProposalConfirmationSheet,
   type ProposalConfirmationCheckpoint,
@@ -79,74 +78,72 @@ export function LenderProposalNotificationReviewSurface({
   };
 
   const reviewControl = (
-    <Frame>
-      <FramePanel className="space-y-4 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="font-medium text-sm">Lender confirmation</p>
-            <p className="mt-1 text-muted-foreground text-xs">
-              {cycle
-                ? `Revision ${cycle.proposalRevisionNumber} · cycle ${cycle.cycleNumber}`
-                : "No active confirmation cycle"}
-            </p>
-          </div>
-          <Badge
-            variant={
-              assignmentStatus === "withdrawn"
-                ? "secondary"
-                : confirmation?.lenderNeedsAction
-                  ? "default"
-                  : "outline"
-            }
-          >
-            {assignmentStatus === "withdrawn"
-              ? "Assignment withdrawn"
-              : confirmation?.lenderNeedsAction
-                ? "Action required"
-                : (cycle?.status ?? "Pending")}
-          </Badge>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-medium text-sm">Lender confirmation</p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            {cycle
+              ? `Revision ${cycle.proposalRevisionNumber} · cycle ${cycle.cycleNumber}`
+              : "No active confirmation cycle"}
+          </p>
         </div>
+        <Badge
+          variant={
+            assignmentStatus === "withdrawn"
+              ? "secondary"
+              : confirmation?.lenderNeedsAction
+                ? "default"
+                : "outline"
+          }
+        >
+          {assignmentStatus === "withdrawn"
+            ? "Assignment withdrawn"
+            : confirmation?.lenderNeedsAction
+              ? "Action required"
+              : (cycle?.status ?? "Pending")}
+        </Badge>
+      </div>
 
-        {assignmentStatus === "withdrawn" ? (
-          <Alert>
-            <LockKeyhole aria-hidden />
-            <AlertTitle>Historical proposal access</AlertTitle>
-            <AlertDescription>
-              This lender assignment was withdrawn. The proposal packet is
-              read-only and no acknowledgement or decision command is available.
-            </AlertDescription>
-          </Alert>
-        ) : cycle ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-muted-foreground text-sm">
-              {confirmation?.closingGateSatisfied
-                ? "This revision is approved for closing."
-                : "Open the governed five-checkpoint review to continue."}
-            </p>
-            <Button onClick={() => setOpen(true)}>
-              Open lender confirmation <ArrowRight aria-hidden />
-            </Button>
-          </div>
-        ) : (
-          <Alert>
-            <LockKeyhole aria-hidden />
-            <AlertTitle>No current confirmation cycle</AlertTitle>
-            <AlertDescription>
-              This assignment has no lender action. Back Office can restore a
-              missing cycle from the assignment controls.
-            </AlertDescription>
-          </Alert>
-        )}
-      </FramePanel>
-    </Frame>
+      {assignmentStatus === "withdrawn" ? (
+        <Alert>
+          <LockKeyhole aria-hidden />
+          <AlertTitle>Historical proposal access</AlertTitle>
+          <AlertDescription>
+            This lender assignment was withdrawn. The proposal packet is
+            read-only and no acknowledgement or decision command is available.
+          </AlertDescription>
+        </Alert>
+      ) : cycle ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground text-sm">
+            {confirmation?.closingGateSatisfied
+              ? "This revision is approved for closing."
+              : "Open the governed five-checkpoint review to continue."}
+          </p>
+          <Button onClick={() => setOpen(true)}>
+            Open lender confirmation <ArrowRight aria-hidden />
+          </Button>
+        </div>
+      ) : (
+        <Alert>
+          <LockKeyhole aria-hidden />
+          <AlertTitle>No current confirmation cycle</AlertTitle>
+          <AlertDescription>
+            This assignment has no lender action. Back Office can restore a
+            missing cycle from the assignment controls.
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
   );
 
   if (!(cycle && confirmation) || assignmentStatus === "withdrawn") {
     return (
       <ProductionProposalReviewSurface
+        approvalStatusSurface={reviewControl}
         detail={detail}
         initialActiveTab="review"
-        lenderAssignmentSurface={reviewControl}
       />
     );
   }
@@ -164,9 +161,9 @@ export function LenderProposalNotificationReviewSurface({
   return (
     <>
       <ProductionProposalReviewSurface
+        approvalStatusSurface={reviewControl}
         detail={detail}
         initialActiveTab="review"
-        lenderAssignmentSurface={reviewControl}
       />
       <LenderProposalConfirmationSheet
         buildName={detail.proposal.buildName}

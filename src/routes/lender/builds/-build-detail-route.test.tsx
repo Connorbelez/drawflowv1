@@ -18,6 +18,16 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("#/components/lender-shell.tsx", () => ({
   LenderShell: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
+vi.mock(
+  "#/features/lender-portal/LenderBuildCollaboration.tsx",
+  () => ({
+    LenderBuildCollaboration: ({ buildId }: { buildId: string }) => (
+      <div data-testid="route-lender-collaboration">
+        Collaboration · {buildId}
+      </div>
+    ),
+  })
+);
 
 import { api } from "../../../../convex/_generated/api";
 import type { LenderBuildDetailData } from "../../../features/lender-portal/LenderBuildDetailOverview.tsx";
@@ -35,16 +45,6 @@ const canonicalBuildDetail = {
     updatedAt: 1,
   },
   builder: { displayName: "Northstar Builder" },
-  collaboration: [
-    {
-      body: "canonical-visible-result",
-      postId: "post_1",
-      primaryReferenceId: null,
-      primaryReferenceKind: null,
-      publishedAt: Date.UTC(2026, 7, 16),
-      sourceLabel: "Builder team",
-    },
-  ],
   draws: [],
   facility: {
     interestAnnualBps: 925,
@@ -61,6 +61,7 @@ const canonicalBuildDetail = {
   },
   milestones: [],
   releasedCents: 0,
+  reviewPolicy: { state: "unavailable" },
   reviewSummary: "No current lender review requests.",
 } as unknown as LenderBuildDetailData;
 
@@ -84,7 +85,7 @@ describe("/lender/builds/$buildId production route", () => {
     expect(
       screen.getByRole("heading", { name: "Authorized Build" })
     ).toBeTruthy();
-    expect(screen.getByText("canonical-visible-result")).toBeTruthy();
+    expect(screen.getByTestId("route-lender-collaboration")).toBeTruthy();
   });
 
   test("renders the authorized Build overview from the supported route entry", () => {

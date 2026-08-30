@@ -20,6 +20,45 @@ type AssignmentHealthReason =
   | "broker_membership_missing"
   | "broker_role_ineligible";
 
+export type BrokerMemberResolutionFailureReason =
+  | "membership_missing"
+  | "membership_inactive"
+  | "membership_pending"
+  | "membership_deleted"
+  | "role_ineligible"
+  | "user_missing"
+  | "user_inactive"
+  | "email_mismatch"
+  | "email_unverified"
+  | "duplicate"
+  | "principal_unconfigured";
+
+export type BrokerMemberResolution =
+  | {
+      broker: Doc<"users">;
+      membership: Doc<"workosOrganizationMemberships">;
+      ok: true;
+      workosUserId: string;
+    }
+  | {
+      membershipStatus?: Doc<"workosOrganizationMemberships">["status"];
+      ok: false;
+      reason: BrokerMemberResolutionFailureReason;
+    };
+
+export class BrokerMemberResolutionError extends Error {
+  readonly reason: BrokerMemberResolutionFailureReason;
+
+  constructor(
+    reason: BrokerMemberResolutionFailureReason,
+    subject: "assigned broker" | "brokerage principal broker"
+  ) {
+    super(formatBrokerMemberResolutionError(reason, subject));
+    this.name = "BrokerMemberResolutionError";
+    this.reason = reason;
+  }
+}
+
 export interface BuilderBrokerAssignmentHealth {
   activeAssignmentCount: number;
   assignment: Doc<"builderBrokerAssignments"> | null;
@@ -38,6 +77,8 @@ export interface AssignableBrokerMemberOption {
   email?: string;
   isPrincipal: boolean;
   name: string;
+  profilePictureUrl?: string;
+  roleSlugs: string[];
   workosUserId: string;
 }
 
@@ -172,30 +213,48 @@ export async function requireDefaultBrokerMember(
     | "workosOrganizationId"
   >
 ) {
+  const resolution = await resolveDefaultBrokerMember(ctx, brokerage);
+  if (!resolution.ok) {
+    throw new BrokerMemberResolutionError(
+      resolution.reason,
+      "brokerage principal broker"
+    );
+  }
+  return resolution;
+}
+
+/**
+ * Resolve the configured principal without collapsing projection failures into
+ * one generic error. The WorkOS projection is the only source considered here;
+ * brokerages only store the DrawFlow-side configuration and last resolved id.
+ */
+export async function resolveDefaultBrokerMember(
+  ctx: ReadCtx,
+  brokerage: Pick<
+    Doc<"brokerages">,
+    | "principalBrokerEmail"
+    | "principalBrokerWorkosUserId"
+    | "workosOrganizationId"
+  >
+): Promise<BrokerMemberResolution> {
   const configuredEmail = getConfiguredDefaultBrokerEmail(brokerage);
   if (configuredEmail) {
-    const eligible = await findEligibleBrokerMemberByEmail(ctx, {
+    return await findEligibleBrokerMemberByEmail(ctx, {
       email: configuredEmail,
+      preferredWorkosUserId: brokerage.principalBrokerWorkosUserId,
       workosOrganizationId: brokerage.workosOrganizationId,
     });
-    if (!eligible) {
-      throw new Error(
-        `The brokerage principal broker (${configuredEmail}) must be an active broker member of the brokerage.`
-      );
-    }
-    return eligible;
   }
 
   const workosUserId = brokerage.principalBrokerWorkosUserId;
   if (!workosUserId) {
-    throw new Error("The brokerage has not configured a principal broker.");
+    return { ok: false, reason: "principal_unconfigured" };
   }
 
-  const eligible = await requireEligibleBrokerMember(ctx, {
+  return await resolveEligibleBrokerMember(ctx, {
     workosOrganizationId: brokerage.workosOrganizationId,
     workosUserId,
   });
-  return { ...eligible, workosUserId };
 }
 
 /**
@@ -215,10 +274,8 @@ export async function listAssignableBrokerMembers(
   defaultAssignedBrokerWorkosUserId: string;
   options: AssignableBrokerMemberOption[];
 }> {
-  const configuredDefaultBrokerEmail =
-    getConfiguredDefaultBrokerEmail(brokerage);
-  const configuredDefaultBrokerWorkosUserId =
-    brokerage.principalBrokerWorkosUserId;
+  const defaultBroker = await requireDefaultBrokerMember(ctx, brokerage);
+  const configuredDefaultBrokerWorkosUserId = defaultBroker.workosUserId;
   const memberships = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_organization", (q) =>
@@ -248,14 +305,19 @@ export async function listAssignableBrokerMembers(
     options.push({
       ...(broker.email ? { email: broker.email } : {}),
       isPrincipal:
-        configuredDefaultBrokerEmail === undefined
-          ? membership.workosUserId === configuredDefaultBrokerWorkosUserId
-          : normalizeEmail(broker.email) === configuredDefaultBrokerEmail,
+        membership.workosUserId === configuredDefaultBrokerWorkosUserId,
       name:
         fullName ||
         broker.name?.trim() ||
         broker.email?.trim() ||
         membership.workosUserId,
+      ...(broker.profilePictureUrl
+        ? { profilePictureUrl: broker.profilePictureUrl }
+        : {}),
+      roleSlugs: normalizeRoleSlugs([
+        membership.roleSlug,
+        ...(membership.roleSlugs ?? []),
+      ]),
       workosUserId: membership.workosUserId,
     });
   }
@@ -271,21 +333,8 @@ export async function listAssignableBrokerMembers(
       "Multiple active broker members use the configured principal broker email. Resolve the duplicate WorkOS accounts before assigning work."
     );
   }
-  const configuredDefault = sortedOptions.find((option) =>
-    configuredDefaultBrokerEmail === undefined
-      ? option.workosUserId === configuredDefaultBrokerWorkosUserId
-      : normalizeEmail(option.email) === configuredDefaultBrokerEmail
-  );
-  const defaultAssignedBrokerWorkosUserId =
-    configuredDefault?.workosUserId ?? sortedOptions[0]?.workosUserId;
-  if (!defaultAssignedBrokerWorkosUserId) {
-    throw new Error(
-      "The brokerage has no active broker member available for assignment."
-    );
-  }
-
   return {
-    defaultAssignedBrokerWorkosUserId,
+    defaultAssignedBrokerWorkosUserId: configuredDefaultBrokerWorkosUserId,
     options: sortedOptions,
   };
 }
@@ -496,65 +545,229 @@ export async function requireEligibleBrokerMember(
   ctx: ReadCtx,
   input: { workosOrganizationId: string; workosUserId: string }
 ) {
-  const broker = await getWorkosUser(ctx, input.workosUserId);
-  const membership = await getActiveOrganizationMembership(
-    ctx,
-    input.workosUserId,
-    input.workosOrganizationId
-  );
-  if (
-    broker?.status !== "active" ||
-    !membership ||
-    !hasAssignableBrokerRole(membership)
-  ) {
-    throw new Error(
-      "The assigned broker must be an active broker member of the brokerage."
-    );
+  const resolution = await resolveEligibleBrokerMember(ctx, input);
+  if (!resolution.ok) {
+    throw new BrokerMemberResolutionError(resolution.reason, "assigned broker");
   }
-  return { broker, membership };
+  return resolution;
 }
 
 async function findEligibleBrokerMemberByEmail(
   ctx: ReadCtx,
-  input: { email: string; workosOrganizationId: string }
-) {
-  const matches = new Map<string, {
-    broker: Doc<"users">;
-    membership: Doc<"workosOrganizationMemberships">;
-    workosUserId: string;
-  }>();
+  input: {
+    email: string;
+    preferredWorkosUserId?: string;
+    workosOrganizationId: string;
+  }
+): Promise<BrokerMemberResolution> {
+  const emailFailures: BrokerMemberResolution[] = [];
+  const memberships: Doc<"workosOrganizationMemberships">[] = [];
+  const matches = new Map<
+    string,
+    Extract<BrokerMemberResolution, { ok: true }>
+  >();
   for await (const membership of ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_organization", (q) =>
       q.eq("workosOrganizationId", input.workosOrganizationId)
     )) {
-    if (
-      membership.status !== "active" ||
-      !hasAssignableBrokerRole(membership)
-    ) {
-      continue;
-    }
+    memberships.push(membership);
     const broker = newestProjectedUser(
       await getWorkosUsers(ctx, membership.workosUserId)
     );
     if (
-      broker?.status === "active" &&
-      broker.emailVerified !== false &&
-      normalizeEmail(broker.email) === input.email
+      // We're disabling this as Elie will not activate his fucking account and it's blocking us on QA. Ensure the commented out lines ar epreserved into the refactor as commented out lines along with this explanation.
+      // broker?.status === "active" &&
+      // broker.emailVerified !== false &&
+      normalizeEmail(broker?.email) === input.email
     ) {
-      matches.set(membership.workosUserId, {
+      const resolution = evaluateBrokerMember({
         broker,
+        expectedEmail: input.email,
         membership,
-        workosUserId: membership.workosUserId,
       });
+      if (resolution.ok) {
+        matches.set(membership.workosUserId, resolution);
+      } else {
+        emailFailures.push(resolution);
+      }
     }
   }
   if (matches.size > 1) {
-    throw new Error(
-      `Multiple active broker members use the principal broker email ${input.email}. Resolve the duplicate WorkOS accounts before assigning work.`
-    );
+    return { ok: false, reason: "duplicate" };
   }
-  return matches.values().next().value ?? null;
+  const match = matches.values().next().value;
+  if (match) {
+    return match;
+  }
+
+  if (emailFailures.length > 0) {
+    return selectResolutionFailure(emailFailures);
+  }
+
+  if (input.preferredWorkosUserId) {
+    const preferredMembership = memberships.find(
+      (membership) => membership.workosUserId === input.preferredWorkosUserId
+    );
+    const preferredBroker = preferredMembership
+      ? newestProjectedUser(
+          await getWorkosUsers(ctx, input.preferredWorkosUserId)
+        )
+      : null;
+    const preferredResolution = evaluateBrokerMember({
+      broker: preferredBroker,
+      expectedEmail: input.email,
+      membership: preferredMembership ?? null,
+    });
+    if (
+      !preferredResolution.ok &&
+      preferredResolution.reason !== "email_mismatch"
+    ) {
+      return preferredResolution;
+    }
+  }
+
+  if (memberships.length === 0) {
+    return { ok: false, reason: "membership_missing" };
+  }
+
+  return { ok: false, reason: "email_mismatch" };
+}
+
+export async function resolveEligibleBrokerMember(
+  ctx: ReadCtx,
+  input: {
+    expectedEmail?: string;
+    workosOrganizationId: string;
+    workosUserId: string;
+  }
+): Promise<BrokerMemberResolution> {
+  const [broker, membership] = await Promise.all([
+    getWorkosUser(ctx, input.workosUserId),
+    getOrganizationMembership(
+      ctx,
+      input.workosUserId,
+      input.workosOrganizationId
+    ),
+  ]);
+  return evaluateBrokerMember({
+    broker,
+    expectedEmail: input.expectedEmail,
+    membership,
+  });
+}
+
+function evaluateBrokerMember(input: {
+  broker: Doc<"users"> | null;
+  expectedEmail?: string;
+  membership: Doc<"workosOrganizationMemberships"> | null;
+}): BrokerMemberResolution {
+  if (!input.membership) {
+    return { ok: false, reason: "membership_missing" };
+  }
+  if (input.membership.status !== "active") {
+    return {
+      membershipStatus: input.membership.status,
+      ok: false,
+      reason:
+        input.membership.status === "pending"
+          ? "membership_pending"
+          : input.membership.status === "deleted"
+            ? "membership_deleted"
+            : "membership_inactive",
+    };
+  }
+  if (!hasAssignableBrokerRole(input.membership)) {
+    return { ok: false, reason: "role_ineligible" };
+  }
+  if (!input.broker) {
+    return { ok: false, reason: "user_missing" };
+  }
+  if (input.broker.status !== "active") {
+    return { ok: false, reason: "user_inactive" };
+  }
+  if (
+    input.expectedEmail &&
+    normalizeEmail(input.broker.email) !== input.expectedEmail
+  ) {
+    return { ok: false, reason: "email_mismatch" };
+  }
+  if (input.broker.emailVerified === false) {
+    return { ok: false, reason: "email_unverified" };
+  }
+  return {
+    broker: input.broker,
+    membership: input.membership,
+    ok: true,
+    workosUserId: input.membership.workosUserId,
+  };
+}
+
+function selectResolutionFailure(
+  failures: BrokerMemberResolution[]
+): Extract<BrokerMemberResolution, { ok: false }> {
+  const priority: BrokerMemberResolutionFailureReason[] = [
+    "membership_pending",
+    "membership_inactive",
+    "membership_deleted",
+    "role_ineligible",
+    "user_missing",
+    "user_inactive",
+    "email_unverified",
+    "email_mismatch",
+  ];
+  return (
+    priority
+      .map((reason) =>
+        failures.find(
+          (
+            failure
+          ): failure is Extract<BrokerMemberResolution, { ok: false }> =>
+            !failure.ok && failure.reason === reason
+        )
+      )
+      .find(
+        (failure): failure is Extract<BrokerMemberResolution, { ok: false }> =>
+          Boolean(failure)
+      ) ?? { ok: false, reason: "email_mismatch" }
+  );
+}
+
+function formatBrokerMemberResolutionError(
+  reason: BrokerMemberResolutionFailureReason,
+  subject: "assigned broker" | "brokerage principal broker"
+) {
+  if (reason === "duplicate") {
+    return "Multiple active broker members use the configured principal broker email. Resolve the duplicate WorkOS accounts before assigning work.";
+  }
+  if (reason === "principal_unconfigured") {
+    return "The brokerage has not configured a principal broker.";
+  }
+  if (reason === "role_ineligible") {
+    return `The ${subject} must have an assignable broker role (role_ineligible).`;
+  }
+  if (reason === "user_missing") {
+    return `The ${subject} WorkOS user projection is missing (user_missing).`;
+  }
+  if (reason === "user_inactive") {
+    return `The ${subject} must be an active broker member of the brokerage (user_inactive).`;
+  }
+  if (reason === "email_mismatch") {
+    return `The ${subject} email does not match the configured WorkOS user (email_mismatch).`;
+  }
+  if (reason === "email_unverified") {
+    return `The ${subject} email must be verified (email_unverified).`;
+  }
+  if (reason === "membership_missing") {
+    return `The ${subject} must be an active broker member of the brokerage (membership_missing).`;
+  }
+  if (reason === "membership_pending") {
+    return `The ${subject} must be an active broker member of the brokerage (membership_pending).`;
+  }
+  if (reason === "membership_deleted") {
+    return `The ${subject} must be an active broker member of the brokerage (membership_deleted).`;
+  }
+  return `The ${subject} must be an active broker member of the brokerage (membership_inactive).`;
 }
 
 export function hasAssignableBrokerRole(
@@ -575,13 +788,23 @@ async function getActiveOrganizationMembership(
   workosUserId: string,
   workosOrganizationId: string
 ) {
+  const membership = await getOrganizationMembership(
+    ctx,
+    workosUserId,
+    workosOrganizationId
+  );
+  return membership?.status === "active" ? membership : null;
+}
+
+async function getOrganizationMembership(
+  ctx: ReadCtx,
+  workosUserId: string,
+  workosOrganizationId: string
+) {
   for await (const membership of ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user", (q) => q.eq("workosUserId", workosUserId))) {
-    if (
-      membership.workosOrganizationId === workosOrganizationId &&
-      membership.status === "active"
-    ) {
+    if (membership.workosOrganizationId === workosOrganizationId) {
       return membership;
     }
   }
@@ -600,9 +823,12 @@ function getWorkosUsers(ctx: ReadCtx, workosUserId: string) {
 }
 
 function newestProjectedUser(users: Doc<"users">[]) {
-  return users.sort(
-    (a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
-  )[0] ?? null;
+  return (
+    users.sort(
+      (a, b) =>
+        (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
+    )[0] ?? null
+  );
 }
 
 function normalizeEmail(email: string | undefined): string | undefined {

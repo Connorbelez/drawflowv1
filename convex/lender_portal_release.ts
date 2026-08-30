@@ -11,18 +11,34 @@ import {
   requireActiveWorkosUser,
 } from "./authz";
 import { operationalRequestFingerprint } from "./build_operational_idempotency";
-import { validateCompleteProposalRevisionLenderSnapshot } from "./proposal_revision_lender_snapshot";
 import type { MutationCtx, QueryCtx } from "./types";
+import {
+  canaryScopeHash,
+  getScopedReleaseControl,
+  isReleaseStatus,
+  lenderPortalRecipientWorkosUserId,
+  normalizeCanaryRecipients,
+  publicReleaseState,
+  reconcileActiveLenderPortalProviderReservations,
+  requireLegalReleaseTransition,
+  requirePublishedLenderContentSnapshotReadiness,
+  requireTrustedRuntimeReleaseProvenance,
+  requiredCandidateSha,
+  requiredConfigurationHash,
+  requiredIdempotencyKey,
+  requiredReason,
+  safeObject,
+} from "./lender_portal_release/helpers";
+
+export { requireTrustedRuntimeReleaseProvenance } from "./lender_portal_release/helpers";
 
 export const LENDER_PORTAL_RELEASE_PAUSED_REASON =
   "Lender portal delivery is paused by tenant release control.";
 export const LENDER_PORTAL_CANARY_BLOCKED_REASON =
   "Lender portal delivery is outside the tenant canary allowlist.";
 
-const MAX_CANARY_RECIPIENTS = 100;
 const MAX_OPERATIONAL_ROWS = 500;
 const MAX_RELEASE_AUDIT_PAGE_SIZE = 50;
-const MAX_RELEASE_READINESS_PROPOSALS = 100;
 
 export const LENDER_PORTAL_OPERATIONAL_THRESHOLDS = {
   actionRequired: 5,
@@ -40,7 +56,6 @@ const releaseStatusValidator = v.union(
   v.literal("draining")
 );
 
-type ReleaseStatus = "disabled" | "canary" | "enabled" | "draining";
 type ReleaseReadCtx = Pick<QueryCtx | MutationCtx, "db">;
 
 const releaseStateValidator = v.object({
@@ -100,11 +115,7 @@ export const listLenderPortalReleaseAudit = authenticatedQuery
       );
     }
     const scope = await requireTenantReleaseOperator(ctx, args.organizationId);
-    await getScopedReleaseControl(
-      ctx,
-      scope.organizationId,
-      scope.brokerageId
-    );
+    await getScopedReleaseControl(ctx, scope.organizationId, scope.brokerageId);
     const page = await ctx.db
       .query("auditEvents")
       .withIndex("by_organizationId_and_entityType_and_createdAt", (query) =>
@@ -163,9 +174,7 @@ export const transitionLenderPortalRelease = authenticatedMutation
   .handler(async (ctx, args) => {
     const scope = await requireTenantReleaseOperator(ctx, args.organizationId);
     const candidateSha = requiredCandidateSha(args.candidateSha);
-    const configurationHash = requiredConfigurationHash(
-      args.configurationHash
-    );
+    const configurationHash = requiredConfigurationHash(args.configurationHash);
     const reason = requiredReason(args.reason);
     const idempotencyKey = requiredIdempotencyKey(args.idempotencyKey);
     const canaryRecipientWorkosUserIds = normalizeCanaryRecipients(
@@ -181,7 +190,9 @@ export const transitionLenderPortalRelease = authenticatedMutation
       args.nextStatus !== "canary" &&
       canaryRecipientWorkosUserIds.length > 0
     ) {
-      throw new Error("Only canary release state accepts recipient allowlisting.");
+      throw new Error(
+        "Only canary release state accepts recipient allowlisting."
+      );
     }
     if (args.nextStatus === "canary" || args.nextStatus === "enabled") {
       requireTrustedRuntimeReleaseProvenance(candidateSha, configurationHash);
@@ -282,7 +293,10 @@ export const transitionLenderPortalRelease = authenticatedMutation
         scope.organizationId,
         now
       );
-    if (args.nextStatus === "disabled" && activeProviderReservations.length > 0) {
+    if (
+      args.nextStatus === "disabled" &&
+      activeProviderReservations.length > 0
+    ) {
       throw new Error(
         "Lender portal release cannot become disabled while provider reservations remain unresolved; enter draining and reconcile explicit provider outcomes first."
       );
@@ -291,9 +305,7 @@ export const transitionLenderPortalRelease = authenticatedMutation
     const priorCanaryHash = await canaryScopeHash(
       current?.canaryRecipientWorkosUserIds ?? []
     );
-    const nextCanaryHash = await canaryScopeHash(
-      canaryRecipientWorkosUserIds
-    );
+    const nextCanaryHash = await canaryScopeHash(canaryRecipientWorkosUserIds);
     const patch = {
       accessRevision: nextAccessRevision,
       brokerageId: scope.brokerageId,
@@ -345,8 +357,7 @@ export const transitionLenderPortalRelease = authenticatedMutation
         accessRevision: currentAccessRevision,
         activeProviderReservationCount: activeProviderReservations.length,
         candidateSha: current?.candidateSha,
-        canaryRecipientCount:
-          current?.canaryRecipientWorkosUserIds.length ?? 0,
+        canaryRecipientCount: current?.canaryRecipientWorkosUserIds.length ?? 0,
         canaryScopeHash: priorCanaryHash,
         configurationHash: current?.configurationHash,
         status: currentStatus,
@@ -367,7 +378,9 @@ export const transitionLenderPortalRelease = authenticatedMutation
     });
     const updated = await ctx.db.get(controlId);
     if (!updated) {
-      throw new Error("Lender portal release state is unavailable after update.");
+      throw new Error(
+        "Lender portal release state is unavailable after update."
+      );
     }
     return publicReleaseState(updated);
   })
@@ -460,22 +473,22 @@ export const getLenderPortalOperationalHealth = authenticatedQuery
           .take(11)
       )
     );
-    const attemptTruncated = attemptSamples.some((sample) => sample.length > 10);
+    const attemptTruncated = attemptSamples.some(
+      (sample) => sample.length > 10
+    );
     const attempts = attemptSamples.flatMap((sample) => sample.slice(0, 10));
     const reservationSamples = await Promise.all(
       [...kinds, undefined].flatMap((kind) =>
         (["active", "expired"] as const).map((state) =>
-        ctx.db
-          .query("communicationProviderReservations")
-          .withIndex(
-            "by_org_kind_state_lease",
-            (query) =>
+          ctx.db
+            .query("communicationProviderReservations")
+            .withIndex("by_org_kind_state_lease", (query) =>
               query
                 .eq("organizationId", scope.organizationId)
                 .eq("communicationKind", kind)
                 .eq("state", state)
-          )
-          .take(MAX_OPERATIONAL_ROWS + 1)
+            )
+            .take(MAX_OPERATIONAL_ROWS + 1)
         )
       )
     );
@@ -564,8 +577,7 @@ export const getLenderPortalOperationalHealth = authenticatedQuery
         ? ["lender_portal_abandoned_attempt_threshold_exceeded"]
         : []),
       ...(oldestQueuedAgeMs !== undefined &&
-      oldestQueuedAgeMs >
-        LENDER_PORTAL_OPERATIONAL_THRESHOLDS.oldestQueuedAgeMs
+      oldestQueuedAgeMs > LENDER_PORTAL_OPERATIONAL_THRESHOLDS.oldestQueuedAgeMs
         ? ["lender_portal_queue_age_threshold_exceeded"]
         : []),
       ...(incompleteSampling
@@ -617,7 +629,9 @@ export async function lenderPortalDeliveryReleaseReason(
   ctx: ReleaseReadCtx,
   intent: Doc<"communicationIntents">
 ): Promise<string | null> {
-  return (await lenderPortalDeliveryReleaseDecision(ctx, intent))?.reason ?? null;
+  return (
+    (await lenderPortalDeliveryReleaseDecision(ctx, intent))?.reason ?? null
+  );
 }
 
 export async function lenderPortalDeliveryReleaseDecision(
@@ -741,283 +755,4 @@ export async function requireTenantReleaseOperator(
     roles: operatorRoles,
     workosUserId: ctx.viewer.subject,
   };
-}
-
-async function requirePublishedLenderContentSnapshotReadiness(
-  ctx: ReleaseReadCtx,
-  organizationId: string,
-  brokerageId: Id<"brokerages">
-) {
-  const proposals = await ctx.db
-    .query("buildProposals")
-    .withIndex("by_brokerage_and_organization", (query) =>
-      query
-        .eq("brokerageId", brokerageId)
-        .eq("organizationId", organizationId)
-    )
-    .take(MAX_RELEASE_READINESS_PROPOSALS + 1);
-  if (proposals.length > MAX_RELEASE_READINESS_PROPOSALS) {
-    throw new Error(
-      `Lender portal snapshot readiness exceeds ${MAX_RELEASE_READINESS_PROPOSALS} proposals; complete the reviewed paginated Phase 9 release procedure before enablement.`
-    );
-  }
-
-  let blockerCount = 0;
-  for (const proposal of proposals) {
-    const currentAssignments = await ctx.db
-      .query("proposalLenderAssignments")
-      .withIndex("by_proposal_status", (query) =>
-        query.eq("proposalId", proposal._id).eq("status", "current")
-      )
-      .take(2);
-    if (currentAssignments.length === 0) {
-      continue;
-    }
-    if (currentAssignments.length !== 1 || !proposal.currentProposalRevisionId) {
-      blockerCount += 1;
-      continue;
-    }
-
-    const assignment = currentAssignments[0];
-    const revision = await ctx.db.get(proposal.currentProposalRevisionId);
-    if (!assignment || !revision) {
-      blockerCount += 1;
-      continue;
-    }
-    const validation = await validateCompleteProposalRevisionLenderSnapshot(
-      ctx,
-      { assignment, brokerageId, organizationId, proposal, revision },
-    );
-    if (!validation.ok) {
-      blockerCount += 1;
-    }
-  }
-
-  if (blockerCount > 0) {
-    throw new Error(
-      `Lender portal release requires complete immutable lender-content snapshots for every current assignment; ${blockerCount} current proposal revision(s) must be republished through the canonical Back Office review workflow.`
-    );
-  }
-}
-
-async function getScopedReleaseControl(
-  ctx: ReleaseReadCtx,
-  organizationId: string,
-  brokerageId: Id<"brokerages">
-) {
-  const control = await ctx.db
-    .query("lenderPortalTenantReleaseControls")
-    .withIndex("by_organizationId", (query) =>
-      query.eq("organizationId", organizationId)
-    )
-    .unique();
-  if (control && control.brokerageId !== brokerageId) {
-    throw new Error("Forbidden: lender portal release brokerage scope");
-  }
-  return control;
-}
-
-function publicReleaseState(
-  control: Doc<"lenderPortalTenantReleaseControls"> | null
-) {
-  return {
-    accessRevision: control?.accessRevision ?? 0,
-    available:
-      control?.status === "enabled" || control?.status === "canary",
-    candidateSha: control?.candidateSha,
-    canaryRecipientCount: control?.canaryRecipientWorkosUserIds.length ?? 0,
-    configurationHash: control?.configurationHash,
-    status: control?.status ?? ("disabled" as const),
-    updatedAt: control?.updatedAt,
-  };
-}
-
-function requireLegalReleaseTransition(
-  currentStatus: ReleaseStatus,
-  nextStatus: ReleaseStatus
-) {
-  const legal =
-    (currentStatus === "disabled" &&
-      (nextStatus === "disabled" ||
-        nextStatus === "canary" ||
-        nextStatus === "enabled")) ||
-    (currentStatus === "canary" &&
-      (nextStatus === "disabled" ||
-        nextStatus === "enabled" ||
-        nextStatus === "draining")) ||
-    (currentStatus === "enabled" &&
-      (nextStatus === "canary" ||
-        nextStatus === "disabled" ||
-        nextStatus === "draining")) ||
-    (currentStatus === "draining" && nextStatus === "disabled");
-  if (!legal) {
-    throw new Error(
-      `Illegal lender portal release transition: ${currentStatus} -> ${nextStatus}.`
-    );
-  }
-}
-
-function requiredCandidateSha(value: string) {
-  const normalized = value.trim().toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(normalized)) {
-    throw new Error("Lender portal candidate SHA must be a full Git SHA.");
-  }
-  return normalized;
-}
-
-function requiredConfigurationHash(value: string) {
-  const normalized = value.trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(normalized)) {
-    throw new Error(
-      "Lender portal configuration hash must be a SHA-256 hex digest."
-    );
-  }
-  return normalized;
-}
-
-function requiredReason(value: string) {
-  const normalized = value.trim();
-  if (!normalized || normalized.length > 1_000) {
-    throw new Error("Lender portal release reason must be 1 to 1000 characters.");
-  }
-  return normalized;
-}
-
-function requiredIdempotencyKey(value: string) {
-  const normalized = value.trim();
-  if (!normalized || normalized.length > 200) {
-    throw new Error(
-      "Lender portal release idempotency key must be 1 to 200 characters."
-    );
-  }
-  return normalized;
-}
-
-export function requireTrustedRuntimeReleaseProvenance(
-  candidateSha: string,
-  configurationHash: string
-) {
-  const runtimeCandidateSha = process.env.LENDER_PORTAL_RELEASE_CANDIDATE_SHA
-    ?.trim()
-    .toLowerCase();
-  const runtimeConfigurationHash =
-    process.env.LENDER_PORTAL_RELEASE_CONFIGURATION_HASH?.trim().toLowerCase();
-  if (
-    runtimeCandidateSha !== candidateSha ||
-    runtimeConfigurationHash !== configurationHash
-  ) {
-    throw new Error(
-      "Lender portal release cannot enable because the running deployment does not prove the configured candidate SHA and configuration hash."
-    );
-  }
-}
-
-async function canaryScopeHash(recipientIds: string[]) {
-  return await operationalRequestFingerprint({
-    recipientWorkosUserIds: [...recipientIds].sort(),
-  });
-}
-
-async function reconcileActiveLenderPortalProviderReservations(
-  ctx: MutationCtx,
-  organizationId: string,
-  now: number
-) {
-  const kinds = [
-    "lender_portal_approval_required",
-    "lender_portal_proposal_updated_after_decline",
-    "lender_portal_withdrawal",
-    "lender_portal_approval_outcome",
-  ] as const;
-  const samples = await Promise.all(
-    [...kinds, undefined].flatMap((kind) =>
-      (["active", "expired"] as const).map((state) =>
-      ctx.db
-        .query("communicationProviderReservations")
-        .withIndex(
-          "by_org_kind_state_lease",
-          (query) =>
-            query
-              .eq("organizationId", organizationId)
-              .eq("communicationKind", kind)
-              .eq("state", state)
-        )
-        .take(101)
-      )
-    )
-  );
-  if (
-    samples.some((sample) => sample.length > 100) ||
-    samples.reduce((total, sample) => total + sample.length, 0) > 100
-  ) {
-    throw new Error(
-      "Lender portal provider reservation inventory exceeded its safe boundary."
-    );
-  }
-  const direct = samples.slice(0, kinds.length * 2).flat();
-  const legacy = samples.slice(kinds.length * 2).flat();
-  const legacyIntents = await Promise.all(
-    legacy.map((reservation) => ctx.db.get(reservation.communicationIntentId))
-  );
-  const reservations = [
-    ...direct,
-    ...legacy.filter((_reservation, index) =>
-      legacyIntents[index]?.kind.startsWith("lender_portal_")
-    ),
-  ];
-  const unresolved = [];
-  for (const reservation of reservations) {
-    if (reservation.state === "active" && reservation.leaseExpiresAt <= now) {
-      await ctx.db.patch(reservation._id, {
-        state: "expired",
-        updatedAt: now,
-      });
-    }
-    // Lease expiry is not evidence that the provider did not accept a request.
-    // Keep both active and expired reservations blocking until a durable
-    // provider outcome resolves the attempt.
-    unresolved.push(reservation);
-  }
-  return unresolved;
-}
-
-function normalizeCanaryRecipients(values: string[]) {
-  const normalized = [
-    ...new Set(values.map((value) => value.trim()).filter(Boolean)),
-  ].sort();
-  if (normalized.length > MAX_CANARY_RECIPIENTS) {
-    throw new Error(
-      `Lender portal canary allowlist exceeds ${MAX_CANARY_RECIPIENTS} recipients.`
-    );
-  }
-  return normalized;
-}
-
-function lenderPortalRecipientWorkosUserId(payloadSnapshot: string) {
-  const payload = safeObject(payloadSnapshot);
-  return typeof payload?.recipientWorkosUserId === "string" &&
-    payload.recipientWorkosUserId.trim()
-    ? payload.recipientWorkosUserId.trim()
-    : null;
-}
-
-function safeObject(value: string | undefined): Record<string, unknown> | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function isReleaseStatus(value: unknown): value is ReleaseStatus {
-  return (
-    value === "disabled" ||
-    value === "canary" ||
-    value === "enabled" ||
-    value === "draining"
-  );
 }

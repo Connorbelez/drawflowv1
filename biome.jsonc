@@ -27,6 +27,15 @@
   },
   "linter": {
     "rules": {
+      "nursery": {
+        "noExcessiveLinesPerFile": {
+          "level": "warn",
+          "options": {
+            "maxLines": 1000,
+            "skipBlankLines": false
+          }
+        }
+      },
       "performance": {
         "noNamespaceImport": "off"
       },

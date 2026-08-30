@@ -376,6 +376,15 @@ export function formatTimestamp(timestamp: number) {
 }
 
 export function roleLabel(role?: string) {
+  if (role === "lender-admin") {
+    return "Lender admin";
+  }
+  if (role === "lender-staff") {
+    return "Lender staff";
+  }
+  if (role === "lender") {
+    return "Lender";
+  }
   if (!role) {
     return "Build participant";
   }

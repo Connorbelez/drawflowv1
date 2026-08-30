@@ -4,8 +4,9 @@ import { FAIRLEND_WORKOS_ORGANIZATION_ID } from "./fairLendConfig";
 import { fluent } from "./fluent";
 import {
   LENDER_ROLE_SLUGS,
-  resolveAssignedLenderOrganization,
   type LenderWorkflowPermissions,
+  resolveAssignedLenderOrganization,
+  resolveAssignmentDecisionPermissions,
 } from "./lenderOrganizationAccess";
 import type { Id, MutationCtx, QueryCtx } from "./types";
 
@@ -84,7 +85,7 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   builder: ["admin", "builder", "builder-staff"],
   contractor: ["contractor"],
   lenderOrganization: lenderRoleSlugs,
-  lenderUserManagementWrite: ["admin"],
+  lenderUserManagementWrite: ["admin", "lender-admin"],
   userManagementWrite: ["admin", "principle-broker"],
   nonDestructiveWrite: ["admin", "principle-broker", "broker", "broker-staff"],
   destructiveWrite: ["admin", "principle-broker"],
@@ -101,8 +102,14 @@ export interface AuthorizedViewer {
 }
 
 export interface ActiveLenderOrganizationContext {
+  assignmentId: Id<"lenderOrganizationAssignments">;
   brokerageId: Id<"brokerages">;
   brokerageName: string;
+  decisionPermissions: Pick<
+    LenderWorkflowPermissions,
+    "proposalReview" | "milestoneDecisions" | "drawDecisions"
+  >;
+  decisionPermissionsVersion: number;
   lenderOrganizationId: Id<"lenderOrganizations">;
   membershipIds: string[];
   organizationName: string;
@@ -147,6 +154,7 @@ export const requireLenderOrganization = createLenderOrganizationMiddleware(
 export const requireLenderUserManagementWrite =
   createLenderOrganizationMiddleware("lenderUserManagementWrite", [
     "admin",
+    "lender-admin",
   ]);
 
 export const authenticatedQuery = fluent.query().use(requireAuthenticated);
@@ -294,12 +302,20 @@ async function resolveActiveLenderOrganizationContext(
   };
   return {
     activeOrganization: {
+      assignmentId: resolution.assignment._id,
       brokerageId: resolution.brokerage._id,
       brokerageName: resolution.brokerage.displayName,
       lenderOrganizationId: resolution.organization._id,
       membershipIds: resolution.membershipIds,
       organizationName: resolution.organization.displayName,
       permissions: resolution.organization.permissions,
+      decisionPermissions: resolveAssignmentDecisionPermissions(
+        resolution.assignment,
+        resolution.roles,
+        resolution.organization.permissions
+      ),
+      decisionPermissionsVersion:
+        resolution.assignment.decisionPermissionsVersion ?? 0,
       roles: effectiveRoles,
       userId: resolution.user._id,
       workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
@@ -338,7 +354,7 @@ export function requireLenderOrganizationResource(
   return activeOrganization;
 }
 
-export async function requireLenderOrganizationPermission(
+export function requireLenderOrganizationPermission(
   _ctx: Pick<QueryCtx | MutationCtx, "db">,
   activeOrganization: ActiveLenderOrganizationContext,
   permission: string
@@ -354,12 +370,10 @@ export async function requireLenderOrganizationPermission(
     throw new Error(`Forbidden: permission ${permission}`);
   }
   if (
-    (key === "proposalReview" ||
-      key === "milestoneDecisions" ||
-      key === "drawDecisions") &&
-    activeOrganization.roles.every((role) => role === "lender-staff")
+    key !== "siteVisitReview" &&
+    !activeOrganization.decisionPermissions[key]
   ) {
-    throw new Error(`Forbidden: final lender decision authority ${permission}`);
+    throw new Error(`Forbidden: member decision permission ${permission}`);
   }
   return activeOrganization;
 }

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -46,6 +47,7 @@ async function seedOperationalBuild(options?: {
   collaborationActive?: boolean;
 }) {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, "admin", "user_admin");
   const foundation = await admin.mutation(
     (internal as any).production_proposals.dev_seedProductionFoundation,
@@ -507,21 +509,37 @@ async function feedKinds(
 
 async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
   for (let iteration = 0; iteration < 5000; iteration += 1) {
-    const pendingJobIds = await t.run(async (ctx) =>
-      (await ctx.db.query("buildCollaborationSearchJobs").collect())
-        .filter((job) => job.status !== "complete")
-        .map((job) => job._id),
-    );
-    if (pendingJobIds.length === 0) {
+    const next = await t.run(async (ctx: any) => {
+      const jobs = await ctx.db.query("buildCollaborationSearchJobs").collect();
+      const job =
+        jobs.find((candidate: any) => candidate.status === "queued") ??
+        jobs.find((candidate: any) => candidate.status === "running") ??
+        jobs.find((candidate: any) => candidate.status === "failed");
+      const state = job
+        ? await ctx.db
+            .query("buildCollaborationSearchStates")
+            .withIndex("by_buildId", (query: any) =>
+              query.eq("buildId", job.buildId),
+            )
+            .unique()
+        : null;
+      return state && job
+        ? {
+            buildId: job.buildId,
+            drainToken: state.drainToken ?? 0,
+            jobAttemptVersion: job.attemptVersion ?? 0,
+            jobId: job._id,
+          }
+        : null;
+    });
+    if (!next) {
       return;
     }
-    for (const jobId of pendingJobIds) {
-      await t.mutation(
-        (internal as any).build_collaboration_search_maintenance
-          .processBuildCollaborationSearchJob,
-        { jobId },
-      );
-    }
+    await t.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .processBuildCollaborationSearchDrain,
+      next,
+    );
   }
   throw new Error(
     "Draw search maintenance did not drain within the test bound.",

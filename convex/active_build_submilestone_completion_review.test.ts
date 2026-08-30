@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -29,6 +30,7 @@ function withIdentity(t: any, roles: string[], subject: string) {
 
 async function seedFixture() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, ["admin"], "user_admin");
   const seed = await admin.mutation(
     (internal as any).production_proposals.dev_seedProductionFoundation,

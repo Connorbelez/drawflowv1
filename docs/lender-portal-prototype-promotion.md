@@ -53,11 +53,11 @@ The normal promotion order is:
 | Requirement | Surface | Selected prototype | Required promotion boundary |
 | --- | --- | --- | --- |
 | `LP-PROT-DASH` | Lender Dashboard | `lender.prototype.tsx`, Variant D | Action-led portfolio: `Needs my attention` precedes the durable portfolio ledger; no inferred urgency/SLA data. |
-| `LP-PROT-ORG` | Lender Organization Management | `lender.organization-management-prototype.tsx`, Variant E | Promote the shared user-management table/detail-sheet contract only through the canonical organization/membership authority boundary. |
+| `LP-PROT-ORG` | Lender Organization Management | `lender.organization-management-prototype.tsx`, Variant E | Promote the shared user-management table/detail-sheet contract through the canonical organization/membership authority boundary. Add the Back Office-only organization default Review Requirements editor by directly reusing the approved Variant A fields; do not grant lender users policy-authoring authority. |
 | `LP-PROT-PROP` | Lender Proposal Review | `lender.proposal-confirmation-prototype.tsx`, Variant D | Promote the Back Office Proposal Packet host plus right-side lender confirmation sheet, five acknowledgements, audit evidence, confirmation gate, and decline-reason gate. |
-| `LP-PROT-POLICY` | Back Office Review Requirements Setup | `backoffice/proposals/review-requirements-prototype.tsx`, Variant A | Promote the Closing-workspace policy configuration/lock model; do not build a standalone policy system. |
-| `LP-PROT-ASSIGN` | Back Office Approval and Lender Assignment | `backoffice/proposals/lender-assignment-prototype.tsx`, Variant A, approved and locked 2026-08-14 | Preserve the compact Lender assignment row in the canonical proposal header and its single focused assignment modal. Keep policy editing, guided lender confirmation, closing, and activation as separate existing transitions. Capital source does not block an eligible assignment. |
-| `LP-PROT-BUILD` | Lender Build Detail Overview | `lender.build-detail-overview-prototype.tsx`, Variant C, approved and locked 2026-08-13 | Promote the compact Precision console: narrow Build overview, expandable Milestone ledger with canonical budget, receipt/invoice coverage, actual-or-planned date ranges and a focused read-only Milestone sheet; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration. Do not promote the full Build Workspace or add overview decisions. |
+| `LP-PROT-POLICY` | Back Office Review Requirements Setup | `backoffice/proposals/review-requirements-prototype.tsx`, Variant A | Promote the Closing-workspace policy configuration/lock model; reuse the same fields for organization defaults and show inherited/customized provenance plus explicit restore on the Build policy. Extend canonical policy revisions; do not build a standalone policy system. |
+| `LP-PROT-ASSIGN` | Back Office Approval and Lender Assignment | `backoffice/proposals/lender-assignment-prototype.tsx`, Variant A, approved and locked 2026-08-14; placement amended 2026-08-19 | Preserve the compact Lender assignment row and its single focused assignment modal inside the shared Approval status card. Builder, Back Office, and Lender proposal-review consumers use this same placement with permission-shaped content. Keep policy editing, guided lender confirmation, closing, and activation as separate existing transitions. Capital source does not block an eligible assignment. |
+| `LP-PROT-BUILD` | Lender Build Detail Overview | `lender.build-detail-overview-prototype.tsx`, Variant C, approved and locked 2026-08-13; Collaboration and Review policy amendment 2026-08-25 | Promote the compact Precision console: narrow Build overview with the immutable Milestone and Draw review policy displayed read-only; expandable Milestone ledger with canonical budget, receipt/invoice coverage, actual-or-planned date ranges and a focused read-only Milestone sheet; pooled Build funding and Draw records; review-attached evidence; and participant-visible public Collaboration. Active users in the currently assigned Lender Organization may publish fixed Build-wide updates, attach governed files, paginate complete authorized response threads, and reply through canonical Build Collaboration ownership. Do not promote the full Build Workspace, private controls, policy editing, or overview decisions. |
 | `LP-PROT-MILESTONE-QUEUE` | Lender Milestone Queue | `lender.milestones-prototype.tsx`, Variant C | Promote evidence-rich workflow lanes over canonical current-cycle Milestone projections. |
 | `LP-PROT-MILESTONE-SHEET` | Canonical Milestone Detail and Review Sheet | `lender.milestone-review-prototype.tsx`, Variant A | Promoted through the shared `MilestoneDetailSheet`; preserve the four-tab hierarchy, role-aware actions, verified policy gates, canonical child records, privacy, correction/resubmission, and audit ownership. |
 | `LP-PROT-DRAW-QUEUE` | Lender Draw Queue | `lender.draws-prototype.tsx`, Variant D, approved and locked 2026-08-13 | Promote Build-packet queue structure, lower-left color-and-symbol decision status, and its validated pooled-funding/evidence provenance contract. |
@@ -142,11 +142,12 @@ table, unassigned-user queue, organization detail drawer, assignment controls,
 staged invitations, workflow permissions, and soft deactivation. The hierarchy
 is `Brokerage → Lender Organization → assigned lender users`.
 
-The lender-facing `/lender/organization` route is a read-only application
-organization view. It resolves the active app assignment, never infers an
-organization from a WorkOS organization name or ID, and renders a
-`mailto:support@fairlend.ca` empty state without WorkOS directory data when the
-user has no assignment.
+The lender-facing `/lender/organization` route is an application organization
+view for all supported lender roles and an operator surface only for active
+same-organization `lender-admin` users. It resolves the active app assignment,
+never infers an organization from a WorkOS organization name or ID, and renders
+a `mailto:support@fairlend.ca` empty state without WorkOS directory data when
+the user has no assignment.
 
 ### Required component composition
 
@@ -170,7 +171,8 @@ user has no assignment.
 | Assign lender user | Select an eligible shared-WorkOS user from the unassigned queue and require a reason. | Fluent Convex admin mutation against `lenderOrganizationAssignments`. | One active app assignment exists; duplicate/cross-Brokerage assignment fails. |
 | Invite member | Collect a valid email and exact lender starting role. | WorkOS-first invitation to the configured shared identity organization, then pending app assignment staging. | Accepted invitation is pending; active app assignment appears only after user and membership projection reconciliation. |
 | Change access | Show current and proposed exact lender role and require a reason. | WorkOS-first shared-membership role action scoped by app organization and assignment. | Accepted or failed command is visible; projections remain webhook-owned. |
-| Deactivate member | Require an operational reason and preserve history. | WorkOS-first shared-membership deactivation, followed by app unassignment. | Future access ends after command/projection reconciliation; membership and decision history remain readable. |
+| Update member decision grants | On `/lender/organization`, show assigned versus organization-capped effective proposal, Milestone, and Draw grants; require review and a reason. | Version-checked fluent Convex mutation deriving the caller organization server-side; active same-organization `lender-admin` only. | Audit stores actor, target, prior/new grants, version, time, and reason; stale versions refresh before retry. |
+| Deactivate member | Require an operational reason, show consequences, and preserve history. | WorkOS-first shared-membership deactivation scoped from `assignmentId`; no client-supplied organization or membership identity. | Provider acceptance suspends DrawFlow authority immediately; webhook projection finalizes the assignment. Failure restores access and remains safely retryable. Self and last-active-admin targets are disabled and rejected server-side. |
 | Edit workflow policy | Toggle proposal, Milestone, Draw, and Site Visit permissions for the whole app organization. | Fluent Convex admin mutation with audit reason. | The shared bundle caps every assigned lender action. |
 
 Production commands must expose validation, authorization, pending sync,
@@ -192,7 +194,13 @@ contract.
 - Every lender request checks active user projection, active membership in the
   configured shared WorkOS organization, exact lender role, one active app
   assignment, active parent Brokerage, active target organization, and the
-  organization-wide policy cap.
+  organization-wide policy cap. Proposal, Milestone, and Draw decisions also
+  require the corresponding member grant; its version participates in the
+  eligibility epoch.
+- Active same-organization `lender-admin` users may operate on active `lender`,
+  `lender-staff`, or `lender-admin` assignments, except themselves or the last
+  active lender administrator. Other lender roles receive read-only member
+  projections.
 - No Principal Broker transfer or brokerage membership-management controls
   appear on the lender organization surface. No manager alias or parallel
   WorkOS identity/membership system exists.
@@ -227,12 +235,20 @@ Implementation is complete only when all of the following are true:
    cross-organization, exact-role, and policy-cap checks are tested.
 6. Deactivation preserves membership and decision history and requires an audit
    reason.
-7. The lender `/lender/organization` route is read-only, app-level, and shows a
-   contact-admin empty state without WorkOS directory data when unassigned.
+7. The lender `/lender/organization` route is app-level, reuses the Variant E
+   directory and member sheet, exposes only member grants and eligible-member
+   deactivation to active same-organization `lender-admin` users, keeps the
+   organization policy read-only, and shows a contact-admin empty state without
+   WorkOS directory data when unassigned.
 8. No manager role, duplicate WorkOS identity/membership source, or
    lender-owned approval-policy model is introduced.
 9. Authorization and WorkOS command behavior have focused tests; the promoted
    routes have SSR/render, keyboard, responsive, and browser interaction evidence.
+10. Assignment permissions are introduced through an optional-field backfill,
+    complete-coverage verification, required-field cutover, and only then UI
+    enablement. Existing active `lender` and `lender-admin` assignments inherit
+    enabled organization permissions; staff, pending, and inactive assignments
+    start with none.
 
 ### Prototype-to-production boundary
 

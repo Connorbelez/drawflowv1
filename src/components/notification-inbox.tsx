@@ -4,8 +4,10 @@ import { Notification03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
+import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Card } from "#/components/ui/card.tsx";
 import {
   Sheet,
   SheetContent,
@@ -19,6 +21,10 @@ import { cn } from "#/lib/utils.ts";
 import { api } from "../../convex/_generated/api";
 
 type InboxFilter = "actionRequired" | "all";
+interface PendingDeliveryAction {
+  action: "dismiss" | "resolve";
+  deliveryId: string;
+}
 type RecipientDelivery = NonNullable<
   ReturnType<typeof useRecipientInbox>
 >["deliveries"][number];
@@ -39,6 +45,8 @@ export function NotificationInbox({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] =
+    useState<PendingDeliveryAction | null>(null);
   const inbox = useRecipientInbox(workosOrganizationId, open, authReady);
   const markRead = useMutation(
     api.production_proposals.markRecipientDeliveryRead
@@ -55,12 +63,22 @@ export function NotificationInbox({
       (delivery) => filter === "all" || delivery.actionRequired
     ) ?? [];
 
-  const runDeliveryMutation = async (operation: () => Promise<unknown>) => {
+  const runDeliveryMutation = async (
+    nextPendingAction: PendingDeliveryAction | null,
+    operation: () => Promise<unknown>
+  ) => {
     setErrorMessage(null);
+    if (nextPendingAction) {
+      setPendingAction(nextPendingAction);
+    }
     try {
       await operation();
     } catch {
       setErrorMessage("Unable to update this notification. Try again.");
+    } finally {
+      if (nextPendingAction) {
+        setPendingAction(null);
+      }
     }
   };
 
@@ -73,14 +91,14 @@ export function NotificationInbox({
             : "Notifications"
         }
         className="relative size-11 md:size-8"
-        disabled={!workosOrganizationId || !authReady}
+        disabled={!(workosOrganizationId && authReady)}
         render={<Button size="icon-sm" variant="outline" />}
       >
         <HugeiconsIcon icon={Notification03Icon} strokeWidth={2} />
         {unreadCount > 0 ? (
           <span
             aria-hidden="true"
-            className="absolute -top-1 -right-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 font-semibold text-[10px] text-destructive-foreground"
+            className="absolute -top-1 -right-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 font-semibold text-destructive-foreground text-xs tabular-nums"
           >
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
@@ -92,25 +110,28 @@ export function NotificationInbox({
         data-testid="recipient-notification-inbox"
         side="right"
       >
-        <SheetHeader>
-          <div className="flex items-start justify-between gap-6 pr-8">
-            <div>
+        <SheetHeader className="px-4 sm:px-6">
+          <div className="flex flex-col items-start gap-3 pr-8 sm:flex-row sm:justify-between sm:gap-6">
+            <div className="min-w-0">
               <SheetTitle>Notifications</SheetTitle>
               <SheetDescription id="recipient-inbox-description">
-                Recipient-scoped updates and legal next actions.
+                Updates and actions for your current organization.
               </SheetDescription>
             </div>
             {inbox.loaded ? (
               <Badge
+                className="shrink-0 tabular-nums"
                 variant={inbox.actionRequiredCount > 0 ? "warning" : "outline"}
               >
-                {inbox.actionRequiredCount}
-                {inbox.countsComplete ? "" : "+"} require action
+                {formatActionRequiredCount(
+                  inbox.actionRequiredCount,
+                  inbox.countsComplete
+                )}
               </Badge>
             ) : null}
           </div>
         </SheetHeader>
-        <SheetPanel className="grid content-start gap-4">
+        <SheetPanel className="grid content-start gap-4 px-4 sm:px-6">
           <fieldset className="flex gap-2">
             <legend className="sr-only">Notification filters</legend>
             <Button
@@ -132,12 +153,9 @@ export function NotificationInbox({
           </fieldset>
 
           {errorMessage ? (
-            <p
-              aria-live="polite"
-              className="rounded-lg bg-destructive/10 p-3 text-destructive-foreground text-sm"
-            >
-              {errorMessage}
-            </p>
+            <Alert aria-live="polite" variant="error">
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
           ) : null}
 
           <InboxDeliveries
@@ -146,17 +164,19 @@ export function NotificationInbox({
             inboxLoaded={inbox.loaded}
             onDismiss={(delivery) =>
               workosOrganizationId
-                ? runDeliveryMutation(() =>
-                    dismiss({
-                      deliveryId: delivery._id,
-                      workosOrganizationId,
-                    })
+                ? runDeliveryMutation(
+                    { action: "dismiss", deliveryId: delivery._id },
+                    () =>
+                      dismiss({
+                        deliveryId: delivery._id,
+                        workosOrganizationId,
+                      })
                   )
                 : undefined
             }
             onOpen={(delivery) =>
               workosOrganizationId && delivery.status === "unread"
-                ? runDeliveryMutation(() =>
+                ? runDeliveryMutation(null, () =>
                     markRead({
                       deliveryId: delivery._id,
                       workosOrganizationId,
@@ -166,15 +186,18 @@ export function NotificationInbox({
             }
             onResolve={(delivery) =>
               workosOrganizationId
-                ? runDeliveryMutation(() =>
-                    resolve({
-                      deliveryId: delivery._id,
-                      workosOrganizationId,
-                    })
+                ? runDeliveryMutation(
+                    { action: "resolve", deliveryId: delivery._id },
+                    () =>
+                      resolve({
+                        deliveryId: delivery._id,
+                        workosOrganizationId,
+                      })
                   )
                 : undefined
             }
             organizationSelected={Boolean(workosOrganizationId)}
+            pendingAction={pendingAction}
           />
         </SheetPanel>
       </SheetContent>
@@ -227,6 +250,7 @@ function InboxDeliveries({
   onOpen,
   onResolve,
   organizationSelected,
+  pendingAction,
 }: {
   deliveries: RecipientDelivery[];
   filter: InboxFilter;
@@ -235,6 +259,7 @@ function InboxDeliveries({
   onOpen: (delivery: RecipientDelivery) => void;
   onResolve: (delivery: RecipientDelivery) => void;
   organizationSelected: boolean;
+  pendingAction: PendingDeliveryAction | null;
 }) {
   if (!organizationSelected) {
     return (
@@ -264,6 +289,7 @@ function InboxDeliveries({
             onDismiss={() => onDismiss(delivery)}
             onOpen={() => onOpen(delivery)}
             onResolve={() => onResolve(delivery)}
+            pendingAction={pendingAction}
           />
         </li>
       ))}
@@ -276,61 +302,85 @@ function RecipientDeliveryCard({
   onDismiss,
   onOpen,
   onResolve,
+  pendingAction,
 }: {
   delivery: RecipientDelivery;
   onDismiss: () => void;
   onOpen: () => void;
   onResolve: () => void;
+  pendingAction: PendingDeliveryAction | null;
 }) {
+  const titleId = `recipient-delivery-title-${delivery._id}`;
+  const createdAt = new Date(delivery.createdAt);
+  const actionsDisabled = pendingAction !== null;
+  const pendingActionForDelivery =
+    pendingAction?.deliveryId === delivery._id ? pendingAction.action : null;
+
   return (
-    <article
+    <Card
+      aria-labelledby={titleId}
       className={cn(
-        "grid gap-3 rounded-xl border p-4",
-        delivery.status === "unread" ? "bg-primary/5" : "bg-background"
+        "grid gap-3 p-4 shadow-none",
+        delivery.status === "unread" ? "bg-muted/40" : undefined
       )}
+      render={<article />}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-semibold text-sm">{delivery.title}</p>
-          <p className="mt-1 text-muted-foreground text-xs">
+          <h3 className="text-balance font-semibold text-sm" id={titleId}>
+            {delivery.title}
+          </h3>
+          <p className="mt-1 break-words text-muted-foreground text-xs">
             {delivery.entityLabel}
           </p>
         </div>
-        <span className="shrink-0 text-muted-foreground text-xs">
+        <time
+          className="shrink-0 text-muted-foreground text-xs tabular-nums"
+          dateTime={createdAt.toISOString()}
+          title={createdAt.toLocaleString()}
+        >
           {formatDeliveryAge(delivery.createdAt)}
-        </span>
+        </time>
       </div>
-      <p className="text-sm">{delivery.body}</p>
+      <p className="text-pretty break-words text-sm">{delivery.body}</p>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+        {delivery.status === "unread" ? (
+          <>
+            <span className="font-medium text-foreground">Unread</span>
+            <span aria-hidden="true">·</span>
+          </>
+        ) : null}
         <span>{delivery.sourceLabel}</span>
         <span aria-hidden="true">·</span>
         <span>{delivery.actionRequired ? "Action required" : "Update"}</span>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button
+          aria-label={`${delivery.actionLabel}: ${delivery.title}`}
           data-testid={`recipient-delivery-open-${delivery._id}`}
           onClick={onOpen}
-          render={
-            <a href={delivery.href}>
-              <span className="sr-only">{delivery.actionLabel}</span>
-            </a>
-          }
+          render={<a href={delivery.href}>{delivery.actionLabel}</a>}
           size="sm"
-        >
-          {delivery.actionLabel}
-        </Button>
+          variant="outline"
+        />
         {delivery.resolutionMode === "recipient" ? (
           <Button
+            aria-label={`Resolve ${delivery.title}`}
             data-testid={`recipient-delivery-resolve-${delivery._id}`}
+            disabled={actionsDisabled}
+            loading={pendingActionForDelivery === "resolve"}
             onClick={onResolve}
             size="sm"
-            variant="outline"
+            variant="secondary"
           >
             Resolve
           </Button>
         ) : null}
         <Button
+          aria-label={`Dismiss ${delivery.title}`}
           data-testid={`recipient-delivery-dismiss-${delivery._id}`}
+          disabled={actionsDisabled}
+          loading={pendingActionForDelivery === "dismiss"}
           onClick={onDismiss}
           size="sm"
           variant="ghost"
@@ -338,7 +388,7 @@ function RecipientDeliveryCard({
           Dismiss
         </Button>
       </div>
-    </article>
+    </Card>
   );
 }
 
@@ -346,11 +396,18 @@ function InboxState({ message }: { message: string }) {
   return (
     <p
       aria-live="polite"
-      className="rounded-xl border border-dashed p-6 text-center text-muted-foreground text-sm"
+      className="p-8 text-center text-muted-foreground text-sm"
     >
       {message}
     </p>
   );
+}
+
+function formatActionRequiredCount(count: number, countsComplete: boolean) {
+  if (!countsComplete) {
+    return count > 0 ? `${count}+ actions required` : "Counting actions…";
+  }
+  return `${count} ${count === 1 ? "action" : "actions"} required`;
 }
 
 function formatDeliveryAge(createdAt: number) {

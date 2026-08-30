@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import resendTest from "@convex-dev/resend/test";
 import { describe, expect, test, vi } from "vitest";
@@ -16,6 +17,12 @@ import { assertProposalLenderApprovalTimestamps } from "./production_proposals";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+
+function productionConvexTest() {
+  const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
+  return base;
+}
 
 const ORG = "org_production_foundation";
 const APP_PERMISSION_RESOURCES = [
@@ -1362,7 +1369,7 @@ describe("Lender Portal Phase 4 confirmation and remediation", () => {
           workosOrganizationId: lender.organizationId,
         },
       ),
-    ).rejects.toThrow("final lender decision authority proposal_review");
+    ).rejects.toThrow("member decision permission proposal_review");
     await expect(
       staffViewer.mutation(
         (api as any).production_proposals.declineExternalProposalForClosing,
@@ -1375,7 +1382,7 @@ describe("Lender Portal Phase 4 confirmation and remediation", () => {
           workosOrganizationId: lender.organizationId,
         },
       ),
-    ).rejects.toThrow("final lender decision authority proposal_review");
+    ).rejects.toThrow("member decision permission proposal_review");
   });
 
   test("rejects acknowledgement replay when the expected assignment changes", async () => {
@@ -2075,6 +2082,387 @@ describe("Lender Portal Phase 3 review policy and revision controls", () => {
       expect(detail.events ?? []).toEqual([]);
       expect(JSON.stringify(detail)).not.toContain("user_admin");
     }
+  });
+
+  test("snapshots organization defaults by assignment interval and restores the current default as an audited Build revision", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lenderA = await seedExternalLenderOrganization(t, {
+      organizationId: "org_policy_default_a",
+      userId: "user_policy_default_a",
+    });
+    const lenderB = await seedExternalLenderOrganization(t, {
+      organizationId: "org_policy_default_b",
+      userId: "user_policy_default_b",
+    });
+    const saveDefault = async (
+      lenderOrganizationId: any,
+      expectedVersion: number | null,
+      idempotencyKey: string,
+      receiptRequired: boolean
+    ) =>
+      t.mutation(
+        (api as any).lenderOrganizationReviewPolicies
+          .saveLenderOrganizationDefaultReviewPolicy,
+        {
+          expectedVersion,
+          idempotencyKey,
+          lenderOrganizationId,
+          policy: {
+            drawApprovalMode: "both",
+            drawLenderQuorum: 1,
+            milestoneApprovalMode: "both",
+            milestoneLenderQuorum: 1,
+            milestoneReceiptInvoiceRequired: receiptRequired,
+            milestoneSiteVisitRequired: true,
+          },
+          reason: `Save ${idempotencyKey}.`,
+        }
+      );
+    await saveDefault(
+      lenderA.lenderOrganizationId,
+      null,
+      "assignment-default-a-v1",
+      true
+    );
+    await saveDefault(
+      lenderB.lenderOrganizationId,
+      null,
+      "assignment-default-b-v1",
+      false
+    );
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Organization default assignment snapshots",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the organization-default snapshot fixture.",
+      workosOrganizationId: ORG,
+    });
+    const firstAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lenderA.lenderOrganizationId,
+        proposalId,
+        reason: "Assign organization A at default v1.",
+        workosOrganizationId: ORG,
+      }
+    );
+    const firstControl = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(firstControl.policyVersions.at(-1)).toMatchObject({
+      policy: { milestoneReceiptInvoiceRequired: true },
+      provenance: "organization_default",
+      sourceLenderOrganizationId: lenderA.lenderOrganizationId,
+      sourceOrganizationReviewPolicyVersion: 1,
+    });
+
+    await saveDefault(
+      lenderA.lenderOrganizationId,
+      1,
+      "assignment-default-a-v2",
+      false
+    );
+    const unchangedControl = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(unchangedControl.currentPolicyVersionId).toBe(
+      firstControl.currentPolicyVersionId
+    );
+    expect(unchangedControl.policyVersions.at(-1)).toMatchObject({
+      policy: { milestoneReceiptInvoiceRequired: true },
+      sourceOrganizationReviewPolicyVersion: 1,
+    });
+
+    const futureProposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Future assignment receives the current default",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId: futureProposalId,
+      reason: "Approve the future assignment fixture.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lenderA.lenderOrganizationId,
+        proposalId: futureProposalId,
+        reason: "Assign organization A after default v2 is current.",
+        workosOrganizationId: ORG,
+      }
+    );
+    const futureControl = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId: futureProposalId, workosOrganizationId: ORG }
+    );
+    expect(futureControl.policyVersions.at(-1)).toMatchObject({
+      policy: { milestoneReceiptInvoiceRequired: false },
+      provenance: "organization_default",
+      sourceOrganizationReviewPolicyVersion: 2,
+    });
+
+    const override = await t.mutation(
+      (api as any).production_proposals.configureProposalReviewPolicy,
+      {
+        ...(await phase3CommandBaseForTest(t, proposalId)),
+        idempotencyKey: "assignment-default-build-override",
+        policy: {
+          drawApprovalMode: "backoffice_only",
+          milestoneApprovalMode: "backoffice_only",
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: false,
+        },
+        proposalId,
+        reason: "Customize only this Build before lock.",
+        workosOrganizationId: ORG,
+      }
+    );
+    let control = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(control.policyVersions.at(-1)).toMatchObject({
+      policyVersionId: override.policyVersionId,
+      provenance: "build_override",
+    });
+    const restored = await t.mutation(
+      (api as any).production_proposals
+        .restoreProposalReviewPolicyFromOrganizationDefault,
+      {
+        expectedAssignmentId: firstAssignment.assignmentId,
+        expectedProposalRevisionNumber: control.currentRevisionNumber,
+        idempotencyKey: "assignment-default-restore-a-v2",
+        proposalId,
+        reason: "Restore organization A's current default.",
+        workosOrganizationId: ORG,
+      }
+    );
+    control = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(restored.revisionNumber).toBe(override.revisionNumber + 1);
+    expect(control.policyVersions.at(-1)).toMatchObject({
+      policy: { milestoneReceiptInvoiceRequired: false },
+      provenance: "organization_default",
+      sourceOrganizationReviewPolicyVersion: 2,
+    });
+    const restoredCycle = await base.run(async (ctx: any) =>
+      ctx.db
+        .query("proposalLenderConfirmationCycles")
+        .withIndex("by_assignment_and_revision", (query: any) =>
+          query
+            .eq("assignmentId", firstAssignment.assignmentId)
+            .eq("proposalRevisionId", restored.revisionId)
+        )
+        .unique()
+    );
+    expect(restoredCycle).toMatchObject({ status: "pending" });
+
+    vi.useFakeTimers();
+    await t.mutation(
+      (api as any).production_proposals.withdrawExternalLenderAssignment,
+      {
+        assignmentId: firstAssignment.assignmentId,
+        proposalId,
+        reason: "Withdraw organization A and preserve its policy provenance.",
+        workosOrganizationId: ORG,
+      }
+    );
+    await base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+    const secondAssignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lenderB.lenderOrganizationId,
+        proposalId,
+        reason: "Reassign to organization B at its current default.",
+        workosOrganizationId: ORG,
+      }
+    );
+    control = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(control.policyVersions.at(-1)).toMatchObject({
+      provenance: "organization_default",
+      sourceLenderOrganizationId: lenderB.lenderOrganizationId,
+      sourceOrganizationReviewPolicyVersion: 1,
+    });
+    const assignments = await base.run(async (ctx: any) => ({
+      first: await ctx.db.get(firstAssignment.assignmentId),
+      second: await ctx.db.get(secondAssignment.assignmentId),
+    }));
+    expect(assignments.first).toMatchObject({
+      organizationReviewPolicyVersion: 2,
+      reviewPolicyProvenance: "organization_default",
+      status: "withdrawn",
+    });
+    expect(assignments.second).toMatchObject({
+      organizationReviewPolicyVersion: 1,
+      reviewPolicyProvenance: "organization_default",
+      status: "current",
+    });
+    const lenderBViewer = withIdentity(
+      base,
+      ["lender-admin"],
+      lenderB.userId,
+      lenderB.organizationId
+    );
+    await approveCurrentProposalConfirmationForTest(
+      t,
+      lenderBViewer,
+      proposalId,
+      lenderB.organizationId,
+      "assignment-default-b-confirmation",
+      "Confirm organization B's inherited policy."
+    );
+    const lockBase = await phase3CommandBaseForTest(t, proposalId);
+    await t.mutation(
+      (api as any).production_proposals.lockProposalReviewPolicy,
+      {
+        expectedAssignmentId: lockBase.expectedAssignmentId,
+        expectedProposalRevisionNumber:
+          (await t.query(
+            (api as any).production_proposals
+              .getProposalPhase3ReviewControl,
+            { proposalId, workosOrganizationId: ORG }
+          )).currentRevisionNumber,
+        idempotencyKey: "assignment-default-policy-lock",
+        proposalId,
+        reason: "Lock the inherited organization B policy.",
+        workosOrganizationId: ORG,
+      }
+    );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals
+          .restoreProposalReviewPolicyFromOrganizationDefault,
+        {
+          expectedAssignmentId: secondAssignment.assignmentId,
+          expectedProposalRevisionNumber: control.currentRevisionNumber,
+          idempotencyKey: "assignment-default-restore-after-lock",
+          proposalId,
+          reason: "Restore must remain blocked after lock.",
+          workosOrganizationId: ORG,
+        }
+      )
+    ).rejects.toThrow(/cannot change after policy lock or closing/);
+  });
+
+  test("records explicit system baseline provenance when an assigned organization has no custom default", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_policy_system_baseline",
+      userId: "user_policy_system_baseline",
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "System baseline assignment snapshot",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the system baseline fixture.",
+      workosOrganizationId: ORG,
+    });
+    const assignment = await t.mutation(
+      (api as any).production_proposals.assignExternalLenderOrganization,
+      {
+        lenderOrganizationId: lender.lenderOrganizationId,
+        proposalId,
+        reason: "Snapshot the explicit system baseline.",
+        workosOrganizationId: ORG,
+      }
+    );
+    const control = await t.query(
+      (api as any).production_proposals.getProposalPhase3ReviewControl,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(control.policyVersions.at(-1)).toMatchObject({
+      policy: {
+        drawApprovalMode: "backoffice_only",
+        milestoneApprovalMode: "backoffice_only",
+      },
+      provenance: "system_baseline",
+      sourceLenderOrganizationId: lender.lenderOrganizationId,
+    });
+    expect(await base.run((ctx: any) => ctx.db.get(assignment.assignmentId))).toMatchObject({
+      reviewPolicyProvenance: "system_baseline",
+      status: "current",
+    });
+  });
+
+  test("fails assignment closed when membership drift makes the saved organization default unsatisfiable", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const lender = await seedExternalLenderOrganization(t, {
+      organizationId: "org_policy_default_drift",
+      userId: "user_policy_default_drift",
+    });
+    await t.mutation(
+      (api as any).lenderOrganizationReviewPolicies
+        .saveLenderOrganizationDefaultReviewPolicy,
+      {
+        expectedVersion: null,
+        idempotencyKey: "assignment-default-before-drift",
+        lenderOrganizationId: lender.lenderOrganizationId,
+        policy: {
+          drawApprovalMode: "lender_quorum",
+          drawLenderQuorum: 1,
+          milestoneApprovalMode: "backoffice_only",
+          milestoneLenderQuorum: null,
+          milestoneReceiptInvoiceRequired: false,
+          milestoneSiteVisitRequired: false,
+        },
+        reason: "Require one eligible lender before membership drift.",
+      }
+    );
+    await base.run(async (ctx: any) => {
+      const assignments = await ctx.db
+        .query("lenderOrganizationAssignments")
+        .withIndex("by_lender_organization_and_status", (query: any) =>
+          query
+            .eq("lenderOrganizationId", lender.lenderOrganizationId)
+            .eq("status", "active")
+        )
+        .collect();
+      for (const assignment of assignments) {
+        await ctx.db.patch(assignment._id, {
+          status: "inactive",
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    const proposalId = await createSubmittedProposal(t, seed, {
+      buildName: "Unsatisfiable organization default assignment",
+      capitalSource: "external",
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve the drift rejection fixture.",
+      workosOrganizationId: ORG,
+    });
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.assignExternalLenderOrganization,
+        {
+          lenderOrganizationId: lender.lenderOrganizationId,
+          proposalId,
+          reason: "This assignment must fail without partial writes.",
+          workosOrganizationId: ORG,
+        }
+      )
+    ).rejects.toThrow(/no active approval-eligible lender member/);
+    const proposalAssignments = await base.run((ctx: any) =>
+      ctx.db
+        .query("proposalLenderAssignments")
+        .withIndex("by_proposal", (query: any) => query.eq("proposalId", proposalId))
+        .collect()
+    );
+    expect(proposalAssignments).toEqual([]);
   });
 
   test("keeps monotonic immutable revisions, deterministic checkpoint diffs, exact-revision decisions, and copied closing lock evidence", async () => {
@@ -4668,7 +5056,7 @@ function asIdentity(
   subject = "user_builder",
   organizationId = ORG,
 ) {
-  return convexTest(schema, modules).withIdentity({
+  return productionConvexTest().withIdentity({
     email: `${subject}@example.com`,
     name: subject,
     organizationId,
@@ -4718,7 +5106,7 @@ async function directAdminProposalFixture(
   buildName: string,
   location: string,
 ) {
-  const base = convexTest(schema, modules);
+  const base = productionConvexTest();
   const t = withIdentity(base, ["admin"], "user_admin", ORG);
   const fixture = await base.run(async (ctx: any) => {
     const now = Date.now();
@@ -4780,7 +5168,7 @@ async function directAdminProposalFixture(
 }
 
 async function seeded(roles: string[], subject?: string, organizationId = ORG) {
-  const base = convexTest(schema, modules);
+  const base = productionConvexTest();
   const workosUserId = subject ?? "user_builder";
   await projectProductionSeedAuthorization(base, {
     organizationId,
@@ -5280,6 +5668,7 @@ async function createClosedSingleMilestoneBuild(
       key?: string;
       name: string;
       order: number;
+      startDay?: number;
     }>;
     ianaTimezone?: string;
     workosOrganizationId?: string;
@@ -6313,6 +6702,11 @@ describe("production proposal foundation", () => {
       },
     );
     expect(activated.buildId).toBeDefined();
+    await base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: activated.buildId, organizationId: ORG },
+    );
     const replay = await t.mutation(
       (api as any).production_proposals.activateClosedProposal,
       {
@@ -6322,6 +6716,23 @@ describe("production proposal foundation", () => {
       },
     );
     expect(replay).toEqual(activated);
+    const activationSearch = await base.run(async (ctx: any) => ({
+      jobs: (await ctx.db.query("buildCollaborationSearchJobs").collect()).filter(
+        (job: any) => job.buildId === activated.buildId,
+      ),
+      state: await ctx.db
+        .query("buildCollaborationSearchStates")
+        .withIndex("by_buildId", (query: any) =>
+          query.eq("buildId", activated.buildId),
+        )
+        .unique(),
+    }));
+    expect(activationSearch.state).toMatchObject({
+      buildId: activated.buildId,
+      generation: expect.any(Number),
+      status: "building",
+    });
+    expect(activationSearch.jobs.length).toBeGreaterThan(0);
     await expect(
       t.mutation((api as any).production_proposals.recordProposalClosing, {
         buildStartDate: "2026-08-02",
@@ -6515,7 +6926,9 @@ describe("production proposal foundation", () => {
           workosOrganizationId: lender.organizationId,
         },
       ),
-    ).rejects.toThrow(/Forbidden: (final lender decision|closing authority)/);
+    ).rejects.toThrow(
+      /Forbidden: (member decision permission|final lender decision|closing authority)/,
+    );
 
     const unrelatedLender = await seedExternalLenderOrganization(t, {
       organizationId: "org_unrelated_closing_lender",
@@ -6619,7 +7032,9 @@ describe("production proposal foundation", () => {
           workosOrganizationId: lender.organizationId,
         },
       ),
-    ).rejects.toThrow(/Forbidden: (final lender decision|activation authority)/);
+    ).rejects.toThrow(
+      /Forbidden: (member decision permission|final lender decision|activation authority)/,
+    );
     const activated = await lenderViewer.mutation(
       (api as any).production_proposals.activateClosedProposal,
       {
@@ -10523,7 +10938,7 @@ describe("production proposal foundation", () => {
     expect(context.templates[0].milestones).toHaveLength(3);
   });
 
-  test("broker proposal setup falls back when the configured principal membership is inactive", async () => {
+  test("broker proposal setup fails closed when the configured principal membership is inactive", async () => {
     const { base } = await seeded(["admin"], "user_admin");
     await base.run(async (ctx: any) => {
       const memberships = await ctx.db
@@ -10543,47 +10958,15 @@ describe("production proposal foundation", () => {
     });
     const broker = withIdentity(base, ["broker"], "user_broker");
 
-    const context = await broker.query(
-      (api as any).production_proposals.getBrokerProposalCreateContext,
-      { workosOrganizationId: ORG },
-    );
-
-    expect(context.defaultAssignedBrokerWorkosUserId).toBe("user_broker");
-    expect(context.brokers).toEqual([
-      expect.objectContaining({
-        isPrincipal: false,
-        workosUserId: "user_broker",
-      }),
-    ]);
-
     await expect(
-      broker.mutation(
-        (api as any).production_proposals.createBrokerDraftProposal,
-        {
-          assignedBrokerWorkosUserId: "user_admin",
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow(/active broker member/i);
-
-    const proposalId = await broker.mutation(
-      (api as any).production_proposals.createBrokerDraftProposal,
-      {
-        assignedBrokerWorkosUserId: context.defaultAssignedBrokerWorkosUserId,
-        buildName: "Fallback broker build",
-        location: "22 Membership Recovery Road",
+      broker.query((api as any).production_proposals.getBrokerProposalCreateContext, {
         workosOrganizationId: ORG,
-      },
-    );
-    const proposal = await broker.run((ctx: any) => ctx.db.get(proposalId));
-    expect(proposal).toMatchObject({
-      assignedBrokerWorkosUserId: "user_broker",
-      buildName: "Fallback broker build",
-    });
+      }),
+    ).rejects.toThrow(/membership_inactive/);
   });
 
   test("preserves the WorkOS organization name when seeding production defaults", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base, {
       organizationName: "TestOrganization",
     });
@@ -10639,7 +11022,7 @@ describe("production proposal foundation", () => {
   });
 
   test("rejects unauthenticated production default seeding", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base);
 
     await expect(
@@ -10651,7 +11034,7 @@ describe("production proposal foundation", () => {
   });
 
   test("rejects client-supplied organization targeting for production defaults", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base);
     const t = withIdentity(base, ["admin"], "user_admin");
 
@@ -10664,7 +11047,7 @@ describe("production proposal foundation", () => {
   });
 
   test("requires the projected membership to authorize production seeding", async () => {
-    const base = convexTest(schema, modules);
+    const base = productionConvexTest();
     await projectProductionSeedAuthorization(base, {
       roleSlugs: ["builder"],
     });
@@ -17378,6 +17761,68 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("builder contractor detail exposes a failed asynchronous invitation handoff", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "relationship-delivery-failure@example.com",
+        kind: "company",
+        name: "Relationship Delivery Failure Co",
+        trades: ["masonry"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    await builder.mutation(
+      (api as any).production_proposals.attachActiveBuildContractor,
+      {
+        buildId: closing.buildId,
+        contractorId,
+        role: "Masonry crew",
+        workosOrganizationId: ORG,
+      },
+    );
+    const claimId = await builder.mutation(
+      (api as any).contractorOnboarding.sendContractorProfileInvite,
+      { contractorId, workosOrganizationId: ORG },
+    );
+    const claim = await admin.run(async (ctx: any) => ctx.db.get(claimId));
+    const deliveryError =
+      "An invitation is already pending for this email. Retry the invitation after confirming the address.";
+    await admin.mutation(
+      (internal as any).contractorOnboarding
+        .updateContractorInvitationDelivery,
+      {
+        claimId,
+        deliveryAttemptId: claim.invitationDeliveryAttemptId,
+        error: deliveryError,
+        status: "failed",
+      },
+    );
+
+    const result = await builder.query(
+      (api as any).production_proposals
+        .getBuilderContractorRelationshipByString,
+      {
+        contractorId: String(contractorId),
+        workosOrganizationId: ORG,
+      },
+    );
+
+    expect(result.detail.relationship).toMatchObject({
+      invitation: {
+        deliveryError,
+        deliveryStatus: "failed",
+      },
+      lifecycleState: "failed",
+      nextAction: "retry_invite",
+    });
+  });
+
   test("builder contractor detail returns typed redacted unavailable states", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const contractorId = await admin.mutation(
@@ -18740,6 +19185,52 @@ describe("production proposal foundation", () => {
       }),
     );
 
+  });
+
+  test("rolls a missed unstarted Sub-milestone into its Milestone and Build dashboard state", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const activated = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Missed Sub-milestone start Build",
+      submilestones: [
+        {
+          durationDays: 4,
+          key: "demo-ex",
+          name: "DEMO EX",
+          order: 1,
+          startDay: 3,
+        },
+      ],
+    });
+
+    const dashboard = await t.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { asOfDate: "2026-05-05", workosOrganizationId: ORG },
+    );
+    const build = dashboard.activeBuilds.find(
+      (row: any) => row.buildKey === String(activated.buildId),
+    );
+    expect(build).toMatchObject({
+      milestonesBehindSchedule: 1,
+      status: "behind",
+      statusLabel: "1 milestone behind schedule",
+    });
+    expect(
+      dashboard.milestones.find(
+        (row: any) =>
+          row.buildKey === String(activated.buildId) &&
+          row.milestoneKey === "foundation",
+      ),
+    ).toMatchObject({
+      column: "behindSchedule",
+      dueLabel: "1d overdue",
+      name: "Foundation",
+      priority: "high",
+    });
+    const rosterSummary = await t.query(
+      (api as any).production_proposals.getBackofficeBuildRosterSummary,
+      { workosOrganizationId: ORG },
+    );
+    expect(rosterSummary).toMatchObject({ attention: 1, total: 1 });
   });
 
   test("active build draw requests keep approved availability when actual cost is lower", async () => {
@@ -23581,6 +24072,24 @@ describe("draft builder assignment and deletion", () => {
       builderProfileId: claimed.builderProfileId,
       organizationId: ORG,
       status: "active",
+    });
+    const onboardingAudit = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_organizationId_and_createdAt", (q: any) =>
+          q.eq("organizationId", ORG),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("eventType"), "builder.onboarding.completed"),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("entityId"), String(claimed.builderProfileId)),
+        )
+        .first(),
+    );
+    expect(onboardingAudit).toMatchObject({
+      command: "completeBuilderOnboarding",
+      entityType: "builderProfile",
     });
 
     const claimedPreview = await base.query(

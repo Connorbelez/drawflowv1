@@ -13,6 +13,12 @@ vi.mock("./LenderMilestoneSiteVisitCompletion.tsx", () => ({
   ),
 }));
 
+vi.mock("./LenderBuildCollaboration.tsx", () => ({
+  LenderBuildCollaboration: ({ buildId }: { buildId: string }) => (
+    <div data-testid="lender-collaboration">Collaboration · {buildId}</div>
+  ),
+}));
+
 import {
   LenderBuildDetailOverview,
   type LenderBuildDetailData,
@@ -34,16 +40,19 @@ function detailFixture(): LenderBuildDetailData {
       updatedAt: 1,
     },
     builder: { displayName: "Northstar Builder" },
-    collaboration: [
-      {
-        body: "Concrete placement completed and documented.",
-        postId: "post_public",
-        primaryReferenceId: null,
-        primaryReferenceKind: null,
-        publishedAt: Date.UTC(2026, 7, 16),
-        sourceLabel: "Builder team",
+    reviewPolicy: {
+      draw: {
+        approvalMode: "both",
+        lenderQuorum: 2,
       },
-    ],
+      milestone: {
+        approvalMode: "lender_quorum",
+        lenderQuorum: 1,
+        receiptInvoiceRequired: true,
+        siteVisitRequired: true,
+      },
+      state: "locked",
+    },
     draws: [
       {
         actionItems: [],
@@ -228,7 +237,15 @@ describe("promoted Lender Build Detail Variant C", () => {
 
     expect(screen.getByTestId("production-lender-build-detail")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Harbourline Residences" })).toBeTruthy();
-    expect(screen.getByText("Concrete placement completed and documented.")).toBeTruthy();
+    expect(screen.getByText("Review policy")).toBeTruthy();
+    expect(screen.getByText("Locked")).toBeTruthy();
+    expect(screen.getByText("1 lender approval is required.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Back Office approval and 2 lender approvals are required."
+      )
+    ).toBeTruthy();
+    expect(screen.getByTestId("lender-collaboration")).toBeTruthy();
     expect(screen.getByText("Available").parentElement?.textContent).toContain(
       "120,000"
     );
@@ -256,5 +273,20 @@ describe("promoted Lender Build Detail Variant C", () => {
     expect(screen.queryByText("Submit milestone completion")).toBeNull();
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.queryByText("Request revision")).toBeNull();
+  });
+
+  test("shows a clear unavailable state without inventing a default policy", () => {
+    const detail = detailFixture();
+    detail.reviewPolicy = { state: "unavailable" };
+
+    render(<LenderBuildDetailOverview detail={detail} />);
+
+    expect(
+      screen.getByText(
+        "The locked review policy is unavailable for this Build."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText("Locked")).toBeNull();
+    expect(screen.queryByText(/Back Office approval/)).toBeNull();
   });
 });

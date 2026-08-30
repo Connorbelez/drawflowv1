@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
@@ -46,6 +47,7 @@ function textDocument(text: string) {
 
 async function seedModerationFixture() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, "admin");
   const foundation = await admin.mutation(
     (internal as any).production_proposals.dev_seedProductionFoundation,
@@ -1016,6 +1018,9 @@ function expectedModerationAuthority(
       "contractor",
     ]),
     "builder-staff": new Set(["contractor"]),
+    lender: new Set(),
+    "lender-admin": new Set(),
+    "lender-staff": new Set(),
     homeowner: new Set(),
     contractor: new Set(),
   };

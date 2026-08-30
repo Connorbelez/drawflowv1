@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
@@ -33,6 +34,7 @@ function withIdentity(
 
 async function seedActionItemBuild() {
   const base = convexTest(schema, modules);
+  workpoolTest.register(base, "buildCollaborationSearchWorkpool");
   const admin = withIdentity(base, {
     role: "admin",
     subject: "user_admin",
@@ -261,6 +263,7 @@ async function seedGeneratedCompanion(
       status: "planned",
       updatedAt: now,
     });
+    const occurrenceKey = `milestone-system:${String(build._id)}:${String(milestoneId)}`;
     const postId = await ctx.db.insert("buildCollaborationPosts", {
       acknowledgementRequired: false,
       agentDrafted: false,
@@ -278,12 +281,14 @@ async function seedGeneratedCompanion(
       openActionItemCount: 1,
       organizationId: build.organizationId,
       postType: "update",
+      primaryReferenceId: String(milestoneId),
+      primaryReferenceKind: "milestone",
       readRevision: 1,
       revision: 1,
       source: "system",
-      systemEventKey: `milestone:${milestoneId}`,
+      systemEventKey: occurrenceKey,
       systemLifecycle: "open",
-      systemOccurrenceKey: `milestone:${milestoneId}`,
+      systemOccurrenceKey: occurrenceKey,
       systemPostKind: "milestone",
       threadRevision: 0,
       threadState: "open",

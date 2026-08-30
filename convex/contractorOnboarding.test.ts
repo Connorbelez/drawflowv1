@@ -213,6 +213,22 @@ describe("contractor invite/claim (PRD §7.3)", () => {
       { contractorId, workosOrganizationId: ORG },
     );
     expect(claimId).toBeDefined();
+    const queued = await admin.run(async (ctx: any) => ctx.db.get(claimId));
+    expect(queued.invitationDeliveryStatus).toBe("queued");
+    expect(queued.invitationDeliveryAttemptId).toEqual(expect.any(String));
+    await admin.action(
+      (internal as any).workosManagement.inviteContractorUser,
+      {
+        brokerageId: seed.brokerageId,
+        claimId,
+        deliveryAttemptId: queued.invitationDeliveryAttemptId,
+        email: "invitee@example.com",
+        organizationId: ORG,
+        relatedEntityId: String(claimId),
+      },
+    );
+    const sent = await admin.run(async (ctx: any) => ctx.db.get(claimId));
+    expect(sent.invitationDeliveryStatus).toBe("sent");
 
     // Sending again revokes the prior live invite (single live claim).
     const claimId2 = await admin.mutation(
@@ -257,6 +273,54 @@ describe("contractor invite/claim (PRD §7.3)", () => {
     });
     const resent = await admin.run(async (ctx: any) => ctx.db.get(claimId));
     expect(resent.state).toBe("invited");
+    expect(resent.invitationDeliveryStatus).toBe("queued");
+    expect(resent.invitationDeliveryAttemptId).toEqual(expect.any(String));
+  });
+
+  test("persists async delivery failures and ignores stale attempts", async () => {
+    const { admin, seed } = await seedFoundation();
+    const onboardingApi = (api as any).contractorOnboarding;
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "delivery-failure@example.com",
+        kind: "company",
+        name: "Delivery Failure Co",
+        trades: ["electrical"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const claimId = await admin.mutation(
+      onboardingApi.sendContractorProfileInvite,
+      { contractorId, workosOrganizationId: ORG },
+    );
+    const queued = await admin.run(async (ctx: any) => ctx.db.get(claimId));
+
+    await admin.mutation(
+      (internal as any).contractorOnboarding.updateContractorInvitationDelivery,
+      {
+        claimId,
+        deliveryAttemptId: queued.invitationDeliveryAttemptId,
+        error:
+          "An invitation is already pending for this email. Retry the invitation after confirming the address.",
+        status: "failed",
+      },
+    );
+    const failed = await admin.run(async (ctx: any) => ctx.db.get(claimId));
+    expect(failed.invitationDeliveryStatus).toBe("failed");
+    expect(failed.invitationDeliveryError).toMatch(/already pending/);
+
+    await admin.mutation(
+      (internal as any).contractorOnboarding.updateContractorInvitationDelivery,
+      {
+        claimId,
+        deliveryAttemptId: "stale-attempt",
+        status: "sent",
+      },
+    );
+    const unchanged = await admin.run(async (ctx: any) => ctx.db.get(claimId));
+    expect(unchanged.invitationDeliveryStatus).toBe("failed");
   });
 
   test("a profile without an email cannot be invited", async () => {

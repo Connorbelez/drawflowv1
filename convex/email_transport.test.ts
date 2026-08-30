@@ -11,6 +11,7 @@ import {
   enqueueCommunicationIntent,
   type CommunicationIntentInput,
 } from "./email_transport";
+import { queueIdentityInvitationEmail } from "./workosManagement/invitationEmails";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -61,6 +62,35 @@ describe("Resend email transport", () => {
       status: "pending",
       templateKey: input.templateKey,
     });
+  });
+
+  test("queues a code-owned role invitation without storing the WorkOS bearer URL", async () => {
+    const t = setup();
+    const brokerageId = await insertBrokerage(t);
+
+    const intentId = await t.run((ctx) =>
+      queueIdentityInvitationEmail(ctx, {
+        brokerageId,
+        email: "new.builder@example.com",
+        organizationId: ORGANIZATION_ID,
+        recipientName: "New Builder",
+        roleSlug: "builder",
+        workosInvitationId: "inv_opaque_123",
+      })
+    );
+    const intent = await t.run((ctx) => ctx.db.get(intentId));
+
+    expect(intent).toMatchObject({
+      idempotencyKey: "identity-invitation:inv_opaque_123",
+      kind: "identity_invitation",
+      recipientEmailSnapshot: "new.builder@example.com",
+      recipientNameSnapshot: "New Builder",
+      templateKey: "identity_invitation_builder_v1",
+    });
+    expect(intent?.payloadSnapshot).toBe(
+      '{"roleSlug":"builder","workosInvitationId":"inv_opaque_123"}'
+    );
+    expect(intent?.payloadSnapshot).not.toContain("accept");
   });
 
   test("derives deterministic bearer tokens with a server-only HMAC key", async () => {

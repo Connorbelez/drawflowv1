@@ -31,7 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 
 export interface ProposalLenderAssignmentRecord {
@@ -239,27 +238,16 @@ export function ProposalLenderAssignmentSection({
     }
   };
 
-  let supportingText =
-    "Optional · assigning a lender adds confirmation before closing";
-  if (proposal.status !== "approved" && proposal.status !== "closed") {
-    supportingText =
-      "Available after Back Office approval · internal closing remains available";
-  } else if (proposal.status === "closed" && !visibleAssignment) {
-    supportingText = "Proposal closed · lender assignment is unavailable";
-  }
-  if (currentAssignment) {
-    supportingText =
-      approval?.status === "approved"
-        ? `${currentAssignment.lenderOrganizationName} · confirmed for closing`
-        : `${currentAssignment.lenderOrganizationName} · awaiting confirmation`;
-  } else if (visibleAssignment?.status === "withdrawn") {
-    supportingText =
-      "Previous assignment withdrawn · internal closing restored";
-  }
+  const supportingText = proposalLenderAssignmentSupportingText({
+    approval,
+    canAssign,
+    currentAssignment,
+    proposalStatus: proposal.status,
+    visibleAssignment,
+  });
 
   return (
     <>
-      <Separator />
       <div className="grid w-full min-w-0 grid-cols-1 items-center gap-3 sm:flex sm:flex-wrap sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <Landmark className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -349,6 +337,33 @@ function canAssignLender(input: {
       input.proposalStatus === "approved" &&
       !input.currentAssignment
   );
+}
+
+function proposalLenderAssignmentSupportingText(input: {
+  approval?: ProposalLenderApprovalSummary | null;
+  canAssign: boolean;
+  currentAssignment: ProposalLenderAssignmentRecord | null;
+  proposalStatus: "approved" | "closed" | "draft" | "submitted";
+  visibleAssignment: ProposalLenderAssignmentRecord | null;
+}) {
+  if (input.currentAssignment) {
+    return input.approval?.status === "approved"
+      ? `${input.currentAssignment.lenderOrganizationName} · confirmed for closing`
+      : `${input.currentAssignment.lenderOrganizationName} · awaiting confirmation`;
+  }
+  if (input.visibleAssignment?.status === "withdrawn") {
+    return "Previous assignment withdrawn · internal closing restored";
+  }
+  if (input.proposalStatus === "approved" && !input.canAssign) {
+    return "Unassigned · only an authorized Back Office Admin can assign a lender";
+  }
+  if (input.proposalStatus === "closed") {
+    return "Proposal closed · lender assignment is unavailable";
+  }
+  if (input.proposalStatus !== "approved") {
+    return "Available after Back Office approval · internal closing remains available";
+  }
+  return "Optional · assigning a lender adds confirmation before closing";
 }
 
 function canWithdrawLender(input: {
@@ -798,13 +813,21 @@ function AssignedLenderDialog({
               <Button onClick={onAssign}>Assign another lender</Button>
             ) : null}
             {withdrawn ? null : (
-              <Button
-                disabled={pending || !canWithdraw}
-                onClick={onWithdraw}
-                variant="destructive-outline"
-              >
-                Withdraw assignment
-              </Button>
+              <div className="grid gap-1.5">
+                <Button
+                  disabled={pending || !canWithdraw}
+                  onClick={onWithdraw}
+                  variant="destructive-outline"
+                >
+                  Withdraw assignment
+                </Button>
+                {canWithdraw ? null : (
+                  <p className="max-w-56 text-muted-foreground text-xs leading-relaxed">
+                    Withdrawal is unavailable for your access or the current
+                    proposal stage.
+                  </p>
+                )}
+              </div>
             )}
           </div>
           <DialogClose render={<Button disabled={pending}>Done</Button>} />

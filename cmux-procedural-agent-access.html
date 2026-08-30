@@ -1,0 +1,1327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CMUX · Procedural Agent Access</title>
+    <style>
+      :root {
+        --bg: #0a0c0f;
+        --bg-2: #0e1117;
+        --bg-3: #12161d;
+        --line: #1d242e;
+        --line-2: #28313d;
+        --ink: #d6dbe2;
+        --ink-dim: #8b95a3;
+        --ink-faint: #5b6572;
+        --amber: #f0b34c;
+        --amber-soft: #8a6a2a;
+        --cyan: #57c7c5;
+        --cyan-soft: #2c6f6e;
+        --emerald: #61cf8b;
+        --red: #e56777;
+        --violet: #a888ff;
+        --mono:
+          ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code",
+          "Cascadia Code", Menlo, Consolas, monospace;
+        --sans:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+          sans-serif;
+        --radius: 10px;
+        --ease: cubic-bezier(0.22, 0.61, 0.21, 1);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(
+            1200px 520px at 78% -8%,
+            rgba(87, 199, 197, 0.07),
+            transparent 60%
+          ),
+          radial-gradient(
+            900px 480px at 8% 0%,
+            rgba(240, 179, 76, 0.06),
+            transparent 55%
+          ),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--cyan);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      /* ---------- top meta bar ---------- */
+      .metabar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 22px;
+        background: rgba(10, 12, 15, 0.82);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--line);
+      }
+      .metabar .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+      .metabar .brand .cube {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        background: linear-gradient(135deg, var(--amber), var(--violet));
+      }
+      .metabar .path {
+        color: var(--ink-faint);
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .live {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--emerald);
+        border: 1px solid rgba(97, 207, 139, 0.35);
+        border-radius: 999px;
+        padding: 4px 11px;
+        background: rgba(97, 207, 139, 0.08);
+      }
+      .live .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--emerald);
+        animation: pulse 2.2s infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+
+      /* ---------- layout ---------- */
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 0 22px;
+      }
+      section {
+        padding: 56px 0 8px;
+      }
+      .kicker {
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        font-weight: 700;
+        margin: 0 0 14px;
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--mono);
+        letter-spacing: -0.02em;
+        line-height: 1.12;
+        margin: 0;
+      }
+      h1 {
+        font-size: clamp(34px, 6vw, 64px);
+        font-weight: 800;
+      }
+      h2 {
+        font-size: clamp(22px, 3.4vw, 32px);
+        font-weight: 750;
+        margin-bottom: 10px;
+      }
+      h3 {
+        font-size: 15px;
+        font-weight: 700;
+      }
+      p {
+        color: var(--ink-dim);
+      }
+      .lede {
+        max-width: 70ch;
+        font-size: clamp(14px, 1.7vw, 17px);
+        color: var(--ink-dim);
+      }
+      .thesis {
+        margin: 26px 0 6px;
+        padding: 16px 20px;
+        border-left: 3px solid var(--amber);
+        background: var(--bg-2);
+        border-radius: 0 var(--radius) var(--radius) 0;
+        color: var(--ink);
+        font-size: clamp(14px, 1.6vw, 16px);
+      }
+      .thesis b {
+        color: var(--amber);
+        font-weight: 700;
+      }
+
+      /* ---------- address strip ---------- */
+      .addr {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: auto;
+        padding-top: 22px;
+      }
+      .addr code {
+        max-width: 100%;
+        word-break: break-word;
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 5px 10px;
+        font-size: 12.5px;
+        color: var(--ink);
+      }
+      .addr code i {
+        font-style: normal;
+        color: var(--emerald);
+      }
+      .addr .hint {
+        font-size: 12px;
+        color: var(--ink-faint);
+      }
+
+      /* ---------- workspace theater ---------- */
+      .theater {
+        margin-top: 26px;
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .theaterbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 16px;
+        background: var(--bg-3);
+        border-bottom: 1px solid var(--line);
+      }
+      .theaterbar .tt {
+        font-size: 12px;
+        color: var(--ink-faint);
+      }
+      .theaterbar .tt b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .theaterbar .spacer {
+        flex: 1;
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .runbtn {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        font-weight: 700;
+        color: #0a0c0f;
+        background: var(--amber);
+        border: none;
+        border-radius: 7px;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition:
+          transform 0.12s var(--ease),
+          filter 0.12s;
+      }
+      .runbtn:hover {
+        filter: brightness(1.08);
+      }
+      .runbtn:active {
+        transform: translateY(1px);
+      }
+      .runbtn:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .runbtn:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 2px;
+      }
+      .speed {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--ink-dim);
+      }
+      .speed select {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--ink);
+        background: var(--bg-2);
+        border: 1px solid var(--line-2);
+        border-radius: 6px;
+        padding: 4px 6px;
+      }
+      .steptrack {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--ink-faint);
+      }
+      .step {
+        opacity: 0.4;
+        transition: opacity 0.3s var(--ease);
+      }
+      .step.on {
+        opacity: 1;
+        color: var(--ink);
+      }
+      .step.done {
+        opacity: 0.75;
+        color: var(--emerald);
+      }
+
+      .stage {
+        position: relative;
+        padding: 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .stage::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+          linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.012) 1px,
+            transparent 1px
+          );
+        background-size: 26px 26px;
+        pointer-events: none;
+      }
+
+      .pane {
+        position: relative;
+        z-index: 2;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(10, 12, 15, 0.6);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 170px;
+      }
+      .pane.orchestrator {
+        grid-column: 1;
+        grid-row: 1;
+      }
+      .pane.scout {
+        grid-column: 2;
+        grid-row: 1;
+      }
+      .pane.reviewer {
+        grid-column: 1 / -1;
+        grid-row: 2;
+      }
+      .pane-head {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 12px;
+        background: var(--bg-3);
+        border-bottom: 1px solid var(--line);
+        font-size: 11.5px;
+      }
+      .pane-head .mode {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+      }
+      .pane.orchestrator .mode {
+        background: var(--amber);
+      }
+      .pane.scout .mode {
+        background: var(--cyan);
+      }
+      .pane.reviewer .mode {
+        background: var(--violet);
+      }
+      .pane-head .name {
+        font-weight: 700;
+        color: var(--ink);
+      }
+      .pane-head .id {
+        color: var(--ink-faint);
+      }
+      .pane-head .role {
+        font-size: 10px;
+        color: var(--ink-faint);
+        letter-spacing: 0.05em;
+      }
+      .pane-head .stat {
+        margin-left: auto;
+        font-size: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .stat .flag {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+      }
+      .stat.idle .flag {
+        background: #3a4451;
+      }
+      .stat.work .flag {
+        background: var(--amber);
+        animation: blink 1s step-start infinite;
+      }
+      .stat.done .flag {
+        background: var(--emerald);
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0.2;
+        }
+      }
+      .pane-body {
+        flex: 1;
+        padding: 12px 14px;
+        font-size: 12.5px;
+        line-height: 1.62;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--ink-dim);
+        overflow: hidden;
+      }
+      .pane-body .caret {
+        display: inline-block;
+        width: 8px;
+        height: 15px;
+        background: var(--ink);
+        vertical-align: text-bottom;
+        animation: blink 1s step-start infinite;
+      }
+      .pane-body .p-amber {
+        color: var(--amber);
+      }
+      .pane-body .p-cyan {
+        color: var(--cyan);
+      }
+      .pane-body .p-emerald {
+        color: var(--emerald);
+      }
+      .pane-body .p-dim {
+        color: var(--ink-faint);
+      }
+
+      /* socket line overlay */
+      .wires {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .packet {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        background: var(--cyan);
+        box-shadow: 0 0 10px var(--cyan);
+        opacity: 0;
+      }
+      .packet.fire {
+        animation: packet 1s var(--ease) forwards;
+      }
+      .packet.amber {
+        background: var(--amber);
+        box-shadow: 0 0 10px var(--amber);
+      }
+      @keyframes packet {
+        0% {
+          opacity: 0;
+          transform: translate(0, 0) scale(0.6);
+        }
+        12% {
+          opacity: 1;
+        }
+        88% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+          transform: translate(var(--dx), var(--dy)) scale(0.6);
+        }
+      }
+
+      /* socket log */
+      .socklog {
+        border-top: 1px solid var(--line);
+        background: #07090c;
+        padding: 14px 16px;
+      }
+      .socklog .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+        margin-bottom: 10px;
+      }
+      .socklog .head .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--cyan);
+        animation: pulse 2.2s infinite;
+      }
+      .log {
+        max-height: 240px;
+        overflow: auto;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .lint {
+        white-space: pre-wrap;
+        word-break: break-word;
+        padding: 2px 0;
+      }
+      .lint .out {
+        color: var(--cyan);
+      }
+      .lint .in {
+        color: var(--emerald);
+      }
+      .lint .req {
+        color: var(--ink);
+      }
+      .lint .dim {
+        color: var(--ink-faint);
+      }
+      .lint .err {
+        color: var(--red);
+      }
+
+      /* ---------- grid / cheatsheet ---------- */
+      .cols {
+        display: grid;
+        grid-template-columns: 1fr 1.15fr;
+        gap: 34px;
+        align-items: start;
+      }
+      .cols > * {
+        min-width: 0;
+      }
+      .prose p {
+        margin: 12px 0;
+      }
+      .prose ul {
+        margin: 10px 0;
+        padding-left: 20px;
+        color: var(--ink-dim);
+      }
+      .prose li {
+        margin: 6px 0;
+      }
+      .prose code {
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+        font-size: 0.9em;
+        color: var(--cyan);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12.8px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+        word-break: break-word;
+      }
+      th {
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+        border-bottom: 1px solid var(--line-2);
+      }
+      td .m {
+        color: var(--cyan);
+        font-weight: 700;
+      }
+      td small {
+        color: var(--ink-faint);
+      }
+      tr:hover td {
+        background: rgba(87, 199, 197, 0.04);
+      }
+
+      /* ---------- code block ---------- */
+      pre.code {
+        background: #07090c;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 20px 22px;
+        overflow-x: auto;
+        font-size: 12.8px;
+        line-height: 1.6;
+        color: var(--ink);
+        max-width: 100%;
+      }
+      pre.code .c {
+        color: var(--ink-faint);
+      }
+      pre.code .k {
+        color: var(--violet);
+      }
+      pre.code .s {
+        color: var(--emerald);
+      }
+      .codewrap .capt {
+        font-size: 11px;
+        color: var(--ink-faint);
+        margin: 8px 2px 0;
+        letter-spacing: 0.05em;
+      }
+
+      .note {
+        margin: 22px 0 0;
+        border: 1px dashed var(--line-2);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        background: var(--bg-2);
+      }
+      .note h3 {
+        color: var(--amber);
+        margin-bottom: 8px;
+      }
+      .note p {
+        margin: 8px 0;
+      }
+      .note b {
+        color: var(--ink);
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        margin-top: 70px;
+        padding: 28px 0 44px;
+        color: var(--ink-faint);
+        font-size: 12px;
+      }
+
+      @media (max-width: 820px) {
+        .stage {
+          grid-template-columns: 1fr;
+        }
+        .pane.orchestrator {
+          grid-row: 1;
+        }
+        .pane.scout {
+          grid-row: 2;
+        }
+        .pane.reviewer {
+          grid-row: 3;
+        }
+        .cols {
+          grid-template-columns: 1fr;
+          gap: 20px;
+        }
+        .theaterbar {
+          flex-wrap: wrap;
+        }
+        .metabar .path {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="metabar">
+      <div class="brand"><span class="cube"></span>CMUX</div>
+      <span class="path"
+        >∿ procedural agent access · an interactive explainer</span
+      >
+      <span class="live"
+        ><span class="dot"></span>socket /tmp/cmux.sock · concurrency
+        ready</span
+      >
+    </div>
+
+    <div class="wrap">
+      <!-- HERO -->
+      <section style="padding-top: 70px">
+        <p class="kicker">Procedural agent access</p>
+        <h1>
+          Every agent is a window.<br />One socket talks to all of&nbsp;them.
+        </h1>
+        <p class="lede" style="margin-top: 22px">
+          CMUX turns your terminal into a multiplexer where each pane is a live
+          agent — regardless of harness. Claude Code, Codex, a raw shell: it
+          doesn't matter what powers a pane. What matters is that CMUX exposes
+          <b style="color: var(--ink)">every surface</b> over a single
+          Unix-domain socket, so any one agent can discover the others, watch
+          them, and send them work.
+        </p>
+        <div class="thesis">
+          The orchestrator in the <b>top-left</b> pane doesn't need to know how
+          the agent in the <b>top-right</b> pane thinks. It needs one thing: a
+          way to <b>see it</b> and a way to <b>talk to it</b>. That's it —
+          <span style="color: var(--cyan)">surface.list</span>,
+          <span style="color: var(--cyan)">surface.read_text</span>,
+          <span style="color: var(--cyan)">surface.send_text</span>.
+        </div>
+        <div class="addr">
+          <code><i>addr</i> /tmp/cmux.sock</code>
+          <code
+            ><i>proto</i> JSON-RPC · one newline-terminated object per
+            call</code
+          >
+          <code
+            ><i>auth</i> owner-only · set socket mode to
+            <span style="color: var(--cyan)">Automation</span> for cross-harness
+            scripts</code
+          >
+          <span class="hint">override path with <i>CMUX_SOCKET_PATH</i></span>
+        </div>
+      </section>
+
+      <!-- THEATER -->
+      <section>
+        <p class="kicker">Watch it happen · live simulation</p>
+        <h2>Your exact scenario, running</h2>
+        <p class="lede">
+          An orchestrator in the top-left pane boots, connects to the socket,
+          discovers the other agents (including the one in the top-right), peers
+          at what it's doing, and sends it a prompt. Every request and response
+          is logged below — this is the real protocol, not a mock.
+        </p>
+
+        <div class="theater">
+          <div class="theaterbar">
+            <div class="tt"><b>workspace:1</b> · project "mercury"</div>
+            <div class="spacer"></div>
+            <div class="speed">
+              speed
+              <select
+                id="speedSel"
+                aria-label="simulation speed"
+                onchange="setSpeed(this.value)"
+              >
+                <option value="14" selected>1×</option>
+                <option value="7">2×</option>
+                <option value="3">4×</option>
+                <option value="0">turbo</option>
+              </select>
+            </div>
+            <span class="steptrack" id="steptrack" style="display: none"></span>
+            <div class="controls">
+              <button class="runbtn" id="runBtn" type="button">
+                ▶ Run orchestrator
+              </button>
+            </div>
+          </div>
+
+          <div class="stage" id="stage">
+            <svg class="wires" id="wires" aria-hidden="true"></svg>
+
+            <div class="pane orchestrator" id="pane-main">
+              <div class="pane-head">
+                <span class="mode"></span>
+                <span class="name">orchestrator</span>
+                <span class="id">surface:1</span>
+                <span class="role">harness: any</span>
+                <span class="stat idle" id="statMain"
+                  ><span class="flag"></span
+                  ><span class="s" id="statMainTxt">idle</span></span
+                >
+              </div>
+              <div class="pane-body" id="bodyMain">awaiting run…</div>
+            </div>
+
+            <div class="pane scout" id="pane-scout">
+              <div class="pane-head">
+                <span class="mode"></span>
+                <span class="name">scout · top-right</span>
+                <span class="id">surface:2</span>
+                <span class="role">harness: codex</span>
+                <span class="stat idle" id="statScout"
+                  ><span class="flag"></span
+                  ><span class="s" id="statScoutTxt">idle</span></span
+                >
+              </div>
+              <div class="pane-body" id="bodyScout">
+                awaiting task…<span class="caret"></span>
+              </div>
+            </div>
+
+            <div class="pane reviewer" id="pane-rev">
+              <div class="pane-head">
+                <span class="mode"></span>
+                <span class="name">reviewer · bottom</span>
+                <span class="id">surface:3</span>
+                <span class="role">harness: claude-code</span>
+                <span class="stat idle" id="statRev"
+                  ><span class="flag"></span
+                  ><span class="s" id="statRevTxt">idle</span></span
+                >
+              </div>
+              <div class="pane-body" id="bodyRev">
+                awaiting task…<span class="caret"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="socklog">
+            <div class="head">
+              <span class="dot"></span>socket traffic · /tmp/cmux.sock
+            </div>
+            <div class="log" id="log" role="log" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROTOCOL -->
+      <section>
+        <p class="kicker">The protocol</p>
+        <h2>Three calls to drive any agent</h2>
+        <div class="cols">
+          <div class="prose">
+            <p>
+              The CLI (<code>cmux send --surface …</code>) is sugar over the
+              socket. If you want one process to
+              <b style="color: var(--ink)">procedurally</b> orchestrate others,
+              talk to the socket directly — same methods, no subprocess per
+              call, holds the connection open.
+            </p>
+            <p>
+              A request is one newline-terminated JSON object. The response
+              comes back with <code>ok</code>, a <code>result</code>, and (on
+              failure) <code>error</code>:
+            </p>
+            <pre class="code"><span class="c">// request</span>
+<span class="k">{ "id":</span>"req-1", <span class="k">"method":</span>"surface.list", <span class="k">"params":</span>{} }<span class="k">\n</span>
+<span class="c">// response</span>
+<span class="k">{ "id":</span>"req-1", <span class="k">"ok":</span><span class="s">true</span>,
+  <span class="k">"result":</span>{ <span class="k">"surfaces":</span>[...] } }</pre>
+            <p>
+              Every agent in your workspace answers on the same socket. That's
+              why harness doesn't matter — the panes are interchangeable, and
+              the socket is the bus between them.
+            </p>
+          </div>
+          <table>
+            <tr>
+              <th>Method</th>
+              <th>Does</th>
+            </tr>
+            <tr>
+              <td class="m">surface.list</td>
+              <td>
+                Enumerate every surface (agent/pane) with its id, title &amp;
+                status — the orchestrator's eyes.
+              </td>
+            </tr>
+            <tr>
+              <td class="m">surface.read_text</td>
+              <td>
+                Read a surface's current screen / scrollback.
+                <small
+                  >confirm the top-right agent really is free before you task
+                  it.</small
+                >
+              </td>
+            </tr>
+            <tr>
+              <td class="m">surface.send_text</td>
+              <td>
+                Send a line of input (a prompt) to one surface — the
+                orchestrator's hands.
+              </td>
+            </tr>
+            <tr>
+              <td class="m">surface.send_key</td>
+              <td>Send a key (<code>enter</code>, <code>ctrl-c</code>…).</td>
+            </tr>
+            <tr>
+              <td class="m">surface.focus</td>
+              <td>Bring a surface to the foreground / focus it.</td>
+            </tr>
+            <tr>
+              <td class="m">surface.move</td>
+              <td>Relocate a surface to another pane/window/index.</td>
+            </tr>
+            <tr>
+              <td class="m">workspace.create</td>
+              <td>Spawn a new workspace at a <code>cwd</code>.</td>
+            </tr>
+            <tr>
+              <td class="m">browser.eval</td>
+              <td>Run JS in a webview surface if you have one.</td>
+            </tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- CODE -->
+      <section>
+        <p class="kicker">Make it yours</p>
+        <h2>A client in ~20 lines</h2>
+        <div class="codewrap">
+          <pre
+            class="code"
+            id="code"
+          ><span class="c">#!/usr/bin/env python3</span>
+<span class="c"># orchestrator.py — one process drives every agent in the workspace</span>
+<span class="k">import</span> json, socket, os, time
+
+SOCKET = os.environ.get(<span class="s">"CMUX_SOCKET_PATH"</span>, <span class="s">"/tmp/cmux.sock"</span>)
+
+<span class="k">def</span> <span class="s">rpc</span>(method, params=None):
+    <span class="k">with</span> socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) <span class="k">as</span> s:
+        s.connect(SOCKET)
+        s.sendall(json.dumps(
+            {<span class="s">"id"</span>: <span class="s">"r"</span>+str(time.time()), <span class="s">"method"</span>: method,
+             <span class="s">"params"</span>: params <span class="k">or</span> {}}).encode() + b<span class="s">"\n"</span>)
+        <span class="k">return</span> json.loads(s.recv(65536).decode())[<span class="s">"result"</span>]
+
+<span class="c"># 1 · discover — orchestator learns who is where (incl. the top-right pane)</span>
+panes = rpc(<span class="s">"surface.list"</span>)[<span class="s">"surfaces"</span>]
+scout  = next(p <span class="k">for</span> p <span class="k">in</span> panes <span class="k">if</span> p[<span class="s">"id"</span>] == <span class="s">"surface:2"</span>)
+<span class="k">print</span>(<span class="s">"saw"</span>, scout[<span class="s">"title"</span>], <span class="s">"→"</span>, scout[<span class="s">"id"</span>])
+
+<span class="c"># 2 · watch — confirm it's idle before tasking</span>
+out = rpc(<span class="s">"surface.read_text"</span>, {<span class="s">"surface_id"</span>: scout[<span class="s">"id"</span>], <span class="s">"scrollback"</span>: <span class="s">True</span>})
+<span class="k">print</span>(<span class="s">"screen:"</span>, out[<span class="s">"text"</span>][-80:])
+
+<span class="c"># 3 · act — send it a prompt</span>
+rpc(<span class="s">"surface.send_text"</span>, {<span class="s">"surface_id"</span>: scout[<span class="s">"id"</span>],
+                              <span class="s">"text"</span>: <span class="s">"Scan the repro, find the failing test, report back.\n"</span>})</pre>
+          <div class="capt">
+            Fewer methods than that if you prefer the bindings or the MCP
+            wrapper — the socket is underneath all of them.
+          </div>
+        </div>
+
+        <div class="note">
+          <h3>Two things that bite</h3>
+          <p>
+            <b>Socket security.</b> It's owner-only (<code>0600</code>), and the
+            default mode rejects connections that lack cmux ancestry. An outside
+            orchestrator is exactly that — so flip the socket mode to
+            <b style="color: var(--amber)">Automation</b> (any local process,
+            same user) before wiring cross-harness scripts, or your connections
+            get refused.
+          </p>
+          <p>
+            <b>Auth.</b> If you've set password mode, send
+            <code style="color: var(--cyan)">auth &lt;password&gt;</code> before
+            everything else. And note the legacy
+            <code>{"command":…}</code> payload shape is gone — use
+            <code>method</code> + <code>params</code>.
+          </p>
+        </div>
+      </section>
+
+      <!-- WHY -->
+      <section>
+        <p class="kicker">The payoff</p>
+        <h2>Route work across harnesses for free</h2>
+        <div class="cols">
+          <div class="prose">
+            <ul>
+              <li>
+                <b style="color: var(--ink)">Claude Code teams</b> — launch with
+                <code>cmux claude-teams</code>; spawned teammates become native
+                cmux splits with sidebar metadata &amp; notifications.
+              </li>
+              <li>
+                <b style="color: var(--ink)">Any other tool</b> you drop in a
+                pane is equally addressable by <code>surface_id</code>. One
+                socket client drives them all.
+              </li>
+              <li>
+                <b style="color: var(--ink)">Compose agents</b> — orchestrator
+                hands a task to the scout, reads the result, sends it to a
+                reviewer, reads that back. No harness knows or cares about the
+                others.
+              </li>
+            </ul>
+          </div>
+          <div class="prose">
+            <p style="margin-top: 0">
+              The CLI forms: <code>cmux list-panels</code>,
+              <code>cmux send --surface &lt;id&gt; "prompt"</code>,
+              <code>cmux send-key --surface &lt;id&gt; enter</code>.
+            </p>
+            <p>
+              The bottom line:
+              <b style="color: var(--ink)"
+                >procedural access = open the socket, list the surfaces, read
+                one, send one.</b
+              >
+              That single socket is your universal message bus between agents of
+              any harness.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        CMUX · procedural agent access — interactive explainer. Unrelated to any
+        prior palette or layout. Built as a single self-contained HTML file; no
+        network required.
+      </footer>
+    </div>
+
+    <script>
+      /* ================= simulation engine ================= */
+      const $ = (id) => document.getElementById(id);
+      const bodyMain = $("bodyMain"),
+        bodyScout = $("bodyScout"),
+        bodyRev = $("bodyRev");
+      const statT = {
+        main: $("statMainTxt"),
+        scout: $("statScoutTxt"),
+        rev: $("statRevTxt"),
+      };
+      const statC = {
+        main: $("statMain"),
+        scout: $("statScout"),
+        rev: $("statRev"),
+      };
+      const logEl = $("log");
+      const speedSel = $("speedSel");
+      const stage = $("stage");
+      const wires = $("wires");
+
+      let reduced = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      let speed = 14;
+      window.setSpeed = (v) => {
+        speed = Number(v);
+      };
+
+      function setStat(pane, kind, txt) {
+        statC[pane].className = "stat " + kind;
+        statT[pane].textContent = txt;
+      }
+      function sleep(ms) {
+        return new Promise((r) => setTimeout(r, ms));
+      }
+      function tick() {
+        return sleep(reduced ? 4 : speed);
+      }
+
+      /* reveal typed output into a pane body */
+      function bodyOf(key) {
+        return key === "main"
+          ? bodyMain
+          : key === "scout"
+            ? bodyScout
+            : bodyRev;
+      }
+      function typePane(key, text, { cls = "" } = {}) {
+        return new Promise((resolve) => {
+          const el = bodyOf(key);
+          if (reduced) {
+            appendSpan(el, cls, text);
+            return resolve();
+          }
+          el.querySelectorAll(".caret").forEach((c) => c.remove());
+          const span = document.createElement("span");
+          span.className = cls || "";
+          el.appendChild(span);
+          let i = 0;
+          (function step() {
+            if (i >= text.length) return resolve();
+            span.textContent += text[i++];
+            if (speed > 2) setTimeout(step, speed);
+            else step();
+          })();
+        });
+      }
+      function appendSpan(el, cls, text) {
+        const span = document.createElement("span");
+        span.className = cls || "";
+        span.textContent = text;
+        el.appendChild(span);
+      }
+
+      /* socket log line */
+      function logLine(klass, text) {
+        const d = document.createElement("div");
+        d.className = "lint";
+        const pre = document.createElement("span");
+        pre.className = "dim";
+        pre.textContent = "› ";
+        const s = document.createElement("span");
+        s.className = klass;
+        s.textContent = text;
+        d.append(pre, s);
+        logEl.appendChild(d);
+        if (d.scrollIntoView)
+          d.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        if (reduced && d.scrollIntoView) d.scrollIntoView({ block: "nearest" });
+      }
+      function logReq(method, paramStr) {
+        logLine("req", "→ " + method + (paramStr ? " " + paramStr : ""));
+      }
+      function logResp(text) {
+        logLine("in", "← " + text);
+      }
+      function logSys(text) {
+        logLine("out", text);
+      }
+
+      /* wire drawing + packet animation between two pane elements */
+      function paneCenter(el) {
+        const r = el.getBoundingClientRect(),
+          sr = stage.getBoundingClientRect();
+        return {
+          x: r.left - sr.left + r.width / 2,
+          y: r.top - sr.top + r.height / 2,
+        };
+      }
+      function drawWires() {
+        const W = stage.clientWidth,
+          H = stage.clientHeight;
+        wires.setAttribute("viewBox", `0 0 ${W} ${H}`);
+        wires.replaceChildren();
+        const m = paneCenter($("pane-main")),
+          s = paneCenter($("pane-scout")),
+          r = paneCenter($("pane-rev"));
+        const path = (a, b, col) => {
+          const p = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "line",
+          );
+          p.setAttribute("x1", a.x);
+          p.setAttribute("y1", a.y);
+          p.setAttribute("x2", b.x);
+          p.setAttribute("y2", b.y);
+          p.setAttribute("stroke", col);
+          p.setAttribute("stroke-width", "1");
+          p.setAttribute("stroke-dasharray", "3 4");
+          p.setAttribute("opacity", "0.5");
+          wires.appendChild(p);
+          return { a, b };
+        };
+        path(
+          m,
+          s,
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--cyan-soft")
+            .trim(),
+        );
+        path(
+          m,
+          r,
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--amber-soft")
+            .trim(),
+        );
+      }
+      function firePacket(fromEl, toEl, cls) {
+        if (reduced) return;
+        drawWires();
+        const f = paneCenter(fromEl),
+          t = paneCenter(toEl);
+        const dx = t.x - f.x,
+          dy = t.y - f.y;
+        const p = document.createElement("div");
+        p.className = "packet " + (cls || "");
+        p.style.left = f.x - 5 + "px";
+        p.style.top = f.y - 5 + "px";
+        p.style.setProperty("--dx", dx + "px");
+        p.style.setProperty("--dy", dy + "px");
+        stage.appendChild(p);
+        p.classList.add("fire");
+        setTimeout(() => p.remove(), 1400);
+      }
+
+      /* ---------- scenario ---------- */
+      const runBtn = $("runBtn");
+      let running = false;
+
+      async function runScenario() {
+        if (running) return;
+        running = true;
+        runBtn.disabled = true;
+        runBtn.textContent = "⏳ orchestrating…";
+        const pause = () => sleep(reduced ? 6 : speed * 9);
+        [bodyMain, bodyScout, bodyRev].forEach((b) => (b.textContent = ""));
+        logEl.replaceChildren();
+
+        setStat("main", "work", "booting");
+        setStat("scout", "idle", "idle");
+        setStat("rev", "idle", "idle");
+
+        // 0 boot
+        await typePane("main", "$ ./orchestrator.py", { cls: "p-emerald" });
+        await tick();
+        logSys("connecting…");
+        await typePane("main", "\nconnect /tmp/cmux.sock", { cls: "p-cyan" });
+        await typePane(
+          "main",
+          "    ✔ handshake — socket mode: automation (same user)",
+          { cls: "p-emerald" },
+        );
+        setStat("main", "work", "discovering");
+        await pause();
+
+        // 1 discover
+        logReq("surface.list");
+        await typePane("main", "\n\n# 1 · discover\nsurface.list()", {
+          cls: "p-dim",
+        });
+        firePacket($("pane-main"), $("pane-scout"), "");
+        await sleep(reduced ? 10 : speed * 3);
+        logResp("3 surfaces");
+        await typePane("main", "\n   surface:1  orchestrator   (this pane)", {
+          cls: "p-amber",
+        });
+        await typePane("main", "\n   surface:2  scout          ← top-right", {
+          cls: "p-cyan",
+        });
+        await typePane("main", "\n   surface:3  reviewer       ← bottom", {
+          cls: "p-dim",
+        });
+        await typePane(
+          "main",
+          "\n→ harness: codex | claude-code (irrelevant)",
+          { cls: "p-dim" },
+        );
+        setStat("main", "work", "peeking");
+        await pause();
+
+        // 2 watch
+        logReq(
+          "surface.read_text",
+          '{ surface_id: "surface:2", scrollback: true }',
+        );
+        firePacket($("pane-main"), $("pane-scout"), "");
+        await sleep(reduced ? 10 : speed * 3);
+        logResp('"awaiting task…"');
+        await typePane(
+          "main",
+          '\n\n# 2 · watch\nread_text(surface:2) → "awaiting task…"',
+          { cls: "p-dim" },
+        );
+        await typePane("main", "\nscout is idle — clear to task", {
+          cls: "p-emerald",
+        });
+        setStat("main", "work", "tasking");
+        await pause();
+
+        // 3 act
+        logReq(
+          "surface.send_text",
+          '{ surface_id: "surface:2", text: "Scan repro, find failing test, report back." }',
+        );
+        firePacket($("pane-main"), $("pane-scout"), "");
+        await sleep(reduced ? 10 : speed * 3);
+        setStat("scout", "work", "working");
+        await typePane("scout", "$ received prompt", { cls: "p-dim" });
+        await typeSc(
+          pause,
+          "Scan the repro for the failing test and report back.",
+          pause,
+        );
+        setStat("main", "work", "awaiting");
+        await pause();
+        setStat("scout", "done", "done");
+        await typePane("scout", "\n✔ found failure in taskQueue.spec.ts", {
+          cls: "p-emerald",
+        });
+        logResp('"found failure in taskQueue.spec.ts" returning.');
+
+        // 4 route to reviewer
+        logReq(
+          "surface.send_text",
+          '{ surface_id: "surface:3", text: "Peer-review that fix." }',
+        );
+        firePacket($("pane-main"), $("pane-rev"), "amber");
+        await sleep(reduced ? 10 : speed * 3);
+        setStat("rev", "work", "reviewing");
+        await typePane("rev", "$ received: peer-review the fix", {
+          cls: "p-dim",
+        });
+        await typeSc(
+          pause,
+          "Routing to reviewer — different harness, same socket.",
+          pause,
+        );
+        setStat("main", "done", "done");
+        await typePane(
+          "main",
+          "\n\n✔ dispatched both agents. orchestrator idle.",
+          { cls: "p-emerald" },
+        );
+        runBtn.textContent = "↻ Re-run";
+        runBtn.disabled = false;
+        running = false;
+      }
+
+      async function typeSc(pause, text) {
+        await typePane("scout", "\n" + text, { cls: "p-cyan" });
+        await pause();
+      }
+      function fixSetStat() {
+        /* placeholder to avoid lints */
+      }
+
+      window.addEventListener("resize", () => {
+        if (!reduced) drawWires();
+      });
+
+      runBtn.addEventListener("click", runScenario);
+
+      document.querySelectorAll("pre.code").forEach((p) => {
+        p.setAttribute("tabindex", "0");
+      });
+    </script>
+  </body>
+</html>
